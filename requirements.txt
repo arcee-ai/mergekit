@@ -1,0 +1,7 @@
+torch>=2.0.0
+tqdm
+transformers
+huggingface_hub
+peft
+typer
+safetensors
