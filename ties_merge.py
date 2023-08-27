@@ -103,7 +103,7 @@ def main(
     ) as fd:
         json.dump({"metadata": {}, "weight_map": weight_map}, fd)
 
-    cfg = transformers.AutoConfig.from_pretrained(base_model)
+    cfg = transformers.AutoConfig.from_pretrained(base_model.path)
     cfg.save_pretrained(out_path)
 
     logging.info("Merge complete")
