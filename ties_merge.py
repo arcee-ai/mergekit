@@ -33,6 +33,13 @@ def main(
     ] = 0.33,
     merged_cache_dir: Optional[str] = None,
     cuda: bool = False,
+    int8_mask: Annotated[
+        bool, typer.Option(help="Store intermediate masks in int8 to save memory")
+    ] = False,
+    bf16: Annotated[bool, typer.Option(help="Use bfloat16")] = True,
+    naive_count: Annotated[
+        bool, typer.Option(help="Use naive sign count instead of weight")
+    ] = False,
 ):
     """Merge a set of models with a shared base model by resolving sign differences."""
     base_model: ModelReference = parse_model(base_model).merged(merged_cache_dir)
@@ -47,6 +54,8 @@ def main(
 
     weight_map = {}
 
+    mask_dtype: Optional[torch.dtype] = torch.int8 if int8_mask else None
+
     unique_shards = list(sorted(set(base_index.tensor_paths.values())))
     for base_shard in unique_shards:
         logging.info(f"Processing shard {base_shard}")
@@ -57,7 +66,7 @@ def main(
 
         for key in tqdm(base_tensors):
             logging.debug(f"- {key}")
-            ty = key_dtype(key)
+            ty = key_dtype(key, bf16=bf16)
 
             b = base_tensors[key].to(math_dev).float()
 
@@ -83,7 +92,11 @@ def main(
 
             if deltas:
                 deltas = torch.stack(deltas, dim=0)
-                mask = get_mask(deltas)
+                mask = get_mask(
+                    deltas,
+                    method="count" if naive_count else "weight",
+                    mask_dtype=mask_dtype,
+                )
                 new_deltas = (deltas * mask).sum(dim=0) / mask.sum(dim=0).clamp(min=1)
                 res = b + new_deltas
             else:
@@ -132,6 +145,7 @@ class ModelReference:
         )
 
         if not os.path.exists(out_path):
+            os.makedirs(out_path, exist_ok=True)
             logging.info(f"Loading {self.path} for merge...")
             model = transformers.AutoModelForCausalLM.from_pretrained(
                 self.path, torch_dtype=torch.float16, low_cpu_mem_usage=True
@@ -168,13 +182,13 @@ def parse_model(value: str):
         raise ValueError(f"Can't parse {value}")
 
 
-def key_dtype(key: str) -> torch.dtype:
+def key_dtype(key: str, bf16: bool = True) -> torch.dtype:
     """Determine what precision to store a tensor with the given key in.
 
     Fairly specialized to Llama models."""
     if key.endswith(".invfreq") or "embed_tokens" in key or "lm_head" in key:
         return torch.float32
-    return torch.bfloat16
+    return torch.bfloat16 if bf16 else torch.float16
 
 
 def shard_name_to_st(name: str) -> str:
@@ -201,19 +215,27 @@ def sparsify(tensor: torch.Tensor, density: float) -> torch.Tensor:
     return tensor * mask
 
 
-def get_mask(delta: torch.Tensor, method: Literal["weight", "count"] = "weight"):
+def get_mask(
+    delta: torch.Tensor,
+    method: Literal["weight", "count"] = "weight",
+    mask_dtype: Optional[torch.dtype] = None,
+):
     """Returns a mask determining which delta vectors should be merged
     into the final model.
 
     For the methodology described in the paper use 'weight'. For a
     simpler naive count of signs, use 'count'."""
-    sign = delta.sign()
+    if mask_dtype is None:
+        mask_dtype = delta.dtype
+
+    sign = delta.sign().to(mask_dtype)
 
     if method == "weight":
         sign_weight = (sign * delta.abs()).sum(dim=0)
-        majority_sign = (sign_weight >= 0) * 2 - 1
+        majority_sign = (sign_weight >= 0).to(mask_dtype) * 2 - 1
+        del sign_weight
     elif method == "count":
-        majority_sign = (sign.sum(dim=0) >= 0) * 2 - 1
+        majority_sign = (sign.sum(dim=0) >= 0).to(mask_dtype) * 2 - 1
     else:
         raise RuntimeError(f'Unimplemented mask method "{method}"')
 
