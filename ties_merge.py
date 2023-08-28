@@ -31,7 +31,7 @@ def main(
     density: Annotated[
         float, typer.Option(help="Fraction of weights to keep for each model")
     ] = 0.33,
-    merged_cache_dir: Optional[str] = None,
+    cache_dir: Optional[str] = None,
     cuda: bool = False,
     int8_mask: Annotated[
         bool, typer.Option(help="Store intermediate masks in int8 to save memory")
@@ -45,10 +45,10 @@ def main(
     ] = True,
 ):
     """Merge a set of models with a shared base model by resolving sign differences."""
-    base_model: ModelReference = parse_model(base_model).merged(merged_cache_dir)
-    base_index: ShardedTensorIndex = base_model.tensor_index()
+    base_model: ModelReference = parse_model(base_model).merged(cache_dir)
+    base_index: ShardedTensorIndex = base_model.tensor_index(cache_dir)
     loaders = [
-        LazyTensorLoader(parse_model(m).merged(merged_cache_dir).tensor_index())
+        LazyTensorLoader(parse_model(m).merged(cache_dir).tensor_index(cache_dir))
         for m in merge
     ]
 
@@ -167,12 +167,12 @@ class ModelReference:
 
         return ModelReference(out_path)
 
-    def tensor_index(self) -> ShardedTensorIndex:
+    def tensor_index(self, cache_dir: Optional[str] = None) -> ShardedTensorIndex:
         assert self.lora_path is None
 
         path = self.path
         if not os.path.exists(path):
-            path = huggingface_hub.snapshot_download(path)
+            path = huggingface_hub.snapshot_download(path, cache_dir=cache_dir)
 
         return ShardedTensorIndex.from_disk(path)
 
