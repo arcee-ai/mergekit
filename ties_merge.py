@@ -40,6 +40,9 @@ def main(
     naive_count: Annotated[
         bool, typer.Option(help="Use naive sign count instead of weight")
     ] = False,
+    copy_tokenizer: Annotated[
+        bool, typer.Option(help="Copy base model tokenizer into output")
+    ] = True,
 ):
     """Merge a set of models with a shared base model by resolving sign differences."""
     base_model: ModelReference = parse_model(base_model).merged(merged_cache_dir)
@@ -118,6 +121,10 @@ def main(
 
     cfg = transformers.AutoConfig.from_pretrained(base_model.path)
     cfg.save_pretrained(out_path)
+
+    if copy_tokenizer:
+        tok = transformers.AutoTokenizer.from_pretrained(base_model.path)
+        tok.save_pretrained(out_path)
 
     logging.info("Merge complete")
 
