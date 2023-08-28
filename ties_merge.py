@@ -31,7 +31,12 @@ def main(
     density: Annotated[
         float, typer.Option(help="Fraction of weights to keep for each model")
     ] = 0.33,
-    cache_dir: Optional[str] = None,
+    cache_dir: Annotated[
+        Optional[str], typer.Option(help="Override storage path for downloaded models")
+    ] = None,
+    merged_cache_dir: Annotated[
+        Optional[str], typer.Option(help="Storage path for merged LoRA models")
+    ] = None,
     cuda: bool = False,
     int8_mask: Annotated[
         bool, typer.Option(help="Store intermediate masks in int8 to save memory")
@@ -45,10 +50,15 @@ def main(
     ] = True,
 ):
     """Merge a set of models with a shared base model by resolving sign differences."""
-    base_model: ModelReference = parse_model(base_model).merged(cache_dir)
+    if merged_cache_dir is None:
+        merged_cache_dir = cache_dir
+
+    base_model: ModelReference = parse_model(base_model).merged(merged_cache_dir)
     base_index: ShardedTensorIndex = base_model.tensor_index(cache_dir)
     loaders = [
-        LazyTensorLoader(parse_model(m).merged(cache_dir).tensor_index(cache_dir))
+        LazyTensorLoader(
+            parse_model(m).merged(merged_cache_dir).tensor_index(cache_dir)
+        )
         for m in merge
     ]
 
