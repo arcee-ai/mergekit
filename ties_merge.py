@@ -146,7 +146,7 @@ def main(
         json.dump({"metadata": {}, "weight_map": weight_map}, fd)
 
     try:
-        cfg = transformers.AutoConfig.from_pretrained(base_model.path)
+        cfg = transformers.AutoConfig.from_pretrained(parse_model(base_model).path)
         cfg.save_pretrained(out_path)
     except Exception as e:
         logging.warning("Failed to copy config from base model", exc_info=e)
