@@ -29,8 +29,13 @@ def main(
         List[str], typer.Option(help="Add a model to the merge", metavar="MODEL")
     ],
     density: Annotated[
-        float, typer.Option(help="Fraction of weights to keep for each model")
-    ] = 0.33,
+        List[float],
+        typer.Option(
+            help="Fraction of weights to keep for each model (default 0.33)",
+            default_factory=list,
+            show_default=False,
+        ),
+    ],
     cache_dir: Annotated[
         Optional[str], typer.Option(help="Override storage path for downloaded models")
     ] = None,
@@ -52,6 +57,17 @@ def main(
     """Merge a set of models with a shared base model by resolving sign differences."""
     if merged_cache_dir is None:
         merged_cache_dir = cache_dir
+
+    if not density:
+        density = [0.33] * len(merge)
+    elif len(density) == 1:
+        density = [density[0]] * len(merge)
+    elif len(density) != len(merge):
+        raise RuntimeError(
+            "Must specify either one single density or exactly one per model"
+        )
+
+    logging.info(f"densities: {list(zip(merge, density))}")
 
     base_model: ModelReference = parse_model(base_model).merged(merged_cache_dir)
     base_index: ShardedTensorIndex = base_model.tensor_index(cache_dir)
@@ -84,7 +100,7 @@ def main(
             b = base_tensors[key].to(math_dev).float()
 
             deltas = []
-            for loader, model_name in zip(loaders, merge):
+            for loader, model_name, model_density in zip(loaders, merge, density):
                 try:
                     x = loader.get_tensor(key).to(math_dev).float()
                 except Exception:
@@ -100,7 +116,7 @@ def main(
                             f"skipping {model_name}:{key} due to size mismatch"
                         )
                         continue
-                delta = sparsify(x - b, density)
+                delta = sparsify(x - b, model_density)
                 deltas.append(delta)
 
             if deltas:
@@ -129,8 +145,15 @@ def main(
     ) as fd:
         json.dump({"metadata": {}, "weight_map": weight_map}, fd)
 
-    cfg = transformers.AutoConfig.from_pretrained(base_model.path)
-    cfg.save_pretrained(out_path)
+    try:
+        cfg = transformers.AutoConfig.from_pretrained(base_model.path)
+        cfg.save_pretrained(out_path)
+    except Exception as e:
+        logging.warning("Failed to copy config from base model", exc_info=e)
+        logging.warning(
+            "The merge was still successful. "
+            "Just copy config.json from one of the models, it's fine."
+        )
 
     if copy_tokenizer:
         tok = transformers.AutoTokenizer.from_pretrained(base_model.path)
