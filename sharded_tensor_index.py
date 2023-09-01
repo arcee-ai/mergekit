@@ -1,8 +1,9 @@
 import json
+import logging
 import os
 import os.path
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import safetensors
 import safetensors.torch
@@ -14,23 +15,6 @@ from torch import Tensor
 class ShardInfo:
     filename: str
     contained_keys: List[str]
-
-
-@dataclass
-class AllToOne:
-    value: Any
-
-    def __contains__(self, key: Any):
-        return True
-
-    def __getitem__(self, key: Any):
-        return self.value
-
-    def __len__(self):
-        return 1
-
-    def values(self):
-        return [self.value]
 
 
 @dataclass
@@ -116,26 +100,61 @@ class ShardedTensorIndex:
                 shards.append(info)
 
         elif os.path.exists(model_path):
-            tensor_paths = AllToOne(model_path)
-            shards.append(ShardInfo(os.path.basename(model_path), ["*"]))
+            shard_name = os.path.basename(model_path)
+
+            # get list of tensors contained in single-file checkpoint
+            if model_path.lower().endswith(".safetensors"):
+                with safetensors.safe_open(model_path, framework="pt") as st:
+                    tensor_paths = {key: shard_name for key in st.keys()}
+            else:
+                # this is ugly but not much else can be done
+                shard = torch.load(model_path)
+                if "state_dict" in shard:
+                    shard = shard["state_dict"]
+
+                tensor_paths = {key: shard_name for key in shard}
+
+            shards.append(
+                ShardInfo(os.path.basename(model_path), list(tensor_paths.keys()))
+            )
 
         return ShardedTensorIndex(base_path, is_safetensors, tensor_paths, shards)
 
 
 class LazyTensorLoader:
     index: ShardedTensorIndex
-    current_shard: Optional[Dict[str, Tensor]]
+    current_shard: Union[None, Dict[str, Tensor], safetensors.safe_open]
+    current_keys: Optional[Set[str]]
 
     def __init__(self, index: ShardedTensorIndex):
         self.index = index
         self.current_shard = None
 
     def get_tensor(self, key: str, device: str = "cpu") -> Optional[Tensor]:
-        if not self.current_shard or key not in self.current_shard:
+        if self.current_shard is None or key not in self.current_keys:
             if key not in self.index.tensor_paths:
                 raise KeyError(key)
-            self.current_shard = self.index.load_shard(
-                self.index.tensor_paths[key], device
-            )
 
-        return self.current_shard[key]
+            shard_file = self.index.tensor_paths[key]
+            logging.warning(f'loading {self.index.base_path}/{shard_file}')
+            if shard_file.lower().endswith(".safetensors"):
+                self.current_shard = safetensors.safe_open(
+                    os.path.join(self.index.base_path, shard_file),
+                    framework="pt",
+                    device=device,
+                )
+                self.current_keys = set(self.current_shard.keys())
+            else:
+                self.current_shard = torch.load(
+                    os.path.join(self.index.base_path, shard_file),
+                    weights_only=True,
+                    map_location=device,
+                )
+                if "state_dict" in self.current_shard:
+                    self.current_shard = self.current_shard["state_dict"]
+                self.current_keys = set(self.current_shard.keys())
+
+        if isinstance(self.current_shard, dict):
+            return self.current_shard[key]
+        else:
+            return self.current_shard.get_tensor(key).to(device)
