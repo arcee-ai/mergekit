@@ -1,7 +1,7 @@
 import logging
 import os
 import os.path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import huggingface_hub
 import peft
@@ -80,8 +80,7 @@ class ModelReference(BaseModel):
             return ModelReference(path=value)
         elif len(chunks) == 2:
             return ModelReference(path=chunks[0], lora_path=chunks[1])
-        else:
-            raise ValueError(f"Can't parse {value}")
+        raise ValueError(f"Can't parse {value}")
 
     def __str__(self) -> str:
         if self.lora_path:
@@ -93,12 +92,11 @@ class ModelReference(BaseModel):
         frozen = True
 
 
-def dtype_from_name(s: Optional[str]) -> torch.dtype:
-    if s == "bfloat16":
+def dtype_from_name(name: Optional[str]) -> torch.dtype:
+    if name == "bfloat16":
         return torch.bfloat16
-    elif s == "float16":
+    elif name == "float16":
         return torch.float16
-    elif s == "float32":
+    elif name == "float32":
         return torch.float32
-    else:
-        raise RuntimeError(f'Unimplemented dtype "{s}"')
+    raise RuntimeError(f'Unimplemented dtype "{name}"')
