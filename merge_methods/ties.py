@@ -1,9 +1,9 @@
 import logging
 from typing import Dict, Optional, Union
-from typing_extensions import Literal
 
 import torch
-from pydantic import BaseModel, validate_arguments
+from pydantic import BaseModel
+from typing_extensions import Literal
 
 from common import ModelReference, dtype_from_name
 
@@ -18,7 +18,7 @@ class TiesMergeOptions(BaseModel):
     consensus_method: Literal["sum", "count"] = "sum"
 
 
-def ties_merge_tensor(
+def ties_merge_tensors(
     options: Union[TiesMergeOptions, Dict],
     param_name: str,
     tensors: Dict[ModelReference, torch.Tensor],
@@ -70,6 +70,7 @@ def ties_merge_tensor(
         deltas.append(sparsify(x - base, density[model_name]))
         weights.append(weight[model_name])
 
+        del tensors[model_name]
         del x
 
     if deltas:

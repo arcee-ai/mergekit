@@ -7,14 +7,12 @@ of \"Resolving Interference When Merging Models\" (https://arxiv.org/abs/2306.01
 import logging
 from typing import List, Optional
 
-from common import ModelReference
-from ties import TiesMergeOptions
-
-from typing_extensions import Annotated
-
 import transformers
 import typer
+from typing_extensions import Annotated
 
+from common import ModelReference
+from merge_methods import TiesMergeOptions
 from merger import MergeConfig, ModelMerger
 
 
@@ -90,7 +88,7 @@ def main(
         int8_mask=int8_mask,
         dtype="bfloat16" if bf16 else None,
         consensus_method="count" if naive_count else "sum",
-        normalize=True,
+        normalize=normalize,
     )
     config = MergeConfig(
         models=models,
@@ -106,8 +104,6 @@ def main(
             "lm_head.weight": {"dtype": "float32"},
         },
     )
-    print(config)
-
     merger = ModelMerger(config)
     merger.run()
 

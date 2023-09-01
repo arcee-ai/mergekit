@@ -3,7 +3,7 @@ import logging
 import os
 import os.path
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Set, Union
 
 import safetensors
 import safetensors.torch
@@ -136,7 +136,7 @@ class LazyTensorLoader:
                 raise KeyError(key)
 
             shard_file = self.index.tensor_paths[key]
-            logging.warning(f'loading {self.index.base_path}/{shard_file}')
+            logging.warning(f"loading {self.index.base_path}/{shard_file}")
             if shard_file.lower().endswith(".safetensors"):
                 self.current_shard = safetensors.safe_open(
                     os.path.join(self.index.base_path, shard_file),
@@ -156,5 +156,8 @@ class LazyTensorLoader:
 
         if isinstance(self.current_shard, dict):
             return self.current_shard[key]
-        else:
-            return self.current_shard.get_tensor(key).to(device)
+        return self.current_shard.get_tensor(key).to(device)
+
+    def unload(self):
+        self.current_shard = None
+        self.current_keys = None
