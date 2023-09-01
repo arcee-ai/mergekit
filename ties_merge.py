@@ -9,7 +9,15 @@ import logging
 import os
 import os.path
 from dataclasses import dataclass
-from typing import Annotated, List, Literal, Optional
+from typing import List, Optional
+try:
+    from typing import Annotated
+except ImportError:
+    from typing_extensions import Annotated
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 import huggingface_hub
 import peft
