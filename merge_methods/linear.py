@@ -7,7 +7,7 @@ from common import ModelReference, rectify_embed_sizes
 
 
 class LinearMergeOptions(BaseModel):
-    weights: Dict[ModelReference, float]
+    weight: Dict[ModelReference, float]
     normalize: bool = True
 
 
@@ -22,7 +22,7 @@ def linear_merge_tensors(
     model_names = list(tensors.keys())
 
     tensors = [tensors[key] for key in model_names]
-    weights = [options.weights.get(key, 0.0) for key in model_names]
+    weights = [options.weight.get(key, 0.0) for key in model_names]
 
     rectify_embed_sizes(param_name, tensors)
 
