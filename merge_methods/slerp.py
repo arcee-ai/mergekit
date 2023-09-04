@@ -3,7 +3,6 @@ from typing import Dict, Union
 import numpy as np
 import torch
 from pydantic import BaseModel
-from torch import lerp
 
 from common import ModelReference, rectify_embed_sizes
 
@@ -29,10 +28,23 @@ def slerp_merge_tensors(
     [a, b] = list(tensors.items())
     if a[0] != options.base_model:
         [a, b] = [b, a]
+    prepped_tensors = [a[1], b[1]]
 
-    rectify_embed_sizes(param_name, [a, b])
+    rectify_embed_sizes(param_name, prepped_tensors)
 
-    return slerp(options.t, a[1], b[1])
+    return (
+        slerp(
+            options.t,
+            prepped_tensors[0],
+            prepped_tensors[1],
+        )
+        .to(prepped_tensors[0].dtype)
+        .to(prepped_tensors[0].device)
+    )
+
+
+def lerp(t, v0, v1):
+    return (1 - t) * v0 + t * v1
 
 
 def slerp(t, v0, v1, DOT_THRESHOLD=0.9995):
@@ -52,10 +64,10 @@ def slerp(t, v0, v1, DOT_THRESHOLD=0.9995):
     c = False
     if not isinstance(v0, np.ndarray):
         c = True
-        v0 = v0.detach().cpu().numpy()
+        v0 = v0.detach().cpu().float().numpy()
     if not isinstance(v1, np.ndarray):
         c = True
-        v1 = v1.detach().cpu().numpy()
+        v1 = v1.detach().cpu().float().numpy()
     # Copy the vectors to reuse them later
     v0_copy = np.copy(v0)
     v1_copy = np.copy(v1)
@@ -66,7 +78,11 @@ def slerp(t, v0, v1, DOT_THRESHOLD=0.9995):
     dot = np.sum(v0 * v1)
     # If absolute value of dot product is almost 1, vectors are ~colineal, so use lerp
     if np.abs(dot) > DOT_THRESHOLD:
-        return lerp(t, v0_copy, v1_copy)
+        res = lerp(t, v0_copy, v1_copy)
+        if c:
+            res = torch.from_numpy(res)
+        return res
+
     # Calculate initial angle between v0 and v1
     theta_0 = np.arccos(dot)
     sin_theta_0 = np.sin(theta_0)
@@ -78,7 +94,7 @@ def slerp(t, v0, v1, DOT_THRESHOLD=0.9995):
     s1 = sin_theta_t / sin_theta_0
     v2 = s0 * v0_copy + s1 * v1_copy
     if c:
-        res = torch.from_numpy(v2).to("cuda")
+        res = torch.from_numpy(v2)
     else:
         res = v2
     return res

@@ -94,6 +94,11 @@ def main(
         if not weight:
             raise RuntimeError("Must specify weight for linear merge")
 
+        if base_model:
+            logging.warning(
+                "Linear merge mode does not use base model - will not be included"
+            )
+
     if method == MergeMethod.slerp:
         if len(weight) != 1:
             raise RuntimeError("Slerp merge needs exactly one weight")
