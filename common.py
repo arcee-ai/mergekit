@@ -1,7 +1,7 @@
 import logging
 import os
 import os.path
-from typing import Optional
+from typing import List, Optional
 
 import huggingface_hub
 import peft
@@ -63,7 +63,6 @@ class ModelReference(BaseModel):
                 patterns.append("*.safetensors")
             else:
                 patterns.append("*.bin")
-            print(patterns)
 
             path = huggingface_hub.snapshot_download(
                 path, cache_dir=cache_dir, allow_patterns=patterns
@@ -88,8 +87,8 @@ class ModelReference(BaseModel):
         return self.path
 
     class Config:
-        allow_mutation = False
         frozen = True
+        allow_mutation = False
 
 
 def dtype_from_name(name: Optional[str]) -> torch.dtype:
@@ -100,3 +99,27 @@ def dtype_from_name(name: Optional[str]) -> torch.dtype:
     elif name == "float32":
         return torch.float32
     raise RuntimeError(f'Unimplemented dtype "{name}"')
+
+
+def rectify_embed_sizes(param_name: str, tensors: List[torch.Tensor]):
+    if "lm_head" in param_name or "embed_tokens" in param_name:
+        # special case - if lm_head.weight or embed_tokens.weight have a size
+        # mismatch, take the largest common submatrix of all of them
+        if take_common_submatrix(tensors):
+            logging.warning(
+                f"Using common submatrix of size {tensors[0].shape} for {param_name}"
+            )
+
+
+def take_common_submatrix(tensors: List[torch.Tensor]) -> bool:
+    min_size = [None, None]
+    for t in tensors:
+        for idx in range(2):
+            if min_size[idx] is None or t.shape[idx] < min_size[idx]:
+                min_size[idx] = t.shape[idx]
+
+    if not all(t.shape == min_size for t in tensors):
+        for idx in range(len(tensors)):
+            tensors[idx] = tensors[idx][: min_size[0], : min_size[1]]
+        return True
+    return False

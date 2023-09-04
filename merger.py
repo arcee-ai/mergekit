@@ -19,15 +19,14 @@ class MergeConfig(BaseModel):
     models: List[ModelReference]
     out_path: str
 
-    merge_method: Literal["ties", "linear"] = "ties"
-    merge_cache: Optional[str] = None
-    model_cache: Optional[str] = None
-
+    merge_method: merge_methods.MergeMethod
     options: Dict[str, Any] = {}
     overrides: Dict[str, Dict[str, Any]] = {}
 
     cuda: bool = False
     dtype: Literal[None, "bfloat16", "float16", "float32"] = None
+    merge_cache: Optional[str] = None
+    model_cache: Optional[str] = None
 
 
 class ModelMerger:

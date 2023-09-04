@@ -1,16 +1,14 @@
-import logging
-from typing import Any, Dict, Union
+from typing import Dict, Union
 
 import torch
 from pydantic import BaseModel
 
-from common import ModelReference
+from common import ModelReference, rectify_embed_sizes
 
 
 class LinearMergeOptions(BaseModel):
     weights: Dict[ModelReference, float]
     normalize: bool = True
-    dtype: Any
 
 
 def linear_merge_tensors(
@@ -26,21 +24,7 @@ def linear_merge_tensors(
     tensors = [tensors[key] for key in model_names]
     weights = [options.weights.get(key, 0.0) for key in model_names]
 
-    if "lm_head" in param_name or "embed_tokens" in param_name:
-        # special case - if lm_head.weight or embed_tokens.weight have a size
-        # mismatch, take the largest common submatrix of all of them
-        min_size = [None, None]
-        for t in tensors:
-            for idx in range(2):
-                if min_size[idx] is None or t.shape[idx] < min_size[idx]:
-                    min_size[idx] = t.shape[idx]
-
-        if not all(t.shape == min_size for t in tensors):
-            logging.warning(
-                f"Using common submatrix of size {tuple(min_size)} for {param_name}"
-            )
-            for idx in range(len(tensors)):
-                tensors[idx] = tensors[idx][: min_size[0], : min_size[1]]
+    rectify_embed_sizes(param_name, tensors)
 
     unique_shapes = set(t.shape for t in tensors)
     if len(unique_shapes) != 1:

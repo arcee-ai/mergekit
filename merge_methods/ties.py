@@ -5,7 +5,7 @@ import torch
 from pydantic import BaseModel
 from typing_extensions import Literal
 
-from common import ModelReference, dtype_from_name
+from common import ModelReference
 
 
 class TiesMergeOptions(BaseModel):
@@ -14,7 +14,6 @@ class TiesMergeOptions(BaseModel):
     weight: Optional[Dict[ModelReference, float]] = None
     int8_mask: bool = False
     normalize: bool = True
-    dtype: Literal[None, "bfloat16", "float16", "float32"] = None
     consensus_method: Literal["sum", "count"] = "sum"
 
 
@@ -38,13 +37,8 @@ def ties_merge_tensors(
         weight = options.weight
 
     base = tensors[options.base_model]
-    # resolve dtype for mask and result
+    # resolve dtype for mask
     mask_dtype = torch.int8 if options.int8_mask else base.dtype
-    if options.dtype is None:
-        ty = base.dtype
-    else:
-        ty = dtype_from_name(options.dtype)
-        base = base.to(ty)
 
     deltas = []
     weights = []
@@ -53,7 +47,7 @@ def ties_merge_tensors(
         if model_name == options.base_model:
             continue
 
-        x = tensors[model_name].to(ty)
+        x = tensors[model_name].to(base.dtype)
         if x.shape != base.shape:
             if "lm_head" in param_name or "embed_tokens" in param_name:
                 x = x[: base.shape[0], : base.shape[1]]
@@ -75,7 +69,7 @@ def ties_merge_tensors(
 
     if deltas:
         deltas = torch.stack(deltas, dim=0)
-        weights = torch.tensor(weights, dtype=ty, device=deltas.device)
+        weights = torch.tensor(weights, dtype=deltas.dtype, device=deltas.device)
         while len(deltas.shape) > len(weights.shape):
             weights.unsqueeze_(-1)
 
@@ -98,7 +92,7 @@ def ties_merge_tensors(
     else:
         res = base
 
-    return res.to(ty)
+    return res.to(base.dtype)
 
 
 def sparsify(tensor: torch.Tensor, density: float) -> torch.Tensor:
