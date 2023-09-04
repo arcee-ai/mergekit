@@ -12,12 +12,11 @@ import typer
 from typing_extensions import Annotated
 
 from common import ModelReference
-from merge_methods import TiesMergeOptions
+from merge_methods import MergeMethod
 from merger import MergeConfig, ModelMerger
 
 
 def main(
-    base_model: Annotated[str, typer.Argument(help="Base model for merge")],
     out_path: Annotated[str, typer.Argument(help="Output directory for final model")],
     merge: Annotated[
         List[str], typer.Option(help="Add a model to the merge", metavar="MODEL")
@@ -25,7 +24,7 @@ def main(
     density: Annotated[
         List[float],
         typer.Option(
-            help="Fraction of weights to keep for each model (default 0.33)",
+            help="Fraction of weights to keep for each model (ties only)",
             default_factory=list,
             show_default=False,
         ),
@@ -38,6 +37,12 @@ def main(
             show_default=False,
         ),
     ],
+    method: Annotated[
+        MergeMethod, typer.Option(help="Method used to merge models")
+    ] = MergeMethod.ties,
+    base_model: Annotated[
+        Optional[str], typer.Option(help="Base model for merge")
+    ] = None,
     normalize: Annotated[
         bool,
         typer.Option(
@@ -56,7 +61,7 @@ def main(
     ] = False,
     bf16: Annotated[bool, typer.Option(help="Use bfloat16")] = True,
     naive_count: Annotated[
-        bool, typer.Option(help="Use naive sign count instead of weight")
+        bool, typer.Option(help="Use naive sign count instead of weight (ties only)")
     ] = False,
     copy_tokenizer: Annotated[
         bool, typer.Option(help="Copy base model tokenizer into output")
@@ -75,30 +80,58 @@ def main(
             "Must specify either one single density or exactly one per model"
         )
 
-    if not weight:
-        weight = None
-    elif len(weight) != len(merge):
+    if weight and len(weight) != len(merge):
         raise RuntimeError("Must specify one weight per merged model")
 
-    models = [ModelReference.parse(m) for m in ([base_model] + merge)]
-    ties_options = TiesMergeOptions(
-        base_model=models[0],
-        density=dict(zip(models[1:], density)),
-        weight=None if not weight else dict(zip(models[1:], weight)),
-        int8_mask=int8_mask,
-        dtype="bfloat16" if bf16 else None,
-        consensus_method="count" if naive_count else "sum",
-        normalize=normalize,
-    )
+    models = [ModelReference.parse(m) for m in merge]
+
+    merge_options = {
+        "normalize": normalize,
+    }
+
+    if method == MergeMethod.ties:
+        if density:
+            if len(density) == 1:
+                density = [density[0]] * len(models)
+            merge_options["density"] = dict(zip(models, density))
+
+        merge_options.update(
+            {
+                "int8_mask": int8_mask,
+                "consensus_method": "count" if naive_count else "sum",
+            }
+        )
+
+    if method == MergeMethod.linear:
+        if not weight:
+            raise RuntimeError("Must specify weight for linear merge")
+
+    if method == MergeMethod.slerp:
+        if len(weight) != 1:
+            raise RuntimeError("Slerp merge needs exactly one weight")
+        merge_options["t"] = weight[0]
+
+        if not base_model:
+            base_model = str(models[0])
+    else:
+        if weight:
+            if len(weight) == 1:
+                weight = [weight[0]] * len(models)
+            merge_options["weight"] = dict(zip(models, weight))
+
+    if base_model:
+        base_model = ModelReference.parse(base_model)
+        merge_options["base_model"] = base_model
+
     config = MergeConfig(
         models=models,
         out_path=out_path,
         cuda=cuda,
         dtype="bfloat16" if bf16 else None,
-        merge_method="ties",
+        merge_method=method,
         merge_cache=merged_cache_dir,
         model_cache=cache_dir,
-        options=ties_options.dict(exclude_none=True),
+        options=merge_options,
         overrides={
             "model.embed_tokens.weight": {"dtype": "float32"},
             "lm_head.weight": {"dtype": "float32"},
@@ -107,8 +140,10 @@ def main(
     merger = ModelMerger(config)
     merger.run()
 
+    cfg_donor = base_model if base_model else models[0]
+
     try:
-        cfg = transformers.AutoConfig.from_pretrained(base_model.path)
+        cfg = transformers.AutoConfig.from_pretrained(cfg_donor.path)
         cfg.save_pretrained(out_path)
     except Exception as e:
         logging.warning("Failed to copy config from base model", exc_info=e)
@@ -118,7 +153,7 @@ def main(
         )
 
     if copy_tokenizer:
-        tok = transformers.AutoTokenizer.from_pretrained(base_model.path)
+        tok = transformers.AutoTokenizer.from_pretrained(cfg_donor.path)
         tok.save_pretrained(out_path)
 
     logging.info("Merge complete")
