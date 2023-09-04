@@ -71,18 +71,6 @@ def main(
     if merged_cache_dir is None:
         merged_cache_dir = cache_dir
 
-    if not density:
-        density = [0.33] * len(merge)
-    elif len(density) == 1:
-        density = [density[0]] * len(merge)
-    elif len(density) != len(merge):
-        raise RuntimeError(
-            "Must specify either one single density or exactly one per model"
-        )
-
-    if weight and len(weight) != len(merge):
-        raise RuntimeError("Must specify one weight per merged model")
-
     models = [ModelReference.parse(m) for m in merge]
 
     merge_options = {
@@ -117,11 +105,19 @@ def main(
         if weight:
             if len(weight) == 1:
                 weight = [weight[0]] * len(models)
+            elif len(weight) != len(models):
+                raise RuntimeError("Must specify one weight per model")
             merge_options["weight"] = dict(zip(models, weight))
 
     if base_model:
         base_model = ModelReference.parse(base_model)
         merge_options["base_model"] = base_model
+
+    if base_model and base_model not in models:
+        models = [base_model] + models
+
+    if method == MergeMethod.slerp and len(models) != 2:
+        raise RuntimeError("Slerp expects exactly two models")
 
     config = MergeConfig(
         models=models,
