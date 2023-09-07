@@ -1,16 +1,15 @@
 import copy
-import itertools
 import json
 import os.path
 from typing import Dict, List, Optional
 
 import safetensors.torch
 import torch
-from tqdm import tqdm
 import transformers
 import typer
 import yaml
 from pydantic import BaseModel
+from tqdm import tqdm
 
 from common import ModelReference
 from sharded_tensor_index import LazyTensorLoader
