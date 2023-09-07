@@ -131,7 +131,7 @@ def main(
         dtype="bfloat16" if bf16 else None,
         merge_method=method,
         merge_cache=merged_cache_dir,
-        model_cache=cache_dir,
+        transformers_cache=cache_dir,
         options=merge_options,
         overrides={
             "model.embed_tokens.weight": {"dtype": "float32"},
