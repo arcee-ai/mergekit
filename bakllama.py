@@ -20,6 +20,7 @@ class LayerSlice(BaseModel):
     model: str
     start: int
     end: int
+    scale: Optional[float] = None
 
 
 class BakllamaConfig(BaseModel):
@@ -123,8 +124,7 @@ def process(config: BakllamaConfig, out_path: str):
     layer_sources = []
     for s in config.layer_slices:
         for source_idx in range(s.start, s.end):
-            layer_sources.append((s.model, source_idx))
-    print(layer_sources)
+            layer_sources.append((s.model, source_idx, s.scale))
 
     writer = TensorWriter(out_path)
 
@@ -132,7 +132,9 @@ def process(config: BakllamaConfig, out_path: str):
         "model.embed_tokens.weight",
         loaders[config.embedding_source].get_tensor("model.embed_tokens.weight"),
     )
-    for layer_idx, (model_name, source_layer_idx) in tqdm(enumerate(layer_sources)):
+    for layer_idx, (model_name, source_layer_idx, scale) in enumerate(
+        tqdm(layer_sources)
+    ):
         for tensor_name in [
             "input_layernorm",
             "mlp.up_proj",
@@ -145,8 +147,13 @@ def process(config: BakllamaConfig, out_path: str):
             "self_attn.o_proj",
         ]:
             source_key = f"model.layers.{source_layer_idx}.{tensor_name}.weight"
+
+            weight = loaders[model_name].get_tensor(source_key)
+            if "down_proj" in tensor_name and scale is not None:
+                weight *= scale
+
             dst_key = f"model.layers.{layer_idx}.{tensor_name}.weight"
-            writer.save_tensor(dst_key, loaders[model_name].get_tensor(source_key))
+            writer.save_tensor(dst_key, weight)
 
     writer.save_tensor(
         "model.norm.weight",
