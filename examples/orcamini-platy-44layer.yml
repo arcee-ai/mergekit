@@ -1,0 +1,7 @@
+layer_slices:
+  - model: WizardLM/WizardLM-13B-V1.2
+    start: 0
+    end: 24
+  - model: garage-bAInd/Platypus2-13B
+    start: 20
+    end: 40
