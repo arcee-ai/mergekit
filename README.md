@@ -23,3 +23,8 @@ python main.py ./WizardPlatypusHermes-13b --cuda --method linear --merge garage-
 ```
 python main.py ./PlatypusWizard-13b-slerp --cuda --method slerp --base-model garage-bAInd/Platypus2-13B --merge WizardLM/WizardLM-13B-V1.2 --weight 0.5
 ```
+
+
+`bakllama.py` can be used to assemble a model piecewise from layers taken from others.
+Example usage:
+`python bakllama.py examples/orcamini-platy-44layer.yml ./orcamini-platy-44layer`
