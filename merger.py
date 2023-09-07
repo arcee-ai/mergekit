@@ -26,7 +26,7 @@ class MergeConfig(BaseModel):
     cuda: bool = False
     dtype: Literal[None, "bfloat16", "float16", "float32"] = None
     merge_cache: Optional[str] = None
-    model_cache: Optional[str] = None
+    transformers_cache: Optional[str] = None
 
 
 class ModelMerger:
@@ -41,7 +41,7 @@ class ModelMerger:
         for model in self.config.models:
             if model not in self._loaders:
                 tensor_index = model.merged(self.config.merge_cache).tensor_index(
-                    self.config.model_cache
+                    self.config.transformers_cache
                 )
                 self._loaders[model] = LazyTensorLoader(tensor_index)
 
