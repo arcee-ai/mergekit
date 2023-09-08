@@ -51,7 +51,7 @@ Refer to the script's help message (`python main.py --help`) for detailed inform
 ### Piecewise layer combinations with `bakllama.py`
 
 The `bakllama.py` script allows you to assemble a model piecewise with layers taken from other pre-trained models.
-Configuration
+#### Configuration
 
 To use the bakllama.py script, you need to create a YAML configuration file where you define the layers to be used from various source models, and optionally specify the sources for the embedding and LM head components.
 
