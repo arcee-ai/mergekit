@@ -118,7 +118,10 @@ class ModelMerger:
 
         tensors = {}
         for model, loader in self._loaders.items():
-            x = loader.get_tensor(param_name)
+            try:
+                x = loader.get_tensor(param_name)
+            except KeyError:
+                x = None
             if x is None:
                 logging.warning(f"{model} has no tensor '{param_name}'")
                 continue
