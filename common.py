@@ -47,7 +47,7 @@ class ModelReference(BaseModel):
             model.save_pretrained(out_path, safe_serialization=True)
             del model
 
-        return ModelReference(out_path)
+        return ModelReference(path=out_path)
 
     def tensor_index(self, cache_dir: Optional[str] = None) -> ShardedTensorIndex:
         assert self.lora_path is None
