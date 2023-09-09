@@ -89,7 +89,6 @@ class ModelReference(BaseModel):
 
     class Config:
         frozen = True
-        allow_mutation = False
 
 
 def dtype_from_name(name: Optional[str]) -> torch.dtype:
