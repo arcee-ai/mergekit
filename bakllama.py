@@ -12,7 +12,7 @@ import yaml
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from common import ModelReference
+from common import LLAMA_LAYER_MEMBERS, ModelReference
 from sharded_tensor_index import LazyTensorLoader
 
 
@@ -157,17 +157,7 @@ def process(config: BakllamaConfig, out_path: str, clone_tensors: bool = False):
     for layer_idx, (model_name, source_layer_idx, scale) in enumerate(
         tqdm(layer_sources)
     ):
-        for tensor_name in [
-            "input_layernorm",
-            "mlp.up_proj",
-            "mlp.down_proj",
-            "mlp.gate_proj",
-            "post_attention_layernorm",
-            "self_attn.q_proj",
-            "self_attn.k_proj",
-            "self_attn.v_proj",
-            "self_attn.o_proj",
-        ]:
+        for tensor_name in LLAMA_LAYER_MEMBERS:
             source_key = f"model.layers.{source_layer_idx}.{tensor_name}.weight"
 
             weight = loaders[model_name].get_tensor(source_key)

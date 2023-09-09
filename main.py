@@ -4,14 +4,15 @@
 """Merge a set of task-specific models into a base model using the methodology
 of \"Resolving Interference When Merging Models\" (https://arxiv.org/abs/2306.01708)."""
 
+import json
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import transformers
 import typer
 from typing_extensions import Annotated
 
-from common import ModelReference
+from common import LLAMA_LAYER_MEMBERS, ModelReference, gradient_weights
 from merge_methods import MergeMethod
 from merger import MergeConfig, ModelMerger
 
@@ -37,6 +38,10 @@ def main(
             show_default=False,
         ),
     ],
+    layer_gradient: Annotated[
+        Optional[str],
+        typer.Option(help="List of weight values to interpolate between per-layer"),
+    ] = None,
     method: Annotated[
         MergeMethod, typer.Option(help="Method used to merge models")
     ] = MergeMethod.ties,
@@ -91,7 +96,7 @@ def main(
         )
 
     if method == MergeMethod.linear:
-        if not weight:
+        if (not weight) and (not layer_gradient):
             raise RuntimeError("Must specify weight for linear merge")
 
         if base_model:
@@ -100,9 +105,15 @@ def main(
             )
 
     if method == MergeMethod.slerp:
-        if len(weight) != 1:
-            raise RuntimeError("Slerp merge needs exactly one weight")
-        merge_options["t"] = weight[0]
+        if len(weight) > 1:
+            raise RuntimeError("Too many weights for slerp")
+
+        if not layer_gradient and len(weight) != 1:
+            raise RuntimeError(
+                "Slerp merge needs either exactly one weight or gradient"
+            )
+
+        merge_options["t"] = weight[0] if weight else 0
 
         if not base_model:
             base_model = str(models[0])
@@ -124,6 +135,45 @@ def main(
     if method == MergeMethod.slerp and len(models) != 2:
         raise RuntimeError("Slerp expects exactly two models")
 
+    overrides: Dict[str, Dict] = {
+        "model.embed_tokens.weight": {"dtype": "float32"},
+        "lm_head.weight": {"dtype": "float32"},
+    }
+
+    if layer_gradient:
+        if len(models) != 2:
+            raise RuntimeError("Gradient can only be used with exactly two models")
+
+        layer_gradient = json.loads(layer_gradient)
+        num_layers = transformers.AutoConfig.from_pretrained(
+            models[0].path
+        ).num_hidden_layers
+
+        def override_weight(name: str, weight: float):
+            if name not in overrides:
+                overrides[name] = {}
+
+            if method == MergeMethod.slerp:
+                overrides[name]["t"] = weight
+            else:
+                overrides[name]["weight"] = {
+                    models[0]: (1 - weight),
+                    models[1]: weight,
+                }
+
+        layer_weights: List[float] = gradient_weights(layer_gradient, num_layers + 2)
+        embedding_weight = layer_weights.pop(0)
+        lm_head_weight = layer_weights.pop(-1)
+
+        override_weight("model.embed_tokens.weight", embedding_weight)
+        for layer_idx in range(num_layers):
+            for name in LLAMA_LAYER_MEMBERS:
+                override_weight(
+                    f"model.layers.{layer_idx}.{name}.weight", layer_weights[layer_idx]
+                )
+        override_weight("model.norm.weight", lm_head_weight)
+        override_weight("model.lm_head.weight", lm_head_weight)
+
     config = MergeConfig(
         models=models,
         out_path=out_path,
@@ -133,10 +183,7 @@ def main(
         merge_cache=merged_cache_dir,
         transformers_cache=cache_dir,
         options=merge_options,
-        overrides={
-            "model.embed_tokens.weight": {"dtype": "float32"},
-            "lm_head.weight": {"dtype": "float32"},
-        },
+        overrides=overrides,
     )
     merger = ModelMerger(config)
     merger.run()
