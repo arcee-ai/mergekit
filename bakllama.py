@@ -2,6 +2,7 @@ import copy
 import json
 import os.path
 from typing import Dict, List, Optional
+from typing_extensions import Annotated
 
 import safetensors.torch
 import torch
@@ -48,13 +49,16 @@ class TensorWriter:
         self.current_shard = {}
         self.current_shard_size = 0
 
-    def save_tensor(self, name: str, tensor: torch.Tensor):
+    def save_tensor(self, name: str, tensor: torch.Tensor, clone: bool = False):
         tensor_size = tensor.view(-1).shape[0]
         if (
             self.current_shard
             and self.current_shard_size + tensor_size > self.max_shard_size
         ):
             self.flush_current_shard()
+
+        if clone:
+            tensor = tensor.clone()
 
         self.current_shard[name] = tensor
         self.current_shard_size += tensor_size
@@ -85,7 +89,7 @@ class TensorWriter:
             json.dump({"metadata": {}, "weight_map": self.weight_map}, file)
 
 
-def process(config: BakllamaConfig, out_path: str):
+def process(config: BakllamaConfig, out_path: str, clone_tensors: bool = False):
     if config.embedding_source is None:
         config.embedding_source = config.layer_slices[0].model
 
@@ -130,6 +134,7 @@ def process(config: BakllamaConfig, out_path: str):
     writer.save_tensor(
         "model.embed_tokens.weight",
         loaders[config.embedding_source].get_tensor("model.embed_tokens.weight"),
+        clone=clone_tensors,
     )
     for layer_idx, (model_name, source_layer_idx, scale) in enumerate(
         tqdm(layer_sources)
@@ -152,23 +157,35 @@ def process(config: BakllamaConfig, out_path: str):
                 weight *= scale
 
             dst_key = f"model.layers.{layer_idx}.{tensor_name}.weight"
-            writer.save_tensor(dst_key, weight)
+            writer.save_tensor(dst_key, weight, clone=clone_tensors)
 
     writer.save_tensor(
         "model.norm.weight",
         loaders[config.lm_head_source].get_tensor("model.norm.weight"),
+        clone=clone_tensors,
     )
     writer.save_tensor(
-        "lm_head.weight", loaders[config.lm_head_source].get_tensor("lm_head.weight")
+        "lm_head.weight",
+        loaders[config.lm_head_source].get_tensor("lm_head.weight"),
+        clone=clone_tensors,
     )
     writer.finalize()
 
 
-def main(config_path: str, out_path: str):
+def main(
+    config_path: str,
+    out_path: str,
+    clone_tensors: Annotated[
+        bool,
+        typer.Option(
+            help="Clone tensors before saving, to allow multiple occurrences of the same layer"
+        ),
+    ] = False,
+):
     with open(config_path, "r", encoding="utf-8") as file:
         config = BakllamaConfig(**yaml.safe_load(file))
 
-    process(config, out_path)
+    process(config, out_path, clone_tensors=clone_tensors)
 
 
 if __name__ == "__main__":
