@@ -45,13 +45,20 @@ The script supports the following merge methods:
       --merge WizardLM/WizardLM-13B-V1.2 --weight 0.5
   ```
 
+- SLERP with layer weight interpolated gradient:
+
+  ```sh
+  python main.py ./output-model --cuda --method slerp --base-model garage-bAInd/Platypus2-13B \
+      --merge WizardLM/WizardLM-13B-V1.2 --layer-gradient "[0, 0.3, 0.7, 0, 0.1, 1.0]"
+  ```
+
 
 Refer to the script's help message (`python main.py --help`) for detailed information on all available options.
 
 ### Piecewise layer combinations with `bakllama.py`
 
 The `bakllama.py` script allows you to assemble a model piecewise with layers taken from other pre-trained models.
-Configuration
+#### Configuration
 
 To use the bakllama.py script, you need to create a YAML configuration file where you define the layers to be used from various source models, and optionally specify the sources for the embedding and LM head components.
 
