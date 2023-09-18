@@ -81,6 +81,24 @@ class TensorWriter:
 
     def finalize(self):
         self.flush_current_shard()
+
+        # standardize shard names to hf format
+        total_shards = self.shards_written
+        name_remap = {}
+        for idx in range(total_shards):
+            name_remap[
+                f"model-{idx+1}.safetensors"
+            ] = f"model-{idx+1:05d}-of-{total_shards:05d}.safetensors"
+
+        for old_name, new_name in name_remap.items():
+            os.rename(
+                os.path.join(self.out_path, old_name),
+                os.path.join(self.out_path, new_name),
+            )
+
+        for key in self.weight_map:
+            self.weight_map[key] = name_remap[self.weight_map[key]]
+
         with open(
             os.path.join(self.out_path, "model.safetensors.index.json"),
             "w",
