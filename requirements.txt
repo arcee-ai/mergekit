@@ -6,5 +6,5 @@ typer
 safetensors
 peft==0.5.0
 accelerate==0.22.0
-pydantic
+pydantic==2.3.0
 typing-extensions

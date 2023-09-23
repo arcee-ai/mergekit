@@ -4,6 +4,7 @@ import os.path
 from typing import List, Optional
 
 import huggingface_hub
+import numpy as np
 import peft
 import torch
 import transformers
@@ -88,7 +89,6 @@ class ModelReference(BaseModel):
 
     class Config:
         frozen = True
-        allow_mutation = False
 
 
 def dtype_from_name(name: Optional[str]) -> torch.dtype:
@@ -123,3 +123,29 @@ def take_common_submatrix(tensors: List[torch.Tensor]) -> bool:
             tensors[idx] = tensors[idx][: min_size[0], : min_size[1]]
         return True
     return False
+
+
+def gradient_weights(gradient: List[float], num_samples: int) -> List[float]:
+    assert len(gradient) > 1, "Need at least two values to define gradient"
+
+    samples_per_weight = num_samples // (len(gradient) - 1)
+
+    res = []
+    for y0, y1 in zip(gradient[:-1], gradient[1:]):
+        res.extend(np.linspace(y0, y1, num=samples_per_weight))
+    while len(res) < num_samples:
+        res.append(gradient[-1])
+    return res
+
+
+LLAMA_LAYER_MEMBERS: List[str] = [
+    "input_layernorm",
+    "mlp.up_proj",
+    "mlp.down_proj",
+    "mlp.gate_proj",
+    "post_attention_layernorm",
+    "self_attn.q_proj",
+    "self_attn.k_proj",
+    "self_attn.v_proj",
+    "self_attn.o_proj",
+]

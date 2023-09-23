@@ -45,6 +45,13 @@ The script supports the following merge methods:
       --merge WizardLM/WizardLM-13B-V1.2 --weight 0.5
   ```
 
+- SLERP with layer weight interpolated gradient:
+
+  ```sh
+  python main.py ./output-model --cuda --method slerp --base-model garage-bAInd/Platypus2-13B \
+      --merge WizardLM/WizardLM-13B-V1.2 --layer-gradient "[0, 0.3, 0.7, 0, 0.1, 1.0]"
+  ```
+
 
 Refer to the script's help message (`python main.py --help`) for detailed information on all available options.
 
