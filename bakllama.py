@@ -107,7 +107,12 @@ class TensorWriter:
             json.dump({"metadata": {}, "weight_map": self.weight_map}, file)
 
 
-def process(config: BakllamaConfig, out_path: str, clone_tensors: bool = False):
+def process(
+    config: BakllamaConfig,
+    out_path: str,
+    clone_tensors: bool = False,
+    copy_tokenizer: bool = True,
+):
     if config.embedding_source is None:
         config.embedding_source = config.layer_slices[0].model
 
@@ -179,6 +184,11 @@ def process(config: BakllamaConfig, out_path: str, clone_tensors: bool = False):
     )
     writer.finalize()
 
+    if copy_tokenizer:
+        transformers.AutoTokenizer.from_pretrained(layer_sources[0][0]).save_pretrained(
+            out_path, safe_serialization=True
+        )
+
 
 def main(
     config_path: str,
@@ -189,11 +199,14 @@ def main(
             help="Clone tensors before saving, to allow multiple occurrences of the same layer"
         ),
     ] = False,
+    copy_tokenizer: bool = True,
 ):
     with open(config_path, "r", encoding="utf-8") as file:
         config = BakllamaConfig(**yaml.safe_load(file))
 
-    process(config, out_path, clone_tensors=clone_tensors)
+    process(
+        config, out_path, clone_tensors=clone_tensors, copy_tokenizer=copy_tokenizer
+    )
 
 
 if __name__ == "__main__":
