@@ -10,7 +10,9 @@ import torch
 import transformers
 from pydantic import BaseModel
 
-from sharded_tensor_index import ShardedTensorIndex
+from lazy_tensors import ShardedTensorIndex
+
+from transformers import PretrainedConfig, AutoConfig
 
 
 class ModelReference(BaseModel):
@@ -49,6 +51,9 @@ class ModelReference(BaseModel):
             del model
 
         return ModelReference(path=out_path)
+
+    def config(self) -> PretrainedConfig:
+        return AutoConfig.from_pretrained(self.path)
 
     def tensor_index(self, cache_dir: Optional[str] = None) -> ShardedTensorIndex:
         assert self.lora_path is None
@@ -138,14 +143,44 @@ def gradient_weights(gradient: List[float], num_samples: int) -> List[float]:
     return res
 
 
-LLAMA_LAYER_MEMBERS: List[str] = [
-    "input_layernorm",
-    "mlp.up_proj",
-    "mlp.down_proj",
-    "mlp.gate_proj",
-    "post_attention_layernorm",
-    "self_attn.q_proj",
-    "self_attn.k_proj",
-    "self_attn.v_proj",
-    "self_attn.o_proj",
-]
+class ModelArchitectureInfo(BaseModel):
+    pre_weights: List[str]  # weights applied before first layer
+    post_weights: List[str]  # weights applied after last layer
+    layer_prefix_format: str
+    layer_weights: List[str]
+    layer_input_weights: List[str]
+    layer_output_weights: List[str]
+
+    config_num_layers_key: str
+    config_hidden_size_key: str
+
+    class Config:
+        frozen = True
+
+
+LLAMA_INFO = ModelArchitectureInfo(
+    pre_weights=["model.embed_tokens.weight"],
+    post_weights=["model.norm.weight", "lm_head.weight"],
+    layer_prefix_format="model.layers.{idx}",
+    layer_weights=[
+        "input_layernorm.weight",
+        "mlp.up_proj.weight",
+        "mlp.down_proj.weight",
+        "mlp.gate_proj.weight",
+        "post_attention_layernorm.weight",
+        "self_attn.q_proj.weight",
+        "self_attn.k_proj.weight",
+        "self_attn.v_proj.weight",
+        "self_attn.o_proj.weight",
+    ],
+    layer_input_weights=[
+        "self_attn.q_proj.weight",
+        "self_attn.k_proj.weight",
+        "self_attn.v_proj.weight",
+        "mlp.up_proj.weight",
+        "mlp.gate_proj.weight",
+    ],
+    layer_output_weights=["self_attn.o_proj.weight", "mlp.down_proj.weight"],
+    config_num_layers_key="num_hidden_layers",
+    config_hidden_size_key="hidden_size",
+)
