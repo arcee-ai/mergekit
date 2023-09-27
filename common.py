@@ -9,10 +9,9 @@ import peft
 import torch
 import transformers
 from pydantic import BaseModel
+from transformers import AutoConfig, PretrainedConfig
 
 from lazy_tensors import ShardedTensorIndex
-
-from transformers import PretrainedConfig, AutoConfig
 
 
 class ModelReference(BaseModel):
@@ -123,7 +122,7 @@ def take_common_submatrix(tensors: List[torch.Tensor]) -> bool:
             if min_size[idx] is None or t.shape[idx] < min_size[idx]:
                 min_size[idx] = t.shape[idx]
 
-    if not all(t.shape == min_size for t in tensors):
+    if not all(t.shape == torch.Size(min_size) for t in tensors):
         for idx in range(len(tensors)):
             tensors[idx] = tensors[idx][: min_size[0], : min_size[1]]
         return True
