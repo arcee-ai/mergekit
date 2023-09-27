@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Sequence
 
 import torch
-from transformers import PretrainedConfig
+from transformers import PretrainedConfig, PreTrainedTokenizerBase, AutoTokenizer
 
 from common import ModelReference
 from config import ConfigReader, MergeConfiguration
@@ -39,3 +39,10 @@ class MergeMethod(ABC):
         if config.base_model:
             return ModelReference.parse(config.base_model).config()
         return config.referenced_models()[0].config()
+
+    def model_tokenizer(self, config: MergeConfiguration) -> PreTrainedTokenizerBase:
+        """Return a tokenizer appropriate for the resulting model."""
+        if config.base_model:
+            path = ModelReference.parse(config.base_model).path
+        path = config.referenced_models()[0].path
+        return AutoTokenizer.from_pretrained(path)

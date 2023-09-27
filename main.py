@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 import torch
@@ -27,6 +28,9 @@ def main(
             help="Store results on GPU until shard is written. Useful if VRAM > RAM"
         ),
     ] = False,
+    copy_tokenizer: Annotated[
+        bool, typer.Option("Copy a tokenizer to the output")
+    ] = True,
 ):
     with open(config_file, "r", encoding="utf-8") as file:
         data = yaml.load(file, yaml.SafeLoader)
@@ -57,7 +61,18 @@ def main(
     exec.run(out_path)
 
     method.model_out_config(config).save_pretrained(out_path)
+    if copy_tokenizer:
+        try:
+            method.model_tokenizer(config).save_pretrained(
+                out_path, safe_serialization=True
+            )
+        except Exception as e:
+            logging.error(
+                "Failed to save tokenizer. The merge was still successful, just copy it from somewhere else.",
+                e,
+            )
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     typer.run(main)

@@ -1,0 +1,24 @@
+slices:
+  - sources:
+      - model: TheBloke/Llama-2-13B-fp16
+        layer_range: [0, 40]
+        # no parameters necessary for base model
+      - model: psmathur/orca_mini_v3_13b
+        layer_range: [0, 40]
+        parameters:
+          density: [1, 0.7, 0] # density gradient
+          weight: 1.0
+      - model: garage-bAInd/Platypus2-13B
+        layer_range: [0, 40]
+        parameters:
+          density: 0.5
+          weight: [0, 0.3, 0.7, 1] # weight gradient
+      - model: WizardLM/WizardMath-13B-V1.0
+        parameters:
+          density: 0.33
+          weight: 0.3
+merge_method: slerp
+base_model: TheBloke/Llama-2-13B-fp16
+parameters:
+  normalize: true
+dtype: float16
