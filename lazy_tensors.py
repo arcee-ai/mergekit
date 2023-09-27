@@ -201,6 +201,8 @@ class TensorWriter:
         if not self.current_shard:
             return
 
+        logging.warning("writing shard to disk")
+
         shard_name = f"model-{self.shards_written+1}.safetensors"
         for key in self.current_shard:
             self.weight_map[key] = shard_name

@@ -1,98 +1,85 @@
 import logging
-from typing import Dict, Optional, Union
+from typing import Dict, Optional
 
 import torch
-from pydantic import BaseModel
 from typing_extensions import Literal
 
-from common import ModelReference
+from config import ConfigReader
+from graph import TensorReference
+from merge_methods.base import MergeMethod
 
 
-class TiesMergeOptions(BaseModel):
-    base_model: ModelReference
-    density: Union[float, Dict[ModelReference, float]] = 0.33
-    weight: Optional[Dict[ModelReference, float]] = None
-    int8_mask: bool = False
-    normalize: bool = True
-    consensus_method: Literal["sum", "count"] = "sum"
+class TiesMerge(MergeMethod):
+    def __call__(
+        self,
+        parameter_name: str,
+        input_tensors: Dict[TensorReference, torch.Tensor],
+        config: ConfigReader,
+        **kwargs,
+    ) -> torch.Tensor:
+        tensors = {tr.model: value for (tr, value) in input_tensors.items()}
+        base = tensors[config.base_model]
 
-
-def ties_merge_tensors(
-    options: Union[TiesMergeOptions, Dict],
-    param_name: str,
-    tensors: Dict[ModelReference, torch.Tensor],
-) -> torch.Tensor:
-    if isinstance(options, Dict):
-        options = TiesMergeOptions(**options)
-
-    # expand density and weight parameters to a dict
-    if isinstance(options.density, float):
-        density = {model: options.density for model in tensors}
-    else:
-        density = options.density
-
-    if options.weight is None:
-        weight = {model: 1 for model in tensors}
-    else:
-        weight = options.weight
-
-    base = tensors[options.base_model]
-    # resolve dtype for mask
-    mask_dtype = torch.int8 if options.int8_mask else base.dtype
-
-    deltas = []
-    weights = []
-    model_names = list(tensors.keys())
-    for model_name in model_names:
-        if model_name == options.base_model:
-            continue
-
-        x = tensors[model_name].to(base.dtype)
-        if x.shape != base.shape:
-            if "lm_head" in param_name or "embed_tokens" in param_name:
-                x = x[: base.shape[0], : base.shape[1]]
-                logging.warning(f"Using submatrix of {model_name}:{param_name}")
-            else:
-                logging.warning(
-                    f"skipping {model_name}:{param_name} due to size mismatch"
-                )
-                continue
-
-        if (x == base).view(-1).all():
-            continue
-
-        deltas.append(sparsify(x - base, density[model_name]))
-        weights.append(weight[model_name])
-
-        del tensors[model_name]
-        del x
-
-    if deltas:
-        deltas = torch.stack(deltas, dim=0)
-        weights = torch.tensor(weights, dtype=deltas.dtype, device=deltas.device)
-        while len(deltas.shape) > len(weights.shape):
-            weights.unsqueeze_(-1)
-
-        weighted_deltas = weights * deltas
-
-        mask = get_mask(
-            weighted_deltas,
-            method=options.consensus_method,
-            mask_dtype=mask_dtype,
+        # resolve dtype for mask
+        mask_dtype = (
+            torch.int8 if config.parameter("int8_mask", default=False) else base.dtype
         )
 
-        mixed_delta = (weighted_deltas * mask).sum(dim=0)
+        deltas = []
+        weights = []
+        keys = list(tensors.keys())
+        for model in keys:
+            if model == config.base_model:
+                continue
 
-        if options.normalize:
-            divisor = (weights * mask).sum(dim=0)
-            divisor[divisor == 0] = 1
-            mixed_delta /= divisor
+            x = tensors[model].to(base.dtype)
+            if x.shape != base.shape:
+                if "lm_head" in parameter_name or "embed_tokens" in parameter_name:
+                    x = x[: base.shape[0], : base.shape[1]]
+                    logging.warning(f"Using submatrix of {model}:{parameter_name}")
+                else:
+                    logging.warning(
+                        f"skipping {model}:{parameter_name} due to size mismatch"
+                    )
+                    continue
 
-        res = base + mixed_delta
-    else:
-        res = base
+            if (x == base).view(-1).all():
+                continue
 
-    return res.to(base.dtype)
+            deltas.append(
+                sparsify(x - base, config.parameter("density", model, default=0.33))
+            )
+            weights.append(config.parameter("weight", model, default=1.0))
+
+            del tensors[model]
+            del x
+
+        if deltas:
+            deltas = torch.stack(deltas, dim=0)
+            weights = torch.tensor(weights, dtype=deltas.dtype, device=deltas.device)
+            while len(deltas.shape) > len(weights.shape):
+                weights.unsqueeze_(-1)
+
+            weighted_deltas = weights * deltas
+
+            mask = get_mask(
+                weighted_deltas,
+                method=config.parameter("consensus_method", default="sum"),
+                mask_dtype=mask_dtype,
+            )
+
+            mixed_delta = (weighted_deltas * mask).sum(dim=0)
+
+            if config.parameter("normalize", default=True):
+                divisor = (weights * mask).sum(dim=0)
+                divisor[divisor == 0] = 1
+                mixed_delta /= divisor
+
+            res = base + mixed_delta
+        else:
+            res = base
+
+        return res.to(base.dtype)
 
 
 def sparsify(tensor: torch.Tensor, density: float) -> torch.Tensor:

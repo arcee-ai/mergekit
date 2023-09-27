@@ -2,45 +2,42 @@ from typing import Dict, Union
 
 import numpy as np
 import torch
-from pydantic import BaseModel
 
-from common import ModelReference, rectify_embed_sizes
-
-
-class SlerpMergeOptions(BaseModel):
-    base_model: ModelReference
-    t: float
+from common import rectify_embed_sizes
+from config import ConfigReader
+from graph import TensorReference
+from merge_methods.base import MergeMethod
 
 
-def slerp_merge_tensors(
-    options: Union[SlerpMergeOptions, Dict],
-    param_name: str,
-    tensors: Dict[ModelReference, torch.Tensor],
-) -> torch.Tensor:
-    if isinstance(options, Dict):
-        options = SlerpMergeOptions(**options)
+class SlerpMerge(MergeMethod):
+    def __call__(
+        self,
+        parameter_name: str,
+        input_tensors: Dict[TensorReference, torch.Tensor],
+        config: ConfigReader,
+        **kwargs
+    ) -> torch.Tensor:
+        if len(input_tensors) == 1:
+            return list(input_tensors.values())[0]
+        elif len(input_tensors) != 2:
+            raise RuntimeError("Slerp merge expects exactly two models")
 
-    if len(tensors) == 1:
-        return list(tensors.values())[0]
-    elif len(tensors) != 2:
-        raise RuntimeError("Slerp merge expects exactly two models")
+        [a, b] = list(input_tensors.items())
+        if a[0].model != config.base_model:
+            [a, b] = [b, a]
+        prepped_tensors = [a[1], b[1]]
 
-    [a, b] = list(tensors.items())
-    if a[0] != options.base_model:
-        [a, b] = [b, a]
-    prepped_tensors = [a[1], b[1]]
+        rectify_embed_sizes(parameter_name, prepped_tensors)
 
-    rectify_embed_sizes(param_name, prepped_tensors)
-
-    return (
-        slerp(
-            options.t,
-            prepped_tensors[0],
-            prepped_tensors[1],
+        return (
+            slerp(
+                config.parameter("t"),
+                prepped_tensors[0],
+                prepped_tensors[1],
+            )
+            .to(prepped_tensors[0].dtype)
+            .to(prepped_tensors[0].device)
         )
-        .to(prepped_tensors[0].dtype)
-        .to(prepped_tensors[0].device)
-    )
 
 
 def lerp(
