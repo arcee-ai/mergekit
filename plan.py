@@ -22,13 +22,6 @@ def plan(
 
     method = merge_methods.get(merge_config.merge_method)
 
-    for weight_name in arch_info.pre_weights:
-        tr, op = make_operation(
-            merge_config, weight_name, merge_config.slices[0].sources, t=0
-        )
-        targets.append(tr)
-        rules[tr] = op
-
     # if models to merge are specified instead of output slices, compute them
     if merge_config.models:
         if merge_config.slices:
@@ -43,6 +36,13 @@ def plan(
                 InputSliceDefinition(layer_range=[0, num_layers], **model_in)
             )
         del merge_config.models
+
+    for weight_name in arch_info.pre_weights:
+        tr, op = make_operation(
+            merge_config, weight_name, merge_config.slices[0].sources, t=0
+        )
+        targets.append(tr)
+        rules[tr] = op
 
     for section in merge_config.slices:
         (new_targets, new_rules, new_layers) = plan_slice(
