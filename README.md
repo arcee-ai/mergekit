@@ -108,5 +108,5 @@ Requires exactly two models, one of which must be the base model. Takes one para
 Once you have created the YAML configuration file, run `main.py` with the config file and output path as arguments:
 
 ```sh
-python bakllama.py path/to/your/config.yml ./output-model-directory [--cuda]
+python main.py path/to/your/config.yml ./output-model-directory [--cuda]
 ```
