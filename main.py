@@ -9,6 +9,7 @@ from typing_extensions import Annotated
 import common
 import merge_methods
 from config import MergeConfiguration
+from common import LLAMA_INFO, ModelReference
 from graph import Executor, RuleSet
 from plan import plan
 
@@ -36,7 +37,7 @@ def main(
         data = yaml.load(file, yaml.SafeLoader)
 
     config = MergeConfiguration.parse_obj(data)
-    (targets, static_rules) = plan(config, common.LLAMA_INFO)
+    (targets, static_rules) = plan(config, LLAMA_INFO)
 
     dtype: Optional[torch.dtype] = {
         None: None,
@@ -44,6 +45,19 @@ def main(
         "bfloat16": torch.bfloat16,
         "float32": torch.float32,
     }[config.dtype]
+
+    # if models to merge are specified instead of output slices, compute them
+    if config.models:
+        if config.slices:
+            raise RuntimeError("Must specify either models to merge or output slices")
+        
+        config.slices = []
+        for model in config.models:
+            model_cfg = ModelReference.parse(model.model)
+
+
+    if not config.slices:
+        raise RuntimeError("No output requested")
 
     method = merge_methods.get(config.merge_method)
 

@@ -1,81 +1,112 @@
-## mergekit
+# mergekit
 
-`mergekit` is a toolkit for merging pre-trained language models, using a variety of merge methods including TIES, linear, and slerp merging. The toolkit also enables piecewise assembly of a language model from layers selected from other models using `bakllama.py`.
+`mergekit` is a toolkit for merging pre-trained language models, using a variety of merge methods including TIES, linear, and slerp merging. The toolkit also enables piecewise assembly of a language model from layers.
 
-### Merging Models with `main.py`
+This branch features a new unified merge script that takes a YAML configuration file defining the operations to perform.
+
+## Configuration
+
+Below are the primary elements of a configuration file:
+
+- `merge_method`: Specifies the method to use for merging models. Can be one of 'ties', 'linear', 'slerp', or 'passthrough'.
+- `slices`: Defines slices of layers from different models to be used. This field is mutually exclusive with `models`.
+- `models`: Defines entire models to be used for merging. This field is mutually exclusive with `slices`.
+- `base_model`: Specifies the base model used in some merging methods.
+- `parameters`: Holds various parameters such as weights and densities, which can also be specified at different levels of the configuration.
+- `dtype`: Specifies the data type for the merging operation.
+
+### Parameter Specification
+
+Parameters are flexible and can be set with varying precedence. They can be specified conditionally using tensor name filters, which allows finer control such as differentiating between attention heads and fully connected layers.
+
+Parameters can be specified as:
+
+- **Scalars**: Single floating-point values.
+- **Gradients**: List of floating-point values, specifying an interpolated gradient.
+
+The parameters can be set at different levels, with decreasing precedence as follows:
+
+1. `slices.*.sources.parameters` - applying to a specific input slice
+2. `slices.*.parameters` - applying to a specific output slice
+3. `model_parameters` - applying to any tensors coming from specific input models
+4. `parameters` - catchall
+
+
+### Merge Methods
+
+#### **[Resolving Interference When Merging Models](https://arxiv.org/abs/2306.01708)** (`"ties"`)
+Requires a base model.
+Parameters:
+- `density` - fraction of weights in differences from the base model to retain
+- `weight` - relative (or absolute if `normalize=False`) weighting of a given tensor
+- `normalize` - if true, the weights of all models contributing to a tensor will be normalized. Default behavior.
+
+
+#### Linear
+Does not require a base model. Takes parameters `weight` and `normalize`, with same definition as above.
+
+
+#### SLERP
+Requires exactly two models, one of which must be the base model. Takes one parameter - `t` - the interpolation factor from the base model to the secondary model.
+
+### Examples
+
+- Simple linear merge of multiple models:
+
+  ```yml
+  models:
+    - model: psmathur/orca_mini_v3_13b
+      parameters:
+        weight: 1.0
+    - model: WizardLM/WizardLM-13B-V1.2
+      parameters:
+        weight: 0.3
+    - model: garage-bAInd/Platypus2-13B
+      parameters:
+        weight: 0.5
+  merge_method: linear
+  dtype: float16
+  ```
+
+- `bakllama.py` style layer recombination:
+
+  ```yml
+  slices:
+    - sources:
+      - model: psmathur/orca_mini_v3_13b
+        layer_range: [0, 24]
+    - sources:
+      - model: garage-bAInd/Platypus2-13B
+        layer_range: [20, 40]
+  merge_method: passthrough
+  dtype: float16
+  ```
+
+- Gradient SLERP with different weights for mlp/self attention:
+
+  ```yml
+  slices:
+    - sources:
+        - model: psmathur/orca_mini_v3_13b
+          layer_range: [0, 40]
+        - model: garage-bAInd/Platypus2-13B
+          layer_range: [0, 40]
+  merge_method: slerp
+  base_model: psmathur/orca_mini_v3_13b
+  parameters:
+    t:
+      - filter: self_attn
+        value: [0, 0.5, 0.3, 0.7, 1]
+      - filter: mlp
+        value: [1, 0.5, 0.7, 0.3, 0]
+      - value: 0.5 # fallback for rest of tensors
+  dtype: float16
+  ```
 
 #### Usage
 
-To merge models using the `main.py` script, specify the output directory for the final model and the models to be merged using the `--merge` option. Depending on the merge method chosen, other parameters such as `--density`, `--weight`, and `--base-model` might be necessary.
-
-The script supports the following merge methods:
-
-- **[Resolving Interference When Merging Models](https://arxiv.org/abs/2306.01708)** (default method, 'ties')
-  - Requires a base model.
-  - Can specify per-model weights and densities.
-- **Linear**
-  - Does not require a base model.
-  - Must specify weights for all models being merged.
-- **SLERP**
-  - Requires exactly two models.
-  - Must specify a single weight to set the interpolation parameter between the two models.
-
-#### Examples
-
-- Merging with TIES method and specifying per-model weights and densities:
-
-  ```sh
-  python main.py ./output-model --base-model TheBloke/Llama-2-13B-fp16 --cuda \
-      --merge WizardLM/WizardLM-13B-V1.2 --weight 0.3 --density 0.5 \
-      --merge garage-bAInd/Platypus2-13B --weight 0.5 --density 0.5
-  ```
-
-- Merging with linear method and setting model weights:
-
-  ```sh
-  python main.py ./output-model --cuda --method linear \
-      --merge garage-bAInd/Platypus2-13B --weight 0.6 \
-      --merge WizardLM/WizardLM-13B-V1.2 --weight 0.2
-  ```
-
-- Merging with SLERP method and setting interpolation parameter:
-
-  ```sh
-  python main.py ./output-model --cuda --method slerp --base-model garage-bAInd/Platypus2-13B \
-      --merge WizardLM/WizardLM-13B-V1.2 --weight 0.5
-  ```
-
-- SLERP with layer weight interpolated gradient:
-
-  ```sh
-  python main.py ./output-model --cuda --method slerp --base-model garage-bAInd/Platypus2-13B \
-      --merge WizardLM/WizardLM-13B-V1.2 --layer-gradient "[0, 0.3, 0.7, 0, 0.1, 1.0]"
-  ```
-
-
-Refer to the script's help message (`python main.py --help`) for detailed information on all available options.
-
-### Piecewise layer combinations with `bakllama.py`
-
-The `bakllama.py` script allows you to assemble a model piecewise with layers taken from other pre-trained models.
-#### Configuration
-
-To use the bakllama.py script, you need to create a YAML configuration file where you define the layers to be used from various source models, and optionally specify the sources for the embedding and LM head components.
-
-The configuration file should have the following fields:
-
- - `layer_slices`: A list of layer slice objects, each specifying a range of layers to take from a source model.
-   - `model`: The identifier or path of the source model.
-   - `start`: The starting layer index (inclusive).
-   - `end`: The ending layer index (exclusive).
-   - `scale`: (Optional) A scaling factor for the weights of the layers.
- - `embedding_source`: (Optional) The model to take the embedding layer from. If not specified, it defaults to the first model listed in layer_slices.
- - `lm_head_source`: (Optional) The model to take the LM head from. If not specified, it defaults to the last model listed in layer_slices.
-
-#### Usage
-
-Once you have created the YAML configuration file, run `bakllama.py` script with the config file and output path as arguments:
+Once you have created the YAML configuration file, run `main.py` with the config file and output path as arguments:
 
 ```sh
-python bakllama.py path/to/your/config.yml ./output-model-directory
+python bakllama.py path/to/your/config.yml ./output-model-directory [--cuda]
 ```

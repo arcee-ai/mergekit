@@ -20,7 +20,7 @@ class LinearMerge(MergeMethod):
 
         tensors = [input_tensors[key] for key in keys]
         weights = [
-            config.parameter("weight", model=key.model, default=0.0) for key in keys
+            config.parameter("weight", model=key.model, required=True) for key in keys
         ]
 
         rectify_embed_sizes(parameter_name, tensors)

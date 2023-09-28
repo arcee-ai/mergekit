@@ -31,7 +31,7 @@ class SlerpMerge(MergeMethod):
 
         return (
             slerp(
-                config.parameter("t"),
+                config.parameter("t", required=True),
                 prepped_tensors[0],
                 prepped_tensors[1],
             )
