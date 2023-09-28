@@ -33,7 +33,11 @@ def plan(
             model_cfg = ModelReference.parse(model_in.model).config()
             num_layers = getattr(model_cfg, arch_info.config_num_layers_key)
             slices_in.append(
-                InputSliceDefinition(layer_range=[0, num_layers], **model_in)
+                InputSliceDefinition(
+                    layer_range=[0, num_layers],
+                    model=model_in.model,
+                    parameters=model_in.parameters,
+                )
             )
         del merge_config.models
 
