@@ -10,7 +10,7 @@ ScalarOrGradient: TypeAlias = Union[float, List[float]]
 
 class ConditionalParameter(BaseModel):
     value: ScalarOrGradient
-    pattern: Optional[str] = None
+    filter: Optional[str] = None
 
 
 ParameterSetting: TypeAlias = Union[
@@ -36,9 +36,9 @@ def evaluate_setting(
         else:
             for cond in setting:
                 if (
-                    (cond.pattern is None)
-                    or (cond.pattern == "*")
-                    or cond.pattern in tensor_name
+                    (cond.filter is None)
+                    or (cond.filter == "*")
+                    or cond.filter in tensor_name
                 ):
                     res = evaluate_setting(tensor_name, cond.value, t)
                     return res
@@ -51,6 +51,11 @@ class InputSliceDefinition(BaseModel):
     parameters: Optional[Dict[str, ParameterSetting]] = None
 
 
+class InputModelDefinition(BaseModel):
+    model: str
+    parameters: Optional[Dict[str, ParameterSetting]] = None
+
+
 class OutputSliceDefinition(BaseModel):
     sources: List[InputSliceDefinition]
     base_model: Optional[str] = None
@@ -59,8 +64,9 @@ class OutputSliceDefinition(BaseModel):
 
 
 class MergeConfiguration(BaseModel):
-    slices: List[OutputSliceDefinition]
     merge_method: str
+    slices: Optional[List[OutputSliceDefinition]] = None
+    models: Optional[List[InputModelDefinition]] = None
     model_parameters: Dict[str, Dict[str, ParameterSetting]] = None
     parameters: Optional[Dict[str, ParameterSetting]] = None
     base_model: Optional[str] = None
@@ -75,6 +81,10 @@ class MergeConfiguration(BaseModel):
             for src in s.sources:
                 models.add(ModelReference.parse(src.model))
         return list(models)
+
+    def validate(self):
+        if ((not self.slices) and (not self.models)) or (self.slices and self.models):
+            raise RuntimeError("Must specify either output slices or models to merge")
 
 
 class ConfigReader(BaseModel):
@@ -96,7 +106,7 @@ class ConfigReader(BaseModel):
         return None
 
     def parameter(
-        self, name: str, model: Optional[ModelReference] = None, default: Any = None
+        self, name: str, model: Optional[ModelReference] = None, default: Any = None, required: bool = False,
     ) -> Any:
         if model and self.slices_in:
             for s in self.slices_in:
@@ -130,4 +140,7 @@ class ConfigReader(BaseModel):
                 self.t,
             )
 
+        if required:
+            suffix = f" for {str(model)}.{self.tensor_name}" if model else ""
+            raise RuntimeError(f"Missing required parameter {name}{suffix}")
         return default

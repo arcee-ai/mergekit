@@ -13,23 +13,40 @@ from merge_methods import MergeMethod
 
 
 def plan(
-    config: MergeConfiguration, arch_info: ModelArchitectureInfo
+    merge_config: MergeConfiguration, arch_info: ModelArchitectureInfo
 ) -> Tuple[List[TensorReference], Dict[TensorReference, Operation]]:
     layer_idx = 0
 
     targets = []
     rules = {}
 
-    method = merge_methods.get(config.merge_method)
+    method = merge_methods.get(merge_config.merge_method)
 
     for weight_name in arch_info.pre_weights:
-        tr, op = make_operation(config, weight_name, config.slices[0].sources, t=0)
+        tr, op = make_operation(
+            merge_config, weight_name, merge_config.slices[0].sources, t=0
+        )
         targets.append(tr)
         rules[tr] = op
 
-    for section in config.slices:
+    # if models to merge are specified instead of output slices, compute them
+    if merge_config.models:
+        if merge_config.slices:
+            raise RuntimeError("Must specify either models to merge or output slices")
+
+        merge_config.slices = []
+        slices_in = []
+        for model_in in merge_config.models:
+            model_cfg = ModelReference.parse(model_in.model).config()
+            num_layers = getattr(model_cfg, arch_info.config_num_layers_key)
+            slices_in.append(
+                InputSliceDefinition(layer_range=[0, num_layers], **model_in)
+            )
+        del merge_config.models
+
+    for section in merge_config.slices:
         (new_targets, new_rules, new_layers) = plan_slice(
-            config, section, arch_info, layer_idx, method
+            merge_config, section, arch_info, layer_idx, method
         )
 
         targets.extend(new_targets)
@@ -37,7 +54,9 @@ def plan(
         layer_idx += new_layers
 
     for weight_name in arch_info.post_weights:
-        tr, op = make_operation(config, weight_name, config.slices[-1].sources, t=1)
+        tr, op = make_operation(
+            merge_config, weight_name, merge_config.slices[-1].sources, t=1
+        )
         targets.append(tr)
         rules[tr] = op
 

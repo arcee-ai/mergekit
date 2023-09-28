@@ -8,9 +8,9 @@ merge_method: slerp
 base_model: psmathur/orca_mini_v3_13b
 parameters:
   t:
-    - pattern: self_attn
+    - filter: self_attn
       value: [0, 0.5, 0.3, 0.7, 1]
-    - pattern: mlp
+    - filter: mlp
       value: [1, 0.5, 0.7, 0.3, 0]
-    - value: 0.5
+    - value: 0.5 # fallback for rest of tensors
 dtype: float16

@@ -7,13 +7,6 @@ from .slerp import SlerpMerge
 from .ties import TiesMerge
 
 
-class MergeMethodEnum(str, Enum):
-    ties = "ties"
-    linear = "linear"
-    slerp = "slerp"
-    passthrough = "passthrough"
-
-
 def get(method: str) -> MergeMethod:
     if method == "ties":
         return TiesMerge()
