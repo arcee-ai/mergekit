@@ -27,7 +27,6 @@ def plan(
         if merge_config.slices:
             raise RuntimeError("Must specify either models to merge or output slices")
 
-        merge_config.slices = []
         slices_in = []
         for model_in in merge_config.models:
             model_cfg = ModelReference.parse(model_in.model).config()
@@ -39,6 +38,8 @@ def plan(
                     parameters=model_in.parameters,
                 )
             )
+
+        merge_config.slices = [OutputSliceDefinition(sources=slices_in)]
         del merge_config.models
 
     for weight_name in arch_info.pre_weights:
