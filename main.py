@@ -9,7 +9,7 @@ from typing_extensions import Annotated
 import common
 import merge_methods
 from config import MergeConfiguration, OutputSliceDefinition
-from common import LLAMA_INFO, ModelReference
+from common import LLAMA_INFO, ModelReference, get_architecture_info
 from graph import Executor, RuleSet
 from plan import plan
 
@@ -32,12 +32,14 @@ def main(
     copy_tokenizer: Annotated[
         bool, typer.Option(help="Copy a tokenizer to the output")
     ] = True,
+    allow_crimes: Annotated[
+        bool, typer.Option(help="Allow mixing architectures")
+    ] = False,
 ):
     with open(config_file, "r", encoding="utf-8") as file:
         data = yaml.load(file, yaml.SafeLoader)
 
-    merge_config = MergeConfiguration.parse_obj(data)
-    (targets, static_rules) = plan(merge_config, LLAMA_INFO)
+    merge_config: MergeConfiguration = MergeConfiguration.model_validate(data)
 
     dtype: Optional[torch.dtype] = {
         None: None,
@@ -50,6 +52,17 @@ def main(
         raise RuntimeError("No output requested")
 
     method = merge_methods.get(merge_config.merge_method)
+    model_arch_info = [
+        get_architecture_info(m.config()) for m in merge_config.referenced_models()
+    ]
+    if not allow_crimes:
+        if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
+            raise RuntimeError(
+                "Must specify --allow-crimes to mix different architectures"
+            )
+    arch_info = model_arch_info[0]
+
+    (targets, static_rules) = plan(merge_config, arch_info)
 
     rules = RuleSet(static_rules)
     exec = Executor(
