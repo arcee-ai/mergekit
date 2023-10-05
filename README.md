@@ -28,7 +28,7 @@ The parameters can be set at different levels, with decreasing precedence as fol
 
 1. `slices.*.sources.parameters` - applying to a specific input slice
 2. `slices.*.parameters` - applying to a specific output slice
-3. `model_parameters` - applying to any tensors coming from specific input models
+3. `input_model_parameters` - applying to any tensors coming from specific input models
 4. `parameters` - catchall
 
 
