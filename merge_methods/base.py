@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Sequence
 
 import torch
-from transformers import PretrainedConfig, PreTrainedTokenizerBase, AutoTokenizer
+from transformers import AutoTokenizer, PretrainedConfig, PreTrainedTokenizerBase
 
 from common import ModelReference
 from config import ConfigReader, MergeConfiguration

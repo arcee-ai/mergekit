@@ -40,7 +40,7 @@ def plan(
             )
 
         merge_config.slices = [OutputSliceDefinition(sources=slices_in)]
-        del merge_config.models
+        merge_config.models = None
 
     for weight_name in arch_info.pre_weights:
         tr, op = make_operation(

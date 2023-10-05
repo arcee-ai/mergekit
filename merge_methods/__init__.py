@@ -1,5 +1,3 @@
-from enum import Enum
-
 from .base import MergeMethod
 from .linear import LinearMerge
 from .passthrough import PassthroughMerge

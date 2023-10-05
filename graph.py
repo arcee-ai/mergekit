@@ -183,8 +183,8 @@ class Executor:
         self.rules = rules
         self.gpu_shard_buffer = gpu_shard_buffer
 
-    def run(self, out_path: str):
-        writer = TensorWriter(out_path)
+    def run(self, out_path: str, max_shard_size: int):
+        writer = TensorWriter(out_path, max_shard_size=max_shard_size)
         for ref, tensor in tqdm.tqdm(self.generate_tensors(), total=len(self.targets)):
             if not self.gpu_shard_buffer:
                 tensor = tensor.cpu()
