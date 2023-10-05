@@ -42,6 +42,8 @@ def evaluate_setting(
                 ):
                     res = evaluate_setting(tensor_name, cond.value, t)
                     return res
+    else:
+        raise RuntimeError(f"Unexpected setting value: {setting}")
     return None
 
 
@@ -67,15 +69,15 @@ class MergeConfiguration(BaseModel):
     merge_method: str
     slices: Optional[List[OutputSliceDefinition]] = None
     models: Optional[List[InputModelDefinition]] = None
-    model_parameters: Dict[str, Dict[str, ParameterSetting]] = None
+    input_model_parameters: Dict[str, Dict[str, ParameterSetting]] = None
     parameters: Optional[Dict[str, ParameterSetting]] = None
     base_model: Optional[str] = None
     dtype: Optional[str] = None
 
     def referenced_models(self) -> List[ModelReference]:
         models = set()
-        if self.model_parameters:
-            for key in self.model_parameters:
+        if self.input_model_parameters:
+            for key in self.input_model_parameters:
                 models.add(ModelReference.parse(key))
         for s in self.slices:
             for src in s.sources:
@@ -106,41 +108,57 @@ class ConfigReader(BaseModel):
         return None
 
     def parameter(
-        self, name: str, model: Optional[ModelReference] = None, default: Any = None, required: bool = False,
+        self,
+        name: str,
+        model: Optional[ModelReference] = None,
+        default: Any = None,
+        required: bool = False,
     ) -> Any:
         if model and self.slices_in:
             for s in self.slices_in:
                 if s.model == str(model) and s.parameters and name in s.parameters:
-                    return evaluate_setting(
+                    value = evaluate_setting(
                         self.tensor_name, s.parameters[name], self.t
                     )
+                    if value is not None:
+                        return value
 
         if self.slice_out:
             if self.slice_out.parameters and name in self.slice_out.parameters:
-                return evaluate_setting(
+                value = evaluate_setting(
                     self.tensor_name, self.slice_out.parameters[name], self.t
                 )
+                if value is not None:
+                    return value
 
         if (
-            self.config.model_parameters
+            self.config.input_model_parameters
             and model
-            and str(model) in self.config.model_parameters
+            and str(model) in self.config.input_model_parameters
         ):
-            if name in self.config.model_parameters[self.slice_in.model]:
-                return evaluate_setting(
+            if name in self.config.input_model_parameters[self.slice_in.model]:
+                value = evaluate_setting(
                     self.tensor_name,
-                    self.config.model_parameters[str(model)][name],
+                    self.config.input_model_parameters[str(model)][name],
                     self.t,
                 )
+                if value is not None:
+                    return value
 
         if self.config.parameters and name in self.config.parameters:
-            return evaluate_setting(
+            value = evaluate_setting(
                 self.tensor_name,
                 self.config.parameters[name],
                 self.t,
             )
+            if value is not None:
+                return value
 
         if required:
-            suffix = f" for {str(model)}.{self.tensor_name}" if model else ""
+            suffix = (
+                f" for {str(model)}.{self.tensor_name}"
+                if model
+                else f" for {self.tensor_name}"
+            )
             raise RuntimeError(f"Missing required parameter {name}{suffix}")
         return default

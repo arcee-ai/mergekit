@@ -8,3 +8,5 @@ peft==0.5.0
 accelerate==0.22.0
 pydantic==2.3.0
 typing-extensions
+sentencepiece
+protobuf
