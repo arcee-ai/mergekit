@@ -129,11 +129,15 @@ class LazyTensorLoader:
     def __init__(self, index: ShardedTensorIndex):
         self.index = index
         self.current_shard = None
+        self.current_keys = None
 
     def get_tensor(self, key: str, device: str = "cpu") -> Optional[Tensor]:
         if self.current_shard is None or key not in self.current_keys:
             if key not in self.index.tensor_paths:
                 raise KeyError(key)
+
+            self.current_shard = None
+            self.current_keys = None
 
             shard_file = self.index.tensor_paths[key]
             logging.warning(f"loading {self.index.base_path}/{shard_file}")

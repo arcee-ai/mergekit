@@ -142,67 +142,6 @@ def gradient_weights(gradient: List[float], num_samples: int) -> List[float]:
     return res
 
 
-class ModelArchitectureInfo(BaseModel):
-    name: str
-
-    pre_weights: List[str]  # weights applied before first layer
-    post_weights: List[str]  # weights applied after last layer
-    layer_prefix_format: str
-    layer_weights: List[str]
-    layer_input_weights: List[str]
-    layer_output_weights: List[str]
-
-    config_num_layers_key: str
-    config_hidden_size_key: str
-
-    class Config:
-        frozen = True
-
-
-LLAMA_INFO = ModelArchitectureInfo(
-    name="LlamaForCausalLM",
-    pre_weights=["model.embed_tokens.weight"],
-    post_weights=["model.norm.weight", "lm_head.weight"],
-    layer_prefix_format="model.layers.{idx}",
-    layer_weights=[
-        "input_layernorm.weight",
-        "mlp.up_proj.weight",
-        "mlp.down_proj.weight",
-        "mlp.gate_proj.weight",
-        "post_attention_layernorm.weight",
-        "self_attn.q_proj.weight",
-        "self_attn.k_proj.weight",
-        "self_attn.v_proj.weight",
-        "self_attn.o_proj.weight",
-    ],
-    layer_input_weights=[
-        "self_attn.q_proj.weight",
-        "self_attn.k_proj.weight",
-        "self_attn.v_proj.weight",
-        "mlp.up_proj.weight",
-        "mlp.gate_proj.weight",
-    ],
-    layer_output_weights=["self_attn.o_proj.weight", "mlp.down_proj.weight"],
-    config_num_layers_key="num_hidden_layers",
-    config_hidden_size_key="hidden_size",
-)
-
-MISTRAL_INFO = ModelArchitectureInfo(
-    name="MistralForCausalLM", **LLAMA_INFO.model_dump(exclude="name")
-)
-
-
-def get_architecture_info(config: PretrainedConfig) -> ModelArchitectureInfo:
-    if len(config.architectures) != 1 or config.architectures[0] not in (
-        "MistralForCausalLM",
-        "LlamaForCausalLM",
-    ):
-        raise RuntimeError("Only Llama and Mistral models are supported currently")
-    if config.architectures[0] == "MistralForCausalLM":
-        return MISTRAL_INFO
-    return LLAMA_INFO
-
-
 def parse_kmb(value: Union[str, int]) -> int:
     if isinstance(value, int):
         return value
