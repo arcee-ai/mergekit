@@ -1,7 +1,7 @@
 import logging
 import os
 import os.path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import huggingface_hub
 import numpy as np
@@ -188,7 +188,7 @@ LLAMA_INFO = ModelArchitectureInfo(
 )
 
 MISTRAL_INFO = ModelArchitectureInfo(
-    name="MistralForCausalLM", **LLAMA_INFO.dict(exclude="name")
+    name="MistralForCausalLM", **LLAMA_INFO.model_dump(exclude="name")
 )
 
 
@@ -201,3 +201,18 @@ def get_architecture_info(config: PretrainedConfig) -> ModelArchitectureInfo:
     if config.architectures[0] == "MistralForCausalLM":
         return MISTRAL_INFO
     return LLAMA_INFO
+
+
+def parse_kmb(value: Union[str, int]) -> int:
+    if isinstance(value, int):
+        return value
+    elif value.isnumeric():
+        return int(value)
+    elif value[-1].lower() == "k":
+        return int(value[:-1]) * 1000
+    elif value[-1].lower() == "m":
+        return int(value[:-1]) * 1000 * 1000
+    elif value[-1].lower() == "b":
+        return int(value[:-1]) * 1000 * 1000 * 1000
+    else:
+        raise ValueError(value)

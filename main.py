@@ -9,7 +9,7 @@ from typing_extensions import Annotated
 import common
 import merge_methods
 from config import MergeConfiguration, OutputSliceDefinition
-from common import LLAMA_INFO, ModelReference, get_architecture_info
+from common import LLAMA_INFO, ModelReference, get_architecture_info, parse_kmb
 from graph import Executor, RuleSet
 from plan import plan
 
@@ -18,7 +18,8 @@ def main(
     config_file: Annotated[str, typer.Argument(help="YAML configuration file")],
     out_path: Annotated[str, typer.Argument(help="Path to write result model")],
     lora_merge_cache: Annotated[
-        Optional[str], typer.Option(help="Path to store merged LORA models")
+        Optional[str],
+        typer.Option(help="Path to store merged LORA models", metavar="PATH"),
     ] = None,
     cuda: Annotated[
         bool, typer.Option(help="Perform matrix arithmetic on GPU")
@@ -35,6 +36,15 @@ def main(
     allow_crimes: Annotated[
         bool, typer.Option(help="Allow mixing architectures")
     ] = False,
+    out_shard_size: Annotated[
+        Optional[int],
+        typer.Option(
+            help="Number of parameters per output shard  [default: 5B]",
+            parser=parse_kmb,
+            show_default=False,
+            metavar="NUM",
+        ),
+    ] = parse_kmb("5B"),
 ):
     with open(config_file, "r", encoding="utf-8") as file:
         data = yaml.load(file, yaml.SafeLoader)
@@ -75,7 +85,7 @@ def main(
         cuda=cuda,
         gpu_shard_buffer=gpu_shard_buffer,
     )
-    exec.run(out_path)
+    exec.run(out_path, max_shard_size=out_shard_size)
 
     method.model_out_config(merge_config).save_pretrained(out_path)
     if copy_tokenizer:
