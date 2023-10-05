@@ -79,9 +79,13 @@ class MergeConfiguration(BaseModel):
         if self.input_model_parameters:
             for key in self.input_model_parameters:
                 models.add(ModelReference.parse(key))
-        for s in self.slices:
-            for src in s.sources:
-                models.add(ModelReference.parse(src.model))
+        if self.models:
+            for model_in in self.models:
+                models.add(ModelReference.parse(model_in.model))
+        if self.slices:
+            for s in self.slices:
+                for src in s.sources:
+                    models.add(ModelReference.parse(src.model))
         return list(models)
 
     def validate(self):

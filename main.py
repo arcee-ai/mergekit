@@ -6,10 +6,9 @@ import typer
 import yaml
 from typing_extensions import Annotated
 
-import common
 import merge_methods
-from config import MergeConfiguration, OutputSliceDefinition
-from common import LLAMA_INFO, ModelReference, get_architecture_info, parse_kmb
+from common import get_architecture_info, parse_kmb
+from config import MergeConfiguration
 from graph import Executor, RuleSet
 from plan import plan
 
@@ -58,7 +57,7 @@ def main(
         "float32": torch.float32,
     }[merge_config.dtype]
 
-    if not merge_config.slices:
+    if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
     method = merge_methods.get(merge_config.merge_method)

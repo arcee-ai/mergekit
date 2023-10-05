@@ -10,9 +10,9 @@ from merge_methods.base import MergeMethod
 class PassthroughMerge(MergeMethod):
     def __call__(
         self,
-        _parameter_name: str,
+        parameter_name: str,
         input_tensors: Dict[TensorReference, torch.Tensor],
-        _config: ConfigReader,
+        config: ConfigReader,
         **_kwargs,
     ) -> torch.Tensor:
         if len(input_tensors) != 1:
