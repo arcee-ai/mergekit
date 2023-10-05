@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import os
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 import networkx
@@ -137,6 +138,11 @@ class OperationProtocol(Protocol):
         ...
 
 
+def normalized_shard_name(path: str) -> int:
+    name, ext = os.path.splitext(os.path.basename(path))
+    return name.lower().replace("pytorch_model", "model")
+
+
 class Executor:
     rules: RuleSet
     loaders: Dict[ModelReference, LazyTensorLoader]
@@ -149,10 +155,14 @@ class Executor:
             return (c.path, None)
 
         if c.model:
-            shard_path = self.loaders[c.model].index.tensor_paths[c.key]
+            shard_key = normalized_shard_name(
+                self.loaders[c.model].index.tensor_paths[c.key]
+            )
         else:
-            shard_path = ""
-        return (shard_path, c.key)
+            shard_key = ""
+
+        out_key = "" if c in self.targets else "input"
+        return (out_key, shard_key, c.key)
 
     def __init__(
         self,
