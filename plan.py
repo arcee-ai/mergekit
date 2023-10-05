@@ -1,7 +1,8 @@
 from typing import Dict, List, Optional, Tuple
 
 import merge_methods
-from common import ModelArchitectureInfo, ModelReference
+from architecture import ArchitectureInfo
+from common import ModelReference
 from config import (
     ConfigReader,
     InputSliceDefinition,
@@ -13,7 +14,7 @@ from merge_methods import MergeMethod
 
 
 def plan(
-    merge_config: MergeConfiguration, arch_info: ModelArchitectureInfo
+    merge_config: MergeConfiguration, arch_info: ArchitectureInfo
 ) -> Tuple[List[TensorReference], Dict[TensorReference, Operation]]:
     layer_idx = 0
 
@@ -30,7 +31,7 @@ def plan(
         slices_in = []
         for model_in in merge_config.models:
             model_cfg = ModelReference.parse(model_in.model).config()
-            num_layers = getattr(model_cfg, arch_info.config_num_layers_key)
+            num_layers = arch_info.num_layers(model_cfg)
             slices_in.append(
                 InputSliceDefinition(
                     layer_range=[0, num_layers],
@@ -42,7 +43,7 @@ def plan(
         merge_config.slices = [OutputSliceDefinition(sources=slices_in)]
         merge_config.models = None
 
-    for weight_name in arch_info.pre_weights:
+    for weight_name in arch_info.pre_weights():
         tr, op = make_operation(
             merge_config, weight_name, merge_config.slices[0].sources, t=0
         )
@@ -58,7 +59,7 @@ def plan(
         rules.update(new_rules)
         layer_idx += new_layers
 
-    for weight_name in arch_info.post_weights:
+    for weight_name in arch_info.post_weights():
         tr, op = make_operation(
             merge_config, weight_name, merge_config.slices[-1].sources, t=1
         )
@@ -108,7 +109,7 @@ def make_operation(
 def plan_slice(
     config: MergeConfiguration,
     definition: OutputSliceDefinition,
-    arch_info: ModelArchitectureInfo,
+    arch_info: ArchitectureInfo,
     layer_base: int,
     method: MergeMethod,
 ) -> Tuple[List[TensorReference], Dict[TensorReference, Operation], int]:
@@ -139,7 +140,7 @@ def plan_slice(
 def plan_layer(
     config: MergeConfiguration,
     definition: OutputSliceDefinition,
-    arch_info: ModelArchitectureInfo,
+    arch_info: ArchitectureInfo,
     layer_base: int,
     slice_indices: List[List[int]],
     method: MergeMethod,
@@ -156,14 +157,10 @@ def plan_layer(
             method.input_layer_dependencies(source_model, source_layer_idx)
         )
 
-    for suffix in arch_info.layer_weights:
-        name_out = (
-            arch_info.layer_prefix_format.format(idx=layer_base + idx) + "." + suffix
-        )
+    for name_format in arch_info.layer_weight_formats():
+        name_out = name_format.format(idx=layer_base + idx)
         names_in = [
-            arch_info.layer_prefix_format.format(idx=slice_indices[si][idx])
-            + "."
-            + suffix
+            name_format.format(idx=slice_indices[si][idx])
             for (si, _) in enumerate(definition.sources)
         ]
 

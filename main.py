@@ -7,7 +7,8 @@ import yaml
 from typing_extensions import Annotated
 
 import merge_methods
-from common import get_architecture_info, parse_kmb
+from architecture import get_architecture_info
+from common import parse_kmb
 from config import MergeConfiguration
 from graph import Executor, RuleSet
 from plan import plan
@@ -23,10 +24,10 @@ def main(
     cuda: Annotated[
         bool, typer.Option(help="Perform matrix arithmetic on GPU")
     ] = False,
-    gpu_shard_buffer: Annotated[
+    low_cpu_memory: Annotated[
         bool,
         typer.Option(
-            help="Store results on GPU until shard is written. Useful if VRAM > RAM"
+            help="Store results and intermediate values on GPU. Useful if VRAM > RAM"
         ),
     ] = False,
     copy_tokenizer: Annotated[
@@ -82,7 +83,7 @@ def main(
         cache_dir=lora_merge_cache,
         dtype=dtype,
         cuda=cuda,
-        gpu_shard_buffer=gpu_shard_buffer,
+        low_cpu_memory=low_cpu_memory,
     )
     exec.run(out_path, max_shard_size=out_shard_size)
 
