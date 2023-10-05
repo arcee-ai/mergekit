@@ -143,6 +143,8 @@ def gradient_weights(gradient: List[float], num_samples: int) -> List[float]:
 
 
 class ModelArchitectureInfo(BaseModel):
+    name: str
+
     pre_weights: List[str]  # weights applied before first layer
     post_weights: List[str]  # weights applied after last layer
     layer_prefix_format: str
@@ -158,6 +160,7 @@ class ModelArchitectureInfo(BaseModel):
 
 
 LLAMA_INFO = ModelArchitectureInfo(
+    name="LlamaForCausalLM",
     pre_weights=["model.embed_tokens.weight"],
     post_weights=["model.norm.weight", "lm_head.weight"],
     layer_prefix_format="model.layers.{idx}",
@@ -183,3 +186,18 @@ LLAMA_INFO = ModelArchitectureInfo(
     config_num_layers_key="num_hidden_layers",
     config_hidden_size_key="hidden_size",
 )
+
+MISTRAL_INFO = ModelArchitectureInfo(
+    name="MistralForCausalLM", **LLAMA_INFO.dict(exclude="name")
+)
+
+
+def get_architecture_info(config: PretrainedConfig) -> ModelArchitectureInfo:
+    if len(config.architectures) != 1 or config.architectures[0] not in (
+        "MistralForCausalLM",
+        "LlamaForCausalLM",
+    ):
+        raise RuntimeError("Only Llama and Mistral models are supported currently")
+    if config.architectures[0] == "MistralForCausalLM":
+        return MISTRAL_INFO
+    return LLAMA_INFO
