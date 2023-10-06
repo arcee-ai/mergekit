@@ -1,12 +1,27 @@
+# Copyright (C) 2023 Charles O. Goddard
+#
+# This software is free software: you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This software is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program. If not, see http://www.gnu.org/licenses/.
+
 from abc import ABC, abstractmethod
 from typing import Dict, Sequence
 
 import torch
 from transformers import AutoTokenizer, PretrainedConfig, PreTrainedTokenizerBase
 
-from common import ModelReference
-from config import ConfigReader, MergeConfiguration
-from graph import RuleSet, TensorReference
+from mergekit.common import ModelReference
+from mergekit.config import ConfigReader, MergeConfiguration
+from mergekit.graph import RuleSet, TensorReference
 
 
 class MergeMethod(ABC):

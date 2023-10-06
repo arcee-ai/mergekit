@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mergekit"
+description = "Tools for merging pre-trained large language models"
+license = "LGPL-3.0-or-later"
+version = "0.0.1"
+authors = [
+    {name = "Charles Goddard", email = "chargoddard@gmail.com"},
+]
+dependencies = [
+    "torch>=2.0.0",
+    "tqdm==4.66.1",
+    "typer==0.9.0",
+    "safetensors==0.3.3",
+    "accelerate==0.23.0",
+    "pydantic==2.4.0",
+    "transformers",
+    "huggingface_hub",
+    "peft",
+    "typing-extensions",
+    "sentencepiece",
+    "protobuf",
+]
+
+
+[project.scripts]
+mergekit-yaml = "mergekit.scripts.run_yaml:_main"
+mergekit-legacy = "mergekit.scripts.legacy:_main"
+bakllama = "mergekit.scripts.bakllama:_main"
+
+[tool.setuptools]
+packages = ["mergekit"]

@@ -1,3 +1,18 @@
+# Copyright (C) 2023 Charles O. Goddard
+#
+# This software is free software: you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This software is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program. If not, see http://www.gnu.org/licenses/.
+
 """
 Computational graph execution for tensor operations
 
@@ -21,8 +36,8 @@ import tqdm
 from pydantic import BaseModel
 from typing_extensions import Protocol
 
-from common import ModelReference
-from lazy_tensors import LazyTensorLoader, TensorWriter
+from mergekit.common import ModelReference
+from mergekit.lazy_tensors import LazyTensorLoader, TensorWriter
 
 
 class TensorReference(BaseModel):
@@ -213,7 +228,7 @@ class Executor:
         self.cuda = cuda
         self.low_cpu_memory = low_cpu_memory
 
-    def run(self, out_path: str, max_shard_size: int):
+    def run(self, out_path: str, max_shard_size: int, clone_tensors: bool = False):
         """
         Execute the computation graph and save results to disk.
 
@@ -229,7 +244,7 @@ class Executor:
             if not self.low_cpu_memory:
                 tensor = tensor.cpu()
 
-            writer.save_tensor(ref.key, tensor)
+            writer.save_tensor(ref.key, tensor, clone=clone_tensors)
         writer.finalize()
 
     def generate_tensors(self) -> Iterator[Tuple[TensorReference, torch.Tensor]]:

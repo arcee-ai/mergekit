@@ -2,7 +2,9 @@
 
 `mergekit` is a toolkit for merging pre-trained language models, using a variety of merge methods including TIES, linear, and slerp merging. The toolkit also enables piecewise assembly of a language model from layers.
 
-This branch features a new unified merge script that takes a YAML configuration file defining the operations to perform.
+Run `pip install -e .` to install the package and make the scripts available.
+
+The script `mergekit-yaml` takes a YAML configuration file defining the operations to perform.
 
 ## Configuration
 
@@ -105,8 +107,21 @@ Requires exactly two models, one of which must be the base model. Takes one para
 
 #### Usage
 
-Once you have created the YAML configuration file, run `main.py` with the config file and output path as arguments:
+Once you have created the YAML configuration file, run `mergekit-yaml` with the config file and output path as arguments:
 
 ```sh
-python main.py path/to/your/config.yml ./output-model-directory [--cuda]
+mergekit-yaml path/to/your/config.yml ./output-model-directory [--cuda]
 ```
+
+## Legacy Wrappers
+
+Mergekit originally featured two separate scripts with different inputs. The functionality of these is maintained in the `mergekit-legacy` and `bakllama` wrappers. Example usage:
+
+```sh
+mergekit-legacy ./output-model --base-model TheBloke/Llama-2-13B-fp16 --cuda \
+    --merge WizardLM/WizardLM-13B-V1.2 --weight 0.3 --density 0.5 \
+    --merge garage-bAInd/Platypus2-13B --weight 0.5 --density 0.5
+```
+
+`mergekit-legacy` can output a YAML configuration for easy migration with the `--print-yaml` option.
+
