@@ -140,7 +140,7 @@ class LazyTensorLoader:
             self.current_keys = None
 
             shard_file = self.index.tensor_paths[key]
-            logging.warning(f"loading {self.index.base_path}/{shard_file}")
+            logging.info(f"loading {self.index.base_path}/{shard_file}")
             if shard_file.lower().endswith(".safetensors"):
                 self.current_shard = safetensors.safe_open(
                     os.path.join(self.index.base_path, shard_file),
@@ -205,7 +205,7 @@ class TensorWriter:
         if not self.current_shard:
             return
 
-        logging.warning("writing shard to disk")
+        logging.info("writing shard to disk")
 
         shard_name = f"model-{self.shards_written+1}.safetensors"
         for key in self.current_shard:
