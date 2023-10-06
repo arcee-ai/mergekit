@@ -45,7 +45,10 @@ def main(
             metavar="NUM",
         ),
     ] = parse_kmb("5B"),
+    verbose: Annotated[bool, typer.Option("-v")] = False,
 ):
+    logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
+
     with open(config_file, "r", encoding="utf-8") as file:
         data = yaml.load(file, yaml.SafeLoader)
 
@@ -101,5 +104,4 @@ def main(
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     typer.run(main)
