@@ -246,9 +246,6 @@ class Executor:
 
             writer.save_tensor(ref.key, tensor, clone=clone_tensors)
 
-        # invalid identifier to avoid conflict
-        writer.save_tensor("!mergekit.version", torch.Tensor([0, 0, 2]).int())
-
         writer.finalize()
 
     def generate_tensors(self) -> Iterator[Tuple[TensorReference, torch.Tensor]]:
