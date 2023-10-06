@@ -259,4 +259,10 @@ class TensorWriter:
             "w",
             encoding="utf-8",
         ) as file:
-            json.dump({"metadata": {}, "weight_map": self.weight_map}, file)
+            json.dump(
+                {
+                    "metadata": {"mergekit_version": "0.0.2.1"},
+                    "weight_map": self.weight_map,
+                },
+                file,
+            )
