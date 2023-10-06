@@ -3,7 +3,7 @@ models:
     # no parameters necessary for base model
   - model: psmathur/orca_mini_v3_13b
     parameters:
-      density: [1, 0.7, 0] # density gradient
+      density: [1, 0.7, 0.1] # density gradient
       weight: 1.0
   - model: garage-bAInd/Platypus2-13B
     parameters:
