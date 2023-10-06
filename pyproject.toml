@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mergekit"
 description = "Tools for merging pre-trained large language models"
 license = {text = "LGPL-3.0-or-later"}
-version = "0.0.1"
+version = "0.0.2"
 authors = [
     {name = "Charles Goddard", email = "chargoddard@gmail.com"},
 ]
