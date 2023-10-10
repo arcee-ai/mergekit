@@ -75,7 +75,7 @@ def main(
     """Wrapper for using a subset of legacy-style script arguments."""
     models = [InputModelDefinition(model=model, parameters={}) for model in merge]
     if base_model and base_model not in merge:
-        models.append(InputModelDefinition(model=base_model))
+        models.append(InputModelDefinition(model=base_model, parameters={}))
 
     parameters = {}
 
