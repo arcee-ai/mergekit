@@ -124,6 +124,31 @@ GPT_NEOX_INFO = StaticTensorNames(
     + ["attention.bias", "attention.masked_bias", "attention.rotary_emb.inv_freq"],
 )
 
+GPT2_INFO = StaticTensorNames(
+    name="GPT2LMHeadModel",
+    pre_weight_names=["wte.weight", "wpe.weight"],
+    post_weight_names=["ln_f.weight", "ln_f.bias"],
+    layer_prefix_format="h.{idx}",
+    layer_weight_suffixes=[
+        "attn.c_attn.weight",
+        "attn.c_attn.bias",
+        "attn.c_proj.weight",
+        "attn.c_proj.bias",
+        "ln_1.weight",
+        "ln_1.bias",
+        "ln_2.weight",
+        "ln_2.bias",
+        "mlp.c_proj.weight",
+        "mlp.c_proj.bias",
+        "mlp.c_fc.weight",
+        "mlp.c_fc.bias",
+        "mlp.c_proj.weight",
+        "mlp.c_proj.bias",
+    ],
+    num_layers_key="n_layer",
+)
+
+
 QWEN_INFO = StaticTensorNames(
     name="QWenLMHeadModel",
     pre_weight_names=["transformer.wte.weight"],
@@ -191,7 +216,13 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
     if arch_name == PhiTensorNames.architecture_name:
         return PhiTensorNames(config)
 
-    supported = [LLAMA_INFO, MISTRAL_INFO, GPT_NEOX_INFO, QWEN_INFO]
+    supported = [
+        LLAMA_INFO,
+        MISTRAL_INFO,
+        GPT_NEOX_INFO,
+        QWEN_INFO,
+        GPT2_INFO,
+    ]
     for arch in supported:
         if arch.name == arch_name:
             return arch
