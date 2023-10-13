@@ -79,7 +79,21 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         clone_tensors=options.clone_tensors,
     )
 
-    method.model_out_config(merge_config).save_pretrained(out_path)
+    cfg_out = method.model_out_config(merge_config)
+
+    try:
+        num_layers = sum(
+            s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+            for s in merge_config.slices
+        )
+        setattr(cfg_out, arch_info.num_layers_config_key(), num_layers)
+    except Exception as e:
+        logging.warning(
+            "Unable to set number of layers in output config - you may need to manually correct it.",
+            exc_info=e,
+        )
+    cfg_out.save_pretrained(out_path)
+
     if options.copy_tokenizer:
         try:
             method.model_tokenizer(merge_config).save_pretrained(

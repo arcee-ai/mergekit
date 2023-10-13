@@ -14,7 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel
 from transformers import PretrainedConfig
@@ -39,6 +39,10 @@ class ArchitectureInfo(ABC):
     def num_layers(self, config: PretrainedConfig) -> int:
         return config.num_hidden_layers
 
+    def num_layers_config_key(self) -> str:
+        """Key in config that represents number of layers"""
+        return "num_hidden_layers"
+
 
 class StaticTensorNames(BaseModel, ArchitectureInfo):
     name: str
@@ -47,6 +51,7 @@ class StaticTensorNames(BaseModel, ArchitectureInfo):
     post_weight_names: List[str]  # weights applied after last layer
     layer_prefix_format: str
     layer_weight_suffixes: List[str]
+    num_layers_key: Optional[str] = None
 
     class Config:
         frozen = True
@@ -62,6 +67,11 @@ class StaticTensorNames(BaseModel, ArchitectureInfo):
         for suffix in self.layer_weight_suffixes:
             res.append(self.layer_prefix_format + "." + suffix)
         return res
+
+    def num_layers_config_key(self) -> str:
+        if self.num_layers_key:
+            return self.num_layers_key
+        return super().num_layers_config_key()
 
 
 LLAMA_INFO = StaticTensorNames(
@@ -168,6 +178,9 @@ class PhiTensorNames(ArchitectureInfo):
 
     def num_layers(self, config: PretrainedConfig) -> int:
         return config.n_layer
+
+    def num_layers_config_key(self) -> str:
+        return "n_layer"
 
 
 def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
