@@ -18,6 +18,7 @@ from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.slerp import SlerpMerge
 from mergekit.merge_methods.ties import TiesMerge
+from mergekit.merge_methods.taskarithmetic import TaskArithmeticMerge
 
 
 def get(method: str) -> MergeMethod:
@@ -29,6 +30,8 @@ def get(method: str) -> MergeMethod:
         return SlerpMerge()
     elif method == "passthrough":
         return PassthroughMerge()
+    elif method == "task_arithmetic":
+        return TaskArithmeticMerge()
     raise RuntimeError(f"Unimplemented merge method {method}")
 
 
@@ -39,4 +42,5 @@ __all__ = [
     "TiesMerge",
     "SlerpMerge",
     "PassthroughMerge",
+    "TaskArithmeticMerge",
 ]
