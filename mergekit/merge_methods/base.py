@@ -59,5 +59,6 @@ class MergeMethod(ABC):
         """Return a tokenizer appropriate for the resulting model."""
         if config.base_model:
             path = ModelReference.parse(config.base_model).path
-        path = config.referenced_models()[0].path
+        else:
+            path = config.referenced_models()[0].path
         return AutoTokenizer.from_pretrained(path)
