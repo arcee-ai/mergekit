@@ -91,6 +91,8 @@ class MergeConfiguration(BaseModel):
 
     def referenced_models(self) -> List[ModelReference]:
         models = set()
+        if self.base_model:
+            models.add(ModelReference.parse(self.base_model))
         if self.input_model_parameters:
             for key in self.input_model_parameters:
                 models.add(ModelReference.parse(key))
