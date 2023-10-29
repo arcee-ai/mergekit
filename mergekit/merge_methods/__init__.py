@@ -17,8 +17,8 @@ from mergekit.merge_methods.base import MergeMethod
 from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.slerp import SlerpMerge
-from mergekit.merge_methods.ties import TiesMerge
 from mergekit.merge_methods.taskarithmetic import TaskArithmeticMerge
+from mergekit.merge_methods.ties import TiesMerge
 
 
 def get(method: str) -> MergeMethod:

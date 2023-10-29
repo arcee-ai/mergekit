@@ -206,14 +206,22 @@ class Executor:
         targets: List[TensorReference],
         rules: RuleSet,
         operations: Optional[Dict[str, OperationProtocol]] = None,
-        cache_dir: Optional[str] = None,
+        transformers_cache_dir: Optional[str] = None,
+        lora_cache_dir: Optional[str] = None,
         dtype: Optional[str] = None,
         cuda: bool = False,
         low_cpu_memory: bool = False,
     ):
+        if lora_cache_dir is None and transformers_cache_dir is not None:
+            lora_cache_dir = transformers_cache_dir
+
         self.targets = targets
         self.loaders = {
-            ref: LazyTensorLoader(ref.tensor_index(cache_dir=cache_dir))
+            ref: LazyTensorLoader(
+                ref.merged(cache_dir=lora_cache_dir).tensor_index(
+                    cache_dir=transformers_cache_dir
+                )
+            )
             for ref in models
         }
         for model, loader in self.loaders.items():

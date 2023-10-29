@@ -29,6 +29,7 @@ from mergekit.plan import plan
 
 class MergeOptions(BaseModel):
     allow_crimes: bool = False
+    transformers_cache: Optional[str] = None
     lora_merge_cache: Optional[str] = None
     cuda: bool = False
     low_cpu_memory: bool = False
@@ -68,7 +69,8 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         targets,
         rules,
         {"merge": method},
-        cache_dir=options.lora_merge_cache,
+        transformers_cache_dir=options.transformers_cache,
+        lora_cache_dir=options.lora_merge_cache,
         dtype=dtype,
         cuda=options.cuda,
         low_cpu_memory=options.low_cpu_memory,

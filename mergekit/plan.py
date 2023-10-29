@@ -37,6 +37,11 @@ def plan(
     rules = {}
 
     method = merge_methods.get(merge_config.merge_method)
+    base_model = (
+        ModelReference.parse(merge_config.base_model)
+        if merge_config.base_model
+        else None
+    )
 
     # if models to merge are specified instead of output slices, compute them
     if merge_config.models:
@@ -44,8 +49,15 @@ def plan(
             raise RuntimeError("Must specify either models to merge or output slices")
 
         slices_in = []
+        base_included = False
+
         for model_in in merge_config.models:
-            model_cfg = ModelReference.parse(model_in.model).config()
+            mref = ModelReference.parse(model_in.model)
+
+            if mref == base_model:
+                base_included = True
+
+            model_cfg = mref.config()
             num_layers = arch_info.num_layers(model_cfg)
             slices_in.append(
                 InputSliceDefinition(
