@@ -57,6 +57,9 @@ def main(
     merged_cache_dir: Annotated[
         Optional[str], typer.Option(help="Storage path for merged LoRA models")
     ] = None,
+    cache_dir: Annotated[
+        Optional[str], typer.Option(help="Override storage path for downloaded models")
+    ] = None,
     cuda: bool = False,
     int8_mask: Annotated[
         bool, typer.Option(help="Store intermediate masks in int8 to save memory")
@@ -117,6 +120,7 @@ def main(
         out_path,
         options=MergeOptions(
             lora_merge_cache=merged_cache_dir,
+            transformers_cache=cache_dir,
             cuda=cuda,
             copy_tokenizer=copy_tokenizer,
         ),

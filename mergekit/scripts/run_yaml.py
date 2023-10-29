@@ -32,6 +32,12 @@ def main(
         Optional[str],
         typer.Option(help="Path to store merged LORA models", metavar="PATH"),
     ] = None,
+    transformers_cache: Annotated[
+        Optional[str],
+        typer.Option(
+            help="Override storage path for downloaded models", metavar="PATH"
+        ),
+    ] = None,
     cuda: Annotated[
         bool, typer.Option(help="Perform matrix arithmetic on GPU")
     ] = False,
@@ -69,6 +75,7 @@ def main(
         out_path,
         options=MergeOptions(
             lora_merge_cache=lora_merge_cache,
+            transformers_cache=transformers_cache,
             cuda=cuda,
             low_cpu_memory=low_cpu_memory,
             copy_tokenizer=copy_tokenizer,
