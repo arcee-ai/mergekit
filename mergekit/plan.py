@@ -147,7 +147,11 @@ def plan_slice(
     rules = {}
     targets = []
     for idx in range(num_layers):
-        t = idx / (num_layers - 1)
+        if num_layers > 1:
+            t = idx / (num_layers - 1)
+        else:
+            t = 1
+
         plan_layer(
             config,
             definition,
