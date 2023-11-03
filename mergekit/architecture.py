@@ -73,6 +73,9 @@ class StaticTensorNames(BaseModel, ArchitectureInfo):
             return self.num_layers_key
         return super().num_layers_config_key()
 
+    def num_layers(self, config: PretrainedConfig) -> int:
+        return getattr(config, self.num_layers_config_key())
+
 
 LLAMA_INFO = StaticTensorNames(
     name="LlamaForCausalLM",
