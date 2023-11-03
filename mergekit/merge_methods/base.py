@@ -17,11 +17,11 @@ from abc import ABC, abstractmethod
 from typing import Dict, Sequence
 
 import torch
-from transformers import AutoTokenizer, PretrainedConfig, PreTrainedTokenizerBase
+from transformers import PretrainedConfig
 
 from mergekit.common import ModelReference
 from mergekit.config import ConfigReader, MergeConfiguration
-from mergekit.graph import RuleSet, TensorReference
+from mergekit.graph import TensorReference
 
 
 class MergeMethod(ABC):
@@ -45,20 +45,8 @@ class MergeMethod(ABC):
         """List any tensors necessary when input includes a specific layer"""
         return []
 
-    def add_rules(self, rules: RuleSet):
-        """Add any rules necessary for execution to the set"""
-        pass
-
     def model_out_config(self, config: MergeConfiguration) -> PretrainedConfig:
         """Return a configuration for the resulting model."""
         if config.base_model:
             return ModelReference.parse(config.base_model).config()
         return config.referenced_models()[0].config()
-
-    def model_tokenizer(self, config: MergeConfiguration) -> PreTrainedTokenizerBase:
-        """Return a tokenizer appropriate for the resulting model."""
-        if config.base_model:
-            path = ModelReference.parse(config.base_model).path
-        else:
-            path = config.referenced_models()[0].path
-        return AutoTokenizer.from_pretrained(path)

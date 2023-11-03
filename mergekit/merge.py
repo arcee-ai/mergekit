@@ -17,6 +17,7 @@ import logging
 from typing import Optional
 
 import torch
+import transformers
 from pydantic import BaseModel
 
 import mergekit.merge_methods as merge_methods
@@ -25,6 +26,7 @@ from mergekit.common import parse_kmb
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor, RuleSet
 from mergekit.plan import plan
+from mergekit.tokenizer import build_tokenizer
 
 
 class MergeOptions(BaseModel):
@@ -61,14 +63,22 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
             )
     arch_info = model_arch_info[0]
 
-    (targets, static_rules) = plan(merge_config, arch_info)
+    if merge_config.tokenizer_source:
+        tokenizer, embed_permutations = build_tokenizer(merge_config)
+    else:
+        tokenizer = None
+        embed_permutations = None
+
+    (targets, static_rules) = plan(
+        merge_config, arch_info, embed_permutations=embed_permutations
+    )
 
     rules = RuleSet(static_rules)
     exec = Executor(
         merge_config.referenced_models(),
         targets,
         rules,
-        {"merge": method},
+        {"merge": method, "merge_embed": merge_methods.TokenizerPermutationMerge},
         transformers_cache_dir=options.transformers_cache,
         lora_cache_dir=options.lora_merge_cache,
         dtype=dtype,
@@ -96,11 +106,17 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         )
     cfg_out.save_pretrained(out_path)
 
-    if options.copy_tokenizer:
+    if tokenizer:
+        tokenizer.save_pretrained(out_path, safe_serialization=True)
+    elif options.copy_tokenizer:
         try:
-            method.model_tokenizer(merge_config).save_pretrained(
-                out_path, safe_serialization=True
-            )
+            donor_model = merge_config.base_model
+            if not donor_model:
+                donor_model = merge_config.referenced_models()[0]
+
+            transformers.AutoTokenizer.from_pretrained(
+                donor_model.path
+            ).save_pretrained(out_path, safe_serialization=True)
         except Exception as e:
             logging.error(
                 "Failed to save tokenizer. The merge was still successful, just copy it from somewhere else.",

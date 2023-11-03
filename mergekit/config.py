@@ -88,6 +88,7 @@ class MergeConfiguration(BaseModel):
     parameters: Optional[Dict[str, ParameterSetting]] = None
     base_model: Optional[str] = None
     dtype: Optional[str] = None
+    tokenizer_source: Optional[str] = None
 
     def referenced_models(self) -> List[ModelReference]:
         models = set()

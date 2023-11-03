@@ -36,6 +36,10 @@ class ArchitectureInfo(ABC):
         """Return a list of format strings all weights associated with a layer."""
         ...
 
+    @abstractmethod
+    def embed_weights(self) -> List[str]:
+        ...
+
     def num_layers(self, config: PretrainedConfig) -> int:
         return config.num_hidden_layers
 
@@ -49,6 +53,7 @@ class StaticTensorNames(BaseModel, ArchitectureInfo):
 
     pre_weight_names: List[str]  # weights applied before first layer
     post_weight_names: List[str]  # weights applied after last layer
+    embed_weight_names: List[str]  # weights for embed/lm_head
     layer_prefix_format: str
     layer_weight_suffixes: List[str]
     num_layers_key: Optional[str] = None
@@ -61,6 +66,9 @@ class StaticTensorNames(BaseModel, ArchitectureInfo):
 
     def post_weights(self) -> List[str]:
         return self.post_weight_names
+
+    def embed_weights(self) -> List[str]:
+        return self.embed_weight_names
 
     def layer_weight_formats(self) -> List[str]:
         res = []
@@ -81,6 +89,7 @@ LLAMA_INFO = StaticTensorNames(
     name="LlamaForCausalLM",
     pre_weight_names=["model.embed_tokens.weight"],
     post_weight_names=["model.norm.weight", "lm_head.weight"],
+    embed_weight_names=["model.embed_tokens.weight", "lm_head.weight"],
     layer_prefix_format="model.layers.{idx}",
     layer_weight_suffixes=[
         "input_layernorm.weight",
@@ -109,6 +118,7 @@ GPT_NEOX_INFO = StaticTensorNames(
         "gpt_neox.final_layer_norm.weight",
         "embed_out.weight",
     ],
+    embed_weight_names=["gpt_neox.embed_in.weight", "embed_out.weight"],
     layer_prefix_format="gpt_neox.layers.{idx}",
     layer_weight_suffixes=sum(
         [
@@ -131,6 +141,7 @@ GPT2_INFO = StaticTensorNames(
     name="GPT2LMHeadModel",
     pre_weight_names=["wte.weight", "wpe.weight"],
     post_weight_names=["ln_f.weight", "ln_f.bias"],
+    embed_weight_names=["wte.weight"],
     layer_prefix_format="h.{idx}",
     layer_weight_suffixes=[
         "attn.c_attn.weight",
@@ -156,6 +167,7 @@ QWEN_INFO = StaticTensorNames(
     name="QWenLMHeadModel",
     pre_weight_names=["transformer.wte.weight"],
     post_weight_names=["transformer.ln_f.weight", "lm_head.weight"],
+    embed_weight_names=["transformer.wte.weight", "lm_head.weight"],
     layer_prefix_format="transformer.h.{idx}",
     layer_weight_suffixes=[
         "attn.c_attn.bias",
@@ -184,6 +196,14 @@ class PhiTensorNames(ArchitectureInfo):
         return [
             f"layers.{fake_layer_idx}.{suffix}"
             for suffix in ["linear.bias", "linear.weight", "ln.bias", "ln.weight"]
+        ]
+
+    def embed_weights(self) -> List[str]:
+        fake_layer_idx = self.config.n_layer + 1
+        return [
+            "layers.0.wte.weight",
+            f"layers.{fake_layer_idx}.linear.weight",
+            f"layers.{fake_layer_idx}.linear.bias",
         ]
 
     def layer_weight_formats(self, layer_idx: int) -> List[str]:

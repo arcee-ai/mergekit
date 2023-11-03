@@ -19,6 +19,7 @@ from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.slerp import SlerpMerge
 from mergekit.merge_methods.taskarithmetic import TaskArithmeticMerge
 from mergekit.merge_methods.ties import TiesMerge
+from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 
 
 def get(method: str) -> MergeMethod:
@@ -43,4 +44,5 @@ __all__ = [
     "SlerpMerge",
     "PassthroughMerge",
     "TaskArithmeticMerge",
+    "TokenizerPermutationMerge",
 ]

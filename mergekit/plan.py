@@ -13,7 +13,9 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+import torch
 
 import mergekit.merge_methods as merge_methods
 from mergekit.architecture import ArchitectureInfo
@@ -29,7 +31,9 @@ from mergekit.merge_methods import MergeMethod
 
 
 def plan(
-    merge_config: MergeConfiguration, arch_info: ArchitectureInfo
+    merge_config: MergeConfiguration,
+    arch_info: ArchitectureInfo,
+    embed_permutations: Optional[Dict[ModelReference, torch.Tensor]] = None,
 ) -> Tuple[List[TensorReference], Dict[TensorReference, Operation]]:
     layer_idx = 0
 
@@ -49,13 +53,12 @@ def plan(
             raise RuntimeError("Must specify either models to merge or output slices")
 
         slices_in = []
-        base_included = False
 
         for model_in in merge_config.models:
             mref = ModelReference.parse(model_in.model)
 
             if mref == base_model:
-                base_included = True
+                pass
 
             model_cfg = mref.config()
             num_layers = arch_info.num_layers(model_cfg)
@@ -71,15 +74,26 @@ def plan(
         merge_config.models = None
 
     for weight_name in arch_info.pre_weights():
+        is_embed = weight_name in arch_info.embed_weights()
+
         tr, op = make_operation(
-            merge_config, weight_name, merge_config.slices[0].sources, t=0
+            merge_config,
+            weight_name,
+            merge_config.slices[0].sources,
+            t=0,
+            extra_kwargs={"embed_permutations": embed_permutations},
+            function="merge_embed" if (is_embed and embed_permutations) else "merge",
         )
         targets.append(tr)
         rules[tr] = op
 
     for section in merge_config.slices:
         (new_targets, new_rules, new_layers) = plan_slice(
-            merge_config, section, arch_info, layer_idx, method
+            config=merge_config,
+            definition=section,
+            arch_info=arch_info,
+            layer_base=layer_idx,
+            method=method,
         )
 
         targets.extend(new_targets)
@@ -87,8 +101,14 @@ def plan(
         layer_idx += new_layers
 
     for weight_name in arch_info.post_weights():
+        is_embed = weight_name in arch_info.embed_weights()
         tr, op = make_operation(
-            merge_config, weight_name, merge_config.slices[-1].sources, t=1
+            merge_config,
+            weight_name,
+            merge_config.slices[-1].sources,
+            t=1,
+            extra_kwargs={"embed_permutations": embed_permutations},
+            function="merge_embed" if (is_embed and embed_permutations) else "merge",
         )
         targets.append(tr)
         rules[tr] = op
@@ -104,6 +124,8 @@ def make_operation(
     names_in: Optional[List[str]] = None,
     sdef: Optional[OutputSliceDefinition] = None,
     extra_dependencies: Optional[List[TensorReference]] = None,
+    extra_kwargs: Optional[Dict[str, Any]] = None,
+    function: str = "merge",
 ):
     if names_in is None:
         names_in = [name_out] * len(tensor_sources)
@@ -119,6 +141,8 @@ def make_operation(
         ),
         "parameter_name": name_out,
     }
+    if extra_kwargs:
+        kwargs.update(extra_kwargs)
 
     for i, s in enumerate(tensor_sources):
         input_tensors.append(
@@ -129,7 +153,7 @@ def make_operation(
         input_tensors.extend(extra_dependencies)
 
     tr = TensorReference(model=None, key=name_out)
-    op = Operation(function="merge", inputs=input_tensors, kwargs=kwargs)
+    op = Operation(function=function, inputs=input_tensors, kwargs=kwargs)
     return tr, op
 
 
@@ -153,16 +177,16 @@ def plan_slice(
             t = 1
 
         plan_layer(
-            config,
-            definition,
-            arch_info,
-            layer_base,
-            slice_indices,
-            method,
-            rules,
-            targets,
-            idx,
-            t,
+            config=config,
+            definition=definition,
+            arch_info=arch_info,
+            layer_base=layer_base,
+            slice_indices=slice_indices,
+            method=method,
+            rules=rules,
+            targets=targets,
+            idx=idx,
+            t=t,
         )
 
     return targets, rules, num_layers
