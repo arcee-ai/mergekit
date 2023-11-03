@@ -13,17 +13,16 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import random
 from typing import List, Optional
 
 import typer
 import yaml
 from typing_extensions import Annotated
+
 from mergekit.architecture import get_architecture_info
 from mergekit.common import ModelReference
-import random
-
 from mergekit.config import (
-    InputModelDefinition,
     InputSliceDefinition,
     MergeConfiguration,
     OutputSliceDefinition,
@@ -46,9 +45,12 @@ def main(
             show_default=False,
         ),
     ],
-    output_yaml: Annotated[
+    print_yaml: Annotated[
         bool, typer.Option(help="Print YAML merge config for resulting model")
     ] = False,
+    write_yaml: Annotated[
+        Optional[str], typer.Option(help="Path to write YAML merge config to")
+    ] = None,
     dry_run: Annotated[
         bool, typer.Option(help="Generate a config but do not run the merge")
     ] = False,
@@ -94,8 +96,16 @@ def main(
     merge_config = MergeConfiguration(
         merge_method="passthrough", slices=out_slices, dtype="float16" if fp16 else None
     )
-    if output_yaml:
-        print(yaml.dump(merge_config.model_dump(exclude_none=True, mode="json")))
+
+    if print_yaml or write_yaml:
+        yaml_str = yaml.dump(merge_config.model_dump(exclude_none=True, mode="json"))
+
+        if print_yaml:
+            print(yaml_str)
+        if write_yaml:
+            with open(write_yaml, "w", encoding="utf-8") as file:
+                file.write(yaml_str)
+
     if dry_run:
         return
 
