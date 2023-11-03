@@ -68,6 +68,9 @@ def main(
     copy_tokenizer: Annotated[
         bool, typer.Option(help="Copy a tokenizer to the output")
     ] = True,
+    full_random: Annotated[
+        bool, typer.Option(help="Randomize layer index as well as source model")
+    ] = False,
 ):
     models = [ModelReference.parse(m) for m in model]
 
@@ -76,23 +79,43 @@ def main(
     total_num_layers = arch_info.num_layers(m0_cfg)
 
     out_slices: List[OutputSliceDefinition] = []
-    for layer_idx in range(total_num_layers):
-        src_model = random.choices(models, weights=weight, k=1)[0]
-        if out_slices and out_slices[-1].sources[0].model == str(src_model):
-            out_slices[-1].sources[0].layer_range = (
-                out_slices[-1].sources[0].layer_range[0],
-                layer_idx + 1,
-            )
-        else:
-            out_slices.append(
-                OutputSliceDefinition(
-                    sources=[
-                        InputSliceDefinition(
-                            model=str(src_model), layer_range=(layer_idx, layer_idx + 1)
-                        )
-                    ]
+
+    if full_random:
+        for model, frac in zip(models, weight):
+            cfg = model.config()
+            num_layers = int(arch_info.num_layers(cfg) * frac)
+            for _ in range(num_layers):
+                src_idx = random.randrange(0, num_layers)
+                out_slices.append(
+                    OutputSliceDefinition(
+                        sources=[
+                            InputSliceDefinition(
+                                model=str(model),
+                                layer_range=(src_idx, src_idx + 1),
+                            )
+                        ]
+                    )
                 )
-            )
+        random.shuffle(out_slices)
+    else:
+        for layer_idx in range(total_num_layers):
+            src_model = random.choices(models, weights=weight, k=1)[0]
+            if out_slices and out_slices[-1].sources[0].model == str(src_model):
+                out_slices[-1].sources[0].layer_range = (
+                    out_slices[-1].sources[0].layer_range[0],
+                    layer_idx + 1,
+                )
+            else:
+                out_slices.append(
+                    OutputSliceDefinition(
+                        sources=[
+                            InputSliceDefinition(
+                                model=str(src_model),
+                                layer_range=(layer_idx, layer_idx + 1),
+                            )
+                        ]
+                    )
+                )
     merge_config = MergeConfiguration(
         merge_method="passthrough", slices=out_slices, dtype="float16" if fp16 else None
     )
