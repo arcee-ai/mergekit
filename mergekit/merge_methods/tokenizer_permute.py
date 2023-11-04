@@ -37,14 +37,17 @@ class TokenizerPermutationMerge(MergeMethod):
         if len(input_tensors) == 1:
             return list(input_tensors.values())[1]
 
+        use_slerp = config.parameter("embed_slerp", default=False)
+
         models = []
         expanded = []
         masks = []
+        weights = []
         for tr in input_tensors:
             models.append(tr.model)
 
-            p = embed_permutations[tr.model]
             x = input_tensors[tr]
+            p = embed_permutations[tr.model].to(dtype=x.dtype, device=x.device)
             if p.shape[1] == x.shape[0]:
                 xp = p @ x
             else:
@@ -53,12 +56,35 @@ class TokenizerPermutationMerge(MergeMethod):
             expanded.append(xp)
             masks.append(p.sum(dim=-1, keepdim=True) > 0)
 
+            is_base = tr.model == config.base_model
+            if use_slerp:
+                t = config.parameter("t", required=True)
+                weight = (1.0 - t) if is_base else t
+            else:
+                weight = config.parameter("weight", model=tr.model, default=1.0)
+
+            weights.append(weight)
+
         expanded = torch.stack(expanded, dim=0)
         masks = torch.stack(masks, dim=0)
+        weights = (
+            torch.tensor(weights, dtype=expanded.dtype, device=expanded.device)
+            .unsqueeze(-1)
+            .unsqueeze(-1)
+        )
 
-        linear_merged = (expanded * masks).sum(dim=0) / masks.sum(dim=0).clamp(min=1)
+        print(f"expanded: {expanded.shape}")
+        print(f"masks: {masks.shape}")
+        print(f"weights: {weights.shape}")
+        print(weights)
 
-        if config.parameter("embed_slerp", default=False):
+        total_weight = (masks * weights).sum(dim=0)
+        scale = 1 / total_weight
+        scale[total_weight.abs() < 1e-8] = 0
+
+        linear_merged = (expanded * weights * masks).sum(dim=0) * scale
+
+        if use_slerp:
             if expanded.shape[0] != 2:
                 raise RuntimeError("SLERP takes exactly two models")
 

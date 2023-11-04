@@ -65,6 +65,7 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
 
     if merge_config.tokenizer_source:
         tokenizer, embed_permutations = build_tokenizer(merge_config)
+        tokenizer.save_pretrained(out_path, safe_serialization=True)
     else:
         tokenizer = None
         embed_permutations = None
@@ -78,7 +79,7 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         merge_config.referenced_models(),
         targets,
         rules,
-        {"merge": method, "merge_embed": merge_methods.TokenizerPermutationMerge},
+        {"merge": method, "merge_embed": merge_methods.TokenizerPermutationMerge()},
         transformers_cache_dir=options.transformers_cache,
         lora_cache_dir=options.lora_merge_cache,
         dtype=dtype,
@@ -92,6 +93,14 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
     )
 
     cfg_out = method.model_out_config(merge_config)
+    if tokenizer:
+        try:
+            cfg_out.vocab_size = len(tokenizer.get_vocab())
+        except Exception as e:
+            logging.warning(
+                "Unable to set vocabulary size in output config - you may need to manually correct it.",
+                exc_info=e,
+            )
 
     try:
         num_layers = sum(
@@ -106,9 +115,7 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         )
     cfg_out.save_pretrained(out_path)
 
-    if tokenizer:
-        tokenizer.save_pretrained(out_path, safe_serialization=True)
-    elif options.copy_tokenizer:
+    if options.copy_tokenizer and tokenizer is None:
         try:
             donor_model = merge_config.base_model
             if not donor_model:
