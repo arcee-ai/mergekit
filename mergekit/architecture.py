@@ -151,6 +151,19 @@ GPT2_INFO = StaticTensorNames(
     num_layers_key="n_layer",
 )
 
+GPT2_SEQCLASS_INFO = StaticTensorNames(
+    name="GPT2ForSequenceClassification",
+    pre_weight_names=["transformer.wte.weight", "transformer.wpe.weight"],
+    post_weight_names=[
+        "transformer.ln_f.weight",
+        "transformer.ln_f.bias",
+        "score.weight",
+    ],
+    layer_prefix_format="transformer.h.{idx}",
+    layer_weight_suffixes=GPT2_INFO.layer_weight_suffixes,
+    num_layers_key=GPT2_INFO.num_layers_key,
+)
+
 
 QWEN_INFO = StaticTensorNames(
     name="QWenLMHeadModel",
@@ -225,6 +238,7 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         GPT_NEOX_INFO,
         QWEN_INFO,
         GPT2_INFO,
+        GPT2_SEQCLASS_INFO,
     ]
     for arch in supported:
         if arch.name == arch_name:
