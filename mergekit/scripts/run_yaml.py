@@ -63,6 +63,9 @@ def main(
         ),
     ] = parse_kmb("5B"),
     verbose: Annotated[bool, typer.Option("-v")] = False,
+    trust_remote_code: Annotated[
+        bool, typer.Option(help="Trust remote code when merging LoRAs")
+    ] = False,
 ):
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
@@ -81,6 +84,7 @@ def main(
             copy_tokenizer=copy_tokenizer,
             allow_crimes=allow_crimes,
             out_shard_size=out_shard_size,
+            trust_remote_code=trust_remote_code,
         ),
     )
 
