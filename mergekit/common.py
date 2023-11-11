@@ -37,7 +37,9 @@ class ModelReference(BaseModel):
     path: str
     lora_path: Optional[str] = None
 
-    def merged(self, cache_dir: Optional[str] = None) -> "ModelReference":
+    def merged(
+        self, cache_dir: Optional[str] = None, trust_remote_code: bool = False
+    ) -> "ModelReference":
         """Merge the LoRA if applicable and return a reference to the result."""
         if not self.lora_path:
             return self
@@ -54,7 +56,10 @@ class ModelReference(BaseModel):
             os.makedirs(out_path, exist_ok=True)
             logging.info(f"Loading {self.path} for merge...")
             model = transformers.AutoModelForCausalLM.from_pretrained(
-                self.path, torch_dtype=torch.float16, low_cpu_mem_usage=True
+                self.path,
+                torch_dtype=torch.float16,
+                low_cpu_mem_usage=True,
+                trust_remote_code=trust_remote_code,
             )
             model = peft.PeftModel.from_pretrained(
                 model, self.lora_path, is_trainable=False

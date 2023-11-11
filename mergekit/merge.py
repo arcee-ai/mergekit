@@ -37,6 +37,7 @@ class MergeOptions(BaseModel):
     copy_tokenizer: bool = True
     allow_crimes: bool = False
     clone_tensors: bool = False
+    trust_remote_code: bool = False
 
 
 def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOptions):
@@ -74,6 +75,7 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         dtype=dtype,
         cuda=options.cuda,
         low_cpu_memory=options.low_cpu_memory,
+        trust_remote_code=options.trust_remote_code,
     )
     exec.run(
         out_path,

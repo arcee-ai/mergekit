@@ -211,6 +211,7 @@ class Executor:
         dtype: Optional[str] = None,
         cuda: bool = False,
         low_cpu_memory: bool = False,
+        trust_remote_code: bool = False,
     ):
         if lora_cache_dir is None and transformers_cache_dir is not None:
             lora_cache_dir = transformers_cache_dir
@@ -218,8 +219,10 @@ class Executor:
         self.targets = targets
         self.loaders = {
             ref: LazyTensorLoader(
-                ref.merged(cache_dir=lora_cache_dir).tensor_index(
-                    cache_dir=transformers_cache_dir
+                ref.merged(
+                    cache_dir=lora_cache_dir, trust_remote_code=trust_remote_code
+                ).tensor_index(
+                    cache_dir=transformers_cache_dir,
                 )
             )
             for ref in models
