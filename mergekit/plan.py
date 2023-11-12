@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import logging
 from typing import Dict, List, Optional, Tuple
 
 import mergekit.merge_methods as merge_methods
@@ -54,7 +55,7 @@ def plan(
         for model_in in merge_config.models:
             mref = ModelReference.parse(model_in.model)
 
-            if mref == base_model:
+            if base_model and mref == base_model:
                 base_included = True
 
             model_cfg = mref.config()
@@ -64,6 +65,17 @@ def plan(
                     layer_range=[0, num_layers],
                     model=model_in.model,
                     parameters=model_in.parameters,
+                )
+            )
+
+        if base_model and not base_included:
+            logging.info("Base model specified but not in input models - adding")
+            base_cfg = base_model.config()
+            num_layers = arch_info.num_layers(base_cfg)
+            slices_in.append(
+                InputSliceDefinition(
+                    layer_range=[0, num_layers],
+                    model=str(base_model),
                 )
             )
 
