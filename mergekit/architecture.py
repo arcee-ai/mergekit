@@ -182,6 +182,28 @@ QWEN_INFO = StaticTensorNames(
     ],
 )
 
+CHATGLM_INFO = StaticTensorNames(
+    name="ChatGLMModel",
+    pre_weight_names=[
+        "transformer.embedding.word_embeddings.weight",
+        "transformer.rotary_pos_emb.inv_freq",
+    ],
+    post_weight_names=[
+        "transformer.encoder.final_layernorm.weight",
+        "transformer.output_layer.weight",
+    ],
+    layer_prefix_format="transformer.encoder.layers.{idx}",
+    layer_weight_suffixes=[
+        "input_layernorm.weight",
+        "mlp.dense_4h_to_h.weight",
+        "mlp.dense_h_to_4h.weight",
+        "post_attention_layernorm.weight",
+        "self_attention.dense.weight",
+        "self_attention.query_key_value.bias",
+        "self_attention.query_key_value.weight",
+    ],
+)
+
 
 class PhiTensorNames(ArchitectureInfo):
     architecture_name: str = "MixFormerSequentialForCausalLM"
@@ -239,6 +261,7 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         QWEN_INFO,
         GPT2_INFO,
         GPT2_SEQCLASS_INFO,
+        CHATGLM_INFO,
     ]
     for arch in supported:
         if arch.name == arch_name:
