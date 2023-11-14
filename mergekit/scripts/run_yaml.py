@@ -62,9 +62,15 @@ def main(
             metavar="NUM",
         ),
     ] = parse_kmb("5B"),
-    verbose: Annotated[bool, typer.Option("-v")] = False,
+    verbose: Annotated[bool, typer.Option("-v", help="Verbose logging")] = False,
     trust_remote_code: Annotated[
         bool, typer.Option(help="Trust remote code when merging LoRAs")
+    ] = False,
+    clone_tensors: Annotated[
+        bool,
+        typer.Option(
+            help="Clone tensors before saving, to allow multiple occurrences of the same layer"
+        ),
     ] = False,
 ):
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
@@ -85,6 +91,7 @@ def main(
             allow_crimes=allow_crimes,
             out_shard_size=out_shard_size,
             trust_remote_code=trust_remote_code,
+            clone_tensors=clone_tensors,
         ),
     )
 
