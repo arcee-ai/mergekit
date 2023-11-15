@@ -241,9 +241,9 @@ class PhiTensorNames(ArchitectureInfo):
             f"layers.{fake_layer_idx}.linear.bias",
         ]
 
-    def layer_weight_formats(self, layer_idx: int) -> List[str]:
+    def layer_weight_formats(self) -> List[str]:
         return [
-            f"layers.{layer_idx}.{suffix}"
+            ("layers.{idx}." + suffix)
             for suffix in [
                 "ln.bias",
                 "ln.weight",
