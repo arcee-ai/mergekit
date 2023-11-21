@@ -11,6 +11,7 @@ from mergekit.config import MergeConfiguration
 
 def build_tokenizer(
     config: MergeConfiguration,
+    trust_remote_code: bool,
 ) -> Tuple[transformers.PreTrainedTokenizer, Dict[ModelReference, torch.IntTensor]]:
     base_model = None
     if config.base_model:
@@ -20,7 +21,9 @@ def build_tokenizer(
     if base_model is None:
         raise RuntimeError("No models referenced")
 
-    tokenizer_out = transformers.AutoTokenizer.from_pretrained(base_model.path)
+    tokenizer_out = transformers.AutoTokenizer.from_pretrained(
+        base_model.path, trust_remote_code=trust_remote_code
+    )
 
     # load all tokenizers
     logging.info("Loading tokenizers")
@@ -30,7 +33,9 @@ def build_tokenizer(
             continue
 
         try:
-            model_tok = transformers.AutoTokenizer.from_pretrained(model.path)
+            model_tok = transformers.AutoTokenizer.from_pretrained(
+                model.path, trust_remote_code=trust_remote_code
+            )
         except Exception:
             logging.warning(
                 f"Unable to load tokenizer for {model}. Assuming same as {base_model}."
@@ -55,7 +60,8 @@ def build_tokenizer(
         del added
     elif config.tokenizer_source.startswith("model:"):
         tokenizer_out = transformers.AutoTokenizer.from_pretrained(
-            config.tokenizer_source.removeprefix("model:")
+            config.tokenizer_source.removeprefix("model:"),
+            trust_remote_code=trust_remote_code,
         )
     else:
         raise RuntimeError(f"Unimplemented tokenizer source: {config.tokenizer_source}")
