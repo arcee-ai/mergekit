@@ -73,11 +73,6 @@ class TokenizerPermutationMerge(MergeMethod):
             .unsqueeze(-1)
         )
 
-        print(f"expanded: {expanded.shape}")
-        print(f"masks: {masks.shape}")
-        print(f"weights: {weights.shape}")
-        print(weights)
-
         total_weight = (masks * weights).sum(dim=0)
         scale = 1 / total_weight
         scale[total_weight.abs() < 1e-8] = 0
