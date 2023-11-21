@@ -162,6 +162,20 @@ GPT2_INFO = StaticTensorNames(
     num_layers_key="n_layer",
 )
 
+GPT2_SEQCLASS_INFO = StaticTensorNames(
+    name="GPT2ForSequenceClassification",
+    pre_weight_names=["transformer.wte.weight", "transformer.wpe.weight"],
+    post_weight_names=[
+        "transformer.ln_f.weight",
+        "transformer.ln_f.bias",
+        "score.weight",
+    ],
+    embed_weight_names=GPT2_INFO.embed_weight_names,
+    layer_prefix_format="transformer.h.{idx}",
+    layer_weight_suffixes=GPT2_INFO.layer_weight_suffixes,
+    num_layers_key=GPT2_INFO.num_layers_key,
+)
+
 
 QWEN_INFO = StaticTensorNames(
     name="QWenLMHeadModel",
@@ -178,6 +192,32 @@ QWEN_INFO = StaticTensorNames(
         "mlp.c_proj.weight",
         "mlp.w1.weight",
         "mlp.w2.weight",
+    ],
+)
+
+CHATGLM_INFO = StaticTensorNames(
+    name="ChatGLMModel",
+    pre_weight_names=[
+        "transformer.embedding.word_embeddings.weight",
+        "transformer.rotary_pos_emb.inv_freq",
+    ],
+    post_weight_names=[
+        "transformer.encoder.final_layernorm.weight",
+        "transformer.output_layer.weight",
+    ],
+    embed_weight_names=[
+        "transformer.embedding.word_embeddings.weight",
+        "transformer.output_layer.weight",
+    ],
+    layer_prefix_format="transformer.encoder.layers.{idx}",
+    layer_weight_suffixes=[
+        "input_layernorm.weight",
+        "mlp.dense_4h_to_h.weight",
+        "mlp.dense_h_to_4h.weight",
+        "post_attention_layernorm.weight",
+        "self_attention.dense.weight",
+        "self_attention.query_key_value.bias",
+        "self_attention.query_key_value.weight",
     ],
 )
 
@@ -208,7 +248,7 @@ class PhiTensorNames(ArchitectureInfo):
 
     def layer_weight_formats(self, layer_idx: int) -> List[str]:
         return [
-            f"layers.{layer_idx}.{suffix}"
+            ("layers.{idx}." + suffix)
             for suffix in [
                 "ln.bias",
                 "ln.weight",
@@ -245,6 +285,8 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         GPT_NEOX_INFO,
         QWEN_INFO,
         GPT2_INFO,
+        GPT2_SEQCLASS_INFO,
+        CHATGLM_INFO,
     ]
     for arch in supported:
         if arch.name == arch_name:
