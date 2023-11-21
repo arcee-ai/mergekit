@@ -48,5 +48,10 @@ class MergeMethod(ABC):
     def model_out_config(self, config: MergeConfiguration) -> PretrainedConfig:
         """Return a configuration for the resulting model."""
         if config.base_model:
-            return ModelReference.parse(config.base_model).config()
-        return config.referenced_models()[0].config()
+            res = ModelReference.parse(config.base_model).config()
+        else:
+            res = config.referenced_models()[0].config()
+
+        if config.dtype:
+            res.torch_dtype = config.dtype
+        return res
