@@ -181,8 +181,8 @@ GPT2_SEQCLASS_INFO = StaticTensorNames(
         "transformer.ln_f.bias",
         "score.weight",
     ],
-    embed_weight_names=GPT2_INFO.embed_weight_names,
     layer_prefix_format="transformer.h.{idx}",
+    embed_weight_names=GPT2_INFO.embed_weight_names,
     layer_weight_suffixes=GPT2_INFO.layer_weight_suffixes,
     num_layers_key=GPT2_INFO.num_layers_key,
 )
