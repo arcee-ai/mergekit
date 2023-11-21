@@ -65,7 +65,9 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
     arch_info = model_arch_info[0]
 
     if merge_config.tokenizer_source:
-        tokenizer, embed_permutations = build_tokenizer(merge_config)
+        tokenizer, embed_permutations = build_tokenizer(
+            merge_config, trust_remote_code=options.trust_remote_code
+        )
         tokenizer.save_pretrained(out_path, safe_serialization=True)
     else:
         tokenizer = None
