@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 import tqdm
@@ -7,6 +7,16 @@ import transformers
 
 from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
+
+
+def get_vocab_size(model_path: str, trust_remote_code: bool) -> Optional[int]:
+    try:
+        cfg = transformers.AutoConfig.from_pretrained(
+            model_path, trust_remote_code=trust_remote_code
+        )
+        return cfg.vocab_size
+    except Exception as e:
+        logging.warning(f"Unable to get vocab size for {model_path}", exc_info=e)
 
 
 def build_tokenizer(
@@ -76,7 +86,11 @@ def build_tokenizer(
         else:
             model_vocab = vocabularies[base_model]
 
-        p = torch.zeros(len(vocab_out), len(model_vocab), dtype=torch.int32)
+        vocab_size = get_vocab_size(model, trust_remote_code=trust_remote_code)
+        if vocab_size is None or vocab_size < len(model_vocab):
+            vocab_size = len(model_vocab)
+
+        p = torch.zeros(len(vocab_out), vocab_size, dtype=torch.int32)
         for tok in model_vocab:
             if tok not in vocab_out:
                 continue
