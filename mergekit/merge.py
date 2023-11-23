@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 import mergekit.merge_methods as merge_methods
 from mergekit.architecture import get_architecture_info
-from mergekit.common import parse_kmb
+from mergekit.common import ModelReference, parse_kmb
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor, RuleSet
 from mergekit.plan import plan
@@ -122,6 +122,8 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
     if options.copy_tokenizer and tokenizer is None:
         try:
             donor_model = merge_config.base_model
+            if donor_model:
+                donor_model = ModelReference.parse(donor_model)
             if not donor_model:
                 donor_model = merge_config.referenced_models()[0]
 
