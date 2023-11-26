@@ -110,6 +110,20 @@ MISTRAL_INFO = StaticTensorNames(
     **LLAMA_INFO.model_dump(exclude="name"),
 )
 
+
+STABLELM_INFO = StaticTensorNames(
+    name="StableLMEpochForCausalLM",
+    post_weight_names=LLAMA_INFO.post_weight_names + ["model.norm.bias"],
+    layer_weight_suffixes=LLAMA_INFO.layer_weight_suffixes
+    + [
+        "input_layernorm.bias",
+        "post_attention_layernorm.bias",
+    ],
+    **LLAMA_INFO.model_dump(
+        exclude=["name", "layer_weight_suffixes", "post_weight_names"]
+    ),
+)
+
 GPT_NEOX_INFO = StaticTensorNames(
     name="GPTNeoXForCausalLM",
     pre_weight_names=["gpt_neox.embed_in.weight"],
@@ -287,6 +301,7 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         GPT2_INFO,
         GPT2_SEQCLASS_INFO,
         CHATGLM_INFO,
+        STABLELM_INFO,
     ]
     for arch in supported:
         if arch.name == arch_name:
