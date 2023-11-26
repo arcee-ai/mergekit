@@ -16,6 +16,7 @@ Below are the primary elements of a configuration file:
 - `base_model`: Specifies the base model used in some merging methods.
 - `parameters`: Holds various parameters such as weights and densities, which can also be specified at different levels of the configuration.
 - `dtype`: Specifies the data type for the merging operation.
+- `tokenizer_source`: Determines how to construct a tokenizer for the merged model.
 
 ### Parameter Specification
 
@@ -50,6 +51,23 @@ Does not require a base model. Takes parameters `weight` and `normalize`, with s
 
 #### SLERP
 Requires exactly two models, one of which must be the base model. Takes one parameter - `t` - the interpolation factor from the base model to the secondary model.
+
+
+### Tokenizer Source
+
+The `tokenizer_source` field of a configuration file determines what tokenizer is used by the merged model. This also effects how embeddings and language model heads are merged.
+
+Valid values:
+
+* `base`: use the tokenizer from the base model
+* `union`: construct a tokenizer with all tokens from all models
+* `model:<model_path>`: use the tokenizer from a specific model
+
+If set, mergekit will find a mapping between each model's vocabulary and the output tokenizer. This allows models with different vocabularies or added tokens to be meaningfully merged.
+
+`tokenizer_source` is compatible with all merge methods, but when used `lm_head`/`embed_tokens` will be merged linearly. For two-model merges, the `embed_slerp` parameter can be set to `true` to use SLERP instead.
+
+If the `tokenizer_source` field is not set, mergekit will fall back to its legacy default behavior. The tokenizer for the base model (or first model in the merge, if no base model is specified) will be copied to the output directory. The parameter matrices for `lm_head`/`embed_tokens` will be truncated to the smallest size present in the merge. In *most* cases this corresponds to using the tokenizer for the base model.
 
 ### Examples
 
