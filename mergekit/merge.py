@@ -40,6 +40,7 @@ class MergeOptions(BaseModel):
     allow_crimes: bool = False
     clone_tensors: bool = False
     trust_remote_code: bool = False
+    random_seed: Optional[int] = None
     lazy_unpickle: bool = False
 
 
@@ -50,6 +51,9 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         "bfloat16": torch.bfloat16,
         "float32": torch.float32,
     }[merge_config.dtype]
+
+    if options.random_seed is not None:
+        transformers.trainer_utils.set_seed(options.random_seed)
 
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
