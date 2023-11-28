@@ -25,6 +25,8 @@ import safetensors.torch
 import torch
 from torch import Tensor
 
+from mergekit.lazy_pickle import LazyPickleLoader
+
 
 @dataclass
 class ShardInfo:
@@ -138,13 +140,17 @@ class ShardedTensorIndex:
 
 class LazyTensorLoader:
     index: ShardedTensorIndex
-    current_shard: Union[None, Dict[str, Tensor], safetensors.safe_open]
+    current_shard: Union[
+        None, Dict[str, Tensor], LazyPickleLoader, safetensors.safe_open
+    ]
     current_keys: Optional[Set[str]]
+    use_lazy_pickle: bool
 
-    def __init__(self, index: ShardedTensorIndex):
+    def __init__(self, index: ShardedTensorIndex, use_lazy_pickle: bool = False):
         self.index = index
         self.current_shard = None
         self.current_keys = None
+        self.use_lazy_pickle = use_lazy_pickle
 
     def get_tensor(self, key: str, device: str = "cpu") -> Optional[Tensor]:
         if self.current_shard is None or key not in self.current_keys:
@@ -155,23 +161,26 @@ class LazyTensorLoader:
             self.current_keys = None
 
             shard_file = self.index.tensor_paths[key]
+            shard_full_path = os.path.join(self.index.base_path, shard_file)
             logging.info(f"loading {self.index.base_path}/{shard_file}")
             if shard_file.lower().endswith(".safetensors"):
                 self.current_shard = safetensors.safe_open(
-                    os.path.join(self.index.base_path, shard_file),
+                    shard_full_path,
                     framework="pt",
                     device=device,
                 )
-                self.current_keys = set(self.current_shard.keys())
             else:
-                self.current_shard = torch.load(
-                    os.path.join(self.index.base_path, shard_file),
-                    weights_only=True,
-                    map_location=device,
-                )
-                if "state_dict" in self.current_shard:
-                    self.current_shard = self.current_shard["state_dict"]
-                self.current_keys = set(self.current_shard.keys())
+                if self.use_lazy_pickle:
+                    self.current_shard = LazyPickleLoader(shard_full_path)
+                else:
+                    self.current_shard = torch.load(
+                        shard_full_path,
+                        weights_only=True,
+                        map_location=device,
+                    )
+                    if "state_dict" in self.current_shard:
+                        self.current_shard = self.current_shard["state_dict"]
+            self.current_keys = set(self.current_shard.keys())
 
         if isinstance(self.current_shard, dict):
             return self.current_shard[key]
