@@ -212,6 +212,7 @@ class Executor:
         cuda: bool = False,
         low_cpu_memory: bool = False,
         trust_remote_code: bool = False,
+        lazy_unpickle: bool = False,
     ):
         if lora_cache_dir is None and transformers_cache_dir is not None:
             lora_cache_dir = transformers_cache_dir
@@ -223,7 +224,8 @@ class Executor:
                     cache_dir=lora_cache_dir, trust_remote_code=trust_remote_code
                 ).tensor_index(
                     cache_dir=transformers_cache_dir,
-                )
+                ),
+                lazy_unpickle=lazy_unpickle,
             )
             for ref in models
         }

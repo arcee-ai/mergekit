@@ -72,6 +72,9 @@ def main(
             help="Clone tensors before saving, to allow multiple occurrences of the same layer"
         ),
     ] = False,
+    lazy_unpickle: Annotated[
+        bool, typer.Option(help="Experimental lazy unpickler for lower memory usage")
+    ] = False,
 ):
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
@@ -92,6 +95,7 @@ def main(
             out_shard_size=out_shard_size,
             trust_remote_code=trust_remote_code,
             clone_tensors=clone_tensors,
+            lazy_unpickle=lazy_unpickle,
         ),
     )
 

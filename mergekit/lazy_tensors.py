@@ -25,7 +25,7 @@ import safetensors.torch
 import torch
 from torch import Tensor
 
-from mergekit.lazy_pickle import LazyPickleLoader
+from mergekit.lazy_unpickle import LazyPickleLoader
 
 
 @dataclass
@@ -144,13 +144,13 @@ class LazyTensorLoader:
         None, Dict[str, Tensor], LazyPickleLoader, safetensors.safe_open
     ]
     current_keys: Optional[Set[str]]
-    use_lazy_pickle: bool
+    lazy_unpickle: bool
 
-    def __init__(self, index: ShardedTensorIndex, use_lazy_pickle: bool = False):
+    def __init__(self, index: ShardedTensorIndex, lazy_unpickle: bool = True):
         self.index = index
         self.current_shard = None
         self.current_keys = None
-        self.use_lazy_pickle = use_lazy_pickle
+        self.lazy_unpickle = lazy_unpickle
 
     def get_tensor(self, key: str, device: str = "cpu") -> Optional[Tensor]:
         if self.current_shard is None or key not in self.current_keys:
@@ -170,7 +170,7 @@ class LazyTensorLoader:
                     device=device,
                 )
             else:
-                if self.use_lazy_pickle:
+                if self.lazy_unpickle:
                     self.current_shard = LazyPickleLoader(shard_full_path)
                 else:
                     self.current_shard = torch.load(
