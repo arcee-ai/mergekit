@@ -74,6 +74,9 @@ def main(
     print_yaml: Annotated[
         bool, typer.Option(help="Print generated YAML configuration")
     ] = False,
+    allow_crimes: Annotated[
+        bool, typer.Option(help="Allow mixing architectures")
+    ] = False,
 ):
     """Wrapper for using a subset of legacy-style script arguments."""
     models = [InputModelDefinition(model=model, parameters={}) for model in merge]
@@ -123,6 +126,7 @@ def main(
             transformers_cache=cache_dir,
             cuda=cuda,
             copy_tokenizer=copy_tokenizer,
+            allow_crimes=allow_crimes,
         ),
     )
 
