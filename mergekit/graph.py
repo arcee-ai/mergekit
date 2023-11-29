@@ -37,7 +37,7 @@ from pydantic import BaseModel
 from typing_extensions import Protocol
 
 from mergekit.common import ModelReference
-from mergekit.lazy_tensors import LazyTensorLoader, TensorWriter
+from mergekit.io import LazyTensorLoader, TensorWriter
 
 
 class TensorReference(BaseModel):

@@ -16,13 +16,12 @@
 import codecs
 import collections
 import contextlib
-import logging
 import operator
 import os
 import pickle
 import zipfile
 from functools import reduce
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 import accelerate
 import numpy
@@ -57,9 +56,13 @@ class DeferredLoad(BaseModel, arbitrary_types_allowed=True):
     name: str
     location: str
     dtype: torch.dtype
+
+    # set after construction by rebuild()
     file_offset: Optional[int] = None
     shape: Optional[Union[torch.Size, Tuple[int, ...]]] = None
     stride: Optional[Tuple[int, ...]] = None
+
+    # set arbitrarily in Torch innards
     requires_grad: bool = False
     _backward_hooks: Any = PrivateAttr(None)
 
@@ -72,19 +75,18 @@ class DeferredLoad(BaseModel, arbitrary_types_allowed=True):
     ) -> "DeferredLoad":
         load.shape = shape
         load.stride = stride
-
         load.file_offset = offset * dtype_bytes(load.dtype)
         return load
 
     def execute(
         self,
-        loader: "LazyZipReader",
+        reader: "TorchArchiveReader",
         map_location: Any = None,
     ) -> torch.Tensor:
         total_params = reduce(operator.mul, self.shape)
         total_bytes = total_params * dtype_bytes(self.dtype)
 
-        f = loader.load(file_name=self.name, offset=self.file_offset)
+        f = reader.open_file(file_name=self.name, offset=self.file_offset)
         storage = torch.UntypedStorage.from_buffer(
             f.read(total_bytes), "little", dtype=self.dtype
         )
@@ -107,14 +109,20 @@ class LazyTorchUnpickler(pickle.Unpickler):
 
     def persistent_load(self, pid: Any) -> Any:
         if not isinstance(pid, tuple) or pid[0] != "storage":
-            logging.warning(f"Unpickling object with unexpected PID: {repr(pid)}")
-            return super().persistent_load(pid)
+            raise RuntimeError(f"Unpickling object with unexpected PID: {repr(pid)}")
 
         storage_type, key, location, _ = pid[1:]
         return DeferredLoad(name=key, location=location, dtype=get_dtype(storage_type))
 
 
-class LazyZipReader:
+class TorchArchiveReader:
+    """
+    Class for lazily reading (sections of) files from a torch ZIP archive.
+
+    Maintains a handle to the most recently opened file for faster access with
+    consecutive reads from the same file.
+    """
+
     archive: zipfile.ZipFile
     archive_name: str
     file_name: Optional[str] = None
@@ -124,7 +132,7 @@ class LazyZipReader:
         self.archive = zipfile.ZipFile(path, mode="r")
         self.archive_name = os.path.basename(os.path.normpath(path)).split(".")[0]
 
-    def load(self, file_name: str, offset: int) -> zipfile.ZipExtFile:
+    def open_file(self, file_name: str, offset: int = 0) -> zipfile.ZipExtFile:
         if self.file_name != file_name or (
             self.file is not None and self.file.tell() > offset
         ):
@@ -133,7 +141,7 @@ class LazyZipReader:
 
             try:
                 fd = self.archive.open(f"archive/data/{file_name}", mode="r")
-            except:
+            except Exception:
                 fd = self.archive.open(
                     f"{self.archive_name}/data/{file_name}", mode="r"
                 )
@@ -148,7 +156,11 @@ class LazyZipReader:
 
 
 @contextlib.contextmanager
-def use_torch_lazy_load():
+def torch_lazy_load():
+    """
+    Context manager under which `torch.load` will return a `DeferredLoad` instead
+    of `torch.Tensor.`
+    """
     try:
         old_unpickler = pickle.Unpickler
         pickle.Unpickler = LazyTorchUnpickler
@@ -172,26 +184,8 @@ def use_torch_lazy_load():
         pickle.load = old_load
 
 
-class LazyPickleLoader:
-    zip_reader: LazyZipReader
-    index: Dict[str, DeferredLoad]
-
-    def __init__(self, path: str):
-        self.zip_reader = LazyZipReader(path)
-        with use_torch_lazy_load():
-            self.index = torch.load(path)
-
-    def get_tensor(self, key: str, map_location: Any = None) -> torch.Tensor:
-        if key not in self.index:
-            raise KeyError(key)
-
-        return self.index[key].execute(self.zip_reader, map_location=map_location)
-
-    def keys(self) -> Sequence[str]:
-        return self.index.keys()
-
-
 def dtype_bytes(dtype: torch.dtype) -> int:
+    """Return the number of bytes used to store a single instance of `dtype`."""
     if dtype.is_floating_point:
         ti = torch.finfo(dtype)
     else:
