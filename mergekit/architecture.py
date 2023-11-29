@@ -107,7 +107,7 @@ LLAMA_INFO = StaticTensorNames(
 MISTRAL_INFO = StaticTensorNames(
     name="MistralForCausalLM",
     # lol
-    **LLAMA_INFO.model_dump(exclude="name"),
+    **LLAMA_INFO.model_dump(exclude=["name"]),
 )
 
 

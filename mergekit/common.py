@@ -26,7 +26,7 @@ import transformers
 from pydantic import BaseModel
 from transformers import AutoConfig, PretrainedConfig
 
-from mergekit.lazy_tensors import ShardedTensorIndex
+from mergekit.io import ShardedTensorIndex
 
 
 class ModelReference(BaseModel):
