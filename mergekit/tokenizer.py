@@ -37,7 +37,7 @@ def build_tokenizer(
 
     # load all tokenizers
     logging.info("Loading tokenizers")
-    vocabularies = {base_model: tokenizer_out.vocab}
+    vocabularies = {base_model: tokenizer_out.get_vocab()}
     for model in config.referenced_models():
         if model == base_model:
             continue
@@ -51,7 +51,7 @@ def build_tokenizer(
                 f"Unable to load tokenizer for {model}. Assuming same as {base_model}."
             )
             continue
-        vocabularies[model] = model_tok.vocab
+        vocabularies[model] = model_tok.get_vocab()
 
     logging.info("Building output tokenizer")
     # build final vocabulary
@@ -59,7 +59,7 @@ def build_tokenizer(
         # it done
         pass
     elif config.tokenizer_source == "union":
-        added = set(tokenizer_out.vocab.keys())
+        added = set(tokenizer_out.get_vocab().keys())
 
         for model_vocab in tqdm.tqdm(vocabularies.values(), total=len(vocabularies)):
             for tok in tqdm.tqdm(model_vocab, leave=False):
@@ -76,7 +76,7 @@ def build_tokenizer(
     else:
         raise RuntimeError(f"Unimplemented tokenizer source: {config.tokenizer_source}")
 
-    vocab_out = tokenizer_out.vocab
+    vocab_out = tokenizer_out.get_vocab()
 
     logging.info("Building permutations")
     permutations = {}
