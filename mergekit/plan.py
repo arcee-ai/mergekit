@@ -54,6 +54,7 @@ def plan(
             raise RuntimeError("Must specify either models to merge or output slices")
 
         slices_in = []
+        base_included = False
 
         for model_in in merge_config.models:
             mref = ModelReference.parse(model_in.model)
