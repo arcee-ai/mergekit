@@ -87,7 +87,7 @@ def build_tokenizer(
             model_vocab = vocabularies[base_model]
 
         vocab_size = get_vocab_size(model, trust_remote_code=trust_remote_code)
-        if vocab_size is None or vocab_size < len(model_vocab):
+        if vocab_size is None:
             vocab_size = len(model_vocab)
 
         p = torch.zeros(len(vocab_out), vocab_size, dtype=torch.int32)
@@ -96,6 +96,12 @@ def build_tokenizer(
                 continue
 
             orig_idx = model_vocab[tok]
+            if orig_idx >= vocab_size:
+                logging.warning(
+                    f"{model} token {repr(tok)} has index {orig_idx}>{vocab_size-1} (padding?)"
+                )
+                continue
+
             new_idx = vocab_out[tok]
             p[new_idx, orig_idx] = 1
         permutations[model] = p

@@ -93,7 +93,7 @@ class TokenizerPermutationMerge(MergeMethod):
             t = config.parameter("t", required=True)
             res = slerp(t, v0, v1)
             need_linear = (masks.sum(dim=0) != 2).squeeze(dim=-1)
-            res[need_linear, :] = linear_merged[need_linear, :]
+            res[need_linear, :] = linear_merged[need_linear, :].to(res.device)
             return res
 
         return linear_merged
