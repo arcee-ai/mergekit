@@ -18,6 +18,8 @@ def get_vocab_size(model_path: str, trust_remote_code: bool) -> Optional[int]:
     except Exception as e:
         logging.warning(f"Unable to get vocab size for {model_path}", exc_info=e)
 
+    return None
+
 
 def build_tokenizer(
     config: MergeConfiguration,

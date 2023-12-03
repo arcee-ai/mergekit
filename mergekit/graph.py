@@ -40,7 +40,7 @@ from mergekit.common import ModelReference
 from mergekit.io import LazyTensorLoader, TensorWriter
 
 
-class TensorReference(BaseModel):
+class TensorReference(BaseModel, frozen=True):
     """
     A reference to a tensor, optionally associated with a specific model.
 
@@ -59,11 +59,8 @@ class TensorReference(BaseModel):
             namespace = "_"
         return namespace + ":" + self.key
 
-    class Config:
-        frozen = True
 
-
-class Operation(BaseModel):
+class Operation(BaseModel, frozen=True):
     """
     Defines a node in a computational graph, representing an operation on tensors.
 
@@ -76,9 +73,6 @@ class Operation(BaseModel):
     function: str
     inputs: List[TensorReference]
     kwargs: Optional[Dict[str, Any]] = None
-
-    class Config:
-        frozen = True
 
 
 class ProceduralRule(ABC):
@@ -322,13 +316,12 @@ class Executor:
         if operation.function == "load_tensor":
             return self._load_tensor(operation)
 
-        elif operation.function in self.operations:
+        if operation.function in self.operations:
             return self.operations[operation.function](
                 input_tensors=tensor_args, **operation.kwargs
             )
 
-        else:
-            raise RuntimeError(f"Unimplemented function {operation.function}")
+        raise RuntimeError(f"Unimplemented function {operation.function}")
 
     def _load_tensor(self, operation: Operation):
         """Load a tensor from an input model."""

@@ -26,6 +26,13 @@ dependencies = [
     "protobuf",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "black~=23.11.0",
+    "isort~=5.12.0",
+    "pre-commit~=3.5.0",
+]
+
 [project.urls]
 repository = "https://github.com/cg123/mergekit"
 
@@ -38,3 +45,11 @@ bakllama = "mergekit.scripts.bakllama:_main"
 
 [tool.setuptools]
 packages = ["mergekit"]
+
+[tool.isort]
+profile = "black"
+
+[tool.black]
+line-length = 88
+target-version = ['py37']
+include = '\.pyi?$'

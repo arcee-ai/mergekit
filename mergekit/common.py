@@ -29,7 +29,7 @@ from transformers import AutoConfig, PretrainedConfig
 from mergekit.io import ShardedTensorIndex
 
 
-class ModelReference(BaseModel):
+class ModelReference(BaseModel, frozen=True):
     """A reference to a language model.
 
     Can be a hf hub path (username/repo), or local. Optionally includes a LoRA."""
@@ -110,9 +110,6 @@ class ModelReference(BaseModel):
         if self.lora_path:
             return f"{self.path}+{self.lora_path}"
         return self.path
-
-    class Config:
-        frozen = True
 
 
 def dtype_from_name(name: Optional[str]) -> torch.dtype:

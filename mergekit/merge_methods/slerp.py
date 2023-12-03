@@ -30,7 +30,7 @@ class SlerpMerge(MergeMethod):
         parameter_name: str,
         input_tensors: Dict[TensorReference, torch.Tensor],
         config: ConfigReader,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         if len(input_tensors) == 1:
             return list(input_tensors.values())[0]
