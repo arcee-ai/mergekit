@@ -161,18 +161,16 @@ def torch_lazy_load():
     Context manager under which `torch.load` will return a `DeferredLoad` instead
     of `torch.Tensor.`
     """
+    old_unpickler = pickle.Unpickler
+    old_load = pickle.load
+    old_rebuild_tensor = torch._utils._rebuild_tensor
     try:
-        old_unpickler = pickle.Unpickler
-        pickle.Unpickler = LazyTorchUnpickler
-
-        old_load = pickle.load
 
         def load_monkeypatch(*args, **kwargs):
             return pickle.Unpickler(*args, **kwargs).load()
 
+        pickle.Unpickler = LazyTorchUnpickler
         pickle.load = load_monkeypatch
-
-        old_rebuild_tensor = torch._utils._rebuild_tensor
         torch._utils._rebuild_tensor = DeferredLoad.rebuild
 
         with accelerate.init_empty_weights():

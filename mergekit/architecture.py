@@ -48,7 +48,7 @@ class ArchitectureInfo(ABC):
         return "num_hidden_layers"
 
 
-class StaticTensorNames(BaseModel, ArchitectureInfo):
+class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
     name: str
 
     pre_weight_names: List[str]  # weights applied before first layer
@@ -57,9 +57,6 @@ class StaticTensorNames(BaseModel, ArchitectureInfo):
     layer_prefix_format: str
     layer_weight_suffixes: List[str]
     num_layers_key: Optional[str] = None
-
-    class Config:
-        frozen = True
 
     def pre_weights(self) -> List[str]:
         return self.pre_weight_names
@@ -135,7 +132,7 @@ GPT_NEOX_INFO = StaticTensorNames(
     embed_weight_names=["gpt_neox.embed_in.weight", "embed_out.weight"],
     layer_prefix_format="gpt_neox.layers.{idx}",
     layer_weight_suffixes=sum(
-        [
+        (
             [f"{prefix}.weight", f"{prefix}.bias"]
             for prefix in [
                 "attention.dense",
@@ -145,7 +142,7 @@ GPT_NEOX_INFO = StaticTensorNames(
                 "mlp.dense_h_to_4h",
                 "post_attention_layernorm",
             ]
-        ],
+        ),
         start=[],
     )
     + ["attention.bias", "attention.masked_bias", "attention.rotary_emb.inv_freq"],
@@ -260,7 +257,7 @@ class PhiTensorNames(ArchitectureInfo):
             f"layers.{fake_layer_idx}.linear.bias",
         ]
 
-    def layer_weight_formats(self, layer_idx: int) -> List[str]:
+    def layer_weight_formats(self) -> List[str]:
         return [
             ("layers.{idx}." + suffix)
             for suffix in [

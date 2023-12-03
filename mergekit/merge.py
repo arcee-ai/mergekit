@@ -20,7 +20,7 @@ import torch
 import transformers
 from pydantic import BaseModel
 
-import mergekit.merge_methods as merge_methods
+from mergekit import merge_methods
 from mergekit.architecture import get_architecture_info
 from mergekit.common import ModelReference, parse_kmb
 from mergekit.config import MergeConfiguration
@@ -135,5 +135,5 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         except Exception as e:
             logging.error(
                 "Failed to save tokenizer. The merge was still successful, just copy it from somewhere else.",
-                e,
+                exc_info=e,
             )

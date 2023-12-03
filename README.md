@@ -142,4 +142,3 @@ mergekit-legacy ./output-model --base-model TheBloke/Llama-2-13B-fp16 --cuda \
 ```
 
 `mergekit-legacy` can output a YAML configuration for easy migration with the `--print-yaml` option.
-

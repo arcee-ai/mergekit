@@ -31,7 +31,7 @@ class MergeMethod(ABC):
         parameter_name: str,
         input_tensors: Dict[TensorReference, torch.Tensor],
         config: ConfigReader,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         ...
 
