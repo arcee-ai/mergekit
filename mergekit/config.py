@@ -103,7 +103,10 @@ class MergeConfiguration(BaseModel):
         if self.slices:
             for s in self.slices:
                 for src in s.sources:
-                    models.add(ModelReference.parse(src.model))
+                    revision = "main"
+                    if hasattr(src, "revision"):
+                        revision = src.revision
+                    models.add(ModelReference.parse(src.model, revision=revision))
         return list(models)
 
     def validate(self):
