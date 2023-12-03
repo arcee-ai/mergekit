@@ -92,7 +92,7 @@ class ModelReference(BaseModel):
                 patterns.append("*.bin")
 
             path = huggingface_hub.snapshot_download(
-                path, cache_dir=cache_dir, allow_patterns=patterns
+                path, cache_dir=cache_dir, allow_patterns=patterns, revision=self.revision
             )
 
         return ShardedTensorIndex.from_disk(path)

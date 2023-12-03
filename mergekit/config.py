@@ -64,6 +64,7 @@ def evaluate_setting(
 
 class InputSliceDefinition(BaseModel):
     model: str
+    revision: Optional[str] = "main"
     layer_range: Tuple[int, int]
     parameters: Optional[Dict[str, ParameterSetting]] = None
 
