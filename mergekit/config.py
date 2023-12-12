@@ -53,7 +53,7 @@ def evaluate_setting(
                 if (
                     (cond.filter is None)
                     or (cond.filter == "*")
-                    or cond.filter in tensor_name
+                    or (tensor_name and cond.filter in tensor_name)
                 ):
                     res = evaluate_setting(tensor_name, cond.value, t)
                     return res
@@ -113,10 +113,10 @@ class MergeConfiguration(BaseModel):
 
 class ConfigReader(BaseModel):
     config: MergeConfiguration
-    tensor_name: str
     t: float
-    slice_out: Optional[OutputSliceDefinition]
-    slices_in: Optional[List[InputSliceDefinition]]
+    tensor_name: Optional[str] = None
+    slice_out: Optional[OutputSliceDefinition] = None
+    slices_in: Optional[List[InputSliceDefinition]] = None
 
     @property
     def base_model(self) -> Optional[ModelReference]:
@@ -128,6 +128,20 @@ class ConfigReader(BaseModel):
         if res:
             return ModelReference.parse(res)
         return None
+
+    def for_out_slice(self, slice: OutputSliceDefinition) -> "ConfigReader":
+        return ConfigReader(self.model_dump(exclude=["slice_out"]), slice_out=slice)
+
+    def for_in_slices(self, slices: List[InputSliceDefinition]) -> "ConfigReader":
+        return ConfigReader(self.model_dump(exclude=["slices_in"]), slices_in=slices)
+
+    def for_tensor(self, tensor_name: str) -> "ConfigReader":
+        return ConfigReader(
+            self.model_dump(exclude=["tensor_name"]), tensor_name=tensor_name
+        )
+
+    def with_t(self, t: float) -> "ConfigReader":
+        return ConfigReader(self.model_dump(exclude=["t"]), t=t)
 
     def parameter(
         self,
@@ -177,10 +191,8 @@ class ConfigReader(BaseModel):
                 return value
 
         if required:
-            suffix = (
-                f" for {str(model)}.{self.tensor_name}"
-                if model
-                else f" for {self.tensor_name}"
-            )
+            path_paths = [str(s) for s in [model, self.tensor_name] if s]
+            p = ".".join(path_paths)
+            suffix = f" for {p}" if p else ""
             raise RuntimeError(f"Missing required parameter {name}{suffix}")
         return default

@@ -16,17 +16,16 @@
 import logging
 from typing import Optional
 
-import torch
+import tqdm
 import transformers
 from pydantic import BaseModel
 
-from mergekit import merge_methods
 from mergekit.architecture import get_architecture_info
 from mergekit.common import ModelReference, parse_kmb
 from mergekit.config import MergeConfiguration
-from mergekit.graph import Executor, RuleSet
-from mergekit.plan import plan
-from mergekit.tokenizer import build_tokenizer
+from mergekit.graph import Executor
+from mergekit.plan import MergePlanner
+from mergekit.tasks import LoaderCache, TokenizerInfo
 
 
 class MergeOptions(BaseModel):
@@ -45,20 +44,12 @@ class MergeOptions(BaseModel):
 
 
 def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOptions):
-    dtype: Optional[torch.dtype] = {
-        None: None,
-        "float16": torch.float16,
-        "bfloat16": torch.bfloat16,
-        "float32": torch.float32,
-    }[merge_config.dtype]
-
     if options.random_seed is not None:
         transformers.trainer_utils.set_seed(options.random_seed)
 
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
-    method = merge_methods.get(merge_config.merge_method)
     model_arch_info = [
         get_architecture_info(m.config()) for m in merge_config.referenced_models()
     ]
@@ -69,40 +60,38 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
             )
     arch_info = model_arch_info[0]
 
-    if merge_config.tokenizer_source:
-        tokenizer, embed_permutations = build_tokenizer(
-            merge_config, trust_remote_code=options.trust_remote_code
-        )
-        tokenizer.save_pretrained(out_path, safe_serialization=True)
-    else:
-        tokenizer = None
-        embed_permutations = None
+    # initialize loader cache and set options
+    loader_cache = LoaderCache()
+    loader_cache.lazy_unpickle = options.lazy_unpickle
+    loader_cache.lora_cache_dir = options.lora_merge_cache
+    loader_cache.hf_cache_dir = options.transformers_cache
 
-    (targets, static_rules) = plan(
-        merge_config, arch_info, embed_permutations=embed_permutations
-    )
-
-    rules = RuleSet(static_rules)
-    exec = Executor(
-        merge_config.referenced_models(),
-        targets,
-        rules,
-        {"merge": method, "merge_embed": merge_methods.TokenizerPermutationMerge()},
-        transformers_cache_dir=options.transformers_cache,
-        lora_cache_dir=options.lora_merge_cache,
-        dtype=dtype,
-        cuda=options.cuda,
-        low_cpu_memory=options.low_cpu_memory,
-        trust_remote_code=options.trust_remote_code,
-        lazy_unpickle=options.lazy_unpickle,
-    )
-    exec.run(
-        out_path,
+    targets = MergePlanner(
+        merge_config,
+        arch_info,
+        out_path=out_path,
         max_shard_size=options.out_shard_size,
         clone_tensors=options.clone_tensors,
+    ).plan()
+
+    # warm up loader cache
+    for model in tqdm.tqdm(
+        merge_config.referenced_models(), desc="Warmup loader cache"
+    ):
+        loader_cache.get(model)
+
+    exec = Executor(
+        tasks=targets,
+        math_device="cuda" if options.cuda else "cpu",
+        storage_device="cuda" if options.low_cpu_memory else "cpu",
     )
 
-    cfg_out = method.model_out_config(merge_config)
+    tokenizer = None
+    for _task, value in exec.run():
+        if isinstance(value, TokenizerInfo):
+            tokenizer = value.tokenizer
+
+    cfg_out = _model_out_config(merge_config)
     if tokenizer:
         try:
             cfg_out.vocab_size = len(tokenizer.get_vocab())
@@ -125,19 +114,39 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         )
     cfg_out.save_pretrained(out_path)
 
-    if options.copy_tokenizer and tokenizer is None:
-        try:
-            donor_model = merge_config.base_model
-            if donor_model:
-                donor_model = ModelReference.parse(donor_model)
-            if not donor_model:
-                donor_model = merge_config.referenced_models()[0]
+    if tokenizer is None and options.copy_tokenizer:
+        tokenizer = _get_donor_tokenizer(merge_config)
 
-            transformers.AutoTokenizer.from_pretrained(
-                donor_model.path
-            ).save_pretrained(out_path, safe_serialization=True)
-        except Exception as e:
-            logging.error(
-                "Failed to save tokenizer. The merge was still successful, just copy it from somewhere else.",
-                exc_info=e,
-            )
+    if tokenizer:
+        tokenizer.save_pretrained(out_path, safe_serialization=True)
+
+
+def _get_donor_tokenizer(merge_config: MergeConfiguration):
+    try:
+        donor_model = merge_config.base_model
+        if donor_model:
+            donor_model = ModelReference.parse(donor_model)
+        if not donor_model:
+            donor_model = merge_config.referenced_models()[0]
+
+        return transformers.AutoTokenizer.from_pretrained(donor_model.path)
+    except Exception as e:
+        logging.error(
+            "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
+            exc_info=e,
+        )
+        return None
+
+
+def _model_out_config(config: MergeConfiguration) -> transformers.PretrainedConfig:
+    """Return a configuration for the resulting model."""
+    if config.base_model:
+        res = ModelReference.parse(config.base_model).config()
+    else:
+        res = config.referenced_models()[0].config()
+    if config.dtype:
+        res.torch_dtype = config.dtype
+    return res
+
+
+__all__ = ["MergeOptions", "run_merge"]

@@ -13,41 +13,47 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Dict
+from typing import Any, Dict, List, Optional
 
 import torch
+from pydantic import BaseModel
+from torch._tensor import Tensor
 
 from mergekit.common import ModelReference
-from mergekit.config import ConfigReader
-from mergekit.graph import TensorReference
-from mergekit.merge_methods.base import MergeMethod
+from mergekit.graph import Task
+from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 from mergekit.merge_methods.slerp import slerp
+from mergekit.tasks import BuildTokenizer, GatherTensors, TokenizerInfo
 
 
-class TokenizerPermutationMerge(MergeMethod):
-    def __call__(
-        self,
-        input_tensors: Dict[TensorReference, torch.Tensor],
-        embed_permutations: Dict[ModelReference, torch.IntTensor],
-        config: ConfigReader,
-        **_kwargs,
-    ) -> torch.Tensor:
-        if not input_tensors:
+class TokenizerPermutationMergeTask(Task[torch.Tensor]):
+    tokenizer_task: BuildTokenizer
+    gather_tensors: GatherTensors
+    base_model: Optional[ModelReference]
+    use_slerp: bool
+    slerp_t: float
+    tensor_parameters: Dict[ModelReference, Any]
+
+    def arguments(self) -> Dict[str, Task]:
+        return {"tokenizer_info": self.tokenizer_task, "tensors": self.gather_tensors}
+
+    def execute(
+        self, tokenizer_info: TokenizerInfo, tensors: Dict[ModelReference, torch.Tensor]
+    ) -> Tensor:
+        if not tensors:
             return None
-        if len(input_tensors) == 1:
-            return list(input_tensors.values())[1]
-
-        use_slerp = config.parameter("embed_slerp", default=False)
+        if len(tensors) == 1:
+            return list(tensors.values())[0]
 
         models = []
         expanded = []
         masks = []
         weights = []
-        for tr in input_tensors:
-            models.append(tr.model)
+        for model in tensors:
+            models.append(model)
 
-            x = input_tensors[tr]
-            p = embed_permutations[tr.model].to(dtype=x.dtype, device=x.device)
+            x = tensors[model]
+            p = tokenizer_info.permutations[model].to(dtype=x.dtype, device=x.device)
             if p.shape[1] == x.shape[0]:
                 xp = p @ x
             else:
@@ -56,12 +62,11 @@ class TokenizerPermutationMerge(MergeMethod):
             expanded.append(xp)
             masks.append(p.sum(dim=-1, keepdim=True) > 0)
 
-            is_base = tr.model == config.base_model
-            if use_slerp:
-                t = config.parameter("t", required=True)
-                weight = (1.0 - t) if is_base else t
+            is_base = model == self.base_model
+            if self.use_slerp:
+                weight = (1.0 - self.slerp_t) if is_base else self.slerp_t
             else:
-                weight = config.parameter("weight", model=tr.model, default=1.0)
+                weight = self.tensor_parameters[model]["weight"]
 
             weights.append(weight)
 
@@ -79,21 +84,53 @@ class TokenizerPermutationMerge(MergeMethod):
 
         linear_merged = (expanded * weights * masks).sum(dim=0) * scale
 
-        if use_slerp:
+        if self.use_slerp:
             if expanded.shape[0] != 2:
                 raise RuntimeError("SLERP takes exactly two models")
 
-            if models[0] == config.base_model:
+            if models[0] == self.base_model:
                 v0 = expanded[0, ...]
                 v1 = expanded[1, ...]
             else:
                 v0 = expanded[1, ...]
                 v1 = expanded[0, ...]
 
-            t = config.parameter("t", required=True)
-            res = slerp(t, v0, v1)
+            res = slerp(self.slerp_t, v0, v1)
             need_linear = (masks.sum(dim=0) != 2).squeeze(dim=-1)
             res[need_linear, :] = linear_merged[need_linear, :].to(res.device)
             return res
 
         return linear_merged
+
+
+class TokenizerPermutationMerge(MergeMethod, BaseModel):
+    tokenizer_task: BuildTokenizer
+
+    def parameters(self) -> List[ConfigParameterDef]:
+        return [
+            ConfigParameterDef("t", required=False),
+            ConfigParameterDef(name="embed_slerp", required=False, default_value=False),
+        ]
+
+    def tensor_parameters(self) -> List[ConfigParameterDef]:
+        return [
+            ConfigParameterDef("weight", required=False),
+        ]
+
+    def make_task(
+        self,
+        *,
+        tensors: GatherTensors,
+        parameters: Dict[str, Any],
+        tensor_parameters: Dict[ModelReference, Dict[str, Any]],
+        base_model: Optional[ModelReference],
+        **_kwargs,
+    ) -> Task:
+        return TokenizerPermutationMergeTask(
+            base_model=base_model,
+            tokenizer_task=self.tokenizer_task,
+            gather_tensors=tensors,
+            use_slerp=parameters["embed_slerp"],
+            slerp_t=parameters["t"],
+            tensor_parameters=tensor_parameters,
+        )
