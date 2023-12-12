@@ -192,8 +192,8 @@ class MergeOptions(BaseModel):
     lazy_unpickle: bool = False
 
 
-T_K = TypeVar("KT")
-T_V = TypeVar("VT")
+T_K = TypeVar("T_K")
+T_V = TypeVar("T_V")
 
 
 class ImmutableMap(
