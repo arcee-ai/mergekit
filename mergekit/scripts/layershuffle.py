@@ -21,13 +21,13 @@ import yaml
 from typing_extensions import Annotated
 
 from mergekit.architecture import get_architecture_info
-from mergekit.common import ModelReference
+from mergekit.common import MergeOptions, ModelReference
 from mergekit.config import (
     InputSliceDefinition,
     MergeConfiguration,
     OutputSliceDefinition,
 )
-from mergekit.merge import MergeOptions, run_merge
+from mergekit.merge import run_merge
 
 
 def main(

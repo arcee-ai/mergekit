@@ -60,7 +60,7 @@ class TensorWriter:
         if not self.current_shard:
             return
 
-        logging.info(f"writing shard #{self.shards_written+1} to disk")
+        logging.info(f"Writing shard #{self.shards_written+1} to disk")
 
         shard_name = f"model-{self.shards_written+1}.safetensors"
         for key in self.current_shard:
@@ -76,6 +76,8 @@ class TensorWriter:
 
     def finalize(self):
         self.flush_current_shard()
+
+        logging.info("Finalizing shard names")
 
         # standardize shard names to hf format
         total_shards = self.shards_written

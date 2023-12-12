@@ -20,9 +20,9 @@ import typer
 import yaml
 from typing_extensions import Annotated
 
-from mergekit.common import parse_kmb
+from mergekit.common import MergeOptions, parse_kmb
 from mergekit.config import MergeConfiguration
-from mergekit.merge import MergeOptions, run_merge
+from mergekit.merge import run_merge
 
 
 def main(

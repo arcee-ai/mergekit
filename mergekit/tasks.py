@@ -1,17 +1,13 @@
 import os
-from typing import Dict, List, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
-import transformers
-from pydantic import BaseModel
 from torch._tensor import Tensor
 
-from mergekit.common import ModelReference
-from mergekit.config import MergeConfiguration
+from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
 from mergekit.graph import Task
 from mergekit.io.lazy_tensor_loader import LazyTensorLoader
 from mergekit.io.tensor_writer import TensorWriter
-from mergekit.tokenizer import build_tokenizer
 
 
 class LoaderCache:
@@ -35,7 +31,7 @@ class LoaderCache:
                 cache_dir=self.lora_cache_dir, trust_remote_code=self.trust_remote_code
             )
             self.loaders[model] = LazyTensorLoader(
-                merged.tensor_index(self.lora_cache_dir, cache_dir=self.hf_cache_dir),
+                merged.tensor_index(cache_dir=self.hf_cache_dir),
                 lazy_unpickle=self.lazy_unpickle,
             )
         return self.loaders[model]
@@ -63,7 +59,7 @@ class LoadTensor(Task[torch.Tensor]):
         loader = LoaderCache().get(self.model)
         x = loader.get_tensor(self.tensor, device=self.device or "cpu")
         if self.dtype:
-            x = x.to(dtype=self.dtype)
+            x = x.to(dtype=dtype_from_name(self.dtype))
         return x
 
     def group_label(self) -> Optional[str]:
@@ -73,7 +69,7 @@ class LoadTensor(Task[torch.Tensor]):
 
 
 class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
-    tensor_names: Dict[ModelReference, str]
+    tensor_names: ImmutableMap[ModelReference, str]
     dtype: Optional[str] = None
     device: Optional[str] = None
 
@@ -82,13 +78,13 @@ class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
             f"{str(model)}:{tensor_name}": LoadTensor(
                 model=model, tensor=tensor_name, dtype=self.dtype, device=self.device
             )
-            for (model, tensor_name) in self.tensor_names
+            for (model, tensor_name) in self.tensor_names.items()
         }
 
     def execute(self, **kwargs) -> Dict[ModelReference, Tensor]:
         key2model = {
             f"{str(model)}:{tensor_name}": model
-            for (model, tensor_name) in self.tensor_names
+            for (model, tensor_name) in self.tensor_names.items()
         }
         return {key2model[key]: kwargs[key] for key in key2model}
 
@@ -118,7 +114,7 @@ class SaveTensor(Task[None]):
 
 
 class FinalizeModel(Task[None]):
-    tensor_save_tasks: List[Task]
+    tensor_save_tasks: Tuple[Task, ...]
     writer_task: TensorWriterTask
 
     def arguments(self) -> Dict[str, Task]:
@@ -129,22 +125,3 @@ class FinalizeModel(Task[None]):
 
     def execute(self, writer: TensorWriter, **kwargs) -> None:
         writer.finalize()
-
-
-class TokenizerInfo(BaseModel, allow_arbitrary_types=True):
-    tokenizer: transformers.PreTrainedTokenizerBase
-    permutations: Optional[Dict[ModelReference, torch.Tensor]]
-
-
-class BuildTokenizer(Task[TokenizerInfo]):
-    merge_config: MergeConfiguration
-    trust_remote_code: bool = False
-
-    def arguments(self) -> Dict[str, Task]:
-        return {}
-
-    def execute(self, **_kwargs) -> TokenizerInfo:
-        tokenizer, permutations = build_tokenizer(
-            self.merge_config, trust_remote_code=self.trust_remote_code
-        )
-        return TokenizerInfo(tokenizer=tokenizer, permutations=permutations)

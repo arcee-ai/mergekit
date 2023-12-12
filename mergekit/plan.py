@@ -17,7 +17,7 @@ from typing import List, Optional
 
 from mergekit import merge_methods
 from mergekit.architecture import ArchitectureInfo
-from mergekit.common import ModelReference
+from mergekit.common import ImmutableMap, MergeOptions, ModelReference
 from mergekit.config import (
     ConfigReader,
     InputSliceDefinition,
@@ -25,16 +25,10 @@ from mergekit.config import (
     OutputSliceDefinition,
 )
 from mergekit.graph import Task
-from mergekit.merge import MergeOptions
 from mergekit.merge_methods import MergeMethod
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
-from mergekit.tasks import (
-    BuildTokenizer,
-    FinalizeModel,
-    GatherTensors,
-    SaveTensor,
-    TensorWriterTask,
-)
+from mergekit.tasks import FinalizeModel, GatherTensors, SaveTensor, TensorWriterTask
+from mergekit.tokenizer import BuildTokenizer
 
 
 class MergePlanner:
@@ -62,9 +56,16 @@ class MergePlanner:
             out_path=out_path, max_shard_size=options.out_shard_size
         )
 
-        if config.merge_method:
+        if config.tokenizer_source:
             self._tokenizer_task = BuildTokenizer(
-                merge_config=config, trust_remote_code=options.trust_remote_code
+                base_model=(
+                    ModelReference.parse(config.base_model)
+                    if config.base_model
+                    else None
+                ),
+                referenced_models=tuple(config.referenced_models()),
+                tokenizer_source=config.tokenizer_source,
+                trust_remote_code=options.trust_remote_code,
             )
 
     def plan_tensor(
@@ -98,7 +99,8 @@ class MergePlanner:
                 )
 
         gather_tensors = GatherTensors(
-            tensor_names=dict(zip(models, names_in)), dtype=self.config.dtype
+            tensor_names=ImmutableMap(data=dict(zip(models, names_in))),
+            dtype=self.config.dtype,
         )
         base_model = (
             ModelReference.parse(self.config.base_model)
@@ -137,7 +139,7 @@ class MergePlanner:
             self.plan_tensor(
                 name=name_out,
                 names_in=names_in,
-                models=[s.model for s in sources],
+                models=[ModelReference.parse(s.model) for s in sources],
                 cfg_reader=cfg_reader.with_t(t),
             )
 
@@ -173,7 +175,7 @@ class MergePlanner:
             self.plan_tensor(
                 weight_name,
                 [weight_name] * len(self.config.slices[0].sources),
-                [s.model for s in self.config.slices[0].sources],
+                [ModelReference.parse(s.model) for s in self.config.slices[0].sources],
                 ConfigReader(config=self.config, t=0, tensor_name=weight_name),
             )
 
@@ -184,13 +186,13 @@ class MergePlanner:
             self.plan_tensor(
                 weight_name,
                 [weight_name] * len(self.config.slices[-1].sources),
-                [s.model for s in self.config.slices[-1].sources],
+                [ModelReference.parse(s.model) for s in self.config.slices[-1].sources],
                 ConfigReader(config=self.config, t=1, tensor_name=weight_name),
             )
 
         self._tasks.append(
             FinalizeModel(
-                tensor_save_tasks=list(self._tasks), writer_task=self._writer_task
+                tensor_save_tasks=tuple(self._tasks), writer_task=self._writer_task
             )
         )
         res = list(self._tasks)

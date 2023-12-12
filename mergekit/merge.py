@@ -14,33 +14,17 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import logging
-from typing import Optional
 
 import tqdm
 import transformers
-from pydantic import BaseModel
 
 from mergekit.architecture import get_architecture_info
-from mergekit.common import ModelReference, parse_kmb
+from mergekit.common import MergeOptions, ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.plan import MergePlanner
-from mergekit.tasks import LoaderCache, TokenizerInfo
-
-
-class MergeOptions(BaseModel):
-    allow_crimes: bool = False
-    transformers_cache: Optional[str] = None
-    lora_merge_cache: Optional[str] = None
-    cuda: bool = False
-    low_cpu_memory: bool = False
-    out_shard_size: int = parse_kmb("5B")
-    copy_tokenizer: bool = True
-    allow_crimes: bool = False
-    clone_tensors: bool = False
-    trust_remote_code: bool = False
-    random_seed: Optional[int] = None
-    lazy_unpickle: bool = False
+from mergekit.tasks import LoaderCache
+from mergekit.tokenizer import TokenizerInfo
 
 
 def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOptions):
@@ -70,8 +54,7 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         merge_config,
         arch_info,
         out_path=out_path,
-        max_shard_size=options.out_shard_size,
-        clone_tensors=options.clone_tensors,
+        options=options,
     ).plan()
 
     # warm up loader cache
@@ -112,12 +95,14 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
             "Unable to set number of layers in output config - you may need to manually correct it.",
             exc_info=e,
         )
+    logging.info("Saving config")
     cfg_out.save_pretrained(out_path)
 
     if tokenizer is None and options.copy_tokenizer:
         tokenizer = _get_donor_tokenizer(merge_config)
 
     if tokenizer:
+        logging.info("Saving tokenizer")
         tokenizer.save_pretrained(out_path, safe_serialization=True)
 
 

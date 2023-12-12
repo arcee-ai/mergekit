@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 import torch
 from torch._tensor import Tensor
 
-from mergekit.common import ModelReference, rectify_embed_sizes
+from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
 from mergekit.graph import Task
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 from mergekit.tasks import GatherTensors
@@ -26,7 +26,7 @@ from mergekit.tasks import GatherTensors
 
 class LinearMergeTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
-    tensor_parameters: Dict[ModelReference, Dict[str, Any]]
+    tensor_parameters: ImmutableMap[ModelReference, Dict[str, Any]]
     normalize: bool
     parameter_name: str
 
@@ -79,7 +79,7 @@ class LinearMerge(MergeMethod):
     ) -> Task:
         return LinearMergeTask(
             gather_tensors=tensors,
-            tensor_parameters=tensor_parameters,
+            tensor_parameters=ImmutableMap(data=tensor_parameters),
             normalize=parameters["normalize"],
             parameter_name=output_tensor_name,
         )

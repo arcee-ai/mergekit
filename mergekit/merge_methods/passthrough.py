@@ -39,6 +39,8 @@ class PassthroughMergeTask(Task[torch.Tensor]):
         if self.scale is not None:
             res *= self.scale
 
+        return res
+
 
 class PassthroughMerge(MergeMethod):
     def parameters(self) -> List[ConfigParameterDef]:

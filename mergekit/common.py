@@ -16,15 +16,18 @@
 import logging
 import os
 import os.path
-from typing import List, Optional, Union
+from typing import Generic, Iterator, List, Optional, Tuple, Union
 
 import huggingface_hub
+import immutables
 import numpy as np
 import peft
+import pydantic
 import torch
 import transformers
-from pydantic import BaseModel
+from pydantic import BaseModel, SerializerFunctionWrapHandler
 from transformers import AutoConfig, PretrainedConfig
+from typing_extensions import TypeVar
 
 from mergekit.io import ShardedTensorIndex
 
@@ -172,3 +175,50 @@ def parse_kmb(value: Union[str, int]) -> int:
         return int(value[:-1]) * 1000 * 1000 * 1000
     else:
         raise ValueError(value)
+
+
+class MergeOptions(BaseModel):
+    allow_crimes: bool = False
+    transformers_cache: Optional[str] = None
+    lora_merge_cache: Optional[str] = None
+    cuda: bool = False
+    low_cpu_memory: bool = False
+    out_shard_size: int = parse_kmb("5B")
+    copy_tokenizer: bool = True
+    allow_crimes: bool = False
+    clone_tensors: bool = False
+    trust_remote_code: bool = False
+    random_seed: Optional[int] = None
+    lazy_unpickle: bool = False
+
+
+T_K = TypeVar("KT")
+T_V = TypeVar("VT")
+
+
+class ImmutableMap(
+    Generic[T_K, T_V], BaseModel, frozen=True, arbitrary_types_allowed=True
+):
+    data: immutables.Map[T_K, T_V]
+
+    @pydantic.validator("data", pre=True)
+    def validate_data(cls, data):
+        return immutables.Map(data)
+
+    @pydantic.field_serializer("data", mode="wrap")
+    def serialize_data(
+        self,
+        data: immutables.Map[T_K, T_V],
+        nxt: SerializerFunctionWrapHandler,
+        # info: SerializationInfo,
+    ):
+        return nxt(dict(data.items()))
+
+    def __iter__(self):
+        return self.data.__iter__()
+
+    def __getitem__(self, key: T_K) -> T_V:
+        return self.data[key]
+
+    def items(self) -> Iterator[Tuple[T_K, T_V]]:
+        return self.data.items()

@@ -21,7 +21,7 @@ import torch
 from pydantic import BaseModel
 from typing_extensions import Literal
 
-from mergekit.common import ModelReference
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 from mergekit.sparsify import SparsificationMethod, sparsify
@@ -64,7 +64,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel):
             method=self,
             tensors=tensors,
             base_model=base_model,
-            tensor_parameters=tensor_parameters,
+            tensor_parameters=ImmutableMap(data=tensor_parameters),
             int8_mask=parameters["int8_mask"],
             normalize=parameters["normalize"],
             out_tensor_name=output_tensor_name,
@@ -76,7 +76,7 @@ class GTATask(Task[torch.Tensor]):
     tensors: GatherTensors
     base_model: ModelReference
     out_tensor_name: str
-    tensor_parameters: Dict[ModelReference, Any]
+    tensor_parameters: ImmutableMap[ModelReference, Any]
     int8_mask: bool
     normalize: bool
 
@@ -93,7 +93,7 @@ class GTATask(Task[torch.Tensor]):
             self.out_tensor_name,
             self.base_model,
             tensors,
-            tensor_parameters=self.tensor_parameters,
+            tensor_parameters=self.tensor_parameters.data,
         )
         if not tvs:
             return base

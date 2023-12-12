@@ -155,13 +155,13 @@ class Executor:
             last_use_index[task] = j
 
         values: Dict[Task, Any] = {}
-        for idx, task in tqdm.tqdm(enumerate(self.schedule)):
+        for idx, task in tqdm.tqdm(enumerate(self.schedule), total=len(self.schedule)):
             arguments = {}
-            for dep in self.dependencies[task]:
+            for name, dep in task.arguments().items():
                 value = values[dep]
                 if isinstance(value, torch.Tensor) and value.device != self.math_device:
                     value = value.to(self.math_device)
-                arguments[dep] = value
+                arguments[name] = value
 
             res = task.execute(**arguments)
             del arguments

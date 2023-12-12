@@ -130,18 +130,40 @@ class ConfigReader(BaseModel):
         return None
 
     def for_out_slice(self, slice: OutputSliceDefinition) -> "ConfigReader":
-        return ConfigReader(self.model_dump(exclude=["slice_out"]), slice_out=slice)
+        return ConfigReader(
+            config=self.config,
+            t=self.t,
+            tensor_name=self.tensor_name,
+            slice_out=slice,
+            slices_in=self.slices_in,
+        )
 
     def for_in_slices(self, slices: List[InputSliceDefinition]) -> "ConfigReader":
-        return ConfigReader(self.model_dump(exclude=["slices_in"]), slices_in=slices)
+        return ConfigReader(
+            config=self.config,
+            t=self.t,
+            tensor_name=self.tensor_name,
+            slice_out=self.slice_out,
+            slices_in=slices,
+        )
 
     def for_tensor(self, tensor_name: str) -> "ConfigReader":
         return ConfigReader(
-            self.model_dump(exclude=["tensor_name"]), tensor_name=tensor_name
+            config=self.config,
+            t=self.t,
+            tensor_name=tensor_name,
+            slice_out=self.slice_out,
+            slices_in=self.slices_in,
         )
 
     def with_t(self, t: float) -> "ConfigReader":
-        return ConfigReader(self.model_dump(exclude=["t"]), t=t)
+        return ConfigReader(
+            config=self.config,
+            t=t,
+            tensor_name=self.tensor_name,
+            slice_out=self.slice_out,
+            slices_in=self.slices_in,
+        )
 
     def parameter(
         self,
