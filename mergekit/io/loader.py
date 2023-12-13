@@ -14,7 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 import safetensors
 import torch
@@ -35,13 +35,18 @@ class TensorLoader(ABC):
 
     @classmethod
     def get(
-        cls, shard_path: str, use_lazy_unpickle: bool = False, device: str = "cpu"
+        cls,
+        shard_path: str,
+        use_lazy_unpickle: bool = False,
+        device: Optional[str] = None,
     ) -> "TensorLoader":
         if shard_path.lower().endswith(".safetensors"):
             # not a subclass of TensorLoader, but exposes same api
-            return safetensors.safe_open(shard_path, framework="pt", device=device)
+            return safetensors.safe_open(
+                shard_path, framework="pt", device=device or "cpu"
+            )
         elif use_lazy_unpickle:
-            return LazyPickleLoader(shard_path)
+            return LazyPickleLoader(shard_path, device=device)
         return DumbPytorchLoader(shard_path, device=device)
 
 
@@ -50,17 +55,19 @@ class LazyPickleLoader(TensorLoader):
 
     zip_reader: TorchArchiveReader
     index: Dict[str, DeferredLoad]
+    device: Optional[str] = None
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, device: Optional[str] = None):
         self.zip_reader = TorchArchiveReader(path)
+        self.device = device
         with torch_lazy_load():
             self.index = torch.load(path)
 
-    def get_tensor(self, key: str, map_location: Any = None) -> torch.Tensor:
+    def get_tensor(self, key: str) -> torch.Tensor:
         if key not in self.index:
             raise KeyError(key)
 
-        return self.index[key].execute(self.zip_reader, map_location=map_location)
+        return self.index[key].execute(self.zip_reader, map_location=self.device)
 
     def keys(self) -> Sequence[str]:
         return self.index.keys()
