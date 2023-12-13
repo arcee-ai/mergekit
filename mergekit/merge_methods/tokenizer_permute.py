@@ -48,8 +48,9 @@ class TokenizerPermutationMerge(MergeMethod):
 
             x = input_tensors[tr]
             p = embed_permutations[tr.model].to(dtype=x.dtype, device=x.device)
+            temp_dtype = torch.float32 if x.device.type == "cpu" else x.dtype
             if p.shape[1] == x.shape[0]:
-                xp = p @ x
+                xp = (p.to(dtype=temp_dtype) @ x.to(dtype=temp_dtype)).to(x.dtype)
             else:
                 raise RuntimeError("Shape mismatch")
 
