@@ -99,6 +99,7 @@ def get_gate_params(
     mode: str = "hidden",
     load_in_4bit: bool = False,
     load_in_8bit: bool = False,
+    lazy_unpickle: bool = False,
 ):
     gate_vecs = []
     _do_it = None
@@ -110,9 +111,9 @@ def get_gate_params(
             (model_cfg.num_hidden_layers, len(experts), model_cfg.hidden_size)
         )
     elif mode == "cheap_embed":
-        embed = LazyTensorLoader(model_ref.tensor_index()).get_tensor(
-            "model.embed_tokens.weight"
-        )
+        embed = LazyTensorLoader(
+            model_ref.tensor_index(), lazy_unpickle=lazy_unpickle
+        ).get_tensor("model.embed_tokens.weight")
         _do_it = lambda tokenized: get_cheap_embedding(
             embed, tokenized, num_layers=model_cfg.num_hidden_layers
         )
@@ -148,6 +149,7 @@ def build(
     out_path: str,
     load_in_4bit: bool = False,
     load_in_8bit: bool = False,
+    lazy_unpickle: bool = False,
 ):
     base_model = ModelReference.parse(config.base_model)
     base_cfg = base_model.config()
@@ -164,7 +166,9 @@ def build(
     for model in tqdm.tqdm(
         [base_model] + [e.model_ref for e in config.experts], desc="Warm up loaders"
     ):
-        loaders[model] = LazyTensorLoader(model.tensor_index())
+        loaders[model] = LazyTensorLoader(
+            model.tensor_index(), lazy_unpickle=lazy_unpickle
+        )
 
     base_loader = loaders.get(base_model)
     writer = TensorWriter(out_path=out_path)
@@ -209,6 +213,7 @@ def build(
         mode=config.gate_mode,
         load_in_4bit=load_in_4bit,
         load_in_8bit=load_in_8bit,
+        lazy_unpickle=lazy_unpickle,
     )
     # gate_vecs: (num_layers, num_experts, hidden_size)
 
@@ -234,13 +239,20 @@ def main(
     load_in_8bit: Annotated[
         bool, typer.Option(help="Load model in 8bit for computing hidden states")
     ] = False,
+    lazy_unpickle: Annotated[
+        bool, typer.Option(help="Use experimental lazy unpickler")
+    ] = False,
 ):
     with open(config_path, "r", encoding="utf-8") as file:
         data = yaml.load(file, yaml.SafeLoader)
 
     config = MistralMOEConfig.model_validate(data)
     build(
-        config, out_path=out_path, load_in_4bit=load_in_4bit, load_in_8bit=load_in_8bit
+        config,
+        out_path=out_path,
+        load_in_4bit=load_in_4bit,
+        load_in_8bit=load_in_8bit,
+        lazy_unpickle=lazy_unpickle,
     )
 
 
