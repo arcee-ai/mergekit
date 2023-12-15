@@ -42,6 +42,7 @@ mergekit-yaml = "mergekit.scripts.run_yaml:_main"
 mergekit-legacy = "mergekit.scripts.legacy:_main"
 mergekit-layershuffle = "mergekit.scripts.layershuffle:_main"
 bakllama = "mergekit.scripts.bakllama:_main"
+mergekit-moe = "mergekit.scripts.mixtral_moe:_main"
 
 [tool.setuptools]
 packages = ["mergekit"]
