@@ -153,14 +153,22 @@ def build(
 ):
     base_model = ModelReference.parse(config.base_model)
     base_cfg = base_model.config()
-    base_cfg_mistral = MistralConfig(**base_cfg.to_dict())
-    base_cfg_mistral.sliding_window = base_cfg.max_position_embeddings
-    base_cfg_mistral.max_position_embeddings = 32768
+    if not isinstance(base_cfg, MistralConfig):
+        base_cfg_mistral.sliding_window = base_cfg.max_position_embeddings
+        base_cfg_mistral.max_position_embeddings = base_cfg.max_position_embeddings
+        base_cfg_mistral = MistralConfig(**base_cfg.to_dict())
+        base_cfg = base_cfg_mistral
 
-    out_cfg = MixtralConfig(**base_cfg_mistral.to_dict())
+    out_cfg = MixtralConfig(**base_cfg.to_dict())
     out_cfg.architectures = ["MixtralForCausalLM"]
     out_cfg.num_local_experts = len(config.experts)
     out_cfg.save_pretrained(out_path)
+
+    if (out_cfg.num_local_experts & (out_cfg.num_local_experts - 1)) != 0:
+        print(
+            f"WARNING: Your model has {out_cfg.num_local_experts}, which is "
+            "not a power of two. The model will not be usable in llama.cpp."
+        )
 
     loaders: Dict[ModelReference, LazyTensorLoader] = {}
     for model in tqdm.tqdm(
