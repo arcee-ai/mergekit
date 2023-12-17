@@ -121,7 +121,8 @@ def get_gate_params(
         model = AutoModelForCausalLM.from_pretrained(
             model_ref.path,
             torch_dtype=torch.bfloat16,
-            device_map="auto",
+            # device_map="auto",
+            device_map="cpu" if torch.backends.mps.is_available() else "auto",
             low_cpu_mem_usage=True,
             load_in_4bit=load_in_4bit,
             load_in_8bit=load_in_8bit,
@@ -154,9 +155,9 @@ def build(
     base_model = ModelReference.parse(config.base_model)
     base_cfg = base_model.config()
     if not isinstance(base_cfg, MistralConfig):
-        base_cfg_mistral = MistralConfig(**base_cfg.to_dict())
         base_cfg_mistral.sliding_window = base_cfg.max_position_embeddings
         base_cfg_mistral.max_position_embeddings = base_cfg.max_position_embeddings
+        base_cfg_mistral = MistralConfig(**base_cfg.to_dict())
         base_cfg = base_cfg_mistral
 
     out_cfg = MixtralConfig(**base_cfg.to_dict())
