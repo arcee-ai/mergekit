@@ -155,7 +155,7 @@ def build(
     base_cfg = base_model.config()
     if not isinstance(base_cfg, MistralConfig):
         base_cfg_mistral = MistralConfig(**base_cfg.to_dict())
-        base_cfg_mistral.sliding_window = base_cfg.max_position_embeddings
+        base_cfg_mistral.sliding_window = None
         base_cfg_mistral.max_position_embeddings = base_cfg.max_position_embeddings
         base_cfg = base_cfg_mistral
 
