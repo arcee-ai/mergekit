@@ -162,6 +162,7 @@ def build(
     out_cfg = MixtralConfig(**base_cfg.to_dict())
     out_cfg.architectures = ["MixtralForCausalLM"]
     out_cfg.num_local_experts = len(config.experts)
+    out_cfg.sliding_window = None
     out_cfg.save_pretrained(out_path)
 
     if (out_cfg.num_local_experts & (out_cfg.num_local_experts - 1)) != 0:
