@@ -158,14 +158,15 @@ class ConfigReader(BaseModel):
             and model
             and str(model) in self.config.input_model_parameters
         ):
-            if name in self.config.input_model_parameters[self.slice_in.model]:
-                value = evaluate_setting(
-                    self.tensor_name,
-                    self.config.input_model_parameters[str(model)][name],
-                    self.t,
-                )
-                if value is not None:
-                    return value
+            for slice_in in self.slices_in:
+                if name in self.config.input_model_parameters[slice_in.model]:
+                    value = evaluate_setting(
+                        self.tensor_name,
+                        self.config.input_model_parameters[str(model)][name],
+                        self.t,
+                    )
+                    if value is not None:
+                        return value
 
         if self.config.parameters and name in self.config.parameters:
             value = evaluate_setting(
