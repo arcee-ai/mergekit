@@ -98,7 +98,7 @@ class ShardedTensorIndex:
                     tensor_paths = {key: shard_name for key in st.keys()}
             else:
                 # this is ugly but not much else can be done
-                shard = torch.load(model_path)
+                shard = torch.load(model_path, map_location="meta")
                 if "state_dict" in shard:
                     shard = shard["state_dict"]
 
