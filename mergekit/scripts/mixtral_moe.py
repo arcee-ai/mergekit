@@ -188,7 +188,9 @@ def build(
     if config.dtype:
         out_dtype = dtype_from_name(config.dtype)
     elif base_cfg.torch_dtype:
-        out_dtype = dtype_from_name(base_cfg.torch_dtype)
+        out_dtype = base_cfg.torch_dtype
+        if isinstance(out_dtype, str):
+            out_dtype = dtype_from_name(out_dtype)
     else:
         out_dtype = None
 
