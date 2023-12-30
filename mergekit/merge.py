@@ -60,7 +60,8 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
 
     method = merge_methods.get(merge_config.merge_method)
     model_arch_info = [
-        get_architecture_info(m.config()) for m in merge_config.referenced_models()
+        get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
+        for m in merge_config.referenced_models()
     ]
     if not options.allow_crimes:
         if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
@@ -102,7 +103,9 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         clone_tensors=options.clone_tensors,
     )
 
-    cfg_out = method.model_out_config(merge_config)
+    cfg_out = method.model_out_config(
+        merge_config, trust_remote_code=options.trust_remote_code
+    )
     if tokenizer:
         try:
             cfg_out.vocab_size = len(tokenizer.get_vocab())
