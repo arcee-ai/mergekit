@@ -175,7 +175,6 @@ def generate_card(config: MergeConfiguration, name: Optional[str] = None) -> str
     return CARD_TEMPLATE.format(
         metadata=yaml.dump({"base_model": hf_bases, "tags": tags}),
         model_list="\n".join(model_bullets),
-        config=yaml.dump(config.model_dump(exclude_defaults=True, mode="json")),
         base_text=base_text,
         merge_method=method_md(config.merge_method),
         name=name,
