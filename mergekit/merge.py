@@ -14,11 +14,12 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import logging
+from typing import Optional
 
 import tqdm
 import transformers
 
-from mergekit.architecture import get_architecture_info
+from mergekit.architecture import ArchitectureInfo, get_architecture_info
 from mergekit.common import MergeOptions, ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
@@ -75,27 +76,7 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         if isinstance(value, TokenizerInfo):
             tokenizer = value.tokenizer
 
-    cfg_out = _model_out_config(merge_config)
-    if tokenizer:
-        try:
-            cfg_out.vocab_size = len(tokenizer.get_vocab())
-        except Exception as e:
-            logging.warning(
-                "Unable to set vocabulary size in output config - you may need to manually correct it.",
-                exc_info=e,
-            )
-
-    try:
-        num_layers = sum(
-            s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
-            for s in merge_config.slices
-        )
-        setattr(cfg_out, arch_info.num_layers_config_key(), num_layers)
-    except Exception as e:
-        logging.warning(
-            "Unable to set number of layers in output config - you may need to manually correct it.",
-            exc_info=e,
-        )
+    cfg_out = _model_out_config(merge_config, arch_info, tokenizer)
     logging.info("Saving config")
     cfg_out.save_pretrained(out_path)
 
@@ -124,7 +105,11 @@ def _get_donor_tokenizer(merge_config: MergeConfiguration):
         return None
 
 
-def _model_out_config(config: MergeConfiguration) -> transformers.PretrainedConfig:
+def _model_out_config(
+    config: MergeConfiguration,
+    arch_info: ArchitectureInfo,
+    tokenizer: Optional[transformers.PreTrainedTokenizerBase] = None,
+) -> transformers.PretrainedConfig:
     """Return a configuration for the resulting model."""
     if config.base_model:
         res = ModelReference.parse(config.base_model).config()
@@ -132,6 +117,28 @@ def _model_out_config(config: MergeConfiguration) -> transformers.PretrainedConf
         res = config.referenced_models()[0].config()
     if config.dtype:
         res.torch_dtype = config.dtype
+
+    if tokenizer:
+        try:
+            res.vocab_size = len(tokenizer.get_vocab())
+        except Exception as e:
+            logging.warning(
+                "Unable to set vocabulary size in output config - you may need to manually correct it.",
+                exc_info=e,
+            )
+
+    try:
+        num_layers = sum(
+            s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+            for s in config.slices
+        )
+        setattr(res, arch_info.num_layers_config_key(), num_layers)
+    except Exception as e:
+        logging.warning(
+            "Unable to set number of layers in output config - you may need to manually correct it.",
+            exc_info=e,
+        )
+
     return res
 
 
