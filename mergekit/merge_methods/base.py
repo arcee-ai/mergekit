@@ -45,12 +45,18 @@ class MergeMethod(ABC):
         """List any tensors necessary when input includes a specific layer"""
         return []
 
-    def model_out_config(self, config: MergeConfiguration) -> PretrainedConfig:
+    def model_out_config(
+        self, config: MergeConfiguration, trust_remote_code: bool = False
+    ) -> PretrainedConfig:
         """Return a configuration for the resulting model."""
         if config.base_model:
-            res = ModelReference.parse(config.base_model).config()
+            res = ModelReference.parse(config.base_model).config(
+                trust_remote_code=trust_remote_code
+            )
         else:
-            res = config.referenced_models()[0].config()
+            res = config.referenced_models()[0].config(
+                trust_remote_code=trust_remote_code
+            )
 
         if config.dtype:
             res.torch_dtype = config.dtype
