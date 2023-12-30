@@ -83,14 +83,18 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
     cfg_out.save_pretrained(out_path)
 
     if tokenizer is None and options.copy_tokenizer:
-        tokenizer = _get_donor_tokenizer(merge_config)
+        tokenizer = _get_donor_tokenizer(
+            merge_config, trust_remote_code=options.trust_remote_code
+        )
 
     if tokenizer:
         logging.info("Saving tokenizer")
         tokenizer.save_pretrained(out_path, safe_serialization=True)
 
 
-def _get_donor_tokenizer(merge_config: MergeConfiguration):
+def _get_donor_tokenizer(
+    merge_config: MergeConfiguration, trust_remote_code: bool = False
+):
     try:
         donor_model = merge_config.base_model
         if donor_model:
@@ -98,7 +102,9 @@ def _get_donor_tokenizer(merge_config: MergeConfiguration):
         if not donor_model:
             donor_model = merge_config.referenced_models()[0]
 
-        return transformers.AutoTokenizer.from_pretrained(donor_model.path)
+        return transformers.AutoTokenizer.from_pretrained(
+            donor_model.path, trust_remote_code=trust_remote_code
+        )
     except Exception as e:
         logging.error(
             "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
