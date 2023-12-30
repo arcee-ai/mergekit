@@ -17,7 +17,7 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 from typing_extensions import Annotated
 
 import mergekit.architecture
-from mergekit.common import ModelReference
+from mergekit.common import ModelReference, dtype_from_name
 from mergekit.io import LazyTensorLoader, TensorWriter
 
 # Create a Mixtral MoE from a set of equally-sized Mistral (or Llama) models.
@@ -44,6 +44,7 @@ class MistralMOEConfig(BaseModel):
     # "hidden" uses hidden state vectors for the given prompts for each layer
     # "cheap_embed" uses the average of token embeddings for the prompts, same for each layer
     # "random" is random
+    dtype: Optional[str] = None
 
 
 def get_hidden_states(
@@ -184,10 +185,21 @@ def build(
     base_loader = loaders.get(base_model)
     writer = TensorWriter(out_path=out_path)
 
+    if config.dtype:
+        out_dtype = dtype_from_name(config.dtype)
+    elif base_cfg.torch_dtype:
+        out_dtype = dtype_from_name(base_cfg.torch_dtype)
+    else:
+        out_dtype = None
+
     print("Copying parameters...")
     MISTRAL_INFO = mergekit.architecture.MISTRAL_INFO
     for tensor_name in MISTRAL_INFO.pre_weight_names + MISTRAL_INFO.post_weight_names:
-        writer.save_tensor(tensor_name, base_loader.get_tensor(tensor_name))
+        tensor = base_loader.get_tensor(tensor_name)
+        if not out_dtype:
+            # All else has failed, take the first dtype we see
+            out_dtype = tensor.dtype
+        writer.save_tensor(tensor_name, tensor.to(dtype=out_dtype))
 
     for name_format in tqdm.tqdm(MISTRAL_INFO.layer_weight_formats()):
         for layer_idx in range(base_cfg.num_hidden_layers):
@@ -208,9 +220,13 @@ def build(
                     tensor = expert_loader.get_tensor(tensor_name)
                     if expert.noise_scale:
                         tensor += torch.randn_like(tensor) * expert.noise_scale
-                    writer.save_tensor(expert_name, tensor, clone=True)
+                    writer.save_tensor(
+                        expert_name, tensor.to(dtype=out_dtype), clone=True
+                    )
                 continue
-            writer.save_tensor(tensor_name, base_loader.get_tensor(tensor_name))
+            writer.save_tensor(
+                tensor_name, base_loader.get_tensor(tensor_name).to(dtype=out_dtype)
+            )
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(base_model.path)
     tokenizer.padding_side = "left"
@@ -232,7 +248,7 @@ def build(
     for layer_idx in range(base_cfg.num_hidden_layers):
         writer.save_tensor(
             f"model.layers.{layer_idx}.block_sparse_moe.gate.weight",
-            gate_vecs[layer_idx, :, :].contiguous(),
+            gate_vecs[layer_idx, :, :].contiguous().to(dtype=out_dtype),
         )
     writer.finalize()
     print("Saving tokenizer...")

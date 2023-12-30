@@ -5,6 +5,7 @@
 ```yml
 base_model: path/to/self_attn_donor
 gate_mode: hidden # one of "hidden", "cheap_embed", or "random"
+dtype: bfloat16 # output dtype (float32, float16, or bfloat16)
 experts:
   - source_model: expert_model_1
     positive_prompts:
