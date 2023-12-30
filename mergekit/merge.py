@@ -35,7 +35,8 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         raise RuntimeError("No output requested")
 
     model_arch_info = [
-        get_architecture_info(m.config()) for m in merge_config.referenced_models()
+        get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
+        for m in merge_config.referenced_models()
     ]
     if not options.allow_crimes:
         if not all(a == model_arch_info[0] for a in model_arch_info[1:]):

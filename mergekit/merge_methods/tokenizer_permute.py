@@ -55,8 +55,9 @@ class TokenizerPermutationMergeTask(Task[torch.Tensor]):
 
             x = tensors[model]
             p = tokenizer_info.permutations[model].to(dtype=x.dtype, device=x.device)
+            temp_dtype = torch.float32 if x.device.type == "cpu" else x.dtype
             if p.shape[1] == x.shape[0]:
-                xp = p @ x
+                xp = (p.to(dtype=temp_dtype) @ x.to(dtype=temp_dtype)).to(x.dtype)
             else:
                 raise RuntimeError("Shape mismatch")
 
@@ -98,7 +99,9 @@ class TokenizerPermutationMergeTask(Task[torch.Tensor]):
 
             res = slerp(self.slerp_t, v0, v1)
             need_linear = (masks.sum(dim=0) != 2).squeeze(dim=-1)
-            res[need_linear, :] = linear_merged[need_linear, :].to(res.device)
+            res[need_linear, :] = linear_merged[need_linear, :].to(
+                device=res.device, dtype=res.dtype
+            )
             return res
 
         return linear_merged
