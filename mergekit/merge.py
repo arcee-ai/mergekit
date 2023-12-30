@@ -76,7 +76,9 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         if isinstance(value, TokenizerInfo):
             tokenizer = value.tokenizer
 
-    cfg_out = _model_out_config(merge_config, arch_info, tokenizer)
+    cfg_out = _model_out_config(
+        merge_config, arch_info, tokenizer, trust_remote_code=options.trust_remote_code
+    )
     logging.info("Saving config")
     cfg_out.save_pretrained(out_path)
 
@@ -109,12 +111,15 @@ def _model_out_config(
     config: MergeConfiguration,
     arch_info: ArchitectureInfo,
     tokenizer: Optional[transformers.PreTrainedTokenizerBase] = None,
+    trust_remote_code: bool = False,
 ) -> transformers.PretrainedConfig:
     """Return a configuration for the resulting model."""
     if config.base_model:
-        res = ModelReference.parse(config.base_model).config()
+        res = ModelReference.parse(config.base_model).config(
+            trust_remote_code=trust_remote_code
+        )
     else:
-        res = config.referenced_models()[0].config()
+        res = config.referenced_models()[0].config(trust_remote_code=trust_remote_code)
     if config.dtype:
         res.torch_dtype = config.dtype
 
