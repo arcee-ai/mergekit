@@ -3,6 +3,12 @@
 `mergekit` is a toolkit for merging pre-trained language models, using a variety of merge methods including TIES, linear, and slerp merging. The toolkit also enables piecewise assembly of a language model from layers.
 
 Run `pip install -e .` to install the package and make the scripts available.
+If the above fails with the error of:
+```
+ERROR: File "setup.py" or "setup.cfg" not found. Directory cannot be installed in editable mode:
+(A "pyproject.toml" file was found, but editable mode currently requires a setuptools-based build.)
+```
+You may need to upgrade pip to > 21.3 with the command `python3 -m pip install --upgrade pip`
 
 The script `mergekit-yaml` takes a YAML configuration file defining the operations to perform.
 
