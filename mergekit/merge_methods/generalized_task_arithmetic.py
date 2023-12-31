@@ -23,9 +23,9 @@ from typing_extensions import Literal
 
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
+from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 from mergekit.sparsify import SparsificationMethod, sparsify
-from mergekit.tasks import GatherTensors
 
 
 class ConsensusMethod(str, Enum):

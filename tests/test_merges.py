@@ -1,3 +1,4 @@
+import os
 import tempfile
 from typing import Optional
 
@@ -49,8 +50,7 @@ class TestMerges:
             models=[InputModelDefinition(model="gpt2")],
             dtype="bfloat16",
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            run_merge(config, out_path=tmpdir, options=MergeOptions())
+        self.run_and_check_merge(config)
 
     def test_gpt2_stack(self):
         config = MergeConfiguration(
@@ -63,28 +63,34 @@ class TestMerges:
             ],
             dtype="bfloat16",
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            run_merge(config, out_path=tmpdir, options=MergeOptions())
+        self.run_and_check_merge(config)
 
     def test_linear_merge(self, model_a, model_b):
         config = self.two_model_config(model_a, model_b, merge_method="linear")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            run_merge(config, out_path=tmpdir, options=MergeOptions())
+        self.run_and_check_merge(config)
 
     def test_slerp_merge(self, model_a, model_b):
         config = self.two_model_config(
             model_a, model_b, merge_method="slerp", base_model=model_a
         )
         config.parameters = {"t": 0.35}
-        with tempfile.TemporaryDirectory() as tmpdir:
-            run_merge(config, out_path=tmpdir, options=MergeOptions())
+        self.run_and_check_merge(config)
 
     def test_task_arithmetic_merge(self, model_a, model_b, model_c):
         config = self.two_model_config(
             model_a, model_b, merge_method="task_arithmetic", base_model=model_c
         )
+        self.run_and_check_merge(config)
+
+    def run_and_check_merge(self, config: MergeConfiguration):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_merge(config, out_path=tmpdir, options=MergeOptions())
+            assert os.path.exists(
+                os.path.join(tmpdir, "model.safetensors.index.json")
+            ), "No index file for merge"
+            assert os.path.exists(
+                os.path.join(tmpdir, "config.json")
+            ), "No config json produced by merge"
 
     def two_model_config(
         self, model_a, model_b, merge_method: str, base_model: Optional[str] = None

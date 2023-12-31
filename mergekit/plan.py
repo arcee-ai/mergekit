@@ -26,9 +26,9 @@ from mergekit.config import (
     OutputSliceDefinition,
 )
 from mergekit.graph import Task
+from mergekit.io.tasks import FinalizeModel, GatherTensors, SaveTensor, TensorWriterTask
 from mergekit.merge_methods import MergeMethod
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
-from mergekit.tasks import FinalizeModel, GatherTensors, SaveTensor, TensorWriterTask
 from mergekit.tokenizer import BuildTokenizer
 
 

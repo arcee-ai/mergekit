@@ -21,8 +21,8 @@ from torch._tensor import Tensor
 
 from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
 from mergekit.graph import Task
+from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
-from mergekit.tasks import GatherTensors
 
 
 class SlerpTask(Task[torch.Tensor]):

@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.tasks import GatherTensors
+from mergekit.io.tasks import GatherTensors
 
 
 class ConfigParameterDef(BaseModel):

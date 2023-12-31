@@ -21,9 +21,9 @@ from torch._tensor import Tensor
 
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
+from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 from mergekit.merge_methods.slerp import slerp
-from mergekit.tasks import GatherTensors
 from mergekit.tokenizer import BuildTokenizer, TokenizerInfo
 
 

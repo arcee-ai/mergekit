@@ -23,8 +23,8 @@ from mergekit.architecture import ArchitectureInfo, get_architecture_info
 from mergekit.common import MergeOptions, ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
+from mergekit.io.tasks import LoaderCache
 from mergekit.plan import MergePlanner
-from mergekit.tasks import LoaderCache
 from mergekit.tokenizer import TokenizerInfo
 
 
