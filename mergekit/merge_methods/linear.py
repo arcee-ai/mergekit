@@ -26,7 +26,7 @@ from mergekit.tasks import GatherTensors
 
 class LinearMergeTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
-    tensor_parameters: ImmutableMap[ModelReference, Dict[str, Any]]
+    tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
     normalize: bool
     parameter_name: str
 
@@ -74,12 +74,12 @@ class LinearMerge(MergeMethod):
         output_tensor_name: str,
         tensors: GatherTensors,
         parameters: Dict[str, Any],
-        tensor_parameters: Dict[ModelReference, Dict[str, Any]],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         **_kwargs,
     ) -> Task:
         return LinearMergeTask(
             gather_tensors=tensors,
-            tensor_parameters=ImmutableMap(data=tensor_parameters),
+            tensor_parameters=tensor_parameters,
             normalize=parameters["normalize"],
             parameter_name=output_tensor_name,
         )

@@ -116,7 +116,6 @@ class ConfigReader(BaseModel):
     t: float
     tensor_name: Optional[str] = None
     slice_out: Optional[OutputSliceDefinition] = None
-    slices_in: Optional[List[InputSliceDefinition]] = None
 
     @property
     def base_model(self) -> Optional[ModelReference]:
@@ -135,16 +134,6 @@ class ConfigReader(BaseModel):
             t=self.t,
             tensor_name=self.tensor_name,
             slice_out=slice,
-            slices_in=self.slices_in,
-        )
-
-    def for_in_slices(self, slices: List[InputSliceDefinition]) -> "ConfigReader":
-        return ConfigReader(
-            config=self.config,
-            t=self.t,
-            tensor_name=self.tensor_name,
-            slice_out=self.slice_out,
-            slices_in=slices,
         )
 
     def for_tensor(self, tensor_name: str) -> "ConfigReader":
@@ -153,7 +142,6 @@ class ConfigReader(BaseModel):
             t=self.t,
             tensor_name=tensor_name,
             slice_out=self.slice_out,
-            slices_in=self.slices_in,
         )
 
     def with_t(self, t: float) -> "ConfigReader":
@@ -162,7 +150,6 @@ class ConfigReader(BaseModel):
             t=t,
             tensor_name=self.tensor_name,
             slice_out=self.slice_out,
-            slices_in=self.slices_in,
         )
 
     def parameter(
@@ -172,16 +159,16 @@ class ConfigReader(BaseModel):
         default: Any = None,
         required: bool = False,
     ) -> Any:
-        if model and self.slices_in:
-            for s in self.slices_in:
-                if s.model == str(model) and s.parameters and name in s.parameters:
-                    value = evaluate_setting(
-                        self.tensor_name, s.parameters[name], self.t
-                    )
-                    if value is not None:
-                        return value
-
         if self.slice_out:
+            if model:
+                for s in self.slice_out.sources:
+                    if s.model == str(model) and s.parameters and name in s.parameters:
+                        value = evaluate_setting(
+                            self.tensor_name, s.parameters[name], self.t
+                        )
+                        if value is not None:
+                            return value
+
             if self.slice_out.parameters and name in self.slice_out.parameters:
                 value = evaluate_setting(
                     self.tensor_name, self.slice_out.parameters[name], self.t
@@ -216,5 +203,14 @@ class ConfigReader(BaseModel):
             path_paths = [str(s) for s in [model, self.tensor_name] if s]
             p = ".".join(path_paths)
             suffix = f" for {p}" if p else ""
+            print(f"name: {name}")
+            print(f"model: {model}")
+            print(f"slice_out: {self.slice_out}")
+            for s in self.slice_out.sources:
+                print(repr(s))
+                print(s.model == str(model))
+                print(bool(s.parameters))
+                print(name in s.parameters)
+            print(repr(self))
             raise RuntimeError(f"Missing required parameter {name}{suffix}")
         return default

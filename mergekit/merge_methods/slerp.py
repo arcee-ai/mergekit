@@ -19,7 +19,7 @@ import numpy as np
 import torch
 from torch._tensor import Tensor
 
-from mergekit.common import ModelReference, rectify_embed_sizes
+from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
 from mergekit.graph import Task
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 from mergekit.tasks import GatherTensors
@@ -34,13 +34,15 @@ class SlerpTask(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    def execute(self, input_tensors: Dict[ModelReference, torch.Tensor]) -> Tensor:
-        if len(input_tensors) == 1:
-            return list(input_tensors.values())[0]
-        elif len(input_tensors) != 2:
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> Tensor:
+        if len(tensors) == 1:
+            return list(tensors.values())[0]
+        elif len(tensors) != 2:
             raise RuntimeError("Slerp merge expects exactly two models")
+        elif self.base_model not in tensors:
+            raise RuntimeError("Base model not in input tensors")
 
-        [a, b] = list(input_tensors.items())
+        [a, b] = list(tensors.items())
         if a[0] != self.base_model:
             [a, b] = [b, a]
         prepped_tensors = [a[1], b[1]]
@@ -67,7 +69,7 @@ class SlerpMerge(MergeMethod):
         *,
         output_tensor_name: str,
         tensors: GatherTensors,
-        parameters: Dict[str, Any],
+        parameters: ImmutableMap[str, Any],
         base_model: ModelReference | None,
         **_kwargs,
     ) -> Task:

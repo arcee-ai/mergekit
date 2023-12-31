@@ -126,7 +126,7 @@ class TokenizerPermutationMerge(MergeMethod, BaseModel):
         *,
         tensors: GatherTensors,
         parameters: Dict[str, Any],
-        tensor_parameters: Dict[ModelReference, Dict[str, Any]],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         base_model: Optional[ModelReference],
         **_kwargs,
     ) -> Task:
@@ -136,5 +136,5 @@ class TokenizerPermutationMerge(MergeMethod, BaseModel):
             gather_tensors=tensors,
             use_slerp=parameters["embed_slerp"],
             slerp_t=parameters["t"],
-            tensor_parameters=ImmutableMap(data=tensor_parameters),
+            tensor_parameters=tensor_parameters,
         )

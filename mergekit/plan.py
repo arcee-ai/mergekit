@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import logging
 from typing import List, Optional
 
 from mergekit import merge_methods
@@ -35,6 +36,7 @@ class MergePlanner:
     config: MergeConfiguration
     arch_info: ArchitectureInfo
     clone_tensors: bool
+    trust_remote_code: bool
     _writer_task: TensorWriterTask
     _method: MergeMethod
     _tasks: List[Task] = []
@@ -51,6 +53,7 @@ class MergePlanner:
         self.config = config
         self.arch_info = arch_info
         self.clone_tensors = options.clone_tensors
+        self.trust_remote_code = options.trust_remote_code
         self._method = merge_methods.get(config.merge_method)
         self._writer_task = TensorWriterTask(
             out_path=out_path, max_shard_size=options.out_shard_size
@@ -68,6 +71,53 @@ class MergePlanner:
                 trust_remote_code=options.trust_remote_code,
             )
 
+    def normalize_config(self):
+        base_model = (
+            ModelReference.parse(self.config.base_model)
+            if self.config.base_model
+            else None
+        )
+
+        # if models to merge are specified instead of output slices, compute them
+        if self.config.models:
+            if self.config.slices:
+                raise RuntimeError(
+                    "Must specify either models to merge or output slices"
+                )
+
+            slices_in = []
+            base_included = False
+
+            for model_in in self.config.models:
+                mref = ModelReference.parse(model_in.model)
+
+                if base_model and mref == base_model:
+                    base_included = True
+
+                model_cfg = mref.config(trust_remote_code=self.trust_remote_code)
+                num_layers = self.arch_info.num_layers(model_cfg)
+                slices_in.append(
+                    InputSliceDefinition(
+                        layer_range=[0, num_layers],
+                        model=model_in.model,
+                        parameters=model_in.parameters,
+                    )
+                )
+
+            if base_model and not base_included:
+                logging.info("Base model specified but not in input models - adding")
+                base_cfg = base_model.config(trust_remote_code=self.trust_remote_code)
+                num_layers = self.arch_info.num_layers(base_cfg)
+                slices_in.append(
+                    InputSliceDefinition(
+                        layer_range=[0, num_layers],
+                        model=str(base_model),
+                    )
+                )
+
+            self.config.slices = [OutputSliceDefinition(sources=slices_in)]
+            self.config.models = None
+
     def plan_tensor(
         self,
         name: str,
@@ -82,7 +132,7 @@ class MergePlanner:
                 tokenizer_task=self._tokenizer_task
             )
 
-        cfg_g = cfg_reader.for_in_slices(None).for_tensor(name)
+        cfg_g = cfg_reader.for_tensor(name)
         global_params = {}
         for p in tensor_merge_method.parameters():
             global_params[p.name] = cfg_g.parameter(
@@ -91,11 +141,15 @@ class MergePlanner:
 
         tensor_params = {}
         for model, name_in in zip(models, names_in):
+            is_base = str(model) == cfg_reader.config.base_model
             tensor_params[model] = {}
             cfg_m = cfg_reader.for_tensor(name_in)
             for p in tensor_merge_method.tensor_parameters():
                 tensor_params[model][p.name] = cfg_m.parameter(
-                    p.name, model=model, required=p.required, default=p.default_value
+                    p.name,
+                    model=model,
+                    required=p.required and not is_base,
+                    default=p.default_value,
                 )
 
         gather_tensors = GatherTensors(
@@ -111,8 +165,12 @@ class MergePlanner:
         tensor_task = tensor_merge_method.make_task(
             output_tensor_name=name,
             tensors=gather_tensors,
-            parameters=global_params,
-            tensor_parameters=tensor_params,
+            parameters=ImmutableMap(data=global_params),
+            tensor_parameters=ImmutableMap(
+                data={
+                    key: ImmutableMap(data=tensor_params[key]) for key in tensor_params
+                }
+            ),
             base_model=base_model,
         )
         save_task = SaveTensor(
@@ -165,10 +223,11 @@ class MergePlanner:
                 definition.sources,
                 layer_offset=idx,
                 t=t,
-                cfg_reader=cfg_reader.for_in_slices(definition.sources),
+                cfg_reader=cfg_reader,
             )
 
     def plan(self):
+        self.normalize_config()
         self._tasks = []
 
         for weight_name in self.arch_info.pre_weights():
@@ -176,7 +235,11 @@ class MergePlanner:
                 weight_name,
                 [weight_name] * len(self.config.slices[0].sources),
                 [ModelReference.parse(s.model) for s in self.config.slices[0].sources],
-                ConfigReader(config=self.config, t=0, tensor_name=weight_name),
+                ConfigReader(
+                    config=self.config,
+                    t=0,
+                    tensor_name=weight_name,
+                ).for_out_slice(self.config.slices[0]),
             )
 
         for out_slice in self.config.slices:
@@ -187,7 +250,11 @@ class MergePlanner:
                 weight_name,
                 [weight_name] * len(self.config.slices[-1].sources),
                 [ModelReference.parse(s.model) for s in self.config.slices[-1].sources],
-                ConfigReader(config=self.config, t=1, tensor_name=weight_name),
+                ConfigReader(
+                    config=self.config,
+                    t=1,
+                    tensor_name=weight_name,
+                ).for_out_slice(self.config.slices[-1]),
             )
 
         self._tasks.append(

@@ -33,7 +33,7 @@ class ConsensusMethod(str, Enum):
     sum = "sum"
 
 
-class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel):
+class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
     consensus_method: Optional[ConsensusMethod]
     sparsification_method: Optional[SparsificationMethod]
     default_normalize: bool
@@ -57,14 +57,14 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel):
         output_tensor_name: str,
         tensors: GatherTensors,
         base_model: Optional[ModelReference],
-        parameters: Dict[str, Any],
-        tensor_parameters: Dict[ModelReference, Dict[str, Any]],
+        parameters: ImmutableMap[str, Any],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
     ) -> Task:
         return GTATask(
             method=self,
             tensors=tensors,
             base_model=base_model,
-            tensor_parameters=ImmutableMap(data=tensor_parameters),
+            tensor_parameters=tensor_parameters,
             int8_mask=parameters["int8_mask"],
             normalize=parameters["normalize"],
             out_tensor_name=output_tensor_name,
@@ -141,8 +141,8 @@ class GTATask(Task[torch.Tensor]):
 def get_task_vectors(
     parameter_name: str,
     base_model: ModelReference,
-    tensors: Dict[ModelReference, torch.Tensor],
-    tensor_parameters: Dict[ModelReference, Dict[str, Any]],
+    tensors: ImmutableMap[ModelReference, torch.Tensor],
+    tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], torch.Tensor]:
     keys = list(tensors.keys())
     base = tensors[base_model]

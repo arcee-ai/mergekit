@@ -64,6 +64,8 @@ class LoadTensor(Task[torch.Tensor]):
 
     def group_label(self) -> Optional[str]:
         loader = LoaderCache().get(self.model)
+        if self.tensor not in loader.index.tensor_paths:
+            print(loader.index.tensor_paths)
         shard_path = loader.index.tensor_paths[self.tensor]
         return _normalized_shard_name(shard_path)
 

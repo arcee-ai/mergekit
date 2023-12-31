@@ -14,11 +14,11 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
-from mergekit.common import ModelReference
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.tasks import GatherTensors
 
@@ -42,8 +42,8 @@ class MergeMethod(ABC):
         *,
         output_tensor_name: str,
         tensors: GatherTensors,
-        parameters: Dict[str, Any],
-        tensor_parameters: Dict[ModelReference, Dict[str, Any]],
+        parameters: ImmutableMap[str, Any],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         base_model: Optional[ModelReference],
     ) -> Task:
         ...
