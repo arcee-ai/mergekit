@@ -203,14 +203,5 @@ class ConfigReader(BaseModel):
             path_paths = [str(s) for s in [model, self.tensor_name] if s]
             p = ".".join(path_paths)
             suffix = f" for {p}" if p else ""
-            print(f"name: {name}")
-            print(f"model: {model}")
-            print(f"slice_out: {self.slice_out}")
-            for s in self.slice_out.sources:
-                print(repr(s))
-                print(s.model == str(model))
-                print(bool(s.parameters))
-                print(name in s.parameters)
-            print(repr(self))
             raise RuntimeError(f"Missing required parameter {name}{suffix}")
         return default
