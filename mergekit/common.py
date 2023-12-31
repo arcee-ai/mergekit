@@ -203,7 +203,7 @@ class ImmutableMap(
 ):
     data: immutables.Map[T_K, T_V]
 
-    @pydantic.validator("data", pre=True)
+    @pydantic.field_validator("data", mode="before")
     def validate_data(cls, data):
         return immutables.Map(data)
 

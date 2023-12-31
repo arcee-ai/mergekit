@@ -149,6 +149,7 @@ class Executor:
         # determine last usage of each value, so they can be evicted afterwards
         last_use_index = {}
         for idx, task in enumerate(self.schedule):
+            j = len(self.schedule)
             for j in range(len(self.schedule) - 1, idx, -1):
                 if task in self.dependencies[self.schedule[j]]:
                     break
