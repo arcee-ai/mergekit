@@ -149,29 +149,26 @@ def generate_card(config: MergeConfiguration, name: Optional[str] = None) -> str
     if not name:
         name = "Untitled Model (1)"
 
-    actual_base = ModelReference.parse(config.base_model) if config.base_model else None
-    if config.merge_method == "slerp":
-        actual_base = None
-
-    if actual_base:
-        models = set(config.referenced_models()).difference({actual_base})
-        base_list = [actual_base] + list(models)
-    else:
-        base_list = config.referenced_models()
-
-    hf_bases = list(extract_hf_paths(base_list))
+    hf_bases = list(extract_hf_paths(config.referenced_models()))
     tags = ["mergekit", "merge"]
 
-    model_bullets = []
-    for model in base_list:
-        if model == actual_base:
-            continue
-
-        model_bullets.append("* " + modelref_md(model))
+    actual_base = ModelReference.parse(config.base_model) if config.base_model else None
+    if config.merge_method == "slerp":
+        # curse my past self
+        actual_base = None
 
     base_text = ""
     if actual_base:
         base_text = f" using {modelref_md(actual_base)} as a base"
+
+    model_bullets = []
+    for model in config.referenced_models():
+        if model == actual_base:
+            # actual_base is mentioned in base_text - don't include in list
+            continue
+
+        model_bullets.append("* " + modelref_md(model))
+
     return CARD_TEMPLATE.format(
         metadata=yaml.dump({"base_model": hf_bases, "tags": tags}),
         model_list="\n".join(model_bullets),

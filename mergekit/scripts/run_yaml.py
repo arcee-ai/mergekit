@@ -75,6 +75,9 @@ def main(
     lazy_unpickle: Annotated[
         bool, typer.Option(help="Experimental lazy unpickler for lower memory usage")
     ] = False,
+    write_model_card: Annotated[
+        bool, typer.Option(help="Output README.md for huggingface hub")
+    ] = True,
 ):
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
@@ -96,6 +99,7 @@ def main(
             trust_remote_code=trust_remote_code,
             clone_tensors=clone_tensors,
             lazy_unpickle=lazy_unpickle,
+            write_model_card=write_model_card,
         ),
     )
 
