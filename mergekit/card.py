@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -160,7 +160,7 @@ def generate_card(config: MergeConfiguration, name: Optional[str] = None) -> str
         base_list = config.referenced_models()
 
     hf_bases = list(extract_hf_paths(base_list))
-    tags = ["mergekit"]
+    tags = ["mergekit", "merge"]
 
     model_bullets = []
     for model in base_list:
