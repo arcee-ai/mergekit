@@ -6,18 +6,16 @@ build-backend = "setuptools.build_meta"
 name = "mergekit"
 description = "Tools for merging pre-trained large language models"
 readme = "README.md"
-license = {text = "LGPL-3.0-or-later"}
-version = "0.0.3.1"
-authors = [
-    {name = "Charles Goddard", email = "chargoddard@gmail.com"},
-]
+license = { text = "LGPL-3.0-or-later" }
+version = "0.0.3.2"
+authors = [{ name = "Charles Goddard", email = "chargoddard@gmail.com" }]
 dependencies = [
     "torch>=2.0.0",
     "tqdm==4.66.1",
-    "typer==0.9.0",
-    "safetensors==0.3.3",
-    "accelerate==0.23.0",
-    "pydantic==2.4.0",
+    "click==8.1.7",
+    "safetensors==0.4.1",
+    "accelerate==0.25.0",
+    "pydantic==2.5.3",
     "transformers",
     "huggingface_hub",
     "peft",
@@ -27,21 +25,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "black~=23.11.0",
-    "isort~=5.12.0",
-    "pre-commit~=3.5.0",
-]
+dev = ["black~=23.11.0", "isort~=5.12.0", "pre-commit~=3.5.0"]
 
 [project.urls]
 repository = "https://github.com/cg123/mergekit"
 
 
 [project.scripts]
-mergekit-yaml = "mergekit.scripts.run_yaml:_main"
-mergekit-legacy = "mergekit.scripts.legacy:_main"
-mergekit-layershuffle = "mergekit.scripts.layershuffle:_main"
-bakllama = "mergekit.scripts.bakllama:_main"
+mergekit-yaml = "mergekit.scripts.run_yaml:main"
+mergekit-legacy = "mergekit.scripts.legacy:main"
+mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
+bakllama = "mergekit.scripts.bakllama:main"
 
 [tool.setuptools]
 packages = ["mergekit"]
