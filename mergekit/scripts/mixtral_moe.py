@@ -143,7 +143,7 @@ def get_gate_params(
 
         def _do_it(tokenized):
             return get_hidden_states(
-                model, tokenized=tokenized, average=mode != "hidden_last"
+                model, tokenized=tokenized, average=mode == "hidden_avg"
             )
 
     gate_vecs = []
@@ -164,7 +164,7 @@ def warn_degenerate_gates(gate_vecs: torch.Tensor, threshold: float = 5.0):
     degen_indices = []
     num_layers, _num_experts, _hidden_size = gate_vecs.shape
     for idx in range(num_layers):
-        c = torch.linalg.cond(gate_vecs[idx, :, :])
+        c = torch.linalg.cond(gate_vecs[idx, :, :].float())
         if c > threshold:
             degen_indices.append(idx)
 
