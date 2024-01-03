@@ -79,7 +79,10 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         embed_permutations = None
 
     (targets, static_rules) = plan(
-        merge_config, arch_info, embed_permutations=embed_permutations
+        merge_config,
+        arch_info,
+        embed_permutations=embed_permutations,
+        trust_remote_code=options.trust_remote_code,
     )
 
     rules = RuleSet(static_rules)

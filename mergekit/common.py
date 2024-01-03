@@ -125,7 +125,10 @@ def dtype_from_name(name: Optional[str]) -> torch.dtype:
 
 
 def rectify_embed_sizes(param_name: str, tensors: List[torch.Tensor]):
-    if "lm_head" in param_name or "embed_tokens" in param_name:
+    # TODO: use arch_info.embed_weights() instead
+    if ("lm_head" in param_name or "embed_tokens" in param_name) and all(
+        len(t.shape) == 2 for t in tensors
+    ):
         # special case - if lm_head.weight or embed_tokens.weight have a size
         # mismatch, take the largest common submatrix of all of them
         if take_common_submatrix(tensors):
