@@ -128,7 +128,7 @@ class MixtralTensorNames(ArchitectureInfo):
 
     def layer_weight_formats(self) -> List[str]:
         num_experts = self.config.num_local_experts
-        res = [fmt for fmt in MISTRAL_INFO.layer_weight_formats() if not ".mlp." in fmt]
+        res = [fmt for fmt in MISTRAL_INFO.layer_weight_formats() if ".mlp." not in fmt]
         for expert_idx in range(num_experts):
             for param in ("w1", "w2", "w3"):
                 fmt = (
