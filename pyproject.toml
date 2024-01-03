@@ -26,6 +26,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["black~=23.11.0", "isort~=5.12.0", "pre-commit~=3.5.0"]
+test = ["pytest~=7.4.4"]
 
 [project.urls]
 repository = "https://github.com/cg123/mergekit"
@@ -47,3 +48,10 @@ profile = "black"
 line-length = 88
 target-version = ['py37']
 include = '\.pyi?$'
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+filterwarnings = [
+    "ignore::pydantic.PydanticDeprecatedSince20:huggingface_hub.*:",
+]
+testpaths = ["tests"]
