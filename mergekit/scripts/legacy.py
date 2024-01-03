@@ -23,7 +23,7 @@ from mergekit.merge import MergeOptions, run_merge
 from mergekit.options import add_merge_options
 
 
-@click.command()
+@click.command("mergekit-legacy")
 @click.argument("out_path", type=str)
 @click.option(
     "--merge", "merge", type=str, multiple=True, help="Add a model to the merge"
