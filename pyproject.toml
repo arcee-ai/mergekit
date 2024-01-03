@@ -16,6 +16,7 @@ dependencies = [
     "safetensors==0.4.1",
     "accelerate==0.25.0",
     "pydantic==2.5.3",
+    "immutables==0.20",
     "transformers",
     "huggingface_hub",
     "peft",
