@@ -47,7 +47,12 @@ class MergeOptions(BaseModel):
     write_model_card: bool = True
 
 
-def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOptions):
+def run_merge(
+    merge_config: MergeConfiguration,
+    out_path: str,
+    options: MergeOptions,
+    config_source: Optional[str] = None,
+):
     dtype: Optional[torch.dtype] = {
         None: None,
         "float16": torch.float16,
@@ -132,9 +137,21 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
     cfg_out.save_pretrained(out_path)
 
     if options.write_model_card:
-        card_md = generate_card(config=merge_config, name=os.path.basename(out_path))
-        with open(os.path.join(out_path, "README.md"), "w", encoding="utf-8") as fd:
-            fd.write(card_md)
+        if not config_source:
+            config_source = merge_config.to_yaml()
+
+        card_md = generate_card(
+            config=merge_config,
+            config_yaml=config_source,
+            name=os.path.basename(out_path),
+        )
+        with open(os.path.join(out_path, "README.md"), "w", encoding="utf-8") as fp:
+            fp.write(card_md)
+
+        with open(
+            os.path.join(out_path, "mergekit_config.yml"), "w", encoding="utf-8"
+        ) as fp:
+            fp.write(config_source)
 
     if options.copy_tokenizer and tokenizer is None:
         try:

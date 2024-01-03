@@ -82,9 +82,11 @@ def main(
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
     with open(config_file, "r", encoding="utf-8") as file:
-        data = yaml.load(file, yaml.SafeLoader)
+        config_source = file.read()
 
-    merge_config: MergeConfiguration = MergeConfiguration.model_validate(data)
+    merge_config: MergeConfiguration = MergeConfiguration.model_validate(
+        yaml.safe_load(config_source)
+    )
     run_merge(
         merge_config,
         out_path,
@@ -101,6 +103,7 @@ def main(
             lazy_unpickle=lazy_unpickle,
             write_model_card=write_model_card,
         ),
+        config_source=config_source,
     )
 
 
