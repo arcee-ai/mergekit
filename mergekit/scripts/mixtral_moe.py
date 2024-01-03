@@ -367,9 +367,9 @@ def main(
     build(
         config,
         out_path=out_path,
+        merge_options=merge_options,
         load_in_4bit=load_in_4bit,
         load_in_8bit=load_in_8bit,
-        lazy_unpickle=merge_options.lazy_unpickle,
         device=device,
     )
 
