@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -37,7 +37,6 @@ class MergeOptions(BaseModel):
     low_cpu_memory: bool = False
     out_shard_size: int = parse_kmb("5B")
     copy_tokenizer: bool = True
-    allow_crimes: bool = False
     clone_tensors: bool = False
     trust_remote_code: bool = False
     random_seed: Optional[int] = None

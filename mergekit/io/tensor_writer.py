@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -101,7 +101,7 @@ class TensorWriter:
         ) as file:
             json.dump(
                 {
-                    "metadata": {"mergekit_version": "0.0.3.1"},
+                    "metadata": {"mergekit_version": "0.0.3.2"},
                     "weight_map": self.weight_map,
                 },
                 file,
