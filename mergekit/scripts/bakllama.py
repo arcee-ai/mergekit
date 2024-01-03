@@ -46,6 +46,7 @@ class BakllamaConfig(BaseModel):
 @click.option(
     "--clone-tensors/--no-clone-tensors",
     type=bool,
+    is_flag=True,
     help="Clone tensors before saving, to allow multiple occurrences of the same layer",
     default=False,
 )

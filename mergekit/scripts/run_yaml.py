@@ -24,9 +24,11 @@ from mergekit.options import add_merge_options
 
 
 @click.command("mergekit-yaml")
-@click.argument("config_file")  # , help="YAML configuration file")
-@click.argument("out_path")  # , help="Path to write result model")
-@click.option("--verbose", "-v", type=bool, default=False, help="Verbose logging")
+@click.argument("config_file")
+@click.argument("out_path")
+@click.option(
+    "--verbose", "-v", type=bool, default=False, is_flag=True, help="Verbose logging"
+)
 @add_merge_options
 def main(
     merge_options: MergeOptions,
