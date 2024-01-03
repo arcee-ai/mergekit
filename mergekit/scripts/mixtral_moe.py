@@ -175,6 +175,9 @@ def warn_degenerate_gates(gate_vecs: torch.Tensor, threshold: float = 5.0):
         elif len(degen_indices) == 2:
             layer_str = f"layers {' and '.join(map(str, degen_indices))}"
             verb = "have"
+        elif len(degen_indices) == num_layers:
+            layer_str = "ALL layers"
+            verb = "have"
         else:
             layer_str = (
                 "layers "
