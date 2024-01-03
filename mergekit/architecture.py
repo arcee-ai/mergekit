@@ -110,9 +110,10 @@ MISTRAL_INFO = StaticTensorNames(
 
 class MixtralTensorNames(ArchitectureInfo):
     architecture_name: str = "MixtralForCausalLM"
+    num_local_experts: int
 
     def __init__(self, config: PretrainedConfig):
-        self.config = config
+        self.num_local_experts = config.num_local_experts
 
     def pre_weights(self) -> List[str]:
         return MISTRAL_INFO.pre_weights()
@@ -127,7 +128,7 @@ class MixtralTensorNames(ArchitectureInfo):
         return MISTRAL_INFO.num_layers_config_key()
 
     def layer_weight_formats(self) -> List[str]:
-        num_experts = self.config.num_local_experts
+        num_experts = self.num_local_experts
         res = [fmt for fmt in MISTRAL_INFO.layer_weight_formats() if ".mlp." not in fmt]
         for expert_idx in range(num_experts):
             for param in ("w1", "w2", "w3"):
