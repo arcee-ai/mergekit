@@ -74,7 +74,7 @@ def is_hf(path: str) -> bool:
         return False  # definitely a local path
     if not os.path.exists(path):
         return True  # If path doesn't exist locally, it must be a HF repo
-    return huggingface_hub.repo_exists(path, repo_type="model")
+    return huggingface_hub.repo_exists(path, repo_type="model", token=False)
 
 
 def extract_hf_paths(models: List[ModelReference]) -> Sequence[str]:
