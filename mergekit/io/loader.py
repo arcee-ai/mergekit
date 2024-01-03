@@ -14,7 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Sequence
+from typing import Dict, Optional, Sequence
 
 import safetensors
 import torch

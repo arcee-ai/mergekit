@@ -37,7 +37,6 @@ class MergeOptions(BaseModel):
     low_cpu_memory: bool = False
     out_shard_size: int = parse_kmb("5B")
     copy_tokenizer: bool = True
-    allow_crimes: bool = False
     clone_tensors: bool = False
     trust_remote_code: bool = False
     random_seed: Optional[int] = None
