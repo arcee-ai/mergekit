@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -32,7 +32,7 @@ from typing_extensions import Generic, TypeVar
 ValueT = TypeVar("ValueT")
 
 
-class Task(Generic[ValueT], ABC, BaseModel, frozen=True):
+class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
     """
     Abstract base class representing a task in a computational graph.
 

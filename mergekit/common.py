@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -128,7 +128,10 @@ def dtype_from_name(name: Optional[str]) -> torch.dtype:
 
 
 def rectify_embed_sizes(param_name: str, tensors: List[torch.Tensor]):
-    if "lm_head" in param_name or "embed_tokens" in param_name:
+    # TODO: use arch_info.embed_weights() instead
+    if ("lm_head" in param_name or "embed_tokens" in param_name) and all(
+        len(t.shape) == 2 for t in tensors
+    ):
         # special case - if lm_head.weight or embed_tokens.weight have a size
         # mismatch, take the largest common submatrix of all of them
         if take_common_submatrix(tensors):
@@ -177,21 +180,6 @@ def parse_kmb(value: Union[str, int]) -> int:
         return int(value[:-1]) * 1000 * 1000 * 1000
     else:
         raise ValueError(value)
-
-
-class MergeOptions(BaseModel):
-    allow_crimes: bool = False
-    transformers_cache: Optional[str] = None
-    lora_merge_cache: Optional[str] = None
-    cuda: bool = False
-    low_cpu_memory: bool = False
-    out_shard_size: int = parse_kmb("5B")
-    copy_tokenizer: bool = True
-    allow_crimes: bool = False
-    clone_tensors: bool = False
-    trust_remote_code: bool = False
-    random_seed: Optional[int] = None
-    lazy_unpickle: bool = False
 
 
 T_K = TypeVar("T_K")

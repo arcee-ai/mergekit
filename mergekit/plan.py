@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -18,7 +18,7 @@ from typing import List, Optional
 
 from mergekit import merge_methods
 from mergekit.architecture import ArchitectureInfo
-from mergekit.common import ImmutableMap, MergeOptions, ModelReference
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.config import (
     ConfigReader,
     InputSliceDefinition,
@@ -29,6 +29,7 @@ from mergekit.graph import Task
 from mergekit.io.tasks import FinalizeModel, GatherTensors, SaveTensor, TensorWriterTask
 from mergekit.merge_methods import MergeMethod
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
+from mergekit.options import MergeOptions
 from mergekit.tokenizer import BuildTokenizer
 
 

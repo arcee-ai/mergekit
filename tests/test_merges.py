@@ -5,7 +5,6 @@ from typing import Optional
 import pytest
 from transformers import LlamaConfig, LlamaForCausalLM
 
-from mergekit.common import MergeOptions
 from mergekit.config import (
     InputModelDefinition,
     InputSliceDefinition,
@@ -13,15 +12,16 @@ from mergekit.config import (
     OutputSliceDefinition,
 )
 from mergekit.merge import run_merge
+from mergekit.options import MergeOptions
 
 
 def make_picollama(path: str):
     cfg = LlamaConfig(
         vocab_size=64,
-        hidden_size=128,
-        intermediate_size=128,
+        hidden_size=32,
+        intermediate_size=48,
         num_attention_heads=16,
-        num_hidden_layers=1,
+        num_hidden_layers=2,
     )
     model = LlamaForCausalLM(cfg)
     model.save_pretrained(path, safe_serialization=True)

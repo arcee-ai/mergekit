@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -239,6 +239,11 @@ class PhiTensorNames(ArchitectureInfo):
     def __init__(self, config: PretrainedConfig):
         self.config = config
 
+    def __eq__(self, rhs: "PhiTensorNames"):
+        if not isinstance(rhs, PhiTensorNames):
+            return False
+        return self.num_layers() == rhs.num_layers()
+
     def pre_weights(self) -> List[str]:
         return ["layers.0.wte.weight"]
 
@@ -282,6 +287,32 @@ class PhiTensorNames(ArchitectureInfo):
         return "n_layer"
 
 
+PHI2_INFO = StaticTensorNames(
+    name="PhiForCausalLM",
+    pre_weight_names=["transformer.embd.wte.weight"],
+    post_weight_names=[
+        "lm_head.linear.bias",
+        "lm_head.linear.weight",
+        "lm_head.ln.bias",
+        "lm_head.ln.weight",
+    ],
+    embed_weight_names=["lm_head.linear.weight", "transformer.embd.wte.weight"],
+    layer_prefix_format="transformer.h.{idx}",
+    layer_weight_suffixes=[
+        "ln.bias",
+        "ln.weight",
+        "mixer.out_proj.bias",
+        "mixer.out_proj.weight",
+        "mixer.Wqkv.bias",
+        "mixer.Wqkv.weight",
+        "mlp.fc1.bias",
+        "mlp.fc1.weight",
+        "mlp.fc2.bias",
+        "mlp.fc2.weight",
+    ],
+)
+
+
 def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
     if len(config.architectures) != 1:
         raise RuntimeError("More than one architecture in config?")
@@ -299,6 +330,7 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         GPT2_SEQCLASS_INFO,
         CHATGLM_INFO,
         STABLELM_INFO,
+        PHI2_INFO,
     ]
     for arch in supported:
         if arch.name == arch_name:
