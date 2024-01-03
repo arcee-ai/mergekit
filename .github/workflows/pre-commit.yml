@@ -8,9 +8,31 @@ jobs:
   pre-commit:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-python@v4
-      with:
-          python-version: "3.10"
-          cache: 'pip'
-    - uses: pre-commit/action@v3.0.0
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - uses: pre-commit/action@v3.0.0
+
+  pytest:
+    name: PyTest
+    needs: [pre-commit]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python_version: ["3.9", "3.10", "3.11"]
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python_version }}
+          cache: "pip"
+      - name: Install dependencies
+        run: pip3 install -U -e .[test]
+      - name: Run tests
+        run: pytest .
