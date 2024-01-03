@@ -39,7 +39,6 @@ class MergeOptions(BaseModel):
     low_cpu_memory: bool = False
     out_shard_size: int = parse_kmb("5B")
     copy_tokenizer: bool = True
-    allow_crimes: bool = False
     clone_tensors: bool = False
     trust_remote_code: bool = False
     random_seed: Optional[int] = None
@@ -88,7 +87,10 @@ def run_merge(
         embed_permutations = None
 
     (targets, static_rules) = plan(
-        merge_config, arch_info, embed_permutations=embed_permutations
+        merge_config,
+        arch_info,
+        embed_permutations=embed_permutations,
+        trust_remote_code=options.trust_remote_code,
     )
 
     rules = RuleSet(static_rules)

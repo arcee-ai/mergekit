@@ -1,6 +1,4 @@
 models:
-  - model: TheBloke/Llama-2-13B-fp16
-    # no parameters necessary for base model
   - model: psmathur/orca_mini_v3_13b
     parameters:
       density: [1, 0.7, 0.1] # density gradient
