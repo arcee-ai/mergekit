@@ -4,6 +4,10 @@ slices:
         layer_range: [0, 40]
       - model: garage-bAInd/Platypus2-13B
         layer_range: [0, 40]
+# or, the equivalent models: syntax:
+# models:
+#   - model: psmathur/orca_mini_v3_13b
+#   - model: garage-bAInd/Platypus2-13B
 merge_method: slerp
 base_model: psmathur/orca_mini_v3_13b
 parameters:

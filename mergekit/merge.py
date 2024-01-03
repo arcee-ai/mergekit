@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -14,6 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import logging
+import os
 from typing import Optional
 
 import torch
@@ -22,6 +23,7 @@ from pydantic import BaseModel
 
 from mergekit import merge_methods
 from mergekit.architecture import get_architecture_info
+from mergekit.card import generate_card
 from mergekit.common import ModelReference, parse_kmb
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor, RuleSet
@@ -37,14 +39,19 @@ class MergeOptions(BaseModel):
     low_cpu_memory: bool = False
     out_shard_size: int = parse_kmb("5B")
     copy_tokenizer: bool = True
-    allow_crimes: bool = False
     clone_tensors: bool = False
     trust_remote_code: bool = False
     random_seed: Optional[int] = None
     lazy_unpickle: bool = False
+    write_model_card: bool = True
 
 
-def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOptions):
+def run_merge(
+    merge_config: MergeConfiguration,
+    out_path: str,
+    options: MergeOptions,
+    config_source: Optional[str] = None,
+):
     dtype: Optional[torch.dtype] = {
         None: None,
         "float16": torch.float16,
@@ -60,7 +67,8 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
 
     method = merge_methods.get(merge_config.merge_method)
     model_arch_info = [
-        get_architecture_info(m.config()) for m in merge_config.referenced_models()
+        get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
+        for m in merge_config.referenced_models()
     ]
     if not options.allow_crimes:
         if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
@@ -79,7 +87,10 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         embed_permutations = None
 
     (targets, static_rules) = plan(
-        merge_config, arch_info, embed_permutations=embed_permutations
+        merge_config,
+        arch_info,
+        embed_permutations=embed_permutations,
+        trust_remote_code=options.trust_remote_code,
     )
 
     rules = RuleSet(static_rules)
@@ -102,7 +113,9 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
         clone_tensors=options.clone_tensors,
     )
 
-    cfg_out = method.model_out_config(merge_config)
+    cfg_out = method.model_out_config(
+        merge_config, trust_remote_code=options.trust_remote_code
+    )
     if tokenizer:
         try:
             cfg_out.vocab_size = len(tokenizer.get_vocab())
@@ -124,6 +137,23 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
             exc_info=e,
         )
     cfg_out.save_pretrained(out_path)
+
+    if options.write_model_card:
+        if not config_source:
+            config_source = merge_config.to_yaml()
+
+        card_md = generate_card(
+            config=merge_config,
+            config_yaml=config_source,
+            name=os.path.basename(out_path),
+        )
+        with open(os.path.join(out_path, "README.md"), "w", encoding="utf-8") as fp:
+            fp.write(card_md)
+
+        with open(
+            os.path.join(out_path, "mergekit_config.yml"), "w", encoding="utf-8"
+        ) as fp:
+            fp.write(config_source)
 
     if options.copy_tokenizer and tokenizer is None:
         try:

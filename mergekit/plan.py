@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -35,6 +35,7 @@ def plan(
     merge_config: MergeConfiguration,
     arch_info: ArchitectureInfo,
     embed_permutations: Optional[Dict[ModelReference, torch.Tensor]] = None,
+    trust_remote_code: bool = False,
 ) -> Tuple[List[TensorReference], Dict[TensorReference, Operation]]:
     layer_idx = 0
 
@@ -62,7 +63,7 @@ def plan(
             if base_model and mref == base_model:
                 base_included = True
 
-            model_cfg = mref.config()
+            model_cfg = mref.config(trust_remote_code=trust_remote_code)
             num_layers = arch_info.num_layers(model_cfg)
             slices_in.append(
                 InputSliceDefinition(
@@ -74,7 +75,7 @@ def plan(
 
         if base_model and not base_included:
             logging.info("Base model specified but not in input models - adding")
-            base_cfg = base_model.config()
+            base_cfg = base_model.config(trust_remote_code=trust_remote_code)
             num_layers = arch_info.num_layers(base_cfg)
             slices_in.append(
                 InputSliceDefinition(
