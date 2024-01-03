@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -70,7 +70,7 @@ class SlerpMerge(MergeMethod):
         output_tensor_name: str,
         tensors: GatherTensors,
         parameters: ImmutableMap[str, Any],
-        base_model: ModelReference | None,
+        base_model: Optional[ModelReference],
         **_kwargs,
     ) -> Task:
         return SlerpTask(
