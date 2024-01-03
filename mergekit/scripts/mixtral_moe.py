@@ -217,7 +217,7 @@ def build(
 
     if (out_cfg.num_local_experts & (out_cfg.num_local_experts - 1)) != 0:
         logging.warning(
-            f"Your model has {out_cfg.num_local_experts}, which is "
+            f"Your model has {out_cfg.num_local_experts} experts, which is "
             "not a power of two. The model will not be usable in llama.cpp."
         )
 
