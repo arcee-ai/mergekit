@@ -1,0 +1,12 @@
+models:
+  - model: psmathur/orca_mini_v3_13b
+    parameters:
+      weight: 1.0
+  - model: WizardLM/WizardLM-13B-V1.2
+    parameters:
+      weight: 0.3
+  - model: garage-bAInd/Platypus2-13B
+    parameters:
+      weight: 0.5
+merge_method: linear
+dtype: float16

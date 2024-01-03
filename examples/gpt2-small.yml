@@ -1,6 +1,0 @@
-slices:
-  - sources:
-    - model: gpt2
-      layer_range: [0, 8]
-merge_method: passthrough
-dtype: float16
