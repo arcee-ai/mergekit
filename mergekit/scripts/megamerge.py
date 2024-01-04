@@ -83,8 +83,6 @@ def main(
     with open(config_file, "r") as f:
         data = yaml.load_all(f, Loader=yaml.FullLoader)
 
-        # find leaf merges, the ones that don't have a local path specified in slices[].sources[].model or models[].model
-        leaf_merges = []
         for d in data:
             merges[d["out_path"]] = d
             merges[d["out_path"]]["deps"] = []
