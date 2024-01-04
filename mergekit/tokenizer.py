@@ -15,6 +15,7 @@
 
 import json
 import logging
+import tempfile
 from typing import Dict, Optional, Tuple
 
 import tokenizers
@@ -42,15 +43,23 @@ def get_vocab_size(model_path: str, trust_remote_code: bool) -> Optional[int]:
 def get_stripped_tokenizer(
     path: str, trust_remote_code: bool = False
 ) -> transformers.PreTrainedTokenizerFast:
+    """
+    Return a tokenizer for a model that only contains used tokens.
+
+    Strips any tokens with indices >= model.vocab_size.
+    """
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         path, trust_remote_code=trust_remote_code, use_fast=True
     )
-    vocab_size = get_vocab_size(path) or len(tokenizer.get_vocab())
+    vocab_size = get_vocab_size(path, trust_remote_code=trust_remote_code) or len(
+        tokenizer.get_vocab()
+    )
 
     unused_toks = [
         tok for tok, idx in tokenizer.get_vocab().items() if idx >= vocab_size
     ]
     if not unused_toks:
+        # we're good, ship it
         return tokenizer
 
     if not tokenizer.is_fast:
@@ -91,12 +100,18 @@ def get_stripped_tokenizer(
 def build_union_tokenizer(
     base_tok: transformers.PreTrainedTokenizerBase,
     tokenizers: Dict[ModelReference, transformers.PreTrainedTokenizerBase],
+    trust_remote_code: bool = False,
 ) -> transformers.PreTrainedTokenizerBase:
     out_added_tokens = {}
     out_vocab = {}
 
+    warned_added_tokens = set()
+
     for model, tokenizer in tokenizers.items():
-        vocab_size = get_vocab_size(model) or tokenizer.vocab_size
+        vocab_size = (
+            get_vocab_size(model, trust_remote_code=trust_remote_code)
+            or tokenizer.vocab_size
+        )
         added_tokens = tokenizer.added_tokens_decoder
 
         vocab = tokenizer.get_vocab()
@@ -115,14 +130,22 @@ def build_union_tokenizer(
 
         for tok, info in tokenizer.added_tokens_decoder.items():
             if tok in out_added_tokens:
-                if out_added_tokens[tok] != info:
+                if (out_added_tokens[tok] != info) and tok not in warned_added_tokens:
                     logging.warning(
                         f"Token '{tok}' added with multiple different settings, using first"
                     )
+                    warned_added_tokens.add(tok)
+
                 continue
             out_added_tokens[tok] = info
 
-    res = base_tok
+    # HACK: save base tokenizer to temp dir and reload to avoid mutating base_tok
+    with tempfile.TemporaryDirectory() as p:
+        base_tok.save_pretrained(p, legacy_format=False, safe_serialization=True)
+        res = transformers.AutoTokenizer.from_pretrained(
+            p, use_fast=True, trust_remote_code=trust_remote_code
+        )
+
     orig_base_vocab = base_tok.get_vocab()
     for tok in out_vocab:
         if tok in out_added_tokens:
@@ -148,19 +171,20 @@ def build_tokenizer(
     if base_model is None:
         raise RuntimeError("No models referenced")
 
-    tokenizer_out = get_stripped_tokenizer(
+    #
+    tokenizer_base = get_stripped_tokenizer(
         base_model.path, trust_remote_code=trust_remote_code
     )
 
     # load all tokenizers
     logging.info("Loading tokenizers")
-    tokenizers = {base_model: tokenizer_out}
+    tokenizers = {base_model: tokenizer_base}
     for model in config.referenced_models():
         if model == base_model:
             continue
 
         try:
-            model_tok = get_stripped_tokenizer(
+            model_tok = transformers.AutoTokenizer.from_pretrained(
                 model.path, trust_remote_code=trust_remote_code
             )
         except Exception:
@@ -174,9 +198,11 @@ def build_tokenizer(
     # build final vocabulary
     if config.tokenizer_source == "base":
         # it done
-        pass
+        tokenizer_out = tokenizer_base
     elif config.tokenizer_source == "union":
-        tokenizer_out = build_union_tokenizer(tokenizer_out, tokenizers)
+        tokenizer_out = build_union_tokenizer(
+            tokenizer_base, tokenizers, trust_remote_code=trust_remote_code
+        )
     elif config.tokenizer_source.startswith("model:"):
         tokenizer_out = transformers.AutoTokenizer.from_pretrained(
             config.tokenizer_source.removeprefix("model:"),
@@ -199,9 +225,11 @@ def build_tokenizer(
         if vocab_size is None:
             vocab_size = len(model_vocab)
 
-        p = torch.zeros(len(vocab_out), vocab_size, dtype=torch.int32)
-        for tok in model_vocab:
-            if tok not in vocab_out:
+        p = {}
+        for tok in vocab_out:
+            new_idx = vocab_out[tok]
+            if tok not in model_vocab:
+                p[new_idx] = -1
                 continue
 
             orig_idx = model_vocab[tok]
@@ -211,8 +239,8 @@ def build_tokenizer(
                 )
                 continue
 
-            new_idx = vocab_out[tok]
-            p[new_idx, orig_idx] = 1
+            p[new_idx] = orig_idx
+
         permutations[model] = p
 
     return tokenizer_out, permutations
