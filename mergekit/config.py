@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -13,9 +13,10 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
-from pydantic import BaseModel
+import yaml
+from pydantic import BaseModel, model_validator
 from typing_extensions import TypeAlias
 
 from mergekit.common import ModelReference
@@ -106,9 +107,17 @@ class MergeConfiguration(BaseModel):
                     models.add(ModelReference.parse(src.model))
         return list(models)
 
-    def validate(self):
+    @model_validator(mode="after")
+    def validate_inputs(self):
         if ((not self.slices) and (not self.models)) or (self.slices and self.models):
             raise RuntimeError("Must specify either output slices or models to merge")
+        return self
+
+    def to_yaml(self) -> str:
+        return yaml.dump(
+            self.model_dump(exclude_defaults=True, mode="json"),
+            Dumper=ConfigYamlDumper,
+        ).rstrip()
 
 
 class ConfigReader(BaseModel):
@@ -184,3 +193,16 @@ class ConfigReader(BaseModel):
             )
             raise RuntimeError(f"Missing required parameter {name}{suffix}")
         return default
+
+
+class ConfigYamlDumper(yaml.Dumper):
+    """Custom YAML dumper to format lists of numbers in flow style."""
+
+    def represent_list(self, data: Iterable[Any]) -> yaml.SequenceNode:
+        flow_style = all(isinstance(e, (int, float)) for e in data)
+        return self.represent_sequence(
+            "tag:yaml.org,2002:seq", data, flow_style=flow_style
+        )
+
+
+ConfigYamlDumper.add_representer(list, ConfigYamlDumper.represent_list)

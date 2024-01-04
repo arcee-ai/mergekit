@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -15,10 +15,9 @@
 
 from typing import List, Optional
 
-import typer
+import click
 import yaml
 from pydantic import BaseModel
-from typing_extensions import Annotated
 
 from mergekit.config import (
     ConditionalParameter,
@@ -41,16 +40,22 @@ class BakllamaConfig(BaseModel):
     lm_head_source: Optional[str] = None
 
 
+@click.command("bakllama")
+@click.argument("config_path", type=click.Path(exists=True, dir_okay=False))
+@click.argument("out_path", type=str)
+@click.option(
+    "--clone-tensors/--no-clone-tensors",
+    type=bool,
+    is_flag=True,
+    help="Clone tensors before saving, to allow multiple occurrences of the same layer",
+    default=False,
+)
+@click.option("--fp16/--no-fp16", type=bool, default=False)
 def main(
     config_path: str,
     out_path: str,
-    clone_tensors: Annotated[
-        bool,
-        typer.Option(
-            help="Clone tensors before saving, to allow multiple occurrences of the same layer"
-        ),
-    ] = False,
-    fp16: bool = False,
+    clone_tensors: bool,
+    fp16: bool,
 ):
     """Wrapper for using legacy bakllama configuration files."""
     with open(config_path, "r", encoding="utf-8") as file:
@@ -75,9 +80,5 @@ def main(
     run_merge(merge_config, out_path, MergeOptions(clone_tensors=clone_tensors))
 
 
-def _main():
-    typer.run(main)
-
-
 if __name__ == "__main__":
-    _main()
+    main()

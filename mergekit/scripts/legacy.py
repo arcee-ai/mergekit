@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -15,68 +15,81 @@
 
 from typing import List, Optional
 
-import typer
+import click
 import yaml
-from typing_extensions import Annotated
 
 from mergekit.config import InputModelDefinition, MergeConfiguration
 from mergekit.merge import MergeOptions, run_merge
+from mergekit.options import add_merge_options
 
 
+@click.command("mergekit-legacy")
+@click.argument("out_path", type=str)
+@click.option(
+    "--merge", "merge", type=str, multiple=True, help="Add a model to the merge"
+)
+@click.option(
+    "--density",
+    "density",
+    type=float,
+    multiple=True,
+    default=[],
+    help="Fraction of weights to keep for each model (ties only)",
+)
+@click.option(
+    "--weight",
+    "weight",
+    type=float,
+    multiple=True,
+    default=[],
+    help="Weighting for a model (default 1.0 for all models if not specified)",
+)
+@click.option(
+    "--method", "method", type=str, default="ties", help="Method used to merge models"
+)
+@click.option(
+    "--base-model", "base_model", type=str, default=None, help="Base model for merge"
+)
+@click.option(
+    "--normalize/--no-normalize",
+    "normalize",
+    is_flag=True,
+    default=True,
+    help="Divide merged parameters by the sum of weights",
+)
+@click.option(
+    "--int8-mask/--no-int8-mask",
+    "int8_mask",
+    is_flag=True,
+    help="Store intermediate masks in int8 to save memory",
+)
+@click.option("--bf16/--no-bf16", "bf16", is_flag=True, help="Use bfloat16")
+@click.option(
+    "--naive-count/--no-naive-count",
+    "naive_count",
+    is_flag=True,
+    help="Use naive sign count instead of weight (ties only)",
+)
+@click.option(
+    "--print-yaml/--no-print-yaml",
+    "print_yaml",
+    is_flag=True,
+    help="Print generated YAML configuration",
+)
+@add_merge_options
 def main(
-    out_path: Annotated[str, typer.Argument(help="Output directory for final model")],
-    merge: Annotated[
-        List[str], typer.Option(help="Add a model to the merge", metavar="MODEL")
-    ],
-    density: Annotated[
-        List[float],
-        typer.Option(
-            help="Fraction of weights to keep for each model (ties only)",
-            default_factory=list,
-            show_default=False,
-        ),
-    ],
-    weight: Annotated[
-        List[float],
-        typer.Option(
-            help="Weighting for a model (default 1.0 for all models if not specified)",
-            default_factory=list,
-            show_default=False,
-        ),
-    ],
-    method: Annotated[str, typer.Option(help="Method used to merge models")] = "ties",
-    base_model: Annotated[
-        Optional[str], typer.Option(help="Base model for merge")
-    ] = None,
-    normalize: Annotated[
-        bool,
-        typer.Option(
-            help="Divide merged parameters by the sum of weights",
-        ),
-    ] = True,
-    merged_cache_dir: Annotated[
-        Optional[str], typer.Option(help="Storage path for merged LoRA models")
-    ] = None,
-    cache_dir: Annotated[
-        Optional[str], typer.Option(help="Override storage path for downloaded models")
-    ] = None,
-    cuda: bool = False,
-    int8_mask: Annotated[
-        bool, typer.Option(help="Store intermediate masks in int8 to save memory")
-    ] = False,
-    bf16: Annotated[bool, typer.Option(help="Use bfloat16")] = True,
-    naive_count: Annotated[
-        bool, typer.Option(help="Use naive sign count instead of weight (ties only)")
-    ] = False,
-    copy_tokenizer: Annotated[
-        bool, typer.Option(help="Copy base model tokenizer into output")
-    ] = True,
-    print_yaml: Annotated[
-        bool, typer.Option(help="Print generated YAML configuration")
-    ] = False,
-    allow_crimes: Annotated[
-        bool, typer.Option(help="Allow mixing architectures")
-    ] = False,
+    out_path: str,
+    merge: List[str],
+    density: List[float],
+    weight: List[float],
+    method: str,
+    base_model: Optional[str],
+    normalize: bool,
+    int8_mask: bool,
+    bf16: bool,
+    naive_count: bool,
+    print_yaml: bool,
+    merge_options: MergeOptions,
 ):
     """Wrapper for using a subset of legacy-style script arguments."""
     models = [InputModelDefinition(model=model, parameters={}) for model in merge]
@@ -121,19 +134,9 @@ def main(
     run_merge(
         merge_config,
         out_path,
-        options=MergeOptions(
-            lora_merge_cache=merged_cache_dir,
-            transformers_cache=cache_dir,
-            cuda=cuda,
-            copy_tokenizer=copy_tokenizer,
-            allow_crimes=allow_crimes,
-        ),
+        options=merge_options,
     )
 
 
-def _main():
-    typer.run(main)
-
-
 if __name__ == "__main__":
-    _main()
+    main()

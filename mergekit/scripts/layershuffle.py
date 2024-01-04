@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -14,11 +14,10 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import random
-from typing import List, Optional
+from typing import List
 
-import typer
+import click
 import yaml
-from typing_extensions import Annotated
 
 from mergekit.architecture import get_architecture_info
 from mergekit.common import ModelReference
@@ -28,49 +27,51 @@ from mergekit.config import (
     OutputSliceDefinition,
 )
 from mergekit.merge import MergeOptions, run_merge
+from mergekit.options import add_merge_options
 
 
+@click.command("mergekit-layershuffle")
+@click.argument("out_path", type=str)
+@click.option("--model", "-m", multiple=True, type=str, help="Add a model to the merge")
+@click.option(
+    "--weight",
+    "-w",
+    multiple=True,
+    type=float,
+    default=[],
+    show_default=False,
+    help="Weighting for a model",
+)
+@click.option(
+    "--print-yaml/--no-print-yaml",
+    is_flag=True,
+    help="Print YAML merge config for resulting model",
+)
+@click.option(
+    "--write-yaml",
+    type=click.Path(writable=True),
+    help="Path to write YAML merge config to",
+)
+@click.option(
+    "--dry-run", is_flag=True, help="Generate a config but do not run the merge"
+)
+@click.option("--fp16/--no-fp16", is_flag=True, help="Use FP16 precision")
+@click.option(
+    "--full-random/--no-full-random",
+    is_flag=True,
+    help="Randomize layer index as well as source model",
+)
+@add_merge_options
 def main(
-    out_path: Annotated[
-        str, typer.Argument(help="Output path for merged model", metavar="PATH")
-    ],
-    model: Annotated[
-        List[str], typer.Option(help="Add a model to the merge", metavar="MODEL")
-    ],
-    weight: Annotated[
-        List[float],
-        typer.Option(
-            help="Weighting for a model",
-            default_factory=list,
-            show_default=False,
-        ),
-    ],
-    print_yaml: Annotated[
-        bool, typer.Option(help="Print YAML merge config for resulting model")
-    ] = False,
-    write_yaml: Annotated[
-        Optional[str], typer.Option(help="Path to write YAML merge config to")
-    ] = None,
-    dry_run: Annotated[
-        bool, typer.Option(help="Generate a config but do not run the merge")
-    ] = False,
-    fp16: bool = False,
-    lora_merge_cache: Annotated[
-        Optional[str],
-        typer.Option(help="Path to store merged LORA models", metavar="PATH"),
-    ] = None,
-    transformers_cache: Annotated[
-        Optional[str],
-        typer.Option(
-            help="Override storage path for downloaded models", metavar="PATH"
-        ),
-    ] = None,
-    copy_tokenizer: Annotated[
-        bool, typer.Option(help="Copy a tokenizer to the output")
-    ] = True,
-    full_random: Annotated[
-        bool, typer.Option(help="Randomize layer index as well as source model")
-    ] = False,
+    out_path: str,
+    model: List[str],
+    weight: List[float],
+    print_yaml: bool,
+    write_yaml: bool,
+    dry_run: bool,
+    fp16: bool,
+    full_random: bool,
+    merge_options: MergeOptions,
 ):
     models = [ModelReference.parse(m) for m in model]
 
@@ -135,17 +136,9 @@ def main(
     run_merge(
         merge_config,
         out_path,
-        MergeOptions(
-            lora_merge_cache=lora_merge_cache,
-            transformers_cache=transformers_cache,
-            copy_tokenizer=copy_tokenizer,
-        ),
+        options=merge_options,
     )
 
 
-def _main():
-    typer.run(main)
-
-
 if __name__ == "__main__":
-    _main()
+    main()
