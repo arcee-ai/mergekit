@@ -87,6 +87,9 @@ def main(
         data = yaml.load_all(f, Loader=yaml.FullLoader)
 
         for d in data:
+            if "/" in d["name"]:
+                logging.error("name must not contain a slash")
+                exit(1)
             merges[d["name"]] = d
             merges[d["name"]]["deps"] = []
             if "slices" in d:
