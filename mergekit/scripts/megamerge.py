@@ -14,6 +14,7 @@ from mergekit.options import add_merge_options
 
 merges = {}
 
+
 def has_circular_dependency(nodes):
     def dfs(node, visited, stack):
         visited[node] = True
@@ -37,7 +38,8 @@ def has_circular_dependency(nodes):
             if dfs(node, visited, stack):
                 return node
 
-    return None 
+    return None
+
 
 def merge(m, merge_options, force, out_path):
     # check if output_path exists
@@ -63,6 +65,7 @@ def merge(m, merge_options, force, out_path):
     )
     del merges[m]
 
+
 @click.command("mergekit-mega")
 @click.argument("config_file")
 @click.argument("out_path")
@@ -70,7 +73,12 @@ def merge(m, merge_options, force, out_path):
     "--verbose", "-v", type=bool, default=False, is_flag=True, help="Verbose logging"
 )
 @click.option(
-    "--force", "-f", type=bool, default=False, is_flag=True, help="overwrite existing merge results instead of skipping them"
+    "--force",
+    "-f",
+    type=bool,
+    default=False,
+    is_flag=True,
+    help="overwrite existing merge results instead of skipping them",
 )
 @add_merge_options
 def main(
@@ -120,7 +128,7 @@ def main(
                             if len(model_lora) == 2:
                                 mdl["model"] += "+" + model_lora[1]
 
-    logging.info("Merging: " + ', '.join(merges))
+    logging.info("Merging: " + ", ".join(merges))
 
     if (dep := has_circular_dependency(merges)) is not None:
         logging.error(f"Circular dependency detected: {dep}")
@@ -129,6 +137,7 @@ def main(
     while len(merges) != 0:
         m = list(merges.keys())[0]
         merge(m, merge_options, force)
+
 
 if __name__ == "__main__":
     main()
