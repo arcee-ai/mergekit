@@ -15,6 +15,31 @@ from mergekit.options import add_merge_options
 hf_path = r"^[a-zA-Z0-9\-]+/[a-zA-Z0-9\-\._]+(?:\+.+)$"
 merges = {}
 
+def has_circular_dependency(nodes):
+    def dfs(node, visited, stack):
+        visited[node] = True
+        stack[node] = True
+
+        for dependency in nodes[node]["deps"]:
+            if not visited[dependency]:
+                if dfs(dependency, visited, stack):
+                    return True
+            elif stack[dependency]:
+                return True
+
+        stack[node] = False
+        return False
+
+    visited = {key: False for key in nodes}
+    stack = {key: False for key in nodes}
+
+    for node in nodes:
+        if not visited[node]:
+            if dfs(node, visited, stack):
+                return node
+
+    return None 
+
 def merge(m, options, force):
     # check if out_path exists
     if not force and os.path.exists(m):
@@ -78,6 +103,10 @@ def main(
                             merges[d["out_path"]]["deps"].append(mdl["model"])
 
     logging.info("Merging: " + ', '.join(merges))
+
+    if (dep := has_circular_dependency(merges)) is not None:
+        logging.error(f"Circular dependency detected: {dep}")
+        exit(1)
 
     while len(merges) != 0:
         m = list(merges.keys())[0]
