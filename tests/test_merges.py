@@ -1,6 +1,6 @@
 import os
 import tempfile
-from typing import Optional
+from typing import Dict, Optional
 
 import pytest
 from transformers import LlamaConfig, LlamaForCausalLM
@@ -10,7 +10,9 @@ from mergekit.config import (
     InputSliceDefinition,
     MergeConfiguration,
     OutputSliceDefinition,
+    ParameterSetting,
 )
+from mergekit.io.lazy_tensor_loader import LazyTensorLoader, ShardedTensorIndex
 from mergekit.merge import MergeOptions, run_merge
 
 
@@ -81,6 +83,26 @@ class TestMerges:
         )
         self.run_and_check_merge(config)
 
+    def test_ties_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="ties",
+            base_model=model_c,
+            params={"density": 0.3},
+        )
+        self.run_and_check_merge(config)
+
+    def test_dare_ties_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="dare_ties",
+            base_model=model_c,
+            params={"density": 0.66},
+        )
+        self.run_and_check_merge(config)
+
     def run_and_check_merge(self, config: MergeConfiguration):
         with tempfile.TemporaryDirectory() as tmpdir:
             run_merge(config, out_path=tmpdir, options=MergeOptions())
@@ -91,8 +113,24 @@ class TestMerges:
                 os.path.join(tmpdir, "config.json")
             ), "No config json produced by merge"
 
+            # check for NaN in output
+            loader = LazyTensorLoader(
+                ShardedTensorIndex.from_disk(tmpdir), lazy_unpickle=False
+            )
+            tp = loader.index.tensor_paths
+            sorted_tensors = sorted(tp.keys(), key=lambda k: tp[k])
+            for tensor_name in sorted_tensors:
+                tensor = loader.get_tensor(tensor_name)
+                has_nan = tensor.view(-1).isnan().any()
+                assert not has_nan, "Output contains NaN"
+
     def two_model_config(
-        self, model_a, model_b, merge_method: str, base_model: Optional[str] = None
+        self,
+        model_a,
+        model_b,
+        merge_method: str,
+        base_model: Optional[str] = None,
+        params: Optional[Dict[str, ParameterSetting]] = None,
     ):
         config = MergeConfiguration(
             merge_method=merge_method,
@@ -108,6 +146,7 @@ class TestMerges:
                 ),
             ],
             dtype="bfloat16",
+            parameters=params,
         )
 
         return config

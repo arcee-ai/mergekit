@@ -48,11 +48,19 @@ def bernoulli(
     if density >= 1:
         return tensor
 
-    mask = torch.bernoulli(torch.full_like(input=tensor, fill_value=density))
-    res = tensor * mask
+    if (tensor.device.type != "cpu") or tensor.dtype == torch.bfloat16:
+        work_dtype = tensor.dtype
+    else:
+        # torch.bernoulli not implemented for float16 on CPU, upcast to float32
+        work_dtype = torch.float32
+
+    mask = torch.bernoulli(
+        torch.full_like(input=tensor, fill_value=density, dtype=work_dtype)
+    )
+    res = tensor.to(work_dtype) * mask
     if rescale:
         res /= density
-    return res
+    return res.to(tensor.dtype)
 
 
 def sparsify(

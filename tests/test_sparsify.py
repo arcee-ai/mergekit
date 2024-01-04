@@ -49,3 +49,11 @@ class TestBernoulli:
             sample_tensor, density=0.5, method=SparsificationMethod.random
         )
         assert 0 < torch.count_nonzero(result) <= sample_tensor.view(-1).shape[0]
+
+    def test_cpu_dtypes(self, sample_tensor):
+        for dt in (torch.float16, torch.bfloat16, torch.float32):
+            sparsify(
+                tensor=sample_tensor.to(dtype=dt).cpu(),
+                density=0.5,
+                method=SparsificationMethod.rescaled_random,
+            )
