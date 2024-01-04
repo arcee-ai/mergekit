@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-import yaml
 import os
-import re
-import click
+import sys
 import logging
-import os
 from pathlib import Path
+
+import click
+import yaml
 
 from mergekit.merge import MergeOptions, run_merge
 from mergekit.config import MergeConfiguration
@@ -45,18 +45,17 @@ def merge(m, merge_options, force, out_path):
     # check if output_path exists
     if os.path.exists(out_path / m):
         if not force:
-            logging.info(f"Skipping {m} as it already exists")
+            logging.info("Skipping %s as it already exists", m)
             del merges[m]
             return
-        else:
-            logging.info(f"Overwriting {m} as --force was specified")
+        logging.info("Overwriting %s as --force was specified", m)
 
     if len(merges[m]["deps"]) != 0:
         for dep in merges[m]["deps"]:
             if dep in merges:
                 merge(dep, merge_options, force, out_path)
 
-    logging.info(f"Merging model {m}")
+    logging.info("Merging model %s", m)
     merge_config: MergeConfiguration = MergeConfiguration.model_validate(merges[m])
     run_merge(
         merge_config,
@@ -91,13 +90,14 @@ def main(
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
     out_path = Path(out_path)
-    with open(config_file, "r") as f:
+    with open(config_file, "r", encoding="utf-8") as f:
         data = yaml.load_all(f, Loader=yaml.FullLoader)
 
         for d in data:
             if "/" in d["name"]:
                 logging.error("name must not contain a slash")
-                exit(1)
+                sys.exit(1)
+
             merges[d["name"]] = d
             merges[d["name"]]["deps"] = []
             if "slices" in d:
@@ -128,11 +128,11 @@ def main(
                             if len(model_lora) == 2:
                                 mdl["model"] += "+" + model_lora[1]
 
-    logging.info("Merging: " + ", ".join(merges))
+    logging.info("Merging: %s", ", ".join(merges))
 
     if (dep := has_circular_dependency(merges)) is not None:
-        logging.error(f"Circular dependency detected: {dep}")
-        exit(1)
+        logging.error("Circular dependency detected: %s", dep)
+        sys.exit(1)
 
     while len(merges) != 0:
         m = list(merges.keys())[0]
