@@ -17,18 +17,21 @@ from mergekit.config import MergeConfiguration
 hf_path = r"^[a-zA-Z0-9\-]+/[a-zA-Z0-9\-\._]+(?:\+.+)$"
 merges = {}
 
-def merge(m, options):
+def merge(m, options, force):
     # check if out_path exists
-    if os.path.exists(m):
-        print(f"Skipping {m} as it already exists")
+    if not force and os.path.exists(m):
+        logging.info(f"Skipping {m} as it already exists")
         del merges[m]
         return
+    elif force and os.path.exists(m):
+        logging.info(f"Overwriting {m} as --force was specified")
 
     if len(merges[m]["deps"]) != 0:
         for dep in merges[m]["deps"]:
             if dep in merges:
-                merge(dep, options)
-    print(f"Merging {m}")
+                merge(dep, options, force)
+
+    logging.info(f"Merging model {m}")
     merge_config: MergeConfiguration = MergeConfiguration.model_validate(merges[m])
     run_merge(
         merge_config,
@@ -83,6 +86,9 @@ def main(
             help="Clone tensors before saving, to allow multiple occurrences of the same layer"
         ),
     ] = False,
+    force: Annotated[
+        bool, typer.Option(help="Force overwrite of existing output")
+    ] = False,
     lazy_unpickle: Annotated[
         bool, typer.Option(help="Experimental lazy unpickler for lower memory usage")
     ] = False,
@@ -128,7 +134,7 @@ def main(
 
     while len(merges) != 0:
         m = list(merges.keys())[0]
-        merge(m, options)
+        merge(m, options, force)
 
 
 
