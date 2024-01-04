@@ -14,10 +14,10 @@ parameters:
       value: [1, 0.5, 0.7, 0.3, 0]
     - value: 0.5 # fallback for rest of tensors
 dtype: float16
-out_path: ./models/gradient-slerp
+name: gradient-slerp
 ---
 models:
-  - model: ./models/gradient-slerp
+  - model: gradient-slerp
     parameters:
       density: [1, 0.7, 0.1] # density gradient
       weight: 1.0
@@ -34,4 +34,4 @@ parameters:
   normalize: true
   int8_mask: true
 dtype: float16
-out_path: ./models/gradient-slerp-ties
+name: gradient-slerp-ties
