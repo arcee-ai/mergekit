@@ -1,0 +1,37 @@
+slices:
+  - sources:
+      - model: psmathur/orca_mini_v3_13b
+        layer_range: [0, 40]
+      - model: garage-bAInd/Platypus2-13B
+        layer_range: [0, 40]
+merge_method: slerp
+base_model: psmathur/orca_mini_v3_13b
+parameters:
+  t:
+    - filter: self_attn
+      value: [0, 0.5, 0.3, 0.7, 1]
+    - filter: mlp
+      value: [1, 0.5, 0.7, 0.3, 0]
+    - value: 0.5 # fallback for rest of tensors
+dtype: float16
+name: gradient-slerp
+---
+models:
+  - model: gradient-slerp
+    parameters:
+      density: [1, 0.7, 0.1] # density gradient
+      weight: 1.0
+  - model: WizardLM/WizardMath-13B-V1.0
+    parameters:
+      density: 0.33
+      weight:
+        - filter: mlp
+          value: 0.5
+        - value: 0
+merge_method: ties
+base_model: TheBloke/Llama-2-13B-fp16
+parameters:
+  normalize: true
+  int8_mask: true
+dtype: float16
+name: gradient-slerp-ties
