@@ -1,22 +1,34 @@
 #!/usr/bin/env python3
+"""
+Merges multiple models and their dependencies into a single model
+using multiple merge yaml documents in a single yaml file as the input
+"""
 
+import logging
 import os
 import sys
-import logging
 from pathlib import Path
 
 import click
 import yaml
 
-from mergekit.merge import MergeOptions, run_merge
 from mergekit.config import MergeConfiguration
+from mergekit.merge import MergeOptions, run_merge
 from mergekit.options import add_merge_options
 
 merges = {}
 
 
 def has_circular_dependency(nodes):
+    """
+    Detects circular in merges dependencies using DFS
+    Returns the node where the cycle is detected
+    """
+
     def dfs(node, visited, stack):
+        """
+        Returns True if a cycle is detected
+        """
         visited[node] = True
         stack[node] = True
 
@@ -42,6 +54,15 @@ def has_circular_dependency(nodes):
 
 
 def merge(m, merge_options, force, out_path):
+    """
+    Merges a model and its dependencies
+
+    Params:
+        m: name of the model to merge
+        merge_options: MergeOptions
+        force: overwrite existing merge results
+        out_path: output path
+    """
     # check if output_path exists
     if os.path.exists(out_path / m):
         if not force:
@@ -63,6 +84,23 @@ def merge(m, merge_options, force, out_path):
         options=merge_options,
     )
     del merges[m]
+
+
+def add_model_deps(model, name, out_path):
+    """
+    Adds a model to `name`s dependencies if it is not already there and is a merge
+    """
+    if "model" in model and model["model"] is not None:
+        model_lora = model["model"].split("+")
+        # name must not have a slash to avoid path traversal
+        # therefore, we can use it to check if its a merge from the config
+        if "/" not in model_lora[0]:
+            # avoid duplicate deps
+            if model_lora[0] not in merges[name]["deps"]:
+                merges[name]["deps"].append(model_lora[0])
+            model["model"] = str(out_path / model_lora[0])
+            if len(model_lora) == 2:
+                model["model"] += "+" + model_lora[1]
 
 
 @click.command("mergekit-mega")
@@ -87,6 +125,10 @@ def main(
     force: bool,
     verbose: bool,
 ):
+    """
+    Main entrypoint for mergekit-mega command see module docstring for more info
+    Params are supplied by click decorators
+    """
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
     out_path = Path(out_path)
@@ -103,30 +145,10 @@ def main(
             if "slices" in d:
                 for slc in d["slices"]:
                     for src in slc["sources"]:
-                        if "model" in src and src["model"] is not None:
-                            model_lora = src["model"].split("+")
-                            # name must not have a slash to avoid path traversal
-                            # therefore, we can use it to check if its a merge from the config
-                            if "/" not in model_lora[0]:
-                                # avoid duplicate deps
-                                if model_lora[0] not in merges[d["name"]]["deps"]:
-                                    merges[d["name"]]["deps"].append(model_lora[0])
-                                src["model"] = str(out_path / model_lora[0])
-                                if len(model_lora) == 2:
-                                    src["model"] += "+" + model_lora[1]
+                        add_model_deps(src, d["name"], out_path)
             if "models" in d:
                 for mdl in d["models"]:
-                    if "model" in mdl and mdl["model"] is not None:
-                        model_lora = mdl["model"].split("+")
-                        # name must not have a slash to avoid path traversal
-                        # therefore, we can use it to check if its a merge from the config
-                        if "/" not in model_lora[0]:
-                            # avoid duplicate deps
-                            if model_lora[0] not in merges[d["name"]]["deps"]:
-                                merges[d["name"]]["deps"].append(model_lora[0])
-                            mdl["model"] = str(out_path / model_lora[0])
-                            if len(model_lora) == 2:
-                                mdl["model"] += "+" + model_lora[1]
+                    add_model_deps(mdl, d["name"], out_path)
 
     logging.info("Merging: %s", ", ".join(merges))
 
@@ -136,7 +158,7 @@ def main(
 
     while len(merges) != 0:
         m = list(merges.keys())[0]
-        merge(m, merge_options, force)
+        merge(m, merge_options, force, out_path)
 
 
 if __name__ == "__main__":
