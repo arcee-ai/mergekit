@@ -90,17 +90,18 @@ def add_model_deps(model, name, out_path):
     """
     Adds a model to `name`s dependencies if it is not already there and is a merge
     """
-    if "model" in model and model["model"] is not None:
-        model_lora = model["model"].split("+")
-        # name must not have a slash to avoid path traversal
-        # therefore, we can use it to check if its a merge from the config
-        if "/" not in model_lora[0]:
-            # avoid duplicate deps
-            if model_lora[0] not in merges[name]["deps"]:
-                merges[name]["deps"].append(model_lora[0])
-            model["model"] = str(out_path / model_lora[0])
-            if len(model_lora) == 2:
-                model["model"] += "+" + model_lora[1]
+    model_lora = model.split("+")
+    # name must not have a slash to avoid path traversal
+    # therefore, we can use it to check if its a merge from the config
+    print(model_lora)
+    if "/" not in model_lora[0]:
+        print(model_lora)
+        # avoid duplicate deps
+        if model_lora[0] not in merges[name]["deps"]:
+            merges[name]["deps"].append(model_lora[0])
+        model = str(out_path / model_lora[0])
+        if len(model_lora) == 2:
+            model += "+" + model_lora[1]
 
 
 @click.command("mergekit-mega")
@@ -142,13 +143,17 @@ def main(
 
             merges[d["name"]] = d
             merges[d["name"]]["deps"] = []
+            if "base_model" in d:
+                add_model_deps(d["base_model"], d["name"], out_path)
+                if "/" not in d["base_model"]:
+                    d["base_model"] = str(out_path / d["base_model"])
             if "slices" in d:
                 for slc in d["slices"]:
                     for src in slc["sources"]:
-                        add_model_deps(src, d["name"], out_path)
+                        add_model_deps(src["model"], d["name"], out_path)
             if "models" in d:
                 for mdl in d["models"]:
-                    add_model_deps(mdl, d["name"], out_path)
+                    add_model_deps(mdl["model"], d["name"], out_path)
 
     logging.info("Merging: %s", ", ".join(merges))
 
