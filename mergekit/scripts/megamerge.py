@@ -53,7 +53,7 @@ def has_circular_dependency(nodes):
     return None
 
 
-def merge(m, merge_options, force, out_path):
+def merge(m: str, merge_options: MergeOptions, force: bool, out_path: Path):
     """
     Merges a model and its dependencies
 
@@ -86,7 +86,7 @@ def merge(m, merge_options, force, out_path):
     del merges[m]
 
 
-def add_model_deps(model, name, out_path):
+def add_model_deps(model: str, name: str, out_path: Path):
     """
     Adds a model to `name`s dependencies if it is not already there and is a merge
     """
@@ -116,7 +116,15 @@ def add_model_deps(model, name, out_path):
     type=bool,
     default=False,
     is_flag=True,
-    help="overwrite existing merge results instead of skipping them",
+    help="Overwrite existing merge results instead of skipping them",
+)
+@click.option(
+    "--require-nameless",
+    "-R",
+    type=bool,
+    default=False,
+    is_flag=True,
+    help="Enforces exactly one unnamed merge in the YAML, which will inherit the input file's name.",
 )
 @add_merge_options
 def main(
@@ -125,6 +133,7 @@ def main(
     out_path: str,
     force: bool,
     verbose: bool,
+    require_nameless: bool,
 ):
     """
     Main entrypoint for mergekit-mega command see module docstring for more info
@@ -163,7 +172,7 @@ def main(
                 for mdl in d["models"]:
                     mdl["model"] = add_model_deps(mdl["model"], d["name"], out_path)
 
-    if not final_found:
+    if require_nameless and not final_found:
         logging.error("No final merge found")
         sys.exit(1)
 
