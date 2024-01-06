@@ -128,7 +128,11 @@ def build_union_tokenizer(
             if tok not in out_vocab:
                 out_vocab[tok] = len(out_vocab)
 
-        for tok, info in tokenizer.added_tokens_decoder.items():
+        for tok_idx, info in tokenizer.added_tokens_decoder.items():
+            tok = info.content
+            if tok_idx >= vocab_size:
+                continue
+
             if tok in out_added_tokens:
                 if (out_added_tokens[tok] != info) and tok not in warned_added_tokens:
                     logging.warning(
