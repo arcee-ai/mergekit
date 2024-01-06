@@ -32,7 +32,7 @@ class TokenizerPermutationMergeTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     base_model: Optional[ModelReference]
     use_slerp: bool
-    slerp_t: float
+    slerp_t: Optional[float]
     tensor_parameters: ImmutableMap[ModelReference, Any]
 
     def arguments(self) -> Dict[str, Task]:
@@ -45,6 +45,9 @@ class TokenizerPermutationMergeTask(Task[torch.Tensor]):
             return None
         if len(tensors) == 1:
             return list(tensors.values())[0]
+
+        if self.use_slerp and self.slerp_t is None:
+            raise RuntimeError("Must set t to use embed_slerp")
 
         models = []
         expanded = []
@@ -117,13 +120,13 @@ class TokenizerPermutationMerge(MergeMethod, BaseModel):
 
     def parameters(self) -> List[ConfigParameterDef]:
         return [
-            ConfigParameterDef("t", required=False),
+            ConfigParameterDef(name="t", required=False),
             ConfigParameterDef(name="embed_slerp", required=False, default_value=False),
         ]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
         return [
-            ConfigParameterDef("weight", required=False),
+            ConfigParameterDef(name="weight", required=False),
         ]
 
     def make_task(
