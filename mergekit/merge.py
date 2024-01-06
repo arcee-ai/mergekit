@@ -14,12 +14,14 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import logging
+import os
 from typing import Optional
 
 import tqdm
 import transformers
 
 from mergekit.architecture import ArchitectureInfo, get_architecture_info
+from mergekit.card import generate_card
 from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
@@ -29,7 +31,12 @@ from mergekit.plan import MergePlanner
 from mergekit.tokenizer import TokenizerInfo
 
 
-def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOptions):
+def run_merge(
+    merge_config: MergeConfiguration,
+    out_path: str,
+    options: MergeOptions,
+    config_source: Optional[str] = None,
+):
     if options.random_seed is not None:
         transformers.trainer_utils.set_seed(options.random_seed)
 
@@ -82,6 +89,23 @@ def run_merge(merge_config: MergeConfiguration, out_path: str, options: MergeOpt
     )
     logging.info("Saving config")
     cfg_out.save_pretrained(out_path)
+
+    if options.write_model_card:
+        if not config_source:
+            config_source = merge_config.to_yaml()
+
+        card_md = generate_card(
+            config=merge_config,
+            config_yaml=config_source,
+            name=os.path.basename(out_path),
+        )
+        with open(os.path.join(out_path, "README.md"), "w", encoding="utf-8") as fp:
+            fp.write(card_md)
+
+        with open(
+            os.path.join(out_path, "mergekit_config.yml"), "w", encoding="utf-8"
+        ) as fp:
+            fp.write(config_source)
 
     if tokenizer is None and options.copy_tokenizer:
         tokenizer = _get_donor_tokenizer(

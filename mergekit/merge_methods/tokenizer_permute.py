@@ -54,15 +54,20 @@ class TokenizerPermutationMergeTask(Task[torch.Tensor]):
             models.append(model)
 
             x = tensors[model]
-            p = tokenizer_info.permutations[model].to(dtype=x.dtype, device=x.device)
-            temp_dtype = torch.float32 if x.device.type == "cpu" else x.dtype
-            if p.shape[1] == x.shape[0]:
-                xp = (p.to(dtype=temp_dtype) @ x.to(dtype=temp_dtype)).to(x.dtype)
-            else:
-                raise RuntimeError("Shape mismatch")
+            p = tokenizer_info.permutations[model]
+
+            xp = torch.zeros((len(p), x.shape[-1]), dtype=x.dtype, device=x.device)
+            mask = torch.zeros((len(p),), dtype=torch.bool, device=x.device)
+            for out_idx in p:
+                in_idx = p[out_idx]
+                if in_idx < 0:
+                    continue
+
+                xp[out_idx, :] = x[in_idx, :]
+                mask[out_idx] = 1
 
             expanded.append(xp)
-            masks.append(p.sum(dim=-1, keepdim=True) > 0)
+            masks.append(mask)
 
             is_base = model == self.base_model
             if self.use_slerp:
@@ -73,7 +78,7 @@ class TokenizerPermutationMergeTask(Task[torch.Tensor]):
             weights.append(weight)
 
         expanded = torch.stack(expanded, dim=0)
-        masks = torch.stack(masks, dim=0)
+        masks = torch.stack(masks, dim=0).unsqueeze(-1)
         weights = (
             torch.tensor(weights, dtype=expanded.dtype, device=expanded.device)
             .unsqueeze(-1)

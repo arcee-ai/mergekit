@@ -14,8 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import os
-from collections.abc import Iterable
-from typing import Any, List, Optional, Sequence
+from typing import List, Optional, Sequence
 
 import huggingface_hub
 import yaml
@@ -50,19 +49,6 @@ The following YAML configuration was used to produce this model:
 """
 
 
-class ConfigYamlDumper(yaml.Dumper):
-    """Custom YAML dumper to format lists of numbers in flow style."""
-
-    def represent_list(self, data: Iterable[Any]) -> SequenceNode:
-        flow_style = all(isinstance(e, (int, float)) for e in data)
-        return self.represent_sequence(
-            "tag:yaml.org,2002:seq", data, flow_style=flow_style
-        )
-
-
-ConfigYamlDumper.add_representer(list, ConfigYamlDumper.represent_list)
-
-
 def is_hf(path: str) -> bool:
     """
     Determines if the given path is a Hugging Face model repository.
@@ -74,7 +60,7 @@ def is_hf(path: str) -> bool:
         return False  # definitely a local path
     if not os.path.exists(path):
         return True  # If path doesn't exist locally, it must be a HF repo
-    return huggingface_hub.repo_exists(path, repo_type="model")
+    return huggingface_hub.repo_exists(path, repo_type="model", token=False)
 
 
 def extract_hf_paths(models: List[ModelReference]) -> Sequence[str]:
@@ -138,12 +124,17 @@ def modelref_md(model: ModelReference) -> str:
     return text
 
 
-def generate_card(config: MergeConfiguration, name: Optional[str] = None) -> str:
+def generate_card(
+    config: MergeConfiguration,
+    config_yaml: str,
+    name: Optional[str] = None,
+) -> str:
     """
     Generates a markdown card for a merged model configuration.
 
     Args:
         config: A MergeConfiguration object.
+        config_yaml: YAML source text of the config.
         name: An optional name for the model.
     """
     if not name:
@@ -175,8 +166,5 @@ def generate_card(config: MergeConfiguration, name: Optional[str] = None) -> str
         base_text=base_text,
         merge_method=method_md(config.merge_method),
         name=name,
-        config_yaml=yaml.dump(
-            config.model_dump(exclude_defaults=True, mode="json"),
-            Dumper=ConfigYamlDumper,
-        ).rstrip(),
+        config_yaml=config_yaml,
     )

@@ -35,6 +35,7 @@ class MergeOptions(BaseModel):
     trust_remote_code: bool = False
     random_seed: Optional[int] = None
     lazy_unpickle: bool = False
+    write_model_card: bool = True
 
 
 OPTION_HELP = {
@@ -49,6 +50,7 @@ OPTION_HELP = {
     "trust_remote_code": "Trust remote code from huggingface repos (danger)",
     "random_seed": "Seed for reproducible use of randomized merge methods",
     "lazy_unpickle": "Experimental lazy unpickler for lower memory usage",
+    "write_model_card": "Output README.md containing details of the merge",
 }
 
 
