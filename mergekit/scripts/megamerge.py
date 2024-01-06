@@ -93,15 +93,15 @@ def add_model_deps(model, name, out_path):
     model_lora = model.split("+")
     # name must not have a slash to avoid path traversal
     # therefore, we can use it to check if its a merge from the config
-    print(model_lora)
     if "/" not in model_lora[0]:
-        print(model_lora)
         # avoid duplicate deps
         if model_lora[0] not in merges[name]["deps"]:
             merges[name]["deps"].append(model_lora[0])
         model = str(out_path / model_lora[0])
         if len(model_lora) == 2:
             model += "+" + model_lora[1]
+
+    return model
 
 
 @click.command("mergekit-mega")
@@ -133,10 +133,20 @@ def main(
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
     out_path = Path(out_path)
+    final_found = False
+
     with open(config_file, "r", encoding="utf-8") as f:
         data = yaml.load_all(f, Loader=yaml.FullLoader)
 
         for d in data:
+            if "name" not in d:
+                if final_found:
+                    logging.error("Only one merge must not have a name")
+                    sys.exit(1)
+                # this sets the name of the final merge to the config file name without the extension
+                d["name"] = os.path.basename(config_file).rsplit(".", maxsplit=1)[0]
+                final_found = True
+
             if "/" in d["name"]:
                 logging.error("name must not contain a slash")
                 sys.exit(1)
@@ -144,16 +154,18 @@ def main(
             merges[d["name"]] = d
             merges[d["name"]]["deps"] = []
             if "base_model" in d:
-                add_model_deps(d["base_model"], d["name"], out_path)
-                if "/" not in d["base_model"]:
-                    d["base_model"] = str(out_path / d["base_model"])
+                d["base_model"] = add_model_deps(d["base_model"], d["name"], out_path)
             if "slices" in d:
                 for slc in d["slices"]:
                     for src in slc["sources"]:
-                        add_model_deps(src["model"], d["name"], out_path)
+                        src["model"] = add_model_deps(src["model"], d["name"], out_path)
             if "models" in d:
                 for mdl in d["models"]:
-                    add_model_deps(mdl["model"], d["name"], out_path)
+                    mdl["model"] = add_model_deps(mdl["model"], d["name"], out_path)
+
+    if not final_found:
+        logging.error("No final merge found")
+        sys.exit(1)
 
     logging.info("Merging: %s", ", ".join(merges))
 
