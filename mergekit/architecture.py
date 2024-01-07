@@ -37,8 +37,15 @@ class ArchitectureInfo(ABC):
         ...
 
     @abstractmethod
-    def embed_weights(self) -> List[str]:
+    def input_embed(self) -> Optional[str]:
         ...
+
+    @abstractmethod
+    def output_embed(self) -> Optional[str]:
+        ...
+
+    def embed_weights(self) -> List[str]:
+        return [self.input_embed(), self.output_embed()]
 
     def num_layers(self, config: PretrainedConfig) -> int:
         return config.num_hidden_layers
@@ -47,16 +54,24 @@ class ArchitectureInfo(ABC):
         """Key in config that represents number of layers"""
         return "num_hidden_layers"
 
+    def possible_name_prefix(self) -> Optional[str]:
+        """
+        Return a prefix that is allowed but not required for tensor names.
+        """
+        return None
+
 
 class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
-    name: str
+    names: List[str]
 
     pre_weight_names: List[str]  # weights applied before first layer
     post_weight_names: List[str]  # weights applied after last layer
-    embed_weight_names: List[str]  # weights for embed/lm_head
+    input_embed_name: str
+    output_embed_name: Optional[str]
     layer_prefix_format: str
     layer_weight_suffixes: List[str]
     num_layers_key: Optional[str] = None
+    allowable_prefix: Optional[str] = None
 
     def pre_weights(self) -> List[str]:
         return self.pre_weight_names
@@ -64,8 +79,11 @@ class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
     def post_weights(self) -> List[str]:
         return self.post_weight_names
 
-    def embed_weights(self) -> List[str]:
-        return self.embed_weight_names
+    def input_embed(self) -> Optional[str]:
+        return self.input_embed_name
+
+    def output_embed(self) -> Optional[str]:
+        return self.output_embed_name
 
     def layer_weight_formats(self) -> List[str]:
         res = []
@@ -81,12 +99,16 @@ class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
     def num_layers(self, config: PretrainedConfig) -> int:
         return getattr(config, self.num_layers_config_key())
 
+    def possible_name_prefix(self) -> Optional[str]:
+        return self.allowable_prefix
+
 
 LLAMA_INFO = StaticTensorNames(
-    name="LlamaForCausalLM",
+    names=["LlamaForCausalLM", "LLaMAForCausalLM"],
     pre_weight_names=["model.embed_tokens.weight"],
     post_weight_names=["model.norm.weight", "lm_head.weight"],
-    embed_weight_names=["model.embed_tokens.weight", "lm_head.weight"],
+    input_embed_name="model.embed_tokens.weight",
+    output_embed_name="lm_head.weight",
     layer_prefix_format="model.layers.{idx}",
     layer_weight_suffixes=[
         "input_layernorm.weight",
@@ -102,14 +124,14 @@ LLAMA_INFO = StaticTensorNames(
 )
 
 MISTRAL_INFO = StaticTensorNames(
-    name="MistralForCausalLM",
+    names=["MistralForCausalLM"],
     # lol
-    **LLAMA_INFO.model_dump(exclude=["name"]),
+    **LLAMA_INFO.model_dump(exclude=["names"]),
 )
 
 
 STABLELM_INFO = StaticTensorNames(
-    name="StableLMEpochForCausalLM",
+    names=["StableLMEpochForCausalLM"],
     post_weight_names=LLAMA_INFO.post_weight_names + ["model.norm.bias"],
     layer_weight_suffixes=LLAMA_INFO.layer_weight_suffixes
     + [
@@ -117,19 +139,21 @@ STABLELM_INFO = StaticTensorNames(
         "post_attention_layernorm.bias",
     ],
     **LLAMA_INFO.model_dump(
-        exclude=["name", "layer_weight_suffixes", "post_weight_names"]
+        exclude=["names", "layer_weight_suffixes", "post_weight_names"]
     ),
 )
 
+
 GPT_NEOX_INFO = StaticTensorNames(
-    name="GPTNeoXForCausalLM",
+    names=["GPTNeoXForCausalLM"],
     pre_weight_names=["gpt_neox.embed_in.weight"],
     post_weight_names=[
         "gpt_neox.final_layer_norm.bias",
         "gpt_neox.final_layer_norm.weight",
         "embed_out.weight",
     ],
-    embed_weight_names=["gpt_neox.embed_in.weight", "embed_out.weight"],
+    input_embed_name="gpt_neox.embed_in.weight",
+    output_embed_name="embed_out.weight",
     layer_prefix_format="gpt_neox.layers.{idx}",
     layer_weight_suffixes=sum(
         (
@@ -148,11 +172,13 @@ GPT_NEOX_INFO = StaticTensorNames(
     + ["attention.bias", "attention.masked_bias", "attention.rotary_emb.inv_freq"],
 )
 
+
 GPT2_INFO = StaticTensorNames(
-    name="GPT2LMHeadModel",
+    names=["GPT2Model", "GPT2LMHeadModel"],
     pre_weight_names=["wte.weight", "wpe.weight"],
-    post_weight_names=["ln_f.weight", "ln_f.bias"],
-    embed_weight_names=["wte.weight"],
+    input_embed_name="wte.weight",
+    output_embed_name="lm_head.weight",
+    post_weight_names=["ln_f.weight", "ln_f.bias", "lm_head.weight"],
     layer_prefix_format="h.{idx}",
     layer_weight_suffixes=[
         "attn.c_attn.weight",
@@ -167,32 +193,46 @@ GPT2_INFO = StaticTensorNames(
         "mlp.c_proj.bias",
         "mlp.c_fc.weight",
         "mlp.c_fc.bias",
-        "mlp.c_proj.weight",
-        "mlp.c_proj.bias",
     ],
     num_layers_key="n_layer",
+    allowable_prefix="transformer.",
 )
 
 GPT2_SEQCLASS_INFO = StaticTensorNames(
-    name="GPT2ForSequenceClassification",
+    names=["GPT2ForSequenceClassification"],
     pre_weight_names=["transformer.wte.weight", "transformer.wpe.weight"],
+    input_embed_name="transformer.wte.weight",
+    output_embed_name=None,
     post_weight_names=[
         "transformer.ln_f.weight",
         "transformer.ln_f.bias",
         "score.weight",
     ],
     layer_prefix_format="transformer.h.{idx}",
-    embed_weight_names=GPT2_INFO.embed_weight_names,
     layer_weight_suffixes=GPT2_INFO.layer_weight_suffixes,
     num_layers_key=GPT2_INFO.num_layers_key,
 )
 
+GPT_BIGCODE_INFO = StaticTensorNames(
+    names=["GPTBigCodeForCausalLM"],
+    output_embed_name="lm_head.weight",
+    post_weight_names=[
+        "transformer.ln_f.weight",
+        "transformer.ln_f.bias",
+        "lm_head.weight",
+    ],
+    **GPT2_SEQCLASS_INFO.model_dump(
+        exclude=["names", "output_embed_name", "post_weight_names"]
+    ),
+)
+
 
 QWEN_INFO = StaticTensorNames(
-    name="QWenLMHeadModel",
+    names=["QWenLMHeadModel"],
     pre_weight_names=["transformer.wte.weight"],
+    input_embed_name="transformer.wte.weight",
+    output_embed_name="lm_head.weight",
     post_weight_names=["transformer.ln_f.weight", "lm_head.weight"],
-    embed_weight_names=["transformer.wte.weight", "lm_head.weight"],
     layer_prefix_format="transformer.h.{idx}",
     layer_weight_suffixes=[
         "attn.c_attn.bias",
@@ -206,8 +246,9 @@ QWEN_INFO = StaticTensorNames(
     ],
 )
 
+
 CHATGLM_INFO = StaticTensorNames(
-    name="ChatGLMModel",
+    names=["ChatGLMModel"],
     pre_weight_names=[
         "transformer.embedding.word_embeddings.weight",
         "transformer.rotary_pos_emb.inv_freq",
@@ -216,10 +257,8 @@ CHATGLM_INFO = StaticTensorNames(
         "transformer.encoder.final_layernorm.weight",
         "transformer.output_layer.weight",
     ],
-    embed_weight_names=[
-        "transformer.embedding.word_embeddings.weight",
-        "transformer.output_layer.weight",
-    ],
+    input_embed_name="transformer.embedding.word_embeddings.weight",
+    output_embed_name="transformer.output_layer.weight",
     layer_prefix_format="transformer.encoder.layers.{idx}",
     layer_weight_suffixes=[
         "input_layernorm.weight",
@@ -262,6 +301,12 @@ class PhiTensorNames(ArchitectureInfo):
             f"layers.{fake_layer_idx}.linear.bias",
         ]
 
+    def input_embed(self) -> Optional[str]:
+        return self.embed_weights()[0]
+
+    def output_embed(self) -> Optional[str]:
+        return self.embed_weights()[1]
+
     def layer_weight_formats(self) -> List[str]:
         return [
             ("layers.{idx}." + suffix)
@@ -288,7 +333,7 @@ class PhiTensorNames(ArchitectureInfo):
 
 
 PHI2_INFO = StaticTensorNames(
-    name="PhiForCausalLM",
+    names=["PhiForCausalLM"],
     pre_weight_names=["transformer.embd.wte.weight"],
     post_weight_names=[
         "lm_head.linear.bias",
@@ -296,7 +341,8 @@ PHI2_INFO = StaticTensorNames(
         "lm_head.ln.bias",
         "lm_head.ln.weight",
     ],
-    embed_weight_names=["lm_head.linear.weight", "transformer.embd.wte.weight"],
+    input_embed_name="transformer.embd.wte.weight",
+    output_embed_name="lm_head.linear.weight",
     layer_prefix_format="transformer.h.{idx}",
     layer_weight_suffixes=[
         "ln.bias",
@@ -331,9 +377,10 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         CHATGLM_INFO,
         STABLELM_INFO,
         PHI2_INFO,
+        GPT_BIGCODE_INFO,
     ]
     for arch in supported:
-        if arch.name == arch_name:
+        if arch_name in arch.names:
             return arch
 
     raise RuntimeError(f"Unsupported architecture {arch_name}")

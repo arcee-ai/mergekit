@@ -36,6 +36,7 @@ import tqdm
 from pydantic import BaseModel
 from typing_extensions import Protocol
 
+from mergekit.architecture import ArchitectureInfo, get_architecture_info
 from mergekit.common import ModelReference
 from mergekit.io import LazyTensorLoader, TensorWriter
 
@@ -91,11 +92,32 @@ class ProceduralRule(ABC):
         ...
 
 
+def _remap_tensor_name(
+    name: str, arch_info: ArchitectureInfo, tensor_paths: Dict[str, str]
+) -> Optional[str]:
+    if name in tensor_paths:
+        return name
+    pp = arch_info.possible_name_prefix()
+    if pp and (pp + name) in tensor_paths:
+        return pp + name
+
+    e_out = arch_info.output_embed()
+    e_in = arch_info.input_embed()
+    if e_out and name == e_out:
+        # if output embedding tensor is missing, assume weights are tied
+        if e_in in tensor_paths:
+            return e_in
+        if pp and (pp + e_in) in tensor_paths:
+            return pp + e_in
+    return None
+
+
 class LoadTensorRule(ProceduralRule):
     """Rule for loading tensors from input models."""
 
     model: ModelReference
     tensor_paths: Dict[str, str]
+    dtype: torch.dtype
 
     def __init__(
         self,
@@ -117,6 +139,7 @@ class LoadTensorRule(ProceduralRule):
     def generate_rule(self, component: TensorReference) -> Operation:
         if not self.can_generate_rule(component):
             return None
+
         return Operation(
             function="load_tensor",
             inputs=[],
@@ -192,6 +215,8 @@ class Executor:
     loaders: Dict[ModelReference, LazyTensorLoader]
     targets: List[TensorReference]
     operations: Dict[str, OperationProtocol]
+    arch_info: ArchitectureInfo
+    real_tensor_names: Dict[TensorReference, str]
     low_cpu_memory: bool = False
 
     def __init__(
@@ -211,6 +236,10 @@ class Executor:
         if lora_cache_dir is None and transformers_cache_dir is not None:
             lora_cache_dir = transformers_cache_dir
 
+        self.arch_info = get_architecture_info(
+            models[0].config(trust_remote_code=trust_remote_code)
+        )
+
         self.targets = targets
         self.loaders = {
             ref: LazyTensorLoader(
@@ -225,7 +254,11 @@ class Executor:
         }
         for model, loader in self.loaders.items():
             rules.procedural.append(
-                LoadTensorRule(model, loader.index.tensor_paths, dtype=dtype)
+                LoadTensorRule(
+                    model,
+                    loader.index.tensor_paths,
+                    dtype=dtype,
+                )
             )
 
         if operations is None:
@@ -234,6 +267,19 @@ class Executor:
         self.rules = rules
         self.cuda = cuda
         self.low_cpu_memory = low_cpu_memory
+        self.real_tensor_names = {}
+
+    def get_real_name(self, tensor_ref: TensorReference) -> str:
+        if not tensor_ref.model:
+            return tensor_ref.key
+
+        if tensor_ref not in self.real_tensor_names:
+            self.real_tensor_names[tensor_ref] = _remap_tensor_name(
+                tensor_ref.key,
+                self.arch_info,
+                self.loaders[tensor_ref.model].index.tensor_paths,
+            )
+        return self.real_tensor_names[tensor_ref]
 
     def run(self, out_path: str, max_shard_size: int, clone_tensors: bool = False):
         """
@@ -327,9 +373,10 @@ class Executor:
         """Load a tensor from an input model."""
         assert operation.function == "load_tensor"
 
-        res = self.loaders[operation.kwargs["model"]].get_tensor(
-            operation.kwargs["key"]
+        tensor_ref = TensorReference(
+            model=operation.kwargs["model"], key=operation.kwargs["key"]
         )
+        res = self.loaders[tensor_ref.model].get_tensor(self.get_real_name(tensor_ref))
         if operation.kwargs["dtype"]:
             res = res.to(dtype=operation.kwargs["dtype"])
 
@@ -346,8 +393,9 @@ class Executor:
         at any given time.
         """
         if ref.model:
+            tensor_name = self.get_real_name(ref)
             shard_key = _normalized_shard_name(
-                self.loaders[ref.model].index.tensor_paths[ref.key]
+                self.loaders[ref.model].index.tensor_paths[tensor_name]
             )
         else:
             shard_key = ""
@@ -389,7 +437,12 @@ class Executor:
             if node in ops:
                 return
 
-            operation = self.rules.get(node)
+            real_name = self.get_real_name(node)
+            if not real_name:
+                raise RuntimeError(
+                    f"Model {node.model} does not contain tensor {node.key}"
+                )
+            operation = self.rules.get(TensorReference(model=node.model, key=real_name))
             if not operation:
                 raise RuntimeError(f"No rule to produce {node}")
             ops[node] = operation
