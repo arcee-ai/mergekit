@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from typing import Dict, List, Optional, Union
 
 import click
@@ -193,6 +194,29 @@ def warn_degenerate_gates(gate_vecs: torch.Tensor, threshold: float = 5.0):
         )
 
 
+def is_bad_config(config: MistralMOEConfig) -> bool:
+    if len(config.experts) < 2:
+        logging.error("Must include at least two experts.")
+        return True
+
+    if config.gate_mode == "random":
+        return False  # eh we're good
+
+    def prompt_tup(e: Expert):
+        return (tuple(e.positive_prompts), tuple(e.negative_prompts or []))
+
+    # let's just nip this trend in the bud
+    p_first = prompt_tup(config.experts[0])
+    if all(prompt_tup(e) == p_first for e in config.experts[1:]):
+        logging.error(
+            "Your positive and negative prompts are identical for all experts. This will not produce a functioning MoE."
+        )
+        logging.error(
+            "For each expert, `positive_prompts` must contain one or more example prompt reflecting what should be routed to that expert."
+        )
+        return True
+
+
 def build(
     config: MistralMOEConfig,
     out_path: str,
@@ -201,6 +225,11 @@ def build(
     load_in_8bit: bool = False,
     device: str = "auto",
 ):
+    if is_bad_config(config):
+        sys.exit(1)
+
+    sys.exit(0)
+
     base_model = ModelReference.parse(config.base_model)
     base_cfg = base_model.config(trust_remote_code=merge_options.trust_remote_code)
     if not isinstance(base_cfg, MistralConfig):
