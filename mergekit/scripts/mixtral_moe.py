@@ -228,8 +228,6 @@ def build(
     if is_bad_config(config):
         sys.exit(1)
 
-    sys.exit(0)
-
     base_model = ModelReference.parse(config.base_model)
     base_cfg = base_model.config(trust_remote_code=merge_options.trust_remote_code)
     if not isinstance(base_cfg, MistralConfig):
