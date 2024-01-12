@@ -16,6 +16,7 @@
 import logging
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
+import torch.nn.functional as F
 
 import torch
 from pydantic import BaseModel
@@ -107,24 +108,35 @@ def get_task_vectors(
     tensors = {tr.model: value for (tr, value) in input_tensors.items()}
     keys = list(tensors.keys())
     base = tensors[config.base_model]
+    
 
+    
     res = []
     for model in keys:
         if model == config.base_model:
             continue
 
-        x = tensors[model].to(base.dtype)
-        if x.shape != base.shape:
-            if "lm_head" in parameter_name or "embed_tokens" in parameter_name:
-                x = x[: base.shape[0], : base.shape[1]]
-                logging.warning(f"Using submatrix of {model}:{parameter_name}")
-            else:
-                logging.warning(
-                    f"skipping {model}:{parameter_name} due to size mismatch"
-                )
-                continue
 
+        x = tensors[model].to(base.dtype)
+
+        if x.shape != base.shape:
+            if x.ndim == 2 and (x.shape[0] > base.shape[0] or x.shape[1] > base.shape[1]):
+                x = F.interpolate(x.unsqueeze(0).unsqueeze(0), size=(base.shape[0],base.shape[1]), mode='nearest').squeeze()
+
+            if x.ndim == 1 and x.shape[0] > base.shape[0] :
+                x = F.interpolate(x.unsqueeze(0).unsqueeze(0), size=base.shape, mode='nearest').squeeze()
+
+            if x.ndim == 2 and (x.shape[0] < base.shape[0] or x.shape[1] < base.shape[1]):
+                x = F.interpolate(x.unsqueeze(0).unsqueeze(0), size=(base.shape[0],base.shape[1]), mode='nearest').squeeze()
+
+            if x.ndim == 1 and x.shape[0] < base.shape[0] :
+                x = F.interpolate(x.unsqueeze(0).unsqueeze(0), size=base.shape, mode='nearest').squeeze()
+
+        if x.shape != base.shape:
+            print("diferent shapes: x:", x.shape," base:",base.shape)
+               
         delta = x - base
+        
         del x
         del tensors[model]
 
