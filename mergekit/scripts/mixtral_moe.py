@@ -176,7 +176,7 @@ def warn_degenerate_gates(gate_vecs: torch.Tensor, threshold: float = 5.0):
         elif len(degen_indices) == 2:
             layer_str = f"layers {' and '.join(map(str, degen_indices))}"
             verb = "have"
-        elif len(degen_indices) == num_layers:
+        elif len(degen_indices) >= num_layers:
             layer_str = "ALL layers"
             verb = "have"
         else:
@@ -192,6 +192,7 @@ def warn_degenerate_gates(gate_vecs: torch.Tensor, threshold: float = 5.0):
             f"{layer_str} {verb} degenerate routing parameters "
             "- your prompts may be too similar."
         )
+        logging.warning("One or more experts will be underutilized in your model.")
 
 
 def is_bad_config(config: MistralMOEConfig) -> bool:
