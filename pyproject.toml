@@ -34,6 +34,7 @@ repository = "https://github.com/cg123/mergekit"
 
 [project.scripts]
 mergekit-yaml = "mergekit.scripts.run_yaml:main"
+mergekit-mega = "mergekit.scripts.megamerge:main"
 mergekit-legacy = "mergekit.scripts.legacy:main"
 mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
 bakllama = "mergekit.scripts.bakllama:main"
