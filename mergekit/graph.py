@@ -235,7 +235,13 @@ class Executor:
         self.cuda = cuda
         self.low_cpu_memory = low_cpu_memory
 
-    def run(self, out_path: str, max_shard_size: int, clone_tensors: bool = False):
+    def run(
+        self,
+        out_path: str,
+        max_shard_size: int,
+        clone_tensors: bool = False,
+        safe_serialization: bool = True,
+    ):
         """
         Execute the computation graph and save results to disk.
 
@@ -245,8 +251,13 @@ class Executor:
         Args:
             out_path (str): The path to the directory where the computed tensors will be saved.
             max_shard_size (int): The maximum size of each saved shard.
+            safe_serialization (bool): Write the output tensors using safetensors.
         """
-        writer = TensorWriter(out_path, max_shard_size=max_shard_size)
+        writer = TensorWriter(
+            out_path,
+            max_shard_size=max_shard_size,
+            safe_serialization=safe_serialization,
+        )
         for ref, tensor in tqdm.tqdm(self.generate_tensors(), total=len(self.targets)):
             if not self.low_cpu_memory:
                 tensor = tensor.cpu()
