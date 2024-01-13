@@ -35,6 +35,7 @@ OPTION_HELP = {
     "random_seed": "Seed for reproducible use of randomized merge methods",
     "lazy_unpickle": "Experimental lazy unpickler for lower memory usage",
     "write_model_card": "Output README.md containing details of the merge",
+    "safe_serialization": "Save output in safetensors. Do this, don't poison the world with more pickled models.",
 }
 
 
