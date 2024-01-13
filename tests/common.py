@@ -13,11 +13,15 @@ def run_and_check_merge(
     config: MergeConfiguration,
     check_nan: bool = True,
     validate: Optional[Callable[[str], None]] = None,
+    index_json_name: Optional[str] = None,
 ):
+    if index_json_name is None:
+        index_json_name = "model.safetensors.index.json"
+
     with tempfile.TemporaryDirectory() as tmpdir:
         run_merge(config, out_path=tmpdir, options=MergeOptions())
         assert os.path.exists(
-            os.path.join(tmpdir, "model.safetensors.index.json")
+            os.path.join(tmpdir, index_json_name)
         ), "No index file for merge"
         assert os.path.exists(
             os.path.join(tmpdir, "config.json")

@@ -44,6 +44,7 @@ class MergeOptions(BaseModel):
     random_seed: Optional[int] = None
     lazy_unpickle: bool = False
     write_model_card: bool = True
+    safe_serialization: bool = True
 
 
 def run_merge(
@@ -111,6 +112,7 @@ def run_merge(
         out_path,
         max_shard_size=options.out_shard_size,
         clone_tensors=options.clone_tensors,
+        safe_serialization=options.safe_serialization,
     )
 
     cfg_out = method.model_out_config(
