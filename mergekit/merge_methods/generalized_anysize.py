@@ -118,18 +118,11 @@ def get_task_vectors(
         x = tensors[model].to(base.dtype)
 
         if x.shape != base.shape:
-            if x.ndim == 2 and (x.shape[0] > base.shape[0] or x.shape[1] > base.shape[1]):
+            if x.ndim == 2 and (x.shape[0] != base.shape[0] or x.shape[1] != base.shape[1]):
                 x = F.interpolate(x.unsqueeze(0).unsqueeze(0), size=(base.shape[0],base.shape[1]), mode='nearest').squeeze()
 
-            if x.ndim == 1 and x.shape[0] > base.shape[0] :
+            if x.ndim == 1 and x.shape[0] != base.shape[0] :
                 x = F.interpolate(x.unsqueeze(0).unsqueeze(0), size=base.shape, mode='nearest').squeeze()
-
-            if x.ndim == 2 and (x.shape[0] < base.shape[0] or x.shape[1] < base.shape[1]):
-                x = F.interpolate(x.unsqueeze(0).unsqueeze(0), size=(base.shape[0],base.shape[1]), mode='nearest').squeeze()
-
-            if x.ndim == 1 and x.shape[0] < base.shape[0] :
-                x = F.interpolate(x.unsqueeze(0).unsqueeze(0), size=base.shape, mode='nearest').squeeze()
-
         if x.shape != base.shape:
             print("diferent shapes: x:", x.shape," base:",base.shape)
                
