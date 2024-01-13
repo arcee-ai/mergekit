@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Tuple
 import torch.nn.functional as F
 
 import torch
+torch.manual_seed(1337)
 from pydantic import BaseModel
 from typing_extensions import Literal
 
@@ -96,6 +97,7 @@ class GeneralizedAnySizeMerge(MergeMethod, BaseModel):
         return (base + mixed_delta).to(base.dtype)
 
 
+
 def get_task_vectors(
     parameter_name: str,
     config: ConfigReader,
@@ -116,13 +118,16 @@ def get_task_vectors(
 
 
         x = tensors[model].to(base.dtype)
-
+        if x.device.type == "cpu":
+            x = x.to(torch.float32)
         if x.shape != base.shape:
             if x.ndim == 2 and (x.shape[0] != base.shape[0] or x.shape[1] != base.shape[1]):
                 x = F.interpolate(x.unsqueeze(0).unsqueeze(0), size=(base.shape[0],base.shape[1]), mode='nearest').squeeze()
 
             if x.ndim == 1 and x.shape[0] != base.shape[0] :
                 x = F.interpolate(x.unsqueeze(0).unsqueeze(0), size=base.shape, mode='nearest').squeeze()
+            x = x.to(base.dtype)
+
         if x.shape != base.shape:
             print("diferent shapes: x:", x.shape," base:",base.shape)
                
