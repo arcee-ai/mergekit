@@ -164,18 +164,27 @@ class Executor:
 
         values: Dict[Task, Any] = {}
         for idx, task in tqdm.tqdm(enumerate(self.schedule), total=len(self.schedule)):
-            print(f"{idx + 1}. {repr(task)}")
+            use_math_device = task.uses_accelerator()
 
             arguments = {}
             for name, dep in task.arguments().items():
                 value = values[dep]
-                if (
-                    isinstance(value, torch.Tensor)
-                    and task.uses_accelerator()
-                    and value.device != self.math_device
-                ):
-                    print(f"{value.shape} -> {self.math_device}")
-                    value = value.to(self.math_device, copy=True)
+
+                # ensure any input tensors are on math device if task asks for it
+                if use_math_device:
+                    if (
+                        isinstance(value, torch.Tensor)
+                        and value.device != self.math_device
+                    ):
+                        value = value.to(self.math_device)
+                    elif isinstance(value, dict):
+                        for key in value:
+                            if (
+                                isinstance(value[key], torch.Tensor)
+                                and value[key].device != self.math_device
+                            ):
+                                value[key] = value[key].to(self.math_device)
+
                 arguments[name] = value
                 del value
 
@@ -183,7 +192,6 @@ class Executor:
             del arguments
 
             if isinstance(res, torch.Tensor) and res.device != self.storage_device:
-                print(f"{res.shape} -> {self.storage_device}")
                 res = res.to(self.storage_device)
 
             values[task] = res
@@ -199,7 +207,6 @@ class Executor:
                     expired.append(key)
 
             for key in expired:
-                print(f"expired {repr(key)}")
                 del values[key]
 
     def execute(self) -> None:
