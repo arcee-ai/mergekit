@@ -57,7 +57,9 @@ class MergePlanner:
         self.trust_remote_code = options.trust_remote_code
         self._method = merge_methods.get(config.merge_method)
         self._writer_task = TensorWriterTask(
-            out_path=out_path, max_shard_size=options.out_shard_size
+            out_path=out_path,
+            max_shard_size=options.out_shard_size,
+            safe_serialization=options.safe_serialization,
         )
 
         if config.tokenizer_source:

@@ -36,6 +36,7 @@ class MergeOptions(BaseModel):
     random_seed: Optional[int] = None
     lazy_unpickle: bool = False
     write_model_card: bool = True
+    safe_serialization: bool = True
 
 
 OPTION_HELP = {

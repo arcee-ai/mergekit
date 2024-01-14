@@ -94,12 +94,17 @@ class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
 class TensorWriterTask(Task[TensorWriter]):
     out_path: str
     max_shard_size: int
+    safe_serialization: bool = True
 
     def arguments(self) -> Dict[str, Task]:
         return {}
 
     def execute(self, **_kwargs) -> TensorWriter:
-        return TensorWriter(self.out_path, self.max_shard_size)
+        return TensorWriter(
+            self.out_path,
+            max_shard_size=self.max_shard_size,
+            safe_serialization=self.safe_serialization,
+        )
 
 
 class SaveTensor(Task[None]):
