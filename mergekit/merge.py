@@ -60,6 +60,7 @@ def run_merge(
     loader_cache.lora_cache_dir = options.lora_merge_cache
     loader_cache.hf_cache_dir = options.transformers_cache
 
+    logging.info("Planning operations")
     targets = MergePlanner(
         merge_config,
         arch_info,

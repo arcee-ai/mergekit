@@ -31,6 +31,9 @@ class SlerpTask(Task[torch.Tensor]):
     t: float
     parameter_name: str
 
+    def uses_accelerator(self) -> bool:
+        return True
+
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 

@@ -35,6 +35,9 @@ class TokenizerPermutationMergeTask(Task[torch.Tensor]):
     slerp_t: Optional[float]
     tensor_parameters: ImmutableMap[ModelReference, Any]
 
+    def uses_accelerator(self) -> bool:
+        return True
+
     def arguments(self) -> Dict[str, Task]:
         return {"tokenizer_info": self.tokenizer_task, "tensors": self.gather_tensors}
 

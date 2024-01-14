@@ -80,6 +80,9 @@ class GTATask(Task[torch.Tensor]):
     int8_mask: bool
     normalize: bool
 
+    def uses_accelerator(self) -> bool:
+        return True
+
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.tensors}
 

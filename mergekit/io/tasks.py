@@ -62,10 +62,11 @@ class LoadTensor(Task[torch.Tensor]):
             x = x.to(dtype=dtype_from_name(self.dtype))
         return x
 
+    def priority(self) -> int:
+        return -1000
+
     def group_label(self) -> Optional[str]:
         loader = LoaderCache().get(self.model)
-        if self.tensor not in loader.index.tensor_paths:
-            print(loader.index.tensor_paths)
         shard_path = loader.index.tensor_paths[self.tensor]
         return _normalized_shard_name(shard_path)
 
@@ -82,6 +83,12 @@ class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
             )
             for (model, tensor_name) in self.tensor_names.items()
         }
+
+    def group_label(self) -> Optional[str]:
+        return max(t.group_label() or "" for t in self.arguments().values())
+
+    def priority(self) -> int:
+        return -10
 
     def execute(self, **kwargs) -> Dict[ModelReference, Tensor]:
         key2model = {
@@ -115,6 +122,12 @@ class SaveTensor(Task[None]):
 
     def arguments(self) -> Dict[str, Task]:
         return {"writer": self.writer_task, "tensor": self.tensor_task}
+
+    def priority(self) -> int:
+        return 1000
+
+    def group_label(self) -> Optional[str]:
+        return self.tensor_task.group_label()
 
     def execute(self, writer: TensorWriter, tensor: torch.Tensor) -> None:
         writer.save_tensor(name=self.tensor_name, tensor=tensor, clone=self.clone)

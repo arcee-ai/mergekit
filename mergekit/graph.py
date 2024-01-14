@@ -99,6 +99,13 @@ class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
         """
         return None
 
+    def uses_accelerator(self) -> bool:
+        """
+        Returns True if the task can take advantage of matrix operation
+        acceleration (such as on a GPU).
+        """
+        return False
+
 
 class Executor:
     """
@@ -148,32 +155,42 @@ class Executor:
         """
         # determine last usage of each value, so they can be evicted afterwards
         last_use_index = {}
-        for idx, task in enumerate(self.schedule):
-            j = len(self.schedule)
-            for j in range(len(self.schedule) - 1, idx, -1):
-                if task in self.dependencies[self.schedule[j]]:
-                    break
-            last_use_index[task] = j
+        for idx, task in reversed(list(enumerate(self.schedule))):
+            for t in self.dependencies[task]:
+                if t not in last_use_index:
+                    last_use_index[t] = idx
+            if task not in last_use_index:
+                last_use_index[task] = idx
 
         values: Dict[Task, Any] = {}
         for idx, task in tqdm.tqdm(enumerate(self.schedule), total=len(self.schedule)):
+            print(f"{idx + 1}. {repr(task)}")
+
             arguments = {}
             for name, dep in task.arguments().items():
                 value = values[dep]
-                if isinstance(value, torch.Tensor) and value.device != self.math_device:
-                    value = value.to(self.math_device)
+                if (
+                    isinstance(value, torch.Tensor)
+                    and task.uses_accelerator()
+                    and value.device != self.math_device
+                ):
+                    print(f"{value.shape} -> {self.math_device}")
+                    value = value.to(self.math_device, copy=True)
                 arguments[name] = value
+                del value
 
             res = task.execute(**arguments)
             del arguments
 
             if isinstance(res, torch.Tensor) and res.device != self.storage_device:
+                print(f"{res.shape} -> {self.storage_device}")
                 res = res.to(self.storage_device)
 
             values[task] = res
+            del res
 
             if task in self.targets:
-                yield (task, res)
+                yield (task, values[task])
 
             # evict unreferenced values
             expired = []
@@ -182,6 +199,7 @@ class Executor:
                     expired.append(key)
 
             for key in expired:
+                print(f"expired {repr(key)}")
                 del values[key]
 
     def execute(self) -> None:
@@ -209,19 +227,19 @@ class Executor:
 
         def _compare_key(task: Union[Task, str]):
             if task == Executor.DUMMY_TASK_VALUE:
-                return ("", 0, "")
+                return ("", 0)
             return (
                 task.group_label() or "",
                 -task.priority(),
-                task.model_dump_json(exclude_defaults=True, exclude_unset=True),
             )
 
         graph = networkx.DiGraph(edge_tups)
-        return [
+        res = [
             t
             for t in networkx.lexicographical_topological_sort(graph, key=_compare_key)
             if t != Executor.DUMMY_TASK_VALUE
         ]
+        return res
 
     def _build_dependencies(self, targets: List[Task]) -> Dict[Task, Set[Task]]:
         task_dependencies: Dict[Task, Set[Task]] = {}
