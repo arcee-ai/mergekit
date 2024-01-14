@@ -61,29 +61,20 @@ class TensorWriter:
         self.current_shard[name] = tensor
         self.current_shard_size += tensor_size
 
-    def get_name_components(self):
-        if self.safe_serialization:
-            return "model", "safetensors"
-        return "pytorch_model", "bin"
-
     def flush_current_shard(self):
         if not self.current_shard:
             return
 
         logging.info(f"writing shard #{self.shards_written+1} to disk")
 
-        prefix, extension = self.get_name_components()
+        prefix, extension = self._get_name_components()
         shard_name = f"{prefix}-{self.shards_written+1}.{extension}"
         for key in self.current_shard:
             self.weight_map[key] = shard_name
 
         shard_path = os.path.join(self.out_path, shard_name)
         if self.safe_serialization:
-            safetensors.torch.save_file(
-                self.current_shard,
-                shard_path,
-                metadata={"format": "pt"},
-            )
+            self._save_st(shard_path)
         else:
             torch.save(self.current_shard, shard_path)
 
@@ -94,7 +85,7 @@ class TensorWriter:
     def finalize(self):
         self.flush_current_shard()
 
-        prefix, extension = self.get_name_components()
+        prefix, extension = self._get_name_components()
 
         # standardize shard names to hf format
         total_shards = self.shards_written
@@ -125,3 +116,35 @@ class TensorWriter:
                 },
                 file,
             )
+
+    def _get_name_components(self):
+        if self.safe_serialization:
+            return "model", "safetensors"
+        return "pytorch_model", "bin"
+
+    def _save_st(self, shard_path: str):
+        def _do_save():
+            safetensors.torch.save_file(
+                self.current_shard,
+                shard_path,
+                metadata={"format": "pt"},
+            )
+
+        try:
+            _do_save()
+        except RuntimeError as e:
+            if (
+                len(e.args) > 0
+                and isinstance(e.args[0], str)
+                and "share memory" in e.args[0]
+            ):
+                logging.warning(
+                    "Your model has duplicated tensors but the --clone-tensors "
+                    "flag is not set."
+                )
+                self.current_shard = {
+                    key: self.current_shard[key].clone() for key in self.current_shard
+                }
+                _do_save()
+            else:
+                raise
