@@ -16,16 +16,28 @@
 import logging
 import os
 import os.path
-from typing import Generic, Iterator, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+    get_args,
+)
 
 import huggingface_hub
 import immutables
 import numpy as np
 import peft
-import pydantic
 import torch
 import transformers
-from pydantic import BaseModel, SerializerFunctionWrapHandler
+from pydantic import BaseModel
+from pydantic_core import core_schema
 from transformers import AutoConfig, PretrainedConfig
 from typing_extensions import TypeVar
 
@@ -186,23 +198,28 @@ T_K = TypeVar("T_K")
 T_V = TypeVar("T_V")
 
 
-class ImmutableMap(
-    Generic[T_K, T_V], BaseModel, frozen=True, arbitrary_types_allowed=True
-):
+class ImmutableMap(Generic[T_K, T_V]):
     data: immutables.Map[T_K, T_V]
 
-    @pydantic.field_validator("data", mode="before")
-    def validate_data(cls, data):
-        return immutables.Map(data)
+    def __init__(self, data: Mapping[T_K, T_V]):
+        self.data = data
 
-    @pydantic.field_serializer("data", mode="wrap")
-    def serialize_data(
-        self,
-        data: immutables.Map[T_K, T_V],
-        nxt: SerializerFunctionWrapHandler,
-        # info: SerializationInfo,
-    ):
-        return nxt(dict(data.items()))
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source: Any, handler: Callable[[Any], core_schema.CoreSchema]
+    ) -> core_schema.CoreSchema:
+        instance_schema = core_schema.is_instance_schema(cls)
+
+        args = get_args(source)
+        if args:
+            dict_schema = handler(Dict[args[0], args[1]])
+        else:
+            dict_schema = handler(Dict)
+
+        non_instance_schema = core_schema.with_info_after_validator_function(
+            lambda value, _info: immutables.Map(value), dict_schema
+        )
+        return core_schema.union_schema([instance_schema, non_instance_schema])
 
     def __iter__(self):
         return self.data.__iter__()
@@ -210,5 +227,14 @@ class ImmutableMap(
     def __getitem__(self, key: T_K) -> T_V:
         return self.data[key]
 
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def keys(self) -> Iterator[T_K]:
+        return self.data.keys()
+
     def items(self) -> Iterator[Tuple[T_K, T_V]]:
         return self.data.items()
+
+    def values(self) -> Iterator[T_V]:
+        return self.data.values()
