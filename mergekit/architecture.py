@@ -173,6 +173,31 @@ GPT2_INFO = StaticTensorNames(
     num_layers_key="n_layer",
 )
 
+JAIS_INFO = StaticTensorNames(
+    name="JAISLMHeadModel",
+    pre_weight_names=["transformer.wte.weight", "transformer.relative_pe.slopes"],
+    post_weight_names=["transformer.ln_f.weight", "transformer.ln_f.bias"],
+    embed_weight_names=["transformer.wte.weight"],
+    layer_prefix_format="transformer.h.{idx}",
+    layer_weight_suffixes=[
+        "attn.c_attn.weight",
+        "attn.c_attn.bias",
+        "attn.c_proj.weight",
+        "attn.c_proj.bias",
+        "ln_1.weight",
+        "ln_1.bias",
+        "ln_2.weight",
+        "ln_2.bias",
+        "mlp.c_fc.weight",
+        "mlp.c_fc.bias",
+        "mlp.c_fc2.weight",
+        "mlp.c_fc2.bias",
+        "mlp.c_proj.weight",
+        "mlp.c_proj.bias",
+    ],
+    num_layers_key="n_layer",
+)
+
 GPT2_SEQCLASS_INFO = StaticTensorNames(
     name="GPT2ForSequenceClassification",
     pre_weight_names=["transformer.wte.weight", "transformer.wpe.weight"],
@@ -310,6 +335,37 @@ PHI2_INFO = StaticTensorNames(
         "mlp.fc2.bias",
         "mlp.fc2.weight",
     ],
+    num_layers_key="n_layer",
+)
+
+
+PHI2_INFO_AGAIN_BUT_DIFFERENT = StaticTensorNames(
+    name="PhiForCausalLM",
+    pre_weight_names=["model.embed_tokens.weight"],
+    post_weight_names=[
+        "lm_head.bias",
+        "lm_head.weight",
+        "model.final_layernorm.bias",
+        "model.final_layernorm.weight",
+    ],
+    embed_weight_names=["lm_head.weight", "model.embed_tokens.weight"],
+    layer_prefix_format="model.layers.{idx}",
+    layer_weight_suffixes=[
+        "input_layernorm.bias",
+        "input_layernorm.weight",
+        "self_attn.dense.bias",
+        "self_attn.dense.weight",
+        "self_attn.q_proj.bias",
+        "self_attn.q_proj.weight",
+        "self_attn.k_proj.bias",
+        "self_attn.k_proj.weight",
+        "self_attn.v_proj.bias",
+        "self_attn.v_proj.weight",
+        "mlp.fc1.bias",
+        "mlp.fc1.weight",
+        "mlp.fc2.bias",
+        "mlp.fc2.weight",
+    ],
 )
 
 
@@ -321,6 +377,12 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
     if arch_name == PhiTensorNames.architecture_name:
         return PhiTensorNames(config)
 
+    if arch_name == PHI2_INFO.name:
+        if config.model_type == "phi-msft":
+            return PHI2_INFO
+        elif config.model_type == "phi":
+            return PHI2_INFO_AGAIN_BUT_DIFFERENT
+
     supported = [
         LLAMA_INFO,
         MISTRAL_INFO,
@@ -330,7 +392,7 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         GPT2_SEQCLASS_INFO,
         CHATGLM_INFO,
         STABLELM_INFO,
-        PHI2_INFO,
+        JAIS_INFO,
     ]
     for arch in supported:
         if arch.name == arch_name:

@@ -18,6 +18,7 @@ from typing import List, Optional, Sequence
 
 import huggingface_hub
 import yaml
+from huggingface_hub.utils import HFValidationError
 from yaml.nodes import SequenceNode as SequenceNode
 
 from mergekit.config import MergeConfiguration, ModelReference
@@ -60,7 +61,10 @@ def is_hf(path: str) -> bool:
         return False  # definitely a local path
     if not os.path.exists(path):
         return True  # If path doesn't exist locally, it must be a HF repo
-    return huggingface_hub.repo_exists(path, repo_type="model", token=False)
+    try:
+        return huggingface_hub.repo_exists(path, repo_type="model", token=False)
+    except HFValidationError:
+        return False
 
 
 def extract_hf_paths(models: List[ModelReference]) -> Sequence[str]:
