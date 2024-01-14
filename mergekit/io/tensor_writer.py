@@ -66,6 +66,33 @@ class TensorWriter:
             return "model", "safetensors"
         return "pytorch_model", "bin"
 
+    def _save_st(self, shard_path: str):
+        def _do_save():
+            safetensors.torch.save_file(
+                self.current_shard,
+                shard_path,
+                metadata={"format": "pt"},
+            )
+
+        try:
+            _do_save()
+        except RuntimeError as e:
+            if (
+                len(e.args) > 0
+                and isinstance(e.args[0], str)
+                and "share memory" in e.args[0]
+            ):
+                logging.warning(
+                    "Your model has duplicated tensors but the --clone-tensors "
+                    "flag is not set."
+                )
+                self.current_shard = {
+                    key: self.current_shard[key].clone() for key in self.current_shard
+                }
+                _do_save()
+            else:
+                raise
+
     def flush_current_shard(self):
         if not self.current_shard:
             return
@@ -79,11 +106,7 @@ class TensorWriter:
 
         shard_path = os.path.join(self.out_path, shard_name)
         if self.safe_serialization:
-            safetensors.torch.save_file(
-                self.current_shard,
-                shard_path,
-                metadata={"format": "pt"},
-            )
+            self._save_st(shard_path)
         else:
             torch.save(self.current_shard, shard_path)
 
