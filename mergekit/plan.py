@@ -17,7 +17,7 @@ import logging
 from typing import List, Optional
 
 from mergekit import merge_methods
-from mergekit.architecture import ArchitectureInfo
+from mergekit.architecture import ModuleArchitectureInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.config import (
     ConfigReader,
@@ -35,7 +35,7 @@ from mergekit.tokenizer import BuildTokenizer
 
 class MergePlanner:
     config: MergeConfiguration
-    arch_info: ArchitectureInfo
+    arch_info: ModuleArchitectureInfo
     clone_tensors: bool
     trust_remote_code: bool
     _writer_task: TensorWriterTask
@@ -47,7 +47,7 @@ class MergePlanner:
     def __init__(
         self,
         config: MergeConfiguration,
-        arch_info: ArchitectureInfo,
+        arch_info: ModuleArchitectureInfo,
         out_path: str,
         options: MergeOptions,
     ):
@@ -64,22 +64,14 @@ class MergePlanner:
 
         if config.tokenizer_source:
             self._tokenizer_task = BuildTokenizer(
-                base_model=(
-                    ModelReference.parse(config.base_model)
-                    if config.base_model
-                    else None
-                ),
+                base_model=config.base_model,
                 referenced_models=tuple(config.referenced_models()),
                 tokenizer_source=config.tokenizer_source,
                 trust_remote_code=options.trust_remote_code,
             )
 
     def normalize_config(self):
-        base_model = (
-            ModelReference.parse(self.config.base_model)
-            if self.config.base_model
-            else None
-        )
+        base_model = self.config.base_model
 
         # if models to merge are specified instead of output slices, compute them
         if self.config.models:
@@ -92,12 +84,12 @@ class MergePlanner:
             base_included = False
 
             for model_in in self.config.models:
-                mref = ModelReference.parse(model_in.model)
-
-                if base_model and mref == base_model:
+                if base_model and model_in.model == base_model:
                     base_included = True
 
-                model_cfg = mref.config(trust_remote_code=self.trust_remote_code)
+                model_cfg = model_in.model.config(
+                    trust_remote_code=self.trust_remote_code
+                )
                 num_layers = self.arch_info.num_layers(model_cfg)
                 slices_in.append(
                     InputSliceDefinition(
@@ -114,7 +106,7 @@ class MergePlanner:
                 slices_in.append(
                     InputSliceDefinition(
                         layer_range=[0, num_layers],
-                        model=str(base_model),
+                        model=base_model,
                     )
                 )
 
@@ -144,7 +136,7 @@ class MergePlanner:
 
         tensor_params = {}
         for model, name_in in zip(models, names_in):
-            is_base = str(model) == cfg_reader.config.base_model
+            is_base = model == cfg_reader.config.base_model
             tensor_params[model] = {}
             cfg_m = cfg_reader.for_tensor(name_in)
             for p in tensor_merge_method.tensor_parameters():
@@ -159,11 +151,6 @@ class MergePlanner:
             tensor_names=ImmutableMap(data=dict(zip(models, names_in))),
             dtype=self.config.dtype,
         )
-        base_model = (
-            ModelReference.parse(self.config.base_model)
-            if self.config.base_model
-            else None
-        )
 
         tensor_task = tensor_merge_method.make_task(
             output_tensor_name=name,
@@ -174,7 +161,7 @@ class MergePlanner:
                     key: ImmutableMap(data=tensor_params[key]) for key in tensor_params
                 }
             ),
-            base_model=base_model,
+            base_model=self.config.base_model,
         )
         save_task = SaveTensor(
             tensor_name=name,
@@ -200,7 +187,7 @@ class MergePlanner:
             self.plan_tensor(
                 name=name_out,
                 names_in=names_in,
-                models=[ModelReference.parse(s.model) for s in sources],
+                models=[s.model for s in sources],
                 cfg_reader=cfg_reader.with_t(t),
             )
 
@@ -237,7 +224,7 @@ class MergePlanner:
             self.plan_tensor(
                 weight_name,
                 [weight_name] * len(self.config.slices[0].sources),
-                [ModelReference.parse(s.model) for s in self.config.slices[0].sources],
+                [s.model for s in self.config.slices[0].sources],
                 ConfigReader(
                     config=self.config,
                     t=0,
@@ -252,7 +239,7 @@ class MergePlanner:
             self.plan_tensor(
                 weight_name,
                 [weight_name] * len(self.config.slices[-1].sources),
-                [ModelReference.parse(s.model) for s in self.config.slices[-1].sources],
+                [s.model for s in self.config.slices[-1].sources],
                 ConfigReader(
                     config=self.config,
                     t=1,

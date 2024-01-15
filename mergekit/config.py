@@ -64,19 +64,19 @@ def evaluate_setting(
 
 
 class InputSliceDefinition(BaseModel):
-    model: str
+    model: ModelReference
     layer_range: Tuple[int, int]
     parameters: Optional[Dict[str, ParameterSetting]] = None
 
 
 class InputModelDefinition(BaseModel):
-    model: str
+    model: ModelReference
     parameters: Optional[Dict[str, ParameterSetting]] = None
 
 
 class OutputSliceDefinition(BaseModel):
     sources: List[InputSliceDefinition]
-    base_model: Optional[str] = None
+    base_model: Optional[ModelReference] = None
     residual_weight: Optional[float] = None
     parameters: Optional[Dict[str, ParameterSetting]] = None
 
@@ -85,26 +85,22 @@ class MergeConfiguration(BaseModel):
     merge_method: str
     slices: Optional[List[OutputSliceDefinition]] = None
     models: Optional[List[InputModelDefinition]] = None
-    input_model_parameters: Dict[str, Dict[str, ParameterSetting]] = None
     parameters: Optional[Dict[str, ParameterSetting]] = None
-    base_model: Optional[str] = None
+    base_model: Optional[ModelReference] = None
     dtype: Optional[str] = None
     tokenizer_source: Optional[str] = None
 
     def referenced_models(self) -> List[ModelReference]:
         models = set()
         if self.base_model:
-            models.add(ModelReference.parse(self.base_model))
-        if self.input_model_parameters:
-            for key in self.input_model_parameters:
-                models.add(ModelReference.parse(key))
+            models.add(self.base_model)
         if self.models:
             for model_in in self.models:
-                models.add(ModelReference.parse(model_in.model))
+                models.add(model_in.model)
         if self.slices:
             for s in self.slices:
                 for src in s.sources:
-                    models.add(ModelReference.parse(src.model))
+                    models.add(src.model)
         return list(models)
 
     @model_validator(mode="after")
@@ -133,9 +129,7 @@ class ConfigReader(BaseModel):
         else:
             res = self.config.base_model
 
-        if res:
-            return ModelReference.parse(res)
-        return None
+        return res
 
     def for_out_slice(self, slice: OutputSliceDefinition) -> "ConfigReader":
         return ConfigReader(
@@ -171,7 +165,7 @@ class ConfigReader(BaseModel):
         if self.slice_out:
             if model:
                 for s in self.slice_out.sources:
-                    if s.model == str(model) and s.parameters and name in s.parameters:
+                    if s.model == model and s.parameters and name in s.parameters:
                         value = evaluate_setting(
                             self.tensor_name, s.parameters[name], self.t
                         )
@@ -181,20 +175,6 @@ class ConfigReader(BaseModel):
             if self.slice_out.parameters and name in self.slice_out.parameters:
                 value = evaluate_setting(
                     self.tensor_name, self.slice_out.parameters[name], self.t
-                )
-                if value is not None:
-                    return value
-
-        if (
-            self.config.input_model_parameters
-            and model
-            and str(model) in self.config.input_model_parameters
-        ):
-            if name in self.config.input_model_parameters[self.slice_in.model]:
-                value = evaluate_setting(
-                    self.tensor_name,
-                    self.config.input_model_parameters[str(model)][name],
-                    self.t,
                 )
                 if value is not None:
                     return value

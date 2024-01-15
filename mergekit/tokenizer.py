@@ -25,14 +25,16 @@ import tqdm
 import transformers
 from pydantic import BaseModel
 
-from mergekit.common import ModelReference
+from mergekit.common import ModelPath, ModelReference
 from mergekit.graph import Task
 
 
-def get_vocab_size(model_path: str, trust_remote_code: bool) -> Optional[int]:
+def get_vocab_size(model_path: ModelPath, trust_remote_code: bool) -> Optional[int]:
     try:
         cfg = transformers.AutoConfig.from_pretrained(
-            model_path, trust_remote_code=trust_remote_code
+            model_path.path,
+            revision=model_path.revision,
+            trust_remote_code=trust_remote_code,
         )
         return cfg.vocab_size
     except Exception as e:
@@ -42,7 +44,7 @@ def get_vocab_size(model_path: str, trust_remote_code: bool) -> Optional[int]:
 
 
 def get_stripped_tokenizer(
-    path: str, trust_remote_code: bool = False
+    path: ModelPath, trust_remote_code: bool = False
 ) -> transformers.PreTrainedTokenizerFast:
     """
     Return a tokenizer for a model that only contains used tokens.
@@ -50,7 +52,10 @@ def get_stripped_tokenizer(
     Strips any tokens with indices >= model.vocab_size.
     """
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        path, trust_remote_code=trust_remote_code, use_fast=True
+        path.path,
+        revision=path.revision,
+        trust_remote_code=trust_remote_code,
+        use_fast=True,
     )
     vocab_size = get_vocab_size(path, trust_remote_code=trust_remote_code) or len(
         tokenizer.get_vocab()
@@ -110,7 +115,7 @@ def build_union_tokenizer(
 
     for model, tokenizer in tokenizers.items():
         vocab_size = (
-            get_vocab_size(model, trust_remote_code=trust_remote_code)
+            get_vocab_size(model.model, trust_remote_code=trust_remote_code)
             or tokenizer.vocab_size
         )
         added_tokens = tokenizer.added_tokens_decoder
@@ -119,7 +124,7 @@ def build_union_tokenizer(
         for tok, idx in vocab.items():
             if idx >= vocab_size:
                 logging.warning(
-                    f"Token {repr(tok)} present in {model.path} tokenizer but >= vocab_size"
+                    f"Token {repr(tok)} present in {str(model)} tokenizer but >= vocab_size"
                 )
                 continue
             if tok in added_tokens:
@@ -177,7 +182,7 @@ def build_tokenizer(
 
     #
     tokenizer_base = get_stripped_tokenizer(
-        base_model.path, trust_remote_code=trust_remote_code
+        base_model.model, trust_remote_code=trust_remote_code
     )
 
     # load all tokenizers
@@ -189,9 +194,12 @@ def build_tokenizer(
 
         try:
             model_tok = transformers.AutoTokenizer.from_pretrained(
-                model.path, trust_remote_code=trust_remote_code
+                model.model.path,
+                revision=model.model.revision,
+                trust_remote_code=trust_remote_code,
             )
-        except Exception:
+        except Exception as e:
+            logging.error(e)
             logging.warning(
                 f"Unable to load tokenizer for {model}. Assuming same as {base_model}."
             )
@@ -225,7 +233,7 @@ def build_tokenizer(
         else:
             model_vocab = tokenizers[base_model].get_vocab()
 
-        vocab_size = get_vocab_size(model, trust_remote_code=trust_remote_code)
+        vocab_size = get_vocab_size(model.model, trust_remote_code=trust_remote_code)
         if vocab_size is None:
             vocab_size = len(model_vocab)
 

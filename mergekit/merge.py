@@ -20,9 +20,8 @@ from typing import Optional
 import tqdm
 import transformers
 
-from mergekit.architecture import ArchitectureInfo, get_architecture_info
+from mergekit.architecture import ModuleArchitectureInfo, get_architecture_info
 from mergekit.card import generate_card
-from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache
@@ -123,13 +122,13 @@ def _get_donor_tokenizer(
 ):
     try:
         donor_model = merge_config.base_model
-        if donor_model:
-            donor_model = ModelReference.parse(donor_model)
         if not donor_model:
             donor_model = merge_config.referenced_models()[0]
 
         return transformers.AutoTokenizer.from_pretrained(
-            donor_model.path, trust_remote_code=trust_remote_code
+            donor_model.model.path,
+            revision=donor_model.model.revision,
+            trust_remote_code=trust_remote_code,
         )
     except Exception as e:
         logging.error(
@@ -141,15 +140,13 @@ def _get_donor_tokenizer(
 
 def _model_out_config(
     config: MergeConfiguration,
-    arch_info: ArchitectureInfo,
+    arch_info: ModuleArchitectureInfo,
     tokenizer: Optional[transformers.PreTrainedTokenizerBase] = None,
     trust_remote_code: bool = False,
 ) -> transformers.PretrainedConfig:
     """Return a configuration for the resulting model."""
     if config.base_model:
-        res = ModelReference.parse(config.base_model).config(
-            trust_remote_code=trust_remote_code
-        )
+        res = config.base_model.config(trust_remote_code=trust_remote_code)
     else:
         res = config.referenced_models()[0].config(trust_remote_code=trust_remote_code)
     if config.dtype:
