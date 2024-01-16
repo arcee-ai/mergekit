@@ -6,11 +6,13 @@
 base_model: path/to/self_attn_donor
 gate_mode: hidden # one of "hidden", "cheap_embed", or "random"
 dtype: bfloat16 # output dtype (float32, float16, or bfloat16)
+## (optional)
+# experts_per_token: 2
 experts:
   - source_model: expert_model_1
     positive_prompts:
       - "This is a prompt that is demonstrative of what expert_model_1 excels at"
-    #   (optional)
+    ## (optional)
     # negative_prompts:
     #   - "This is a prompt expert_model_1 should not be used for"
   - source_model: expert_model_2
