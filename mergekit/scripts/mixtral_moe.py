@@ -83,9 +83,15 @@ def get_cheap_embedding(
         tokenized["input_ids"], num_classes=vocab_size
     )  # (batch_size, seq_len, 32000)
     h = onehot.float() @ embed.float()  # (batch_size, seq_len, hidden_size)
-    embedded = (h * tokenized["attention_mask"].unsqueeze(-1)).sum(dim=1)
-    res = embedded / embedded.norm(dim=-1, keepdim=True).clamp(min=1e-8)
-    return res.unsqueeze(0).repeat(num_layers, 1, 1, 1)
+    embedded = (
+        (h * tokenized["attention_mask"].unsqueeze(-1))
+        .sum(dim=1)
+        .sum(dim=0, keepdim=True)
+    )  # (1, hidden_size)
+    res = embedded / embedded.norm(dim=-1, keepdim=True).clamp(
+        min=1e-8
+    )  # (1, hidden_size)
+    return res.repeat(num_layers, 1)
 
 
 def tokenize_prompts(
