@@ -49,6 +49,7 @@ class MistralMOEConfig(BaseModel):
     # "cheap_embed" uses the average of token embeddings for the prompts, same for each layer
     # "random" is random
     dtype: Optional[str] = None
+    experts_per_token: int = 2
 
 
 def get_hidden_states(
@@ -229,6 +230,13 @@ def build(
     if is_bad_config(config):
         sys.exit(1)
 
+    if config.experts_per_token < 1:
+        logging.error("Experts per token must be >= 1")
+        sys.exit(1)
+    if config.experts_per_token > len(config.experts):
+        logging.error("Experts per token must be <= number of experts")
+        sys.exit(1)
+
     base_model = ModelReference.parse(config.base_model)
     base_cfg = base_model.config(trust_remote_code=merge_options.trust_remote_code)
     if not isinstance(base_cfg, MistralConfig):
@@ -240,6 +248,7 @@ def build(
     out_cfg = MixtralConfig(**base_cfg.to_dict())
     out_cfg.architectures = ["MixtralForCausalLM"]
     out_cfg.num_local_experts = len(config.experts)
+    out_cfg.num_experts_per_tok = config.experts_per_token
     out_cfg.sliding_window = None
     out_cfg.save_pretrained(out_path)
 
