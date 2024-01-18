@@ -202,7 +202,7 @@ def warn_degenerate_gates(gate_vecs: torch.Tensor, threshold: float = 5.0):
         logging.warning("One or more experts will be underutilized in your model.")
 
 
-def is_bad_config(config: MistralMOEConfig) -> bool:
+def is_bad_config(config: MistralMOEConfig, allow_all_same: bool = False) -> bool:
     if len(config.experts) < 2:
         logging.error("Must include at least two experts.")
         return True
@@ -224,6 +224,18 @@ def is_bad_config(config: MistralMOEConfig) -> bool:
         )
         return True
 
+    if not allow_all_same:
+        if all(
+            e.source_model == config.experts[0].source_model for e in config.experts[1:]
+        ):
+            logging.error(
+                "All of your expert models are the same. This will produce "
+                "a model that uses more resources but gives the exact same output. "
+                "If you plan to train the model after merging, proceed with the "
+                "--i-understand-this-is-not-useful-without-training flag."
+            )
+            return True
+
 
 def build(
     config: MistralMOEConfig,
@@ -232,8 +244,9 @@ def build(
     load_in_4bit: bool = False,
     load_in_8bit: bool = False,
     device: str = "auto",
+    allow_all_same: bool = False,
 ):
-    if is_bad_config(config):
+    if is_bad_config(config, allow_all_same=allow_all_same):
         sys.exit(1)
 
     if config.experts_per_token < 1:
@@ -386,6 +399,13 @@ def build(
 @click.option(
     "--verbose", "-v", type=bool, default=False, is_flag=True, help="Verbose logging"
 )
+@click.option(
+    "--i-understand-this-is-not-useful-without-training",
+    type=bool,
+    default=False,
+    is_flag=True,
+    help="Really make the questionable model you want.",
+)
 @add_merge_options
 def main(
     config_path: str,
@@ -395,6 +415,7 @@ def main(
     device: str,
     merge_options: MergeOptions,
     verbose: bool,
+    i_understand_this_is_not_useful_without_training: bool,
 ):
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
@@ -414,6 +435,7 @@ def main(
         load_in_4bit=load_in_4bit,
         load_in_8bit=load_in_8bit,
         device=device,
+        allow_all_same=i_understand_this_is_not_useful_without_training,
     )
 
     if merge_options.write_model_card:
