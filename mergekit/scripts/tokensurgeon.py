@@ -56,7 +56,7 @@ class AddedTokenDef(BaseModel):
 
 
 class TokenizerDefinition(BaseModel):
-    model: ModelReference
+    model: str
     mode: TokenizerMode
     input_tokenizers: List[str]
     remove_tokens: Optional[List[str]] = None
@@ -83,7 +83,7 @@ def main(
         config = TokenizerDefinition.model_validate(yaml.safe_load(file))
 
     base_tok = get_stripped_tokenizer(
-        config.model.path, trust_remote_code=merge_options.trust_remote_code
+        config.model, trust_remote_code=merge_options.trust_remote_code
     )
     tokenizers = {
         ModelReference(path=p): get_stripped_tokenizer(
