@@ -59,7 +59,7 @@ def filter_tokenizer(
 ) -> transformers.PreTrainedTokenizerBase:
     vocab = tokenizer.get_vocab()
     removed_toks = set()
-    for tok, index in vocab.values():
+    for tok, index in vocab.items():
         if not keep_token(token=tok, index=index):
             removed_toks.add(tok)
 
