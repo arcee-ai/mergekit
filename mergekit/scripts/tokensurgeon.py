@@ -178,10 +178,12 @@ def main(
                     sample_ct = 0
                     for model_ref, vocab in vocabs:
                         if tok in vocab:
+                            donor_tensor = donor_tensors[model_ref]
+                            if donor_tensor.shape[-1] != tensor.shape[-1]:
+                                continue
+
                             donor_idx = vocab[tok]
-                            new_tensor[new_idx, :] += donor_tensors[model_ref][
-                                donor_idx, :
-                            ]
+                            new_tensor[new_idx, :] += donor_tensor[donor_idx, :]
                             sample_ct += 1
                     if sample_ct > 0:
                         new_tensor[new_idx, :] /= sample_ct
