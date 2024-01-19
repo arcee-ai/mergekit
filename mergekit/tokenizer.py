@@ -158,7 +158,7 @@ def build_intersection_tokenizer(
     if always_keep:
         for tok in always_keep:
             if tok in base_vocab:
-                out_vocab.add(always_keep)
+                out_vocab.add(tok)
 
     if not isinstance(base_tok, transformers.PreTrainedTokenizerFast):
         raise RuntimeError(
