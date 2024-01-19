@@ -19,6 +19,7 @@ from typing import List, Optional
 
 import click
 import torch
+import tqdm
 import transformers
 import yaml
 from pydantic import BaseModel
@@ -92,15 +93,15 @@ def main(
         for p in config.input_tokenizers
     }
 
-    if config.mode == "union":
+    if config.mode == TokenizerMode.UNION:
         tokenizer = build_union_tokenizer(
             base_tok, tokenizers, trust_remote_code=merge_options.trust_remote_code
         )
-    elif config.mode == "intersection":
+    elif config.mode == TokenizerMode.INTERSECTION:
         tokenizer = build_intersection_tokenizer(
             base_tok, tokenizers, always_keep=config.always_keep_tokens
         )
-    elif config.mode == "base":
+    elif config.mode == TokenizerMode.BASE:
         tokenizer = base_tok
     else:
         raise NotImplementedError(config.mode)
@@ -154,7 +155,7 @@ def main(
         max_shard_size=merge_options.out_shard_size,
         safe_serialization=merge_options.safe_serialization,
     )
-    for tensor_name in loader.index.tensor_paths:
+    for tensor_name in tqdm.tqdm(loader.index.tensor_paths):
         tensor = loader.get_tensor(tensor_name)
 
         if tensor_name in embed_names:
@@ -203,11 +204,11 @@ def get_added_embed(
     base_tok: transformers.PreTrainedTokenizerBase,
     embed_tensor: torch.Tensor,
 ) -> torch.FloatTensor:
-    if tok_def.embed_source == "random":
+    if tok_def.embed_source == AddedTokenEmbedSource.RANDOM:
         return torch.randn((1, embed_tensor.shape[1]))
-    elif tok_def.embed_source == "zero":
+    elif tok_def.embed_source == AddedTokenEmbedSource.ZERO:
         return torch.zeros((1, embed_tensor.shape[1]))
-    elif tok_def.embed_source == "average":
+    elif tok_def.embed_source == AddedTokenEmbedSource.AVERAGE:
         token_ids = base_tok(
             tok_def.content, add_special_tokens=False, return_tensors="pt"
         )["input_ids"]
