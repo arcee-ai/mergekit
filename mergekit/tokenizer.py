@@ -66,10 +66,11 @@ def filter_tokenizer(
     if not removed_toks:
         return tokenizer
 
-    if not isinstance(tokenizer, transformers.PreTrainedTokenizerFast):
+    res = _copy_tokenizer(tokenizer, trust_remote_code=trust_remote_code)
+    if not isinstance(res, transformers.PreTrainedTokenizerFast):
         raise RuntimeError("Need a fast tokenizer to be able to remove tokens")
 
-    tok_dict = json.loads(tokenizer._tokenizer.to_str())
+    tok_dict = json.loads(res._tokenizer.to_str())
     if tok_dict["model"]["type"] != "BPE":
         raise RuntimeError(
             f"Tokenizer has type {tok_dict['model']['type']}, but only "
@@ -88,31 +89,44 @@ def filter_tokenizer(
             del tok_dict["model"]["vocab"][tok]
 
     if renumber:
-        new_vocab = dict(
-            zip(
+        toks = list(
+            sorted(
                 tok_dict["model"]["vocab"].keys(),
-                range(len(tok_dict["model"]["vocab"])),
+                key=lambda k: tok_dict["model"]["vocab"][k],
             )
         )
+        new_vocab = dict(
+            zip(
+                toks,
+                range(len(toks)),
+            )
+        )
+        tok_dict["model"]["vocab"] = new_vocab
+
         next_idx = len(new_vocab)
         for added_tok in new_added_tokens:
-            added_tok["id"] = next_idx
-            next_idx += 1
-        tok_dict["model"]["vocab"] = new_vocab
+            if added_tok["content"] not in tok_dict["model"]["vocab"]:
+                added_tok["id"] = next_idx
+                next_idx += 1
+            else:
+                added_tok["id"] = tok_dict["model"]["vocab"][added_tok["content"]]
 
     tok_dict["added_tokens"] = new_added_tokens
 
     def _keep_merge(m):
         toks = m.split(" ")
+        if len(toks) != 2:
+            logging.error(f"Invalid merge: {repr(m)}")
         for tok in toks:
-            if tok in removed_toks:
+            if tok not in tok_dict["model"]["vocab"]:
                 return False
+        if toks[0] + toks[1] not in tok_dict["model"]["vocab"]:
+            return False
         return True
 
     tok_dict["model"]["merges"] = [
         e for e in tok_dict["model"]["merges"] if _keep_merge(e)
     ]
-    res = _copy_tokenizer(tokenizer, trust_remote_code=trust_remote_code)
     res._tokenizer = tokenizers.Tokenizer.from_str(json.dumps(tok_dict))
     return res
 
@@ -169,7 +183,7 @@ def build_intersection_tokenizer(
         return token in out_vocab
 
     return filter_tokenizer(
-        base_tok._tokenizer,
+        base_tok,
         _keep_token,
         renumber=True,
         trust_remote_code=trust_remote_code,
