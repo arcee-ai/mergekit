@@ -369,7 +369,7 @@ PHI2_INFO_AGAIN_BUT_DIFFERENT = StaticTensorNames(
 )
 
 
-def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
+def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
     if len(config.architectures) != 1:
         raise RuntimeError("More than one architecture in config?")
 

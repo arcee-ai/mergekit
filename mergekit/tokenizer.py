@@ -16,7 +16,7 @@
 import json
 import logging
 import tempfile
-from typing import Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Set, Tuple
 
 import tokenizers
 import tokenizers.models
@@ -40,8 +40,86 @@ def get_vocab_size(model_path: str, trust_remote_code: bool) -> Optional[int]:
     return None
 
 
+def _copy_tokenizer(
+    tokenizer: transformers.PreTrainedTokenizerBase, trust_remote_code: bool = False
+) -> transformers.PreTrainedTokenizerBase:
+    # HACK: save tokenizer to temp dir and reload
+    with tempfile.TemporaryDirectory() as p:
+        tokenizer.save_pretrained(p, legacy_format=False, safe_serialization=True)
+        return transformers.AutoTokenizer.from_pretrained(
+            p, use_fast=True, trust_remote_code=trust_remote_code
+        )
+
+
+def filter_tokenizer(
+    tokenizer: transformers.PreTrainedTokenizerBase,
+    keep_token: Callable,
+    renumber: bool = False,
+    trust_remote_code: bool = False,
+) -> transformers.PreTrainedTokenizerBase:
+    vocab = tokenizer.get_vocab()
+    removed_toks = set()
+    for tok, index in vocab.values():
+        if not keep_token(token=tok, index=index):
+            removed_toks.add(tok)
+
+    if not removed_toks:
+        return tokenizer
+
+    if not isinstance(tokenizer, transformers.PreTrainedTokenizerFast):
+        raise RuntimeError("Need a fast tokenizer to be able to remove tokens")
+
+    tok_dict = json.loads(tokenizer._tokenizer.to_str())
+    if tok_dict["model"]["type"] != "BPE":
+        raise RuntimeError(
+            f"Tokenizer has type {tok_dict['model']['type']}, but only "
+            "BPE is currently supported for tokenizer merge"
+        )
+
+    new_added_tokens = []
+    for added_tok in tok_dict["added_tokens"]:
+        if keep_token(token=added_tok["content"], index=added_tok["id"]):
+            new_added_tokens.append(added_tok)
+        else:
+            removed_toks.add(added_tok["content"])
+
+    for tok in removed_toks:
+        if tok in tok_dict["model"]["vocab"]:
+            del tok_dict["model"]["vocab"][tok]
+
+    if renumber:
+        new_vocab = dict(
+            zip(
+                tok_dict["model"]["vocab"].keys(),
+                range(len(tok_dict["model"]["vocab"])),
+            )
+        )
+        next_idx = len(new_vocab)
+        for added_tok in new_added_tokens:
+            added_tok["id"] = next_idx
+            next_idx += 1
+        tok_dict["model"]["vocab"] = new_vocab
+
+    tok_dict["added_tokens"] = new_added_tokens
+
+    def _keep_merge(m):
+        toks = m.split(" ")
+        for tok in toks:
+            if tok in removed_toks:
+                return False
+        return True
+
+    tok_dict["model"]["merges"] = [
+        e for e in tok_dict["model"]["merges"] if _keep_merge(e)
+    ]
+    res = _copy_tokenizer(tokenizer, trust_remote_code=trust_remote_code)
+    res._tokenizer = tokenizers.Tokenizer.from_str(json.dumps(tok_dict))
+    return res
+
+
 def get_stripped_tokenizer(
-    path: str, trust_remote_code: bool = False
+    path: str,
+    trust_remote_code: bool = False,
 ) -> transformers.PreTrainedTokenizerFast:
     """
     Return a tokenizer for a model that only contains used tokens.
@@ -55,46 +133,47 @@ def get_stripped_tokenizer(
         tokenizer.get_vocab()
     )
 
-    unused_toks = [
-        tok for tok, idx in tokenizer.get_vocab().items() if idx >= vocab_size
-    ]
-    if not unused_toks:
-        # we're good, ship it
-        return tokenizer
+    def _keep_tok(index: int, **_kwargs):
+        return index < vocab_size
 
-    if not tokenizer.is_fast:
+    return filter_tokenizer(
+        tokenizer, keep_token=_keep_tok, trust_remote_code=trust_remote_code
+    )
+
+
+def build_intersection_tokenizer(
+    base_tok: transformers.PreTrainedTokenizerBase,
+    tokenizers: Dict[ModelReference, transformers.PreTrainedTokenizerBase],
+    trust_remote_code: bool = False,
+    always_keep: Optional[Set[str]] = None,
+) -> transformers.PreTrainedTokenizerBase:
+    base_vocab = set(base_tok.get_vocab())
+    out_vocab = set(base_vocab)
+    for tok in tokenizers.values():
+        out_vocab = out_vocab.intersection(set(tok.get_vocab()))
+
+    if out_vocab == base_vocab:
+        return base_tok
+
+    if always_keep:
+        for tok in always_keep:
+            if tok in base_vocab:
+                out_vocab.add(always_keep)
+
+    if not isinstance(base_tok, transformers.PreTrainedTokenizerFast):
         raise RuntimeError(
-            f"Model {path} has unused tokens and does not support fast "
-            "tokenizer - can not be used in tokenizer merge"
+            "Can't strip tokens from slow tokenizer - need fast tokenizer"
         )
 
-    tok_dict = json.loads(tokenizer._tokenizer.to_str())
-    if tok_dict["model"]["type"] != "BPE":
-        raise RuntimeError(
-            f"Tokenizer for {path} has type {tok_dict['model']['type']}, "
-            "but only BPE is currently supported for tokenizer merge"
-        )
+    def _keep_token(token: str, **kwargs) -> bool:
+        return token in out_vocab
 
-    tok_dict["added_tokens"] = [
-        e for e in tok_dict["added_tokens"] if e["id"] < vocab_size
-    ]
-
-    for tok in unused_toks:
-        if tok in tok_dict["model"]["vocab"]:
-            del tok_dict["model"]["vocab"][tok]
-
-    def _keep_merge(m):
-        toks = m.split(" ")
-        for tok in toks:
-            if tok in unused_toks:
-                return False
-        return True
-
-    tok_dict["model"]["merges"] = [
-        e for e in tok_dict["model"]["merges"] if _keep_merge(e)
-    ]
-    tokenizer._tokenizer = tokenizers.Tokenizer.from_str(json.dumps(tok_dict))
-    return tokenizer
+    return filter_tokenizer(
+        base_tok._tokenizer,
+        _keep_token,
+        renumber=True,
+        trust_remote_code=trust_remote_code,
+    )
 
 
 def build_union_tokenizer(
@@ -143,12 +222,7 @@ def build_union_tokenizer(
                 continue
             out_added_tokens[tok] = info
 
-    # HACK: save base tokenizer to temp dir and reload to avoid mutating base_tok
-    with tempfile.TemporaryDirectory() as p:
-        base_tok.save_pretrained(p, legacy_format=False, safe_serialization=True)
-        res = transformers.AutoTokenizer.from_pretrained(
-            p, use_fast=True, trust_remote_code=trust_remote_code
-        )
+    res = _copy_tokenizer(base_tok, trust_remote_code=trust_remote_code)
 
     orig_base_vocab = base_tok.get_vocab()
     for tok in out_vocab:

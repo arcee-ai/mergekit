@@ -38,6 +38,7 @@ mergekit-mega = "mergekit.scripts.megamerge:main"
 mergekit-legacy = "mergekit.scripts.legacy:main"
 mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
 bakllama = "mergekit.scripts.bakllama:main"
+tokensurgeon = "mergekit.scripts.tokensurgeon:main"
 
 [tool.setuptools]
 packages = ["mergekit"]
