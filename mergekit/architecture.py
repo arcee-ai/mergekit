@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from transformers import PretrainedConfig
 
 
-class ModuleArchitectureInfo(ABC):
+class ArchitectureInfo(ABC):
     @abstractmethod
     def pre_weights(self) -> List[str]:
         """Return a list of all weights preceding the first layer."""
@@ -48,7 +48,7 @@ class ModuleArchitectureInfo(ABC):
         return "num_hidden_layers"
 
 
-class StaticTensorNames(ModuleArchitectureInfo, BaseModel, frozen=True):
+class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
     name: str
 
     pre_weight_names: List[str]  # weights applied before first layer
@@ -258,7 +258,7 @@ CHATGLM_INFO = StaticTensorNames(
 )
 
 
-class PhiTensorNames(ModuleArchitectureInfo):
+class PhiTensorNames(ArchitectureInfo):
     architecture_name: str = "MixFormerSequentialForCausalLM"
 
     def __init__(self, config: PretrainedConfig):

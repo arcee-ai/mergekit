@@ -20,7 +20,7 @@ from typing import Optional
 import tqdm
 import transformers
 
-from mergekit.architecture import ModuleArchitectureInfo, get_architecture_info
+from mergekit.architecture import ArchitectureInfo, get_architecture_info
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
@@ -140,7 +140,7 @@ def _get_donor_tokenizer(
 
 def _model_out_config(
     config: MergeConfiguration,
-    arch_info: ModuleArchitectureInfo,
+    arch_info: ArchitectureInfo,
     tokenizer: Optional[transformers.PreTrainedTokenizerBase] = None,
     trust_remote_code: bool = False,
 ) -> transformers.PretrainedConfig:

@@ -17,7 +17,7 @@ import logging
 from typing import List, Optional
 
 from mergekit import merge_methods
-from mergekit.architecture import ModuleArchitectureInfo
+from mergekit.architecture import ArchitectureInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.config import (
     ConfigReader,
@@ -35,7 +35,7 @@ from mergekit.tokenizer import BuildTokenizer
 
 class MergePlanner:
     config: MergeConfiguration
-    arch_info: ModuleArchitectureInfo
+    arch_info: ArchitectureInfo
     clone_tensors: bool
     trust_remote_code: bool
     _writer_task: TensorWriterTask
@@ -47,7 +47,7 @@ class MergePlanner:
     def __init__(
         self,
         config: MergeConfiguration,
-        arch_info: ModuleArchitectureInfo,
+        arch_info: ArchitectureInfo,
         out_path: str,
         options: MergeOptions,
     ):
