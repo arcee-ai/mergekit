@@ -67,7 +67,11 @@ class ModelPath(BaseModel, frozen=True):
         return self.path
 
     def _unique_id(self):
-        return os.path.basename(self.path) + "_" + str(binascii.crc32(self.__str__()))
+        return (
+            os.path.basename(self.path)
+            + "_"
+            + str(binascii.crc32(self.__str__().encode()))
+        )
 
 
 class ModelReference(BaseModel, frozen=True):
