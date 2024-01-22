@@ -48,10 +48,17 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
         ]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
-        return [
+        res = [
             ConfigParameterDef(name="weight", required=True),
             ConfigParameterDef(name="density", required=False, default_value=1.0),
         ]
+        if self.sparsification_method == SparsificationMethod.magnitude_outliers:
+            res.append(
+                ConfigParameterDef(
+                    name="outlier_fraction", required=False, default_value=0.2
+                )
+            )
+        return res
 
     def make_task(
         self,
@@ -105,10 +112,15 @@ class GTATask(Task[torch.Tensor]):
         # sparsify
         if self.method.sparsification_method:
             for tv_info in tvs:
+                kwargs = {}
+                if "outlier_fraction" in tv_info:
+                    kwargs["outlier_fraction"] = tv_info["outlier_fraction"]
+
                 tv_info["delta"] = sparsify(
                     tv_info["delta"],
                     density=tv_info["density"],
                     method=self.method.sparsification_method,
+                    **kwargs,
                 )
 
         deltas = torch.stack([tv["delta"] for tv in tvs], dim=0)

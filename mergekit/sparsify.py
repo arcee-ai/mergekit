@@ -43,13 +43,15 @@ def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
     return tensor * mask
 
 
-def magnitude_outliers(tensor: torch.Tensor, density: float, outlier_frac: float = 0.2):
+def magnitude_outliers(
+    tensor: torch.Tensor, density: float, outlier_fraction: float = 0.2
+):
     """Masks out smallest values in addition to large outliers.
 
     Args:
         tensor (torch.Tensor): The tensor to sparsify.
         density (float): The proportion of weights to retain.
-        outlier_frac (float): The fraction of removed elements that are large-magnitude.
+        outlier_fraction (float): The fraction of removed elements that are large-magnitude.
     """
     if density >= 1:
         return tensor
@@ -58,7 +60,7 @@ def magnitude_outliers(tensor: torch.Tensor, density: float, outlier_frac: float
     n = int(density * num_elems)
 
     to_remove = num_elems - n
-    r_top = int(outlier_frac * to_remove)
+    r_top = int(outlier_fraction * to_remove)
     r_bot = to_remove - r_top
 
     w = tensor.abs().view(-1)
@@ -94,17 +96,17 @@ def bernoulli(
 
 
 def sparsify(
-    tensor: torch.Tensor, density: float, method: SparsificationMethod
+    tensor: torch.Tensor, density: float, method: SparsificationMethod, **kwargs
 ) -> torch.Tensor:
     if method == SparsificationMethod.magnitude:
-        return magnitude(tensor, density=density)
+        return magnitude(tensor, density=density, **kwargs)
     elif method == SparsificationMethod.random:
-        return bernoulli(tensor, density=density, rescale=False)
+        return bernoulli(tensor, density=density, rescale=False, **kwargs)
     elif method == SparsificationMethod.rescaled_random:
-        return bernoulli(tensor, density=density, rescale=True)
+        return bernoulli(tensor, density=density, rescale=True, **kwargs)
     elif method == SparsificationMethod.magnitude_outliers:
         return magnitude_outliers(
-            tensor, density=density, outlier_frac=0.2
+            tensor, density=density, **kwargs
         )  # TODO: plumb through
     else:
         raise NotImplementedError(method)

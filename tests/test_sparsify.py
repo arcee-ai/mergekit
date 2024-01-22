@@ -31,8 +31,11 @@ class TestMagnitude:
     def test_outliers(self, sample_tensor):
         for outlier_frac in [0.1, 0.2, 0.5, 1.0]:
             for density in [0.1, 0.3, 0.5, 0.6, 0.9, 1.0]:
-                result = magnitude_outliers(
-                    sample_tensor, density=density, outlier_frac=outlier_frac
+                result = sparsify(
+                    sample_tensor,
+                    density=density,
+                    method=SparsificationMethod.magnitude_outliers,
+                    outlier_fraction=outlier_frac,
                 )
                 assert torch.count_nonzero(result) == int(
                     sample_tensor.view(-1).shape[0] * density
