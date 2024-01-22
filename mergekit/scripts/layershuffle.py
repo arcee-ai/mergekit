@@ -26,8 +26,8 @@ from mergekit.config import (
     MergeConfiguration,
     OutputSliceDefinition,
 )
-from mergekit.merge import MergeOptions, run_merge
-from mergekit.options import add_merge_options
+from mergekit.merge import run_merge
+from mergekit.options import MergeOptions, add_merge_options
 
 
 @click.command("mergekit-layershuffle")
