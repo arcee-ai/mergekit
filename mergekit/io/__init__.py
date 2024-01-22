@@ -20,9 +20,4 @@ from mergekit.io.lazy_tensor_loader import (
 )
 from mergekit.io.tensor_writer import TensorWriter
 
-__all__ = [
-    "LazyTensorLoader",
-    "ShardedTensorIndex",
-    "ShardInfo",
-    "TensorWriter",
-]
+__all__ = ["LazyTensorLoader", "ShardedTensorIndex", "ShardInfo", "TensorWriter"]
