@@ -209,7 +209,7 @@ def build_tokenizer(
         )
     elif config.tokenizer_source.startswith("model:"):
         tokenizer_out = transformers.AutoTokenizer.from_pretrained(
-            config.tokenizer_source.removeprefix("model:"),
+            config.tokenizer_source[len("model:") :],
             trust_remote_code=trust_remote_code,
         )
     else:
