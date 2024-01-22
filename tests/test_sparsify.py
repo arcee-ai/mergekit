@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from mergekit.sparsify import SparsificationMethod, sparsify
+from mergekit.sparsify import SparsificationMethod, magnitude_outliers, sparsify
 
 
 @pytest.fixture
@@ -27,6 +27,16 @@ class TestMagnitude:
             sample_tensor, density=0.5, method=SparsificationMethod.magnitude
         )
         assert torch.count_nonzero(result) == sample_tensor.view(-1).shape[0] // 2
+
+    def test_outliers(self, sample_tensor):
+        for outlier_frac in [0.1, 0.2, 0.5, 1.0]:
+            for density in [0.1, 0.3, 0.5, 0.6, 0.9, 1.0]:
+                result = magnitude_outliers(
+                    sample_tensor, density=density, outlier_frac=outlier_frac
+                )
+                assert torch.count_nonzero(result) == int(
+                    sample_tensor.view(-1).shape[0] * density
+                )
 
 
 class TestBernoulli:
