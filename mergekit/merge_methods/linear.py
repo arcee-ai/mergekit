@@ -13,37 +13,41 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Dict
+from typing import Any, Dict, List
 
 import torch
+from torch._tensor import Tensor
 
-from mergekit.common import rectify_embed_sizes
-from mergekit.config import ConfigReader
-from mergekit.graph import TensorReference
-from mergekit.merge_methods.base import MergeMethod
+from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
+from mergekit.graph import Task
+from mergekit.io.tasks import GatherTensors
+from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 
 
-class LinearMerge(MergeMethod):
-    def __call__(
-        self,
-        parameter_name: str,
-        input_tensors: Dict[TensorReference, torch.Tensor],
-        config: ConfigReader,
-        **_kwargs,
-    ) -> torch.Tensor:
-        keys = list(input_tensors.keys())
+class LinearMergeTask(Task[torch.Tensor]):
+    gather_tensors: GatherTensors
+    tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
+    normalize: bool
+    parameter_name: str
 
-        tensors = [input_tensors[key] for key in keys]
-        weights = [
-            config.parameter("weight", model=key.model, required=True) for key in keys
-        ]
+    def uses_accelerator(self) -> bool:
+        return True
 
-        rectify_embed_sizes(parameter_name, tensors)
+    def arguments(self) -> Dict[str, Task]:
+        return {"tensors": self.gather_tensors}
+
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs) -> Tensor:
+        keys = list(tensors.keys())
+
+        tensors = [tensors[key] for key in keys]
+        weights = [self.tensor_parameters[key]["weight"] for key in keys]
+
+        rectify_embed_sizes(self.parameter_name, tensors)
 
         unique_shapes = set(t.shape for t in tensors)
         if len(unique_shapes) != 1:
             raise RuntimeError(
-                f"Tensor size mismatch for {parameter_name}, sizes: {list(unique_shapes)}"
+                f"Tensor size mismatch for {self.parameter_name}, sizes: {list(unique_shapes)}"
             )
 
         tensors = torch.stack(tensors, dim=0)
@@ -52,7 +56,33 @@ class LinearMerge(MergeMethod):
             weights.unsqueeze_(-1)
 
         res = (weights * tensors).sum(dim=0)
-        if config.parameter("normalize", default=True):
+        if self.normalize:
             res /= weights.sum(dim=0)
 
         return res
+
+
+class LinearMerge(MergeMethod):
+    def parameters(self) -> List[ConfigParameterDef]:
+        return [
+            ConfigParameterDef(name="normalize", required=False, default_value=True),
+        ]
+
+    def tensor_parameters(self) -> List[ConfigParameterDef]:
+        return [ConfigParameterDef(name="weight", required=True)]
+
+    def make_task(
+        self,
+        *,
+        output_tensor_name: str,
+        tensors: GatherTensors,
+        parameters: Dict[str, Any],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
+        **_kwargs,
+    ) -> Task:
+        return LinearMergeTask(
+            gather_tensors=tensors,
+            tensor_parameters=tensor_parameters,
+            normalize=parameters["normalize"],
+            parameter_name=output_tensor_name,
+        )
