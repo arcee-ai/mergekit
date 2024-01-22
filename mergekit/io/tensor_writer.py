@@ -65,7 +65,7 @@ class TensorWriter:
         if not self.current_shard:
             return
 
-        logging.info(f"writing shard #{self.shards_written+1} to disk")
+        logging.info(f"Writing shard #{self.shards_written+1} to disk")
 
         prefix, extension = self._get_name_components()
         shard_name = f"{prefix}-{self.shards_written+1}.{extension}"
@@ -84,6 +84,8 @@ class TensorWriter:
 
     def finalize(self):
         self.flush_current_shard()
+
+        logging.info("Finalizing shard names")
 
         prefix, extension = self._get_name_components()
 
@@ -111,7 +113,7 @@ class TensorWriter:
         ) as file:
             json.dump(
                 {
-                    "metadata": {"mergekit_version": "0.0.3.2"},
+                    "metadata": {"mergekit_version": "0.0.4"},
                     "weight_map": self.weight_map,
                 },
                 file,

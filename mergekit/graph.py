@@ -12,406 +12,252 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
-
 """
-Computational graph execution for tensor operations
+Module for computational graph execution.
 
-This module provides a mechanism for constructing and executing a computational
-graph for operations on tensors. The tensors are computed lazily,
-being loaded and operated upon as per the defined computation graph
-and execution strategy.
-
-The primary class, `Executor`, uses a `RuleSet` to build a computation graph,
-organizes an execution order which minimizes tensor resource requirements, and
-executes the operations, handling tensor loading and storage automatically.
+Classes:
+    Task: Abstract base class representing a computational task.
+    Executor: Class for scheduling and executing directed acyclic task graphs.
 """
 
-import os
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 import networkx
 import torch
 import tqdm
 from pydantic import BaseModel
-from typing_extensions import Protocol
+from typing_extensions import Generic, TypeVar
 
-from mergekit.common import ModelReference
-from mergekit.io import LazyTensorLoader, TensorWriter
+ValueT = TypeVar("ValueT")
 
 
-class TensorReference(BaseModel, frozen=True):
+class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
     """
-    A reference to a tensor, optionally associated with a specific model.
+    Abstract base class representing a task in a computational graph.
+
+    This class should be extended to define specific tasks. Each task can have arguments (dependencies) and a defined execution strategy.
 
     Attributes:
-    - model: An optional reference to a language model.
-    - key: A string identifier for the tensor.
-    """
+        Generic[ValueT] (TypeVar): The type of the value that the task returns upon execution.
 
-    model: Optional[ModelReference]
-    key: str
-
-    def __str__(self) -> str:
-        if self.model is not None:
-            namespace = str(self.model)
-        else:
-            namespace = "_"
-        return namespace + ":" + self.key
-
-
-class Operation(BaseModel, frozen=True):
-    """
-    Defines a node in a computational graph, representing an operation on tensors.
-
-    Attributes:
-    - function: A string identifier for the operation to be performed.
-    - inputs: A list of tensor inputs for this operation.
-    - kwargs: Optional keyword arguments for the operation.
-    """
-
-    function: str
-    inputs: List[TensorReference]
-    kwargs: Optional[Dict[str, Any]] = None
-
-
-class ProceduralRule(ABC):
-    """
-    Abstract base class for procedural rules. Procedural rules define a method for
-    dynamically generating `Operation` instances that can produce a given
-    `TensorReference`.
+    Methods:
+        arguments: Abstract method to define task arguments (dependencies).
+        execute: Abstract method to execute the task.
+        priority: Returns the priority of the task for scheduling purposes.
+        group_label: Returns an optional label for task grouping.
     """
 
     @abstractmethod
-    def can_generate_rule(self, component: TensorReference) -> bool:
+    def arguments(self) -> Dict[str, "Task"]:
+        """
+        Returns a dictionary of arguments required for this task. The keys of the dictionary
+        are argument names, and the values are Task instances. These keys correspond to the
+        keyword argument names expected by the execute method.
+
+        For example, if this method returns {'input1': taskA, 'input2': taskB}, the execute
+        method should expect to be called as execute(input1=valueA, input2=valueB), where
+        valueA and valueB are the outputs of taskA and taskB respectively.
+
+        Returns:
+            Dict[str, "Task"]: A dictionary mapping argument names to Task instances.
+        """
         ...
 
     @abstractmethod
-    def generate_rule(self, component: TensorReference) -> Optional[Operation]:
+    def execute(self, **kwargs) -> ValueT:
+        """
+        Executes the task using the results of its dependencies.
+
+        The keyword arguments (**kwargs) for this method are dynamically determined based on
+        the dictionary returned by the 'arguments' method. Each key in the 'arguments' method's
+        return dictionary becomes a keyword argument in this method, with its value being
+        the result of the corresponding task's execution.
+
+        Returns:
+            ValueT: The result of the task execution.
+        """
         ...
 
-
-class LoadTensorRule(ProceduralRule):
-    """Rule for loading tensors from input models."""
-
-    model: ModelReference
-    tensor_paths: Dict[str, str]
-
-    def __init__(
-        self,
-        model: ModelReference,
-        tensor_paths: Dict[str, str],
-        dtype: Optional[str],
-    ):
-        self.model = model
-        self.tensor_paths = tensor_paths
-        self.dtype = dtype
-
-    def can_generate_rule(self, component: TensorReference) -> bool:
-        return (
-            isinstance(component, TensorReference)
-            and component.model == self.model
-            and component.key in self.tensor_paths
-        )
-
-    def generate_rule(self, component: TensorReference) -> Operation:
-        if not self.can_generate_rule(component):
-            return None
-        return Operation(
-            function="load_tensor",
-            inputs=[],
-            kwargs={
-                "model": component.model,
-                "key": component.key,
-                "dtype": self.dtype,
-            },
-        )
-
-
-class RuleSet:
-    """
-    A mapping from TensorReference instances to specific Operations to produce them.
-
-    Can contain both statically defined rules and procedural rules for dynamic
-    operation generation.
-    """
-
-    static: Dict[TensorReference, Operation]
-    procedural: List[ProceduralRule]
-
-    def __init__(
-        self,
-        static: Optional[Dict[TensorReference, Operation]] = None,
-        procedural: Optional[List[ProceduralRule]] = None,
-    ):
-        self.static = static or {}
-        self.procedural = procedural or []
-
-    def get(self, tensor: TensorReference) -> Optional[Operation]:
+    def priority(self) -> int:
         """
-        Retrieve an operation to produce the specified tensor.
+        Returns the priority of the task for scheduling.
 
-        First checks if a static operation exists for the given tensor reference.
-        If not, iterates over procedural rules to find a match.
+        Higher numbers indicate higher priority. Default is 0.
+
+        Returns:
+            int: The priority of the task.
         """
-        if tensor in self.static:
-            return self.static[tensor]
+        return 0
 
-        for proc_rule in self.procedural:
-            if proc_rule.can_generate_rule(tensor):
-                operation = proc_rule.generate_rule(tensor)
-                if operation:
-                    return operation
+    def group_label(self) -> Optional[str]:
+        """
+        Returns an optional label used for grouping tasks together.
+
+        Returns:
+            Optional[str]: The group label of the task, if any.
+        """
         return None
 
-
-class OperationProtocol(Protocol):
-    """Protocol for operation implementations."""
-
-    def __call__(
-        self, tensors: Dict[TensorReference, torch.Tensor], **kwargs
-    ) -> Optional[torch.Tensor]:
-        ...
-
-
-def _normalized_shard_name(path: str) -> int:
-    name, _ext = os.path.splitext(os.path.basename(path))
-    return name.lower().replace("pytorch_model", "model")
+    def uses_accelerator(self) -> bool:
+        """
+        Returns True if the task can take advantage of matrix operation
+        acceleration (such as on a GPU).
+        """
+        return False
 
 
 class Executor:
     """
-    The primary computation manager, organizing and executing tensor
-    operations in a structured and resource-minimized manner.
+    Schedules and executes a set of tasks and their dependencies.
 
-    `Executor` takes in models, target tensor references, rules, and
-    operation definitions to create and execute a computation graph.
+    Handles scheduling, execution, the movement of data between devices, and the lifecycle of intermediate results.
+
+    Attributes:
+        math_device (torch.device): Device used for tensor computations.
+        storage_device (torch.device): Device used for storing intermediate results.
+        targets (List[Task]): List of target tasks to be executed.
+        schedule (List[Task]): Calculated execution schedule of tasks.
+        dependencies (Dict[Task, Set[Task]]): Dependencies of each task.
     """
 
-    rules: RuleSet
-    loaders: Dict[ModelReference, LazyTensorLoader]
-    targets: List[TensorReference]
-    operations: Dict[str, OperationProtocol]
-    low_cpu_memory: bool = False
+    math_device: torch.device
+    storage_device: torch.device
+    targets: List[Task]
+    schedule: List[Task]
+    dependencies: Dict[Task, Set[Task]]
 
     def __init__(
         self,
-        models: List[ModelReference],
-        targets: List[TensorReference],
-        rules: RuleSet,
-        operations: Optional[Dict[str, OperationProtocol]] = None,
-        transformers_cache_dir: Optional[str] = None,
-        lora_cache_dir: Optional[str] = None,
-        dtype: Optional[str] = None,
-        cuda: bool = False,
-        low_cpu_memory: bool = False,
-        trust_remote_code: bool = False,
-        lazy_unpickle: bool = False,
-    ):
-        if lora_cache_dir is None and transformers_cache_dir is not None:
-            lora_cache_dir = transformers_cache_dir
-
-        self.targets = targets
-        self.loaders = {
-            ref: LazyTensorLoader(
-                ref.merged(
-                    cache_dir=lora_cache_dir, trust_remote_code=trust_remote_code
-                ).tensor_index(
-                    cache_dir=transformers_cache_dir,
-                ),
-                lazy_unpickle=lazy_unpickle,
-            )
-            for ref in models
-        }
-        for model, loader in self.loaders.items():
-            rules.procedural.append(
-                LoadTensorRule(model, loader.index.tensor_paths, dtype=dtype)
-            )
-
-        if operations is None:
-            operations = {}
-        self.operations = operations
-        self.rules = rules
-        self.cuda = cuda
-        self.low_cpu_memory = low_cpu_memory
-
-    def run(
-        self,
-        out_path: str,
-        max_shard_size: int,
-        clone_tensors: bool = False,
-        safe_serialization: bool = True,
+        tasks: List[Task],
+        math_device: torch.device = torch.device("cpu"),
+        storage_device: torch.device = torch.device("cpu"),
     ):
         """
-        Execute the computation graph and save results to disk.
-
-        This method will generate the tensors as per the computation graph and save each
-        tensor to the disk. Tensor computations are scheduled to minimize memory usage.
+        Initializes the Executor with a list of tasks and device configurations.
 
         Args:
-            out_path (str): The path to the directory where the computed tensors will be saved.
-            max_shard_size (int): The maximum size of each saved shard.
-            safe_serialization (bool): Write the output tensors using safetensors.
+            tasks (List[Task]): The list of tasks to be executed.
+            math_device (torch.device, optional): The device for tensor computations. Defaults to CPU.
+            storage_device (torch.device, optional): The device for storing results. Defaults to CPU.
         """
-        writer = TensorWriter(
-            out_path,
-            max_shard_size=max_shard_size,
-            safe_serialization=safe_serialization,
-        )
-        for ref, tensor in tqdm.tqdm(self.generate_tensors(), total=len(self.targets)):
-            if not self.low_cpu_memory:
-                tensor = tensor.cpu()
+        self.math_device = math_device
+        self.storage_device = storage_device
+        self.schedule = self._make_schedule(tasks)
+        self.targets = tasks
 
-            writer.save_tensor(ref.key, tensor, clone=clone_tensors)
-
-        writer.finalize()
-
-    def generate_tensors(self) -> Iterator[Tuple[TensorReference, torch.Tensor]]:
+    def run(self) -> Iterator[Tuple[Task, Any]]:
         """
-        Generate the specified target tensors.
-
-        Builds the computational graph, schedules execution, then computes all tensors
-        and yields each target tensor along with its reference. Tensors are kept or
-        evicted from memory based on the last usage to optimize memory usage.
+        Execute the computed schedule and yield the target values.
 
         Yields:
-            Tuple[TensorReference, torch.Tensor]: A tensor reference and the corresponding computed tensor.
+            Iterator[Tuple[Task, Any]]: An iterator of task-result pairs.
         """
-        schedule = self._schedule_ops()
+        # determine last usage of each value, so they can be evicted afterwards
+        last_use_index = {}
+        for idx, task in reversed(list(enumerate(self.schedule))):
+            for t in self.dependencies[task]:
+                if t not in last_use_index:
+                    last_use_index[t] = idx
+            if task not in last_use_index:
+                last_use_index[task] = idx
 
-        # determine last usage of each tensor, so they can be evicted afterwards
-        last_use = {}
-        for idx, (component, _) in enumerate(schedule):
-            for j in range(len(schedule) - 1, idx, -1):
-                if component in schedule[j][1].inputs:
-                    break
-            last_use[component] = j
+        values: Dict[Task, Any] = {}
+        for idx, task in tqdm.tqdm(enumerate(self.schedule), total=len(self.schedule)):
+            use_math_device = task.uses_accelerator()
 
-        tensors: Dict[TensorReference, torch.Tensor] = {}
-        for idx, (component, operation) in enumerate(schedule):
-            tensor_args = {}
-            for ref in operation.inputs:
-                value = tensors[ref]
-                if self.cuda and value.device.type != "cuda":
-                    value = value.cuda()
-                tensor_args[ref] = value
+            arguments = {}
+            for name, dep in task.arguments().items():
+                value = values[dep]
 
-            res = self._perform_operation(operation, tensor_args)
-            del tensor_args
+                # ensure any input tensors are on math device if task asks for it
+                if use_math_device:
+                    if (
+                        isinstance(value, torch.Tensor)
+                        and value.device != self.math_device
+                    ):
+                        value = value.to(self.math_device)
+                    elif isinstance(value, dict):
+                        for key in value:
+                            if (
+                                isinstance(value[key], torch.Tensor)
+                                and value[key].device != self.math_device
+                            ):
+                                value[key] = value[key].to(self.math_device)
 
-            if res is not None:
-                tensors[component] = res
+                arguments[name] = value
+                del value
 
-            if component in self.targets:
-                yield (component, res)
+            res = task.execute(**arguments)
+            del arguments
 
-            # evict unreferenced tensors
+            if isinstance(res, torch.Tensor) and res.device != self.storage_device:
+                res = res.to(self.storage_device)
+
+            values[task] = res
+            del res
+
+            if task in self.targets:
+                yield (task, values[task])
+
+            # evict unreferenced values
             expired = []
-            for key in tensors:
-                if idx >= last_use[key]:
+            for key in values:
+                if idx >= last_use_index[key]:
                     expired.append(key)
 
             for key in expired:
-                del tensors[key]
+                del values[key]
 
-    def _perform_operation(
-        self, operation: Operation, tensor_args: Dict[TensorReference, torch.Tensor]
-    ) -> Optional[torch.Tensor]:
+    def execute(self) -> None:
         """
-        Execute the given operation with the provided tensor arguments.
-
-        Args:
-            operation: The operation to execute.
-            tensor_args: Mapping of tensor references to their actual values.
+        Execute all tasks and discard results.
         """
-        if operation.function == "load_tensor":
-            return self._load_tensor(operation)
+        for task, value in self.run():
+            pass
 
-        if operation.function in self.operations:
-            return self.operations[operation.function](
-                input_tensors=tensor_args, **operation.kwargs
-            )
+    DUMMY_TASK_VALUE = "!!DUMMY!!"
 
-        raise RuntimeError(f"Unimplemented function {operation.function}")
-
-    def _load_tensor(self, operation: Operation):
-        """Load a tensor from an input model."""
-        assert operation.function == "load_tensor"
-
-        res = self.loaders[operation.kwargs["model"]].get_tensor(
-            operation.kwargs["key"]
-        )
-        if operation.kwargs["dtype"]:
-            res = res.to(dtype=operation.kwargs["dtype"])
-
-        if self.cuda and self.low_cpu_memory:
-            # immediately move to gpu so inputs don't accumulate in RAM
-            res = res.cuda()
-        return res
-
-    def _compare_key(self, ref: TensorReference):
-        """
-        Generate a key for ordering computations.
-
-        Aims to minimize the number of shards that must be resident in memory
-        at any given time.
-        """
-        if ref.model:
-            shard_key = _normalized_shard_name(
-                self.loaders[ref.model].index.tensor_paths[ref.key]
-            )
-        else:
-            shard_key = ""
-
-        out_key = "" if ref in self.targets else "input"
-        return (out_key, shard_key, ref.key)
-
-    def _schedule_ops(self) -> List[Tuple[TensorReference, Operation]]:
-        """
-        Generate a schedule for executing tensor operations.
-
-        Builds dependency graph for tensor computations and orders them in a manner
-        that satisfies all dependencies while also minimizing memory usage.
-        """
-        dependencies, ops = self._build_dependencies()
+    def _make_schedule(self, targets: List[Task]) -> List[Task]:
+        self.schedule = []
+        self.dependencies = self._build_dependencies(targets)
 
         edge_tups = []
-        for node in dependencies:
-            for dependency in dependencies[node]:
+        for node in self.dependencies:
+            for dependency in self.dependencies[node]:
                 edge_tups.append((dependency, node))
 
+        for task in targets:
+            # add edges from a dummy node to each target to guarantee
+            # they will be included in the final schedule
+            edge_tups.append((Executor.DUMMY_TASK_VALUE, task))
+
+        def _compare_key(task: Union[Task, str]):
+            if task == Executor.DUMMY_TASK_VALUE:
+                return ("", 0)
+            return (
+                task.group_label() or "",
+                -task.priority(),
+            )
+
         graph = networkx.DiGraph(edge_tups)
-        res = list(
-            networkx.lexicographical_topological_sort(graph, key=self._compare_key)
-        )
-        return [(r, ops[r]) for r in res]
+        res = [
+            t
+            for t in networkx.lexicographical_topological_sort(graph, key=_compare_key)
+            if t != Executor.DUMMY_TASK_VALUE
+        ]
+        return res
 
-    def _build_dependencies(
-        self,
-    ) -> Tuple[
-        Dict[TensorReference, Set[TensorReference]], Dict[TensorReference, Operation]
-    ]:
-        """Build a dependency graph for the computation and select rules to
-        produce each tensor."""
-        dependencies: Dict[TensorReference, Set[TensorReference]] = {}
-        ops: Dict[TensorReference, Operation] = {}
+    def _build_dependencies(self, targets: List[Task]) -> Dict[Task, Set[Task]]:
+        task_dependencies: Dict[Task, Set[Task]] = {}
+        to_process = list(targets)
+        while to_process:
+            child = to_process.pop()
+            if child in task_dependencies:
+                continue
 
-        def _visit(node: TensorReference):
-            if node in ops:
-                return
-
-            operation = self.rules.get(node)
-            if not operation:
-                raise RuntimeError(f"No rule to produce {node}")
-            ops[node] = operation
-
-            dependencies[node] = set()
-            for dependency in operation.inputs:
-                dependencies[node].add(dependency)
-
-            for dependency in operation.inputs:
-                _visit(dependency)
-
-        for target in self.targets:
-            _visit(target)
-        return dependencies, ops
+            task_dependencies[child] = set()
+            for _, dep in child.arguments().items():
+                task_dependencies[child].add(dep)
+                to_process.append(dep)
+        return task_dependencies
