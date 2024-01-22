@@ -269,6 +269,8 @@ def build(
     out_cfg.num_local_experts = len(config.experts)
     out_cfg.num_experts_per_tok = config.experts_per_token
     out_cfg.sliding_window = None
+    if config.dtype:
+        out_cfg.torch_dtype = config.dtype
     out_cfg.save_pretrained(out_path)
 
     if (out_cfg.num_local_experts & (out_cfg.num_local_experts - 1)) != 0:
