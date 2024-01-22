@@ -17,17 +17,34 @@ import logging
 import os
 from typing import Optional
 
-import tqdm
+import torch
 import transformers
+from pydantic import BaseModel
 
-from mergekit.architecture import ArchitectureInfo, get_architecture_info
+from mergekit import merge_methods
+from mergekit.architecture import get_architecture_info
 from mergekit.card import generate_card
+from mergekit.common import ModelReference, parse_kmb
 from mergekit.config import MergeConfiguration
-from mergekit.graph import Executor
-from mergekit.io.tasks import LoaderCache
-from mergekit.options import MergeOptions
-from mergekit.plan import MergePlanner
-from mergekit.tokenizer import TokenizerInfo
+from mergekit.graph import Executor, RuleSet
+from mergekit.plan import plan
+from mergekit.tokenizer import build_tokenizer
+
+
+class MergeOptions(BaseModel):
+    allow_crimes: bool = False
+    transformers_cache: Optional[str] = None
+    lora_merge_cache: Optional[str] = None
+    cuda: bool = False
+    low_cpu_memory: bool = False
+    out_shard_size: int = parse_kmb("5B")
+    copy_tokenizer: bool = True
+    clone_tensors: bool = False
+    trust_remote_code: bool = False
+    random_seed: Optional[int] = None
+    lazy_unpickle: bool = False
+    write_model_card: bool = True
+    safe_serialization: bool = True
 
 
 def run_merge(
@@ -36,12 +53,20 @@ def run_merge(
     options: MergeOptions,
     config_source: Optional[str] = None,
 ):
+    dtype: Optional[torch.dtype] = {
+        None: None,
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+        "float32": torch.float32,
+    }[merge_config.dtype]
+
     if options.random_seed is not None:
         transformers.trainer_utils.set_seed(options.random_seed)
 
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
+    method = merge_methods.get(merge_config.merge_method)
     model_arch_info = [
         get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
         for m in merge_config.referenced_models()
@@ -53,42 +78,66 @@ def run_merge(
             )
     arch_info = model_arch_info[0]
 
-    # initialize loader cache and set options
-    loader_cache = LoaderCache()
-    loader_cache.lazy_unpickle = options.lazy_unpickle
-    loader_cache.lora_cache_dir = options.lora_merge_cache
-    loader_cache.hf_cache_dir = options.transformers_cache
-    loader_cache.trust_remote_code = options.trust_remote_code
+    if merge_config.tokenizer_source:
+        tokenizer, embed_permutations = build_tokenizer(
+            merge_config, trust_remote_code=options.trust_remote_code
+        )
+        tokenizer.save_pretrained(out_path, safe_serialization=True)
+    else:
+        tokenizer = None
+        embed_permutations = None
 
-    logging.info("Planning operations")
-    targets = MergePlanner(
+    (targets, static_rules) = plan(
         merge_config,
         arch_info,
-        out_path=out_path,
-        options=options,
-    ).plan()
+        embed_permutations=embed_permutations,
+        trust_remote_code=options.trust_remote_code,
+    )
 
-    # warm up loader cache
-    for model in tqdm.tqdm(
-        merge_config.referenced_models(), desc="Warmup loader cache"
-    ):
-        loader_cache.get(model)
-
+    rules = RuleSet(static_rules)
     exec = Executor(
-        tasks=targets,
-        math_device="cuda" if options.cuda else "cpu",
-        storage_device="cuda" if options.low_cpu_memory else "cpu",
+        merge_config.referenced_models(),
+        targets,
+        rules,
+        {"merge": method, "merge_embed": merge_methods.TokenizerPermutationMerge()},
+        transformers_cache_dir=options.transformers_cache,
+        lora_cache_dir=options.lora_merge_cache,
+        dtype=dtype,
+        cuda=options.cuda,
+        low_cpu_memory=options.low_cpu_memory,
+        trust_remote_code=options.trust_remote_code,
+        lazy_unpickle=options.lazy_unpickle,
+    )
+    exec.run(
+        out_path,
+        max_shard_size=options.out_shard_size,
+        clone_tensors=options.clone_tensors,
+        safe_serialization=options.safe_serialization,
     )
 
-    tokenizer = None
-    for _task, value in exec.run():
-        if isinstance(value, TokenizerInfo):
-            tokenizer = value.tokenizer
-
-    cfg_out = _model_out_config(
-        merge_config, arch_info, tokenizer, trust_remote_code=options.trust_remote_code
+    cfg_out = method.model_out_config(
+        merge_config, trust_remote_code=options.trust_remote_code
     )
-    logging.info("Saving config")
+    if tokenizer:
+        try:
+            cfg_out.vocab_size = len(tokenizer.get_vocab())
+        except Exception as e:
+            logging.warning(
+                "Unable to set vocabulary size in output config - you may need to manually correct it.",
+                exc_info=e,
+            )
+
+    try:
+        num_layers = sum(
+            s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+            for s in merge_config.slices
+        )
+        setattr(cfg_out, arch_info.num_layers_config_key(), num_layers)
+    except Exception as e:
+        logging.warning(
+            "Unable to set number of layers in output config - you may need to manually correct it.",
+            exc_info=e,
+        )
     cfg_out.save_pretrained(out_path)
 
     if options.write_model_card:
@@ -108,73 +157,19 @@ def run_merge(
         ) as fp:
             fp.write(config_source)
 
-    if tokenizer is None and options.copy_tokenizer:
-        tokenizer = _get_donor_tokenizer(
-            merge_config, trust_remote_code=options.trust_remote_code
-        )
-
-    if tokenizer:
-        logging.info("Saving tokenizer")
-        tokenizer.save_pretrained(out_path, safe_serialization=True)
-
-
-def _get_donor_tokenizer(
-    merge_config: MergeConfiguration, trust_remote_code: bool = False
-):
-    try:
-        donor_model = merge_config.base_model
-        if not donor_model:
-            donor_model = merge_config.referenced_models()[0]
-
-        return transformers.AutoTokenizer.from_pretrained(
-            donor_model.model.path,
-            revision=donor_model.model.revision,
-            trust_remote_code=trust_remote_code,
-        )
-    except Exception as e:
-        logging.error(
-            "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
-            exc_info=e,
-        )
-        return None
-
-
-def _model_out_config(
-    config: MergeConfiguration,
-    arch_info: ArchitectureInfo,
-    tokenizer: Optional[transformers.PreTrainedTokenizerBase] = None,
-    trust_remote_code: bool = False,
-) -> transformers.PretrainedConfig:
-    """Return a configuration for the resulting model."""
-    if config.base_model:
-        res = config.base_model.config(trust_remote_code=trust_remote_code)
-    else:
-        res = config.referenced_models()[0].config(trust_remote_code=trust_remote_code)
-    if config.dtype:
-        res.torch_dtype = config.dtype
-
-    if tokenizer:
+    if options.copy_tokenizer and tokenizer is None:
         try:
-            res.vocab_size = len(tokenizer.get_vocab())
+            donor_model = merge_config.base_model
+            if donor_model:
+                donor_model = ModelReference.parse(donor_model)
+            if not donor_model:
+                donor_model = merge_config.referenced_models()[0]
+
+            transformers.AutoTokenizer.from_pretrained(
+                donor_model.path
+            ).save_pretrained(out_path, safe_serialization=True)
         except Exception as e:
-            logging.warning(
-                "Unable to set vocabulary size in output config - you may need to manually correct it.",
+            logging.error(
+                "Failed to save tokenizer. The merge was still successful, just copy it from somewhere else.",
                 exc_info=e,
             )
-
-    try:
-        num_layers = sum(
-            s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
-            for s in config.slices
-        )
-        setattr(res, arch_info.num_layers_config_key(), num_layers)
-    except Exception as e:
-        logging.warning(
-            "Unable to set number of layers in output config - you may need to manually correct it.",
-            exc_info=e,
-        )
-
-    return res
-
-
-__all__ = ["MergeOptions", "run_merge"]
