@@ -75,11 +75,11 @@ def extract_hf_paths(models: List[ModelReference]) -> Sequence[str]:
         models: A list of ModelReference objects.
     """
     for model in models:
-        if is_hf(model.path):
-            yield model.path
+        if is_hf(model.model.path):
+            yield model.model.path
 
-        if model.lora_path and is_hf(model.lora_path):
-            yield model.lora_path
+        if model.lora and is_hf(model.lora.path):
+            yield model.lora.path
 
 
 def method_md(merge_method: str) -> str:
@@ -122,9 +122,9 @@ def modelref_md(model: ModelReference) -> str:
     Returns:
         A markdown formatted string describing the model reference.
     """
-    text = maybe_link_hf(model.path)
-    if model.lora_path:
-        text += " + " + maybe_link_hf(model.lora_path)
+    text = maybe_link_hf(model.model.path)
+    if model.lora:
+        text += " + " + maybe_link_hf(model.lora.path)
     return text
 
 
@@ -147,7 +147,7 @@ def generate_card(
     hf_bases = list(extract_hf_paths(config.referenced_models()))
     tags = ["mergekit", "merge"]
 
-    actual_base = ModelReference.parse(config.base_model) if config.base_model else None
+    actual_base = config.base_model
     if config.merge_method == "slerp":
         # curse my past self
         actual_base = None

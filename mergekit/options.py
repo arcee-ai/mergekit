@@ -18,9 +18,26 @@ from typing import Any, Callable, Optional, Union
 
 import click
 from click.core import Context, Parameter
+from pydantic import BaseModel
 
 from mergekit.common import parse_kmb
-from mergekit.merge import MergeOptions
+
+
+class MergeOptions(BaseModel):
+    allow_crimes: bool = False
+    transformers_cache: Optional[str] = None
+    lora_merge_cache: Optional[str] = None
+    cuda: bool = False
+    low_cpu_memory: bool = False
+    out_shard_size: int = parse_kmb("5B")
+    copy_tokenizer: bool = True
+    clone_tensors: bool = False
+    trust_remote_code: bool = False
+    random_seed: Optional[int] = None
+    lazy_unpickle: bool = False
+    write_model_card: bool = True
+    safe_serialization: bool = True
+
 
 OPTION_HELP = {
     "allow_crimes": "Allow mixing architectures",

@@ -15,15 +15,16 @@
 
 import logging
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from pydantic import BaseModel
 from typing_extensions import Literal
 
-from mergekit.config import ConfigReader
-from mergekit.graph import TensorReference
-from mergekit.merge_methods.base import MergeMethod
+from mergekit.common import ImmutableMap, ModelReference
+from mergekit.graph import Task
+from mergekit.io.tasks import GatherTensors
+from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 from mergekit.sparsify import SparsificationMethod, sparsify
 
 
@@ -32,36 +33,81 @@ class ConsensusMethod(str, Enum):
     sum = "sum"
 
 
-class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel):
+class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
     consensus_method: Optional[ConsensusMethod]
     sparsification_method: Optional[SparsificationMethod]
     default_normalize: bool
 
-    def __call__(
+    def parameters(self) -> List[ConfigParameterDef]:
+        return [
+            ConfigParameterDef(name="int8_mask", required=False, default_value=False),
+            ConfigParameterDef(
+                name="normalize", required=False, default_value=self.default_normalize
+            ),
+        ]
+
+    def tensor_parameters(self) -> List[ConfigParameterDef]:
+        return [
+            ConfigParameterDef(name="weight", required=True),
+            ConfigParameterDef(name="density", required=False, default_value=1.0),
+        ]
+
+    def make_task(
         self,
-        parameter_name: str,
-        input_tensors: Dict[TensorReference, torch.Tensor],
-        config: ConfigReader,
-        **kwargs,
+        output_tensor_name: str,
+        tensors: GatherTensors,
+        base_model: Optional[ModelReference],
+        parameters: ImmutableMap[str, Any],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
+    ) -> Task:
+        return GTATask(
+            method=self,
+            tensors=tensors,
+            base_model=base_model,
+            tensor_parameters=tensor_parameters,
+            int8_mask=parameters["int8_mask"],
+            normalize=parameters["normalize"],
+            out_tensor_name=output_tensor_name,
+        )
+
+
+class GTATask(Task[torch.Tensor]):
+    method: GeneralizedTaskArithmeticMerge
+    tensors: GatherTensors
+    base_model: ModelReference
+    out_tensor_name: str
+    tensor_parameters: ImmutableMap[ModelReference, Any]
+    int8_mask: bool
+    normalize: bool
+
+    def uses_accelerator(self) -> bool:
+        return True
+
+    def arguments(self) -> Dict[str, Task]:
+        return {"tensors": self.tensors}
+
+    def execute(
+        self,
+        tensors: Dict[ModelReference, torch.Tensor],
+        **_kwargs,
     ) -> torch.Tensor:
         # collect task vectors
         tvs, base = get_task_vectors(
-            parameter_name,
-            config,
-            input_tensors,
-            required_parameters=["weight"],
-            optional_parameters=["density"],
+            self.out_tensor_name,
+            self.base_model,
+            tensors,
+            tensor_parameters=self.tensor_parameters.data,
         )
         if not tvs:
             return base
 
         # sparsify
-        if self.sparsification_method:
+        if self.method.sparsification_method:
             for tv_info in tvs:
                 tv_info["delta"] = sparsify(
                     tv_info["delta"],
-                    density=tv_info.get("density", 1.0),
-                    method=self.sparsification_method,
+                    density=tv_info["density"],
+                    method=self.method.sparsification_method,
                 )
 
         deltas = torch.stack([tv["delta"] for tv in tvs], dim=0)
@@ -74,14 +120,12 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel):
         weighted_deltas = deltas * weights
 
         # get sign consensus and mix deltas
-        if self.consensus_method:
-            mask_dtype = (
-                torch.int8
-                if config.parameter("int8_mask", default=False)
-                else base.dtype
-            )
+        if self.method.consensus_method:
+            mask_dtype = torch.int8 if self.int8_mask else base.dtype
             mask = get_mask(
-                weighted_deltas, method=self.consensus_method, mask_dtype=mask_dtype
+                weighted_deltas,
+                method=self.method.consensus_method,
+                mask_dtype=mask_dtype,
             )
             mixed_delta = (weighted_deltas * mask).sum(dim=0)
             divisor = (weights * mask).sum(dim=0)
@@ -91,7 +135,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel):
             divisor = weights.sum(dim=0)
             divisor[divisor.abs() < 1e-8] = 1
 
-        if config.parameter("normalize", default=self.default_normalize):
+        if self.normalize:
             mixed_delta /= divisor
 
         return (base + mixed_delta).to(base.dtype)
@@ -99,18 +143,16 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel):
 
 def get_task_vectors(
     parameter_name: str,
-    config: ConfigReader,
-    input_tensors: Dict[TensorReference, torch.Tensor],
-    required_parameters: Optional[List[str]] = None,
-    optional_parameters: Optional[List[str]] = None,
-) -> Tuple[List[torch.Tensor], List[float], torch.Tensor]:
-    tensors = {tr.model: value for (tr, value) in input_tensors.items()}
+    base_model: ModelReference,
+    tensors: ImmutableMap[ModelReference, torch.Tensor],
+    tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
+) -> Tuple[List[Dict[str, Any]], torch.Tensor]:
     keys = list(tensors.keys())
-    base = tensors[config.base_model]
+    base = tensors[base_model]
 
     res = []
     for model in keys:
-        if model == config.base_model:
+        if model == base_model:
             continue
 
         x = tensors[model].to(base.dtype)
@@ -131,10 +173,8 @@ def get_task_vectors(
         d = {}
         d["model"] = model
         d["delta"] = delta
-        for p in required_parameters:
-            d[p] = config.parameter(p, model, required=True)
-        for p in optional_parameters:
-            d[p] = config.parameter(p, model, required=False)
+        for p in tensor_parameters[model]:
+            d[p] = tensor_parameters[model][p]
         res.append(d)
     return res, base
 
@@ -147,7 +187,7 @@ def get_mask(
     """Returns a mask determining which delta vectors should be merged
     into the final model.
 
-    For the methodology described in the paper use 'sum'. For a
+    For the methodology described in the TIES paper use 'sum'. For a
     simpler naive count of signs, use 'count'."""
     if mask_dtype is None:
         mask_dtype = delta.dtype

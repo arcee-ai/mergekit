@@ -137,3 +137,7 @@ class LazyTensorLoader:
             )
 
         return self.current_shard.get_tensor(key).to(device)
+
+    def flush(self):
+        self.current_shard = None
+        self.current_keys = None

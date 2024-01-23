@@ -16,22 +16,25 @@
 import json
 import logging
 import tempfile
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import tokenizers
 import tokenizers.models
 import torch
 import tqdm
 import transformers
+from pydantic import BaseModel
 
-from mergekit.common import ModelReference
-from mergekit.config import MergeConfiguration
+from mergekit.common import ModelPath, ModelReference
+from mergekit.graph import Task
 
 
-def get_vocab_size(model_path: str, trust_remote_code: bool) -> Optional[int]:
+def get_vocab_size(model_path: ModelPath, trust_remote_code: bool) -> Optional[int]:
     try:
         cfg = transformers.AutoConfig.from_pretrained(
-            model_path, trust_remote_code=trust_remote_code
+            model_path.path,
+            revision=model_path.revision,
+            trust_remote_code=trust_remote_code,
         )
         return cfg.vocab_size
     except Exception as e:
@@ -41,7 +44,7 @@ def get_vocab_size(model_path: str, trust_remote_code: bool) -> Optional[int]:
 
 
 def get_stripped_tokenizer(
-    path: str, trust_remote_code: bool = False
+    path: ModelPath, trust_remote_code: bool = False
 ) -> transformers.PreTrainedTokenizerFast:
     """
     Return a tokenizer for a model that only contains used tokens.
@@ -49,7 +52,10 @@ def get_stripped_tokenizer(
     Strips any tokens with indices >= model.vocab_size.
     """
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        path, trust_remote_code=trust_remote_code, use_fast=True
+        path.path,
+        revision=path.revision,
+        trust_remote_code=trust_remote_code,
+        use_fast=True,
     )
     vocab_size = get_vocab_size(path, trust_remote_code=trust_remote_code) or len(
         tokenizer.get_vocab()
@@ -109,7 +115,7 @@ def build_union_tokenizer(
 
     for model, tokenizer in tokenizers.items():
         vocab_size = (
-            get_vocab_size(model, trust_remote_code=trust_remote_code)
+            get_vocab_size(model.model, trust_remote_code=trust_remote_code)
             or tokenizer.vocab_size
         )
         added_tokens = tokenizer.added_tokens_decoder
@@ -118,7 +124,7 @@ def build_union_tokenizer(
         for tok, idx in vocab.items():
             if idx >= vocab_size:
                 logging.warning(
-                    f"Token {repr(tok)} present in {model.path} tokenizer but >= vocab_size"
+                    f"Token {repr(tok)} present in {str(model)} tokenizer but >= vocab_size"
                 )
                 continue
             if tok in added_tokens:
@@ -164,34 +170,36 @@ def build_union_tokenizer(
 
 
 def build_tokenizer(
-    config: MergeConfiguration,
+    base_model: Optional[ModelReference],
+    referenced_models: List[ModelReference],
+    tokenizer_source: str,
     trust_remote_code: bool,
 ) -> Tuple[transformers.PreTrainedTokenizer, Dict[ModelReference, torch.IntTensor]]:
-    base_model = None
-    if config.base_model:
-        base_model = ModelReference.parse(config.base_model)
     if base_model is None:
-        base_model = config.referenced_models()[0]
+        base_model = referenced_models()[0]
     if base_model is None:
         raise RuntimeError("No models referenced")
 
     #
     tokenizer_base = get_stripped_tokenizer(
-        base_model.path, trust_remote_code=trust_remote_code
+        base_model.model, trust_remote_code=trust_remote_code
     )
 
     # load all tokenizers
     logging.info("Loading tokenizers")
     tokenizers = {base_model: tokenizer_base}
-    for model in config.referenced_models():
+    for model in referenced_models:
         if model == base_model:
             continue
 
         try:
             model_tok = transformers.AutoTokenizer.from_pretrained(
-                model.path, trust_remote_code=trust_remote_code
+                model.model.path,
+                revision=model.model.revision,
+                trust_remote_code=trust_remote_code,
             )
-        except Exception:
+        except Exception as e:
+            logging.error(e)
             logging.warning(
                 f"Unable to load tokenizer for {model}. Assuming same as {base_model}."
             )
@@ -200,32 +208,32 @@ def build_tokenizer(
 
     logging.info("Building output tokenizer")
     # build final vocabulary
-    if config.tokenizer_source == "base":
+    if tokenizer_source == "base":
         # it done
         tokenizer_out = tokenizer_base
-    elif config.tokenizer_source == "union":
+    elif tokenizer_source == "union":
         tokenizer_out = build_union_tokenizer(
             tokenizer_base, tokenizers, trust_remote_code=trust_remote_code
         )
-    elif config.tokenizer_source.startswith("model:"):
+    elif tokenizer_source.startswith("model:"):
         tokenizer_out = transformers.AutoTokenizer.from_pretrained(
-            config.tokenizer_source[len("model:") :],
+            tokenizer_source[len("model:") :],
             trust_remote_code=trust_remote_code,
         )
     else:
-        raise RuntimeError(f"Unimplemented tokenizer source: {config.tokenizer_source}")
+        raise RuntimeError(f"Unimplemented tokenizer source: {tokenizer_source}")
 
     vocab_out = tokenizer_out.get_vocab()
 
     logging.info("Building permutations")
     permutations = {}
-    for model in tqdm.tqdm(config.referenced_models()):
+    for model in tqdm.tqdm(referenced_models):
         if model in tokenizers:
             model_vocab = tokenizers[model].get_vocab()
         else:
             model_vocab = tokenizers[base_model].get_vocab()
 
-        vocab_size = get_vocab_size(model, trust_remote_code=trust_remote_code)
+        vocab_size = get_vocab_size(model.model, trust_remote_code=trust_remote_code)
         if vocab_size is None:
             vocab_size = len(model_vocab)
 
@@ -248,3 +256,27 @@ def build_tokenizer(
         permutations[model] = p
 
     return tokenizer_out, permutations
+
+
+class TokenizerInfo(BaseModel, arbitrary_types_allowed=True):
+    tokenizer: transformers.PreTrainedTokenizerBase
+    permutations: Optional[Dict[ModelReference, Dict[int, int]]]
+
+
+class BuildTokenizer(Task[TokenizerInfo]):
+    base_model: Optional[ModelReference]
+    referenced_models: Tuple[ModelReference, ...]
+    tokenizer_source: str
+    trust_remote_code: bool = False
+
+    def arguments(self) -> Dict[str, Task]:
+        return {}
+
+    def execute(self, **_kwargs) -> TokenizerInfo:
+        tokenizer, permutations = build_tokenizer(
+            self.base_model,
+            self.referenced_models,
+            self.tokenizer_source,
+            self.trust_remote_code,
+        )
+        return TokenizerInfo(tokenizer=tokenizer, permutations=permutations)

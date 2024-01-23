@@ -13,45 +13,74 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Dict, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
+from torch._tensor import Tensor
 
-from mergekit.common import rectify_embed_sizes
-from mergekit.config import ConfigReader
-from mergekit.graph import TensorReference
-from mergekit.merge_methods.base import MergeMethod
+from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
+from mergekit.graph import Task
+from mergekit.io.tasks import GatherTensors
+from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 
 
-class SlerpMerge(MergeMethod):
-    def __call__(
-        self,
-        parameter_name: str,
-        input_tensors: Dict[TensorReference, torch.Tensor],
-        config: ConfigReader,
-        **kwargs,
-    ) -> torch.Tensor:
-        if len(input_tensors) == 1:
-            return list(input_tensors.values())[0]
-        elif len(input_tensors) != 2:
+class SlerpTask(Task[torch.Tensor]):
+    gather_tensors: GatherTensors
+    base_model: ModelReference
+    t: float
+    parameter_name: str
+
+    def uses_accelerator(self) -> bool:
+        return True
+
+    def arguments(self) -> Dict[str, Task]:
+        return {"tensors": self.gather_tensors}
+
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> Tensor:
+        if len(tensors) == 1:
+            return list(tensors.values())[0]
+        elif len(tensors) != 2:
             raise RuntimeError("Slerp merge expects exactly two models")
+        elif self.base_model not in tensors:
+            raise RuntimeError("Base model not in input tensors")
 
-        [a, b] = list(input_tensors.items())
-        if a[0].model != config.base_model:
+        [a, b] = list(tensors.items())
+        if a[0] != self.base_model:
             [a, b] = [b, a]
         prepped_tensors = [a[1], b[1]]
 
-        rectify_embed_sizes(parameter_name, prepped_tensors)
+        rectify_embed_sizes(self.parameter_name, prepped_tensors)
 
         return (
             slerp(
-                config.parameter("t", required=True),
+                self.t,
                 prepped_tensors[0],
                 prepped_tensors[1],
             )
             .to(prepped_tensors[0].dtype)
             .to(prepped_tensors[0].device)
+        )
+
+
+class SlerpMerge(MergeMethod):
+    def parameters(self) -> List[ConfigParameterDef]:
+        return [ConfigParameterDef(name="t", required=True)]
+
+    def make_task(
+        self,
+        *,
+        output_tensor_name: str,
+        tensors: GatherTensors,
+        parameters: ImmutableMap[str, Any],
+        base_model: Optional[ModelReference],
+        **_kwargs,
+    ) -> Task:
+        return SlerpTask(
+            gather_tensors=tensors,
+            base_model=base_model,
+            parameter_name=output_tensor_name,
+            t=parameters["t"],
         )
 
 
