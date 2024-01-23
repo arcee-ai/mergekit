@@ -266,6 +266,28 @@ CHATGLM_INFO = StaticTensorNames(
     ],
 )
 
+FALCON_INFO = StaticTensorNames(
+    name="FalconForCausalLM",
+    pre_weight_names=["transformer.word_embeddings.weight"],
+    post_weight_names=[
+        "transformer.ln_f.weight",
+        "transformer.ln_f.bias",
+        "lm_head.weight",
+    ],
+    embed_weight_names=["transformer.word_embeddings.weight", "lm_head.weight"],
+    layer_prefix_format="transformer.h.{idx}",
+    layer_weight_suffixes=[
+        "ln_attn.bias",
+        "ln_attn.weight",
+        "ln_mlp.bias",
+        "ln_mlp.weight",
+        "mlp.dense_4h_to_h.weight",
+        "mlp.dense_h_to_4h.weight",
+        "self_attention.dense.weight",
+        "self_attention.query_key_value.weight",
+    ],
+)
+
 
 class PhiTensorNames(ArchitectureInfo):
     architecture_name: str = "MixFormerSequentialForCausalLM"
@@ -421,6 +443,7 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         STABLELM_INFO,
         JAIS_INFO,
         BAICHUAN_INFO,
+        FALCON_INFO,
     ]
     for arch in supported:
         if arch.name == arch_name:
