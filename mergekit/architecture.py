@@ -81,6 +81,15 @@ class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
     def num_layers(self, config: PretrainedConfig) -> int:
         return getattr(config, self.num_layers_config_key())
 
+    def all_weights(self, config: PretrainedConfig) -> List[str]:
+        num_layers = self.num_layers(config)
+        tensor_names = list(self.pre_weights())
+        for layer_idx in range(num_layers):
+            for f in self.layer_weight_formats():
+                tensor_names.append(f.format(idx=layer_idx))
+        tensor_names.extend(self.post_weights())
+        return tensor_names
+
 
 LLAMA_INFO = StaticTensorNames(
     name="LlamaForCausalLM",

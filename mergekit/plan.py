@@ -14,245 +14,246 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional
 
-import torch
-
-import mergekit.merge_methods as merge_methods
+from mergekit import merge_methods
 from mergekit.architecture import ArchitectureInfo
-from mergekit.common import ModelReference
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.config import (
     ConfigReader,
     InputSliceDefinition,
     MergeConfiguration,
     OutputSliceDefinition,
 )
-from mergekit.graph import Operation, TensorReference
+from mergekit.graph import Task
+from mergekit.io.tasks import FinalizeModel, GatherTensors, SaveTensor, TensorWriterTask
 from mergekit.merge_methods import MergeMethod
+from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
+from mergekit.options import MergeOptions
+from mergekit.tokenizer import BuildTokenizer
 
 
-def plan(
-    merge_config: MergeConfiguration,
-    arch_info: ArchitectureInfo,
-    embed_permutations: Optional[Dict[ModelReference, torch.Tensor]] = None,
-    trust_remote_code: bool = False,
-) -> Tuple[List[TensorReference], Dict[TensorReference, Operation]]:
-    layer_idx = 0
+class MergePlanner:
+    config: MergeConfiguration
+    arch_info: ArchitectureInfo
+    clone_tensors: bool
+    trust_remote_code: bool
+    _writer_task: TensorWriterTask
+    _method: MergeMethod
+    _tasks: List[Task] = []
+    _current_layers: int = 0
+    _tokenizer_task: Optional[BuildTokenizer] = None
 
-    targets = []
-    rules = {}
+    def __init__(
+        self,
+        config: MergeConfiguration,
+        arch_info: ArchitectureInfo,
+        out_path: str,
+        options: MergeOptions,
+    ):
+        self.config = config
+        self.arch_info = arch_info
+        self.clone_tensors = options.clone_tensors
+        self.trust_remote_code = options.trust_remote_code
+        self._method = merge_methods.get(config.merge_method)
+        self._writer_task = TensorWriterTask(
+            out_path=out_path,
+            max_shard_size=options.out_shard_size,
+            safe_serialization=options.safe_serialization,
+        )
 
-    method = merge_methods.get(merge_config.merge_method)
-    base_model = (
-        ModelReference.parse(merge_config.base_model)
-        if merge_config.base_model
-        else None
-    )
-
-    # if models to merge are specified instead of output slices, compute them
-    if merge_config.models:
-        if merge_config.slices:
-            raise RuntimeError("Must specify either models to merge or output slices")
-
-        slices_in = []
-        base_included = False
-
-        for model_in in merge_config.models:
-            mref = ModelReference.parse(model_in.model)
-
-            if base_model and mref == base_model:
-                base_included = True
-
-            model_cfg = mref.config(trust_remote_code=trust_remote_code)
-            num_layers = arch_info.num_layers(model_cfg)
-            slices_in.append(
-                InputSliceDefinition(
-                    layer_range=[0, num_layers],
-                    model=model_in.model,
-                    parameters=model_in.parameters,
-                )
+        if config.tokenizer_source:
+            self._tokenizer_task = BuildTokenizer(
+                base_model=config.base_model,
+                referenced_models=tuple(config.referenced_models()),
+                tokenizer_source=config.tokenizer_source,
+                trust_remote_code=options.trust_remote_code,
             )
 
-        if base_model and not base_included:
-            logging.info("Base model specified but not in input models - adding")
-            base_cfg = base_model.config(trust_remote_code=trust_remote_code)
-            num_layers = arch_info.num_layers(base_cfg)
-            slices_in.append(
-                InputSliceDefinition(
-                    layer_range=[0, num_layers],
-                    model=str(base_model),
+    def normalize_config(self):
+        base_model = self.config.base_model
+
+        # if models to merge are specified instead of output slices, compute them
+        if self.config.models:
+            if self.config.slices:
+                raise RuntimeError(
+                    "Must specify either models to merge or output slices"
                 )
+
+            slices_in = []
+            base_included = False
+
+            for model_in in self.config.models:
+                if base_model and model_in.model == base_model:
+                    base_included = True
+
+                model_cfg = model_in.model.config(
+                    trust_remote_code=self.trust_remote_code
+                )
+                num_layers = self.arch_info.num_layers(model_cfg)
+                slices_in.append(
+                    InputSliceDefinition(
+                        layer_range=[0, num_layers],
+                        model=model_in.model,
+                        parameters=model_in.parameters,
+                    )
+                )
+
+            if base_model and not base_included:
+                logging.info("Base model specified but not in input models - adding")
+                base_cfg = base_model.config(trust_remote_code=self.trust_remote_code)
+                num_layers = self.arch_info.num_layers(base_cfg)
+                slices_in.append(
+                    InputSliceDefinition(
+                        layer_range=[0, num_layers],
+                        model=base_model,
+                    )
+                )
+
+            self.config.slices = [OutputSliceDefinition(sources=slices_in)]
+            self.config.models = None
+
+    def plan_tensor(
+        self,
+        name: str,
+        names_in: List[str],
+        models: List[ModelReference],
+        cfg_reader: ConfigReader,
+    ):
+        is_embed = name in self.arch_info.embed_weights()
+        tensor_merge_method = self._method
+        if self._tokenizer_task and is_embed:
+            tensor_merge_method = TokenizerPermutationMerge(
+                tokenizer_task=self._tokenizer_task
             )
 
-        merge_config.slices = [OutputSliceDefinition(sources=slices_in)]
-        merge_config.models = None
+        cfg_g = cfg_reader.for_tensor(name)
+        global_params = {}
+        for p in tensor_merge_method.parameters():
+            global_params[p.name] = cfg_g.parameter(
+                p.name, model=None, required=p.required, default=p.default_value
+            )
 
-    for weight_name in arch_info.pre_weights():
-        is_embed = weight_name in arch_info.embed_weights()
+        tensor_params = {}
+        for model, name_in in zip(models, names_in):
+            is_base = model == cfg_reader.config.base_model
+            tensor_params[model] = {}
+            cfg_m = cfg_reader.for_tensor(name_in)
+            for p in tensor_merge_method.tensor_parameters():
+                tensor_params[model][p.name] = cfg_m.parameter(
+                    p.name,
+                    model=model,
+                    required=p.required and not is_base,
+                    default=p.default_value,
+                )
 
-        tr, op = make_operation(
-            merge_config,
-            weight_name,
-            merge_config.slices[0].sources,
-            t=0,
-            extra_kwargs={"embed_permutations": embed_permutations},
-            function="merge_embed" if (is_embed and embed_permutations) else "merge",
-        )
-        targets.append(tr)
-        rules[tr] = op
-
-    for section in merge_config.slices:
-        (new_targets, new_rules, new_layers) = plan_slice(
-            config=merge_config,
-            definition=section,
-            arch_info=arch_info,
-            layer_base=layer_idx,
-            method=method,
-        )
-
-        targets.extend(new_targets)
-        rules.update(new_rules)
-        layer_idx += new_layers
-
-    for weight_name in arch_info.post_weights():
-        is_embed = weight_name in arch_info.embed_weights()
-        tr, op = make_operation(
-            merge_config,
-            weight_name,
-            merge_config.slices[-1].sources,
-            t=1,
-            extra_kwargs={"embed_permutations": embed_permutations},
-            function="merge_embed" if (is_embed and embed_permutations) else "merge",
-        )
-        targets.append(tr)
-        rules[tr] = op
-
-    return (targets, rules)
-
-
-def make_operation(
-    config: MergeConfiguration,
-    name_out: str,
-    tensor_sources: List[InputSliceDefinition],
-    t: float,
-    names_in: Optional[List[str]] = None,
-    sdef: Optional[OutputSliceDefinition] = None,
-    extra_dependencies: Optional[List[TensorReference]] = None,
-    extra_kwargs: Optional[Dict[str, Any]] = None,
-    function: str = "merge",
-):
-    if names_in is None:
-        names_in = [name_out] * len(tensor_sources)
-
-    input_tensors = []
-    kwargs = {
-        "config": ConfigReader(
-            config=config,
-            tensor_name=name_out,
-            t=t,
-            slice_out=sdef,
-            slices_in=tensor_sources,
-        ),
-        "parameter_name": name_out,
-    }
-    if extra_kwargs:
-        kwargs.update(extra_kwargs)
-
-    for i, s in enumerate(tensor_sources):
-        input_tensors.append(
-            TensorReference(model=ModelReference.parse(s.model), key=names_in[i])
+        gather_tensors = GatherTensors(
+            tensor_names=ImmutableMap(data=dict(zip(models, names_in))),
+            dtype=self.config.dtype,
         )
 
-    if extra_dependencies:
-        input_tensors.extend(extra_dependencies)
-
-    tr = TensorReference(model=None, key=name_out)
-    op = Operation(function=function, inputs=input_tensors, kwargs=kwargs)
-    return tr, op
-
-
-def plan_slice(
-    config: MergeConfiguration,
-    definition: OutputSliceDefinition,
-    arch_info: ArchitectureInfo,
-    layer_base: int,
-    method: MergeMethod,
-) -> Tuple[List[TensorReference], Dict[TensorReference, Operation], int]:
-    slice_indices = get_slice_indices(definition)
-
-    num_layers = len(slice_indices[0])
-
-    rules = {}
-    targets = []
-    for idx in range(num_layers):
-        if num_layers > 1:
-            t = idx / (num_layers - 1)
-        else:
-            t = 1
-
-        plan_layer(
-            config=config,
-            definition=definition,
-            arch_info=arch_info,
-            layer_base=layer_base,
-            slice_indices=slice_indices,
-            method=method,
-            rules=rules,
-            targets=targets,
-            idx=idx,
-            t=t,
+        tensor_task = tensor_merge_method.make_task(
+            output_tensor_name=name,
+            tensors=gather_tensors,
+            parameters=ImmutableMap(data=global_params),
+            tensor_parameters=ImmutableMap(
+                data={
+                    key: ImmutableMap(data=tensor_params[key]) for key in tensor_params
+                }
+            ),
+            base_model=self.config.base_model,
         )
-
-    return targets, rules, num_layers
-
-
-def plan_layer(
-    config: MergeConfiguration,
-    definition: OutputSliceDefinition,
-    arch_info: ArchitectureInfo,
-    layer_base: int,
-    slice_indices: List[List[int]],
-    method: MergeMethod,
-    rules: Dict[TensorReference, Operation],
-    targets: List[TensorReference],
-    idx: int,
-    t: float,
-):
-    extra_dependencies = list(method.general_dependencies())
-    for si, s in enumerate(definition.sources):
-        source_layer_idx = slice_indices[si][idx]
-        source_model = ModelReference.parse(s.model)
-        extra_dependencies.extend(
-            method.input_layer_dependencies(source_model, source_layer_idx)
+        save_task = SaveTensor(
+            tensor_name=name,
+            tensor_task=tensor_task,
+            writer_task=self._writer_task,
+            clone=self.clone_tensors,
         )
+        self._tasks.append(save_task)
 
-    for name_format in arch_info.layer_weight_formats():
-        name_out = name_format.format(idx=layer_base + idx)
-        names_in = [
-            name_format.format(idx=slice_indices[si][idx])
-            for (si, _) in enumerate(definition.sources)
+    def plan_layer(
+        self,
+        sources: List[InputSliceDefinition],
+        layer_offset: int,
+        t: float,
+        cfg_reader: ConfigReader,
+    ):
+        for name_format in self.arch_info.layer_weight_formats():
+            name_out = name_format.format(idx=self._current_layers)
+            names_in = [
+                name_format.format(idx=s.layer_range[0] + layer_offset) for s in sources
+            ]
+
+            self.plan_tensor(
+                name=name_out,
+                names_in=names_in,
+                models=[s.model for s in sources],
+                cfg_reader=cfg_reader.with_t(t),
+            )
+        self._current_layers += 1
+
+    def plan_slice(self, definition: OutputSliceDefinition):
+        slice_lengths = [
+            s.layer_range[1] - s.layer_range[0] for s in definition.sources
         ]
-
-        tr, op = make_operation(
-            config,
-            name_out,
-            definition.sources,
-            t,
-            names_in=names_in,
-            sdef=definition,
-            extra_dependencies=extra_dependencies,
-        )
-        rules[tr] = op
-        targets.append(tr)
-
-
-def get_slice_indices(definition: OutputSliceDefinition):
-    slice_indices = []
-    for s in definition.sources:
-        indices = list(range(s.layer_range[0], s.layer_range[1]))
-        if slice_indices and len(indices) != len(slice_indices[-1]):
+        if not all(s == slice_lengths[0] for s in slice_lengths):
             raise RuntimeError(
                 "All inputs to a slice must contain the same number of layers"
             )
-        slice_indices.append(indices)
-    return slice_indices
+        num_layers = slice_lengths[0]
+
+        cfg_reader = ConfigReader(config=self.config, slice_out=definition, t=0)
+        for idx in range(num_layers):
+            # compute t for interpolated gradients
+            if num_layers > 1:
+                t = idx / (num_layers - 1)
+            else:
+                t = 1
+
+            self.plan_layer(
+                definition.sources,
+                layer_offset=idx,
+                t=t,
+                cfg_reader=cfg_reader,
+            )
+
+    def plan(self):
+        self.normalize_config()
+        self._tasks = []
+
+        for weight_name in self.arch_info.pre_weights():
+            self.plan_tensor(
+                weight_name,
+                [weight_name] * len(self.config.slices[0].sources),
+                [s.model for s in self.config.slices[0].sources],
+                ConfigReader(
+                    config=self.config,
+                    t=0,
+                    tensor_name=weight_name,
+                ).for_out_slice(self.config.slices[0]),
+            )
+
+        for out_slice in self.config.slices:
+            self.plan_slice(out_slice)
+
+        for weight_name in self.arch_info.post_weights():
+            self.plan_tensor(
+                weight_name,
+                [weight_name] * len(self.config.slices[-1].sources),
+                [s.model for s in self.config.slices[-1].sources],
+                ConfigReader(
+                    config=self.config,
+                    t=1,
+                    tensor_name=weight_name,
+                ).for_out_slice(self.config.slices[-1]),
+            )
+
+        self._tasks.append(
+            FinalizeModel(
+                tensor_save_tasks=tuple(self._tasks), writer_task=self._writer_task
+            )
+        )
+        res = list(self._tasks)
+        if self._tokenizer_task:
+            res.append(self._tokenizer_task)
+        return res
