@@ -369,6 +369,24 @@ PHI2_INFO_AGAIN_BUT_DIFFERENT = StaticTensorNames(
 )
 
 
+BAICHUAN_INFO = StaticTensorNames(
+    name="BaichuanForCausalLM",
+    pre_weight_names=["model.embed_tokens.weight"],
+    post_weight_names=["model.norm.weight", "lm_head.weight"],
+    embed_weight_names=["model.embed_tokens.weight", "lm_head.weight"],
+    layer_prefix_format="model.layers.{idx}",
+    layer_weight_suffixes=[
+        "input_layernorm.weight",
+        "self_attn.W_pack.weight",
+        "self_attn.o_proj.weight",
+        "post_attention_layernorm.weight",
+        "mlp.gate_proj.weight",
+        "mlp.down_proj.weight",
+        "mlp.up_proj.weight",
+    ],
+)
+
+
 def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
     if len(config.architectures) != 1:
         raise RuntimeError("More than one architecture in config?")
@@ -393,6 +411,7 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         CHATGLM_INFO,
         STABLELM_INFO,
         JAIS_INFO,
+        BAICHUAN_INFO,
     ]
     for arch in supported:
         if arch.name == arch_name:

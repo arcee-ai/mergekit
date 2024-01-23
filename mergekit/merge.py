@@ -166,7 +166,7 @@ def run_merge(
                 donor_model = merge_config.referenced_models()[0]
 
             transformers.AutoTokenizer.from_pretrained(
-                donor_model.path
+                donor_model.path, trust_remote_code=options.trust_remote_code
             ).save_pretrained(out_path, safe_serialization=True)
         except Exception as e:
             logging.error(
