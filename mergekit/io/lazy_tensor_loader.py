@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -137,3 +137,7 @@ class LazyTensorLoader:
             )
 
         return self.current_shard.get_tensor(key).to(device)
+
+    def flush(self):
+        self.current_shard = None
+        self.current_keys = None

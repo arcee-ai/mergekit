@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -80,6 +80,15 @@ class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
 
     def num_layers(self, config: PretrainedConfig) -> int:
         return getattr(config, self.num_layers_config_key())
+
+    def all_weights(self, config: PretrainedConfig) -> List[str]:
+        num_layers = self.num_layers(config)
+        tensor_names = list(self.pre_weights())
+        for layer_idx in range(num_layers):
+            for f in self.layer_weight_formats():
+                tensor_names.append(f.format(idx=layer_idx))
+        tensor_names.extend(self.post_weights())
+        return tensor_names
 
 
 LLAMA_INFO = StaticTensorNames(
@@ -167,6 +176,31 @@ GPT2_INFO = StaticTensorNames(
         "mlp.c_proj.bias",
         "mlp.c_fc.weight",
         "mlp.c_fc.bias",
+        "mlp.c_proj.weight",
+        "mlp.c_proj.bias",
+    ],
+    num_layers_key="n_layer",
+)
+
+JAIS_INFO = StaticTensorNames(
+    name="JAISLMHeadModel",
+    pre_weight_names=["transformer.wte.weight", "transformer.relative_pe.slopes"],
+    post_weight_names=["transformer.ln_f.weight", "transformer.ln_f.bias"],
+    embed_weight_names=["transformer.wte.weight"],
+    layer_prefix_format="transformer.h.{idx}",
+    layer_weight_suffixes=[
+        "attn.c_attn.weight",
+        "attn.c_attn.bias",
+        "attn.c_proj.weight",
+        "attn.c_proj.bias",
+        "ln_1.weight",
+        "ln_1.bias",
+        "ln_2.weight",
+        "ln_2.bias",
+        "mlp.c_fc.weight",
+        "mlp.c_fc.bias",
+        "mlp.c_fc2.weight",
+        "mlp.c_fc2.bias",
         "mlp.c_proj.weight",
         "mlp.c_proj.bias",
     ],
@@ -261,6 +295,11 @@ class PhiTensorNames(ArchitectureInfo):
     def __init__(self, config: PretrainedConfig):
         self.config = config
 
+    def __eq__(self, rhs: "PhiTensorNames"):
+        if not isinstance(rhs, PhiTensorNames):
+            return False
+        return self.num_layers() == rhs.num_layers()
+
     def pre_weights(self) -> List[str]:
         return ["layers.0.wte.weight"]
 
@@ -304,6 +343,81 @@ class PhiTensorNames(ArchitectureInfo):
         return "n_layer"
 
 
+PHI2_INFO = StaticTensorNames(
+    name="PhiForCausalLM",
+    pre_weight_names=["transformer.embd.wte.weight"],
+    post_weight_names=[
+        "lm_head.linear.bias",
+        "lm_head.linear.weight",
+        "lm_head.ln.bias",
+        "lm_head.ln.weight",
+    ],
+    embed_weight_names=["lm_head.linear.weight", "transformer.embd.wte.weight"],
+    layer_prefix_format="transformer.h.{idx}",
+    layer_weight_suffixes=[
+        "ln.bias",
+        "ln.weight",
+        "mixer.out_proj.bias",
+        "mixer.out_proj.weight",
+        "mixer.Wqkv.bias",
+        "mixer.Wqkv.weight",
+        "mlp.fc1.bias",
+        "mlp.fc1.weight",
+        "mlp.fc2.bias",
+        "mlp.fc2.weight",
+    ],
+    num_layers_key="n_layer",
+)
+
+
+PHI2_INFO_AGAIN_BUT_DIFFERENT = StaticTensorNames(
+    name="PhiForCausalLM",
+    pre_weight_names=["model.embed_tokens.weight"],
+    post_weight_names=[
+        "lm_head.bias",
+        "lm_head.weight",
+        "model.final_layernorm.bias",
+        "model.final_layernorm.weight",
+    ],
+    embed_weight_names=["lm_head.weight", "model.embed_tokens.weight"],
+    layer_prefix_format="model.layers.{idx}",
+    layer_weight_suffixes=[
+        "input_layernorm.bias",
+        "input_layernorm.weight",
+        "self_attn.dense.bias",
+        "self_attn.dense.weight",
+        "self_attn.q_proj.bias",
+        "self_attn.q_proj.weight",
+        "self_attn.k_proj.bias",
+        "self_attn.k_proj.weight",
+        "self_attn.v_proj.bias",
+        "self_attn.v_proj.weight",
+        "mlp.fc1.bias",
+        "mlp.fc1.weight",
+        "mlp.fc2.bias",
+        "mlp.fc2.weight",
+    ],
+)
+
+
+BAICHUAN_INFO = StaticTensorNames(
+    name="BaichuanForCausalLM",
+    pre_weight_names=["model.embed_tokens.weight"],
+    post_weight_names=["model.norm.weight", "lm_head.weight"],
+    embed_weight_names=["model.embed_tokens.weight", "lm_head.weight"],
+    layer_prefix_format="model.layers.{idx}",
+    layer_weight_suffixes=[
+        "input_layernorm.weight",
+        "self_attn.W_pack.weight",
+        "self_attn.o_proj.weight",
+        "post_attention_layernorm.weight",
+        "mlp.gate_proj.weight",
+        "mlp.down_proj.weight",
+        "mlp.up_proj.weight",
+    ],
+)
+
+
 def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
     if len(config.architectures) != 1:
         raise RuntimeError("More than one architecture in config?")
@@ -311,6 +425,12 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
     arch_name = config.architectures[0]
     if arch_name == PhiTensorNames.architecture_name:
         return PhiTensorNames(config)
+
+    if arch_name == PHI2_INFO.name:
+        if config.model_type == "phi-msft":
+            return PHI2_INFO
+        elif config.model_type == "phi":
+            return PHI2_INFO_AGAIN_BUT_DIFFERENT
 
     supported = [
         LLAMA_INFO,
@@ -321,6 +441,8 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         GPT2_SEQCLASS_INFO,
         CHATGLM_INFO,
         STABLELM_INFO,
+        JAIS_INFO,
+        BAICHUAN_INFO,
         FALCON_INFO,
     ]
     for arch in supported:

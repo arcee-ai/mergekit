@@ -1,4 +1,4 @@
-# Copyright (C) 2023 Charles O. Goddard
+# Copyright (C) 2024 Charles O. Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -20,4 +20,9 @@ from mergekit.io.lazy_tensor_loader import (
 )
 from mergekit.io.tensor_writer import TensorWriter
 
-__all__ = ["LazyTensorLoader", "ShardedTensorIndex", "ShardInfo", "TensorWriter"]
+__all__ = [
+    "LazyTensorLoader",
+    "ShardedTensorIndex",
+    "ShardInfo",
+    "TensorWriter",
+]
