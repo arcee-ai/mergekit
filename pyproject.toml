@@ -41,7 +41,12 @@ mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
 bakllama = "mergekit.scripts.bakllama:main"
 
 [tool.setuptools]
-packages = ["mergekit"]
+packages = [
+    "mergekit",
+    "mergekit.io",
+    "mergekit.merge_methods",
+    "mergekit.scripts",
+]
 
 [tool.isort]
 profile = "black"
