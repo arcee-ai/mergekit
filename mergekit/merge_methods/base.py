@@ -14,50 +14,36 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 from abc import ABC, abstractmethod
-from typing import Dict, Sequence
+from typing import Any, List, Optional
 
-import torch
-from transformers import PretrainedConfig
+from pydantic import BaseModel
 
-from mergekit.common import ModelReference
-from mergekit.config import ConfigReader, MergeConfiguration
-from mergekit.graph import TensorReference
+from mergekit.common import ImmutableMap, ModelReference
+from mergekit.graph import Task
+from mergekit.io.tasks import GatherTensors
+
+
+class ConfigParameterDef(BaseModel):
+    name: str
+    required: bool = False
+    default_value: Any = None
 
 
 class MergeMethod(ABC):
+    def tensor_parameters(self) -> List[ConfigParameterDef]:
+        return []
+
+    def parameters(self) -> List[ConfigParameterDef]:
+        return []
+
     @abstractmethod
-    def __call__(
+    def make_task(
         self,
-        parameter_name: str,
-        input_tensors: Dict[TensorReference, torch.Tensor],
-        config: ConfigReader,
-        **kwargs,
-    ) -> torch.Tensor:
+        *,
+        output_tensor_name: str,
+        tensors: GatherTensors,
+        parameters: ImmutableMap[str, Any],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
+        base_model: Optional[ModelReference],
+    ) -> Task:
         ...
-
-    def general_dependencies(self) -> Sequence[TensorReference]:
-        """List any tensors necessary for *every* merge operation"""
-        return []
-
-    def input_layer_dependencies(
-        self, model: ModelReference, layer_idx: int
-    ) -> Sequence[TensorReference]:
-        """List any tensors necessary when input includes a specific layer"""
-        return []
-
-    def model_out_config(
-        self, config: MergeConfiguration, trust_remote_code: bool = False
-    ) -> PretrainedConfig:
-        """Return a configuration for the resulting model."""
-        if config.base_model:
-            res = ModelReference.parse(config.base_model).config(
-                trust_remote_code=trust_remote_code
-            )
-        else:
-            res = config.referenced_models()[0].config(
-                trust_remote_code=trust_remote_code
-            )
-
-        if config.dtype:
-            res.torch_dtype = config.dtype
-        return res
