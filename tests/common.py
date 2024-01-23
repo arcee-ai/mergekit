@@ -2,8 +2,9 @@ import os
 import tempfile
 from typing import Callable, Optional
 
-from transformers import LlamaConfig, LlamaForCausalLM
+from transformers import AutoConfig, LlamaConfig, LlamaForCausalLM
 
+from mergekit.architecture import get_architecture_info
 from mergekit.config import MergeConfiguration
 from mergekit.io.lazy_tensor_loader import LazyTensorLoader, ShardedTensorIndex
 from mergekit.merge import MergeOptions, run_merge
@@ -12,6 +13,7 @@ from mergekit.merge import MergeOptions, run_merge
 def run_and_check_merge(
     config: MergeConfiguration,
     check_nan: bool = True,
+    check_tensors: bool = True,
     validate: Optional[Callable[[str], None]] = None,
     index_json_name: Optional[str] = None,
 ):
@@ -38,6 +40,15 @@ def run_and_check_merge(
                 tensor = loader.get_tensor(tensor_name)
                 has_nan = tensor.view(-1).isnan().any()
                 assert not has_nan, "Output contains NaN"
+
+        if check_tensors:
+            config = AutoConfig.from_pretrained(tmpdir)
+            arch_info = get_architecture_info(config)
+
+            index = ShardedTensorIndex.from_disk(tmpdir)
+            for tensor_name in arch_info.all_weights(config):
+                if tensor_name not in index.tensor_paths:
+                    raise RuntimeError(f"Output missing tensor {tensor_name}")
 
         if validate:
             validate(tmpdir)
