@@ -155,7 +155,8 @@ def get_gate_params(
 
     elif mode in ("hidden", "hidden_avg", "hidden_last"):
         model = AutoModelForCausalLM.from_pretrained(
-            model_ref.path,
+            model_ref.model.path,
+            revision=model_ref.model.revision,
             torch_dtype=torch.bfloat16,
             device_map=device,
             low_cpu_mem_usage=True,
@@ -357,7 +358,9 @@ def build(
                 tensor_name, base_loader.get_tensor(tensor_name).to(dtype=out_dtype)
             )
 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(base_model.path)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(
+        base_model.model.path, revision=base_model.model.revision
+    )
     tokenizer.padding_side = "left"
     tokenizer.pad_token_id = tokenizer.bos_token_id
 
