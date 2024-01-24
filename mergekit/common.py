@@ -174,7 +174,7 @@ class ModelReference(BaseModel, frozen=True):
 
 def dtype_from_name(name: Optional[str]) -> torch.dtype:
     if name.startswith("torch."):
-        name = name.removeprefix("torch.")
+        name = name[len("torch.") :]
 
     if name == "bfloat16":
         return torch.bfloat16
