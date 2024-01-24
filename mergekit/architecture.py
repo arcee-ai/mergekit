@@ -81,6 +81,15 @@ class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
     def num_layers(self, config: PretrainedConfig) -> int:
         return getattr(config, self.num_layers_config_key())
 
+    def all_weights(self, config: PretrainedConfig) -> List[str]:
+        num_layers = self.num_layers(config)
+        tensor_names = list(self.pre_weights())
+        for layer_idx in range(num_layers):
+            for f in self.layer_weight_formats():
+                tensor_names.append(f.format(idx=layer_idx))
+        tensor_names.extend(self.post_weights())
+        return tensor_names
+
 
 LLAMA_INFO = StaticTensorNames(
     name="LlamaForCausalLM",
@@ -257,6 +266,28 @@ CHATGLM_INFO = StaticTensorNames(
     ],
 )
 
+FALCON_INFO = StaticTensorNames(
+    name="FalconForCausalLM",
+    pre_weight_names=["transformer.word_embeddings.weight"],
+    post_weight_names=[
+        "transformer.ln_f.weight",
+        "transformer.ln_f.bias",
+        "lm_head.weight",
+    ],
+    embed_weight_names=["transformer.word_embeddings.weight", "lm_head.weight"],
+    layer_prefix_format="transformer.h.{idx}",
+    layer_weight_suffixes=[
+        "ln_attn.bias",
+        "ln_attn.weight",
+        "ln_mlp.bias",
+        "ln_mlp.weight",
+        "mlp.dense_4h_to_h.weight",
+        "mlp.dense_h_to_4h.weight",
+        "self_attention.dense.weight",
+        "self_attention.query_key_value.weight",
+    ],
+)
+
 
 class PhiTensorNames(ArchitectureInfo):
     architecture_name: str = "MixFormerSequentialForCausalLM"
@@ -369,6 +400,24 @@ PHI2_INFO_AGAIN_BUT_DIFFERENT = StaticTensorNames(
 )
 
 
+BAICHUAN_INFO = StaticTensorNames(
+    name="BaichuanForCausalLM",
+    pre_weight_names=["model.embed_tokens.weight"],
+    post_weight_names=["model.norm.weight", "lm_head.weight"],
+    embed_weight_names=["model.embed_tokens.weight", "lm_head.weight"],
+    layer_prefix_format="model.layers.{idx}",
+    layer_weight_suffixes=[
+        "input_layernorm.weight",
+        "self_attn.W_pack.weight",
+        "self_attn.o_proj.weight",
+        "post_attention_layernorm.weight",
+        "mlp.gate_proj.weight",
+        "mlp.down_proj.weight",
+        "mlp.up_proj.weight",
+    ],
+)
+
+
 def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
     if len(config.architectures) != 1:
         raise RuntimeError("More than one architecture in config?")
@@ -393,6 +442,8 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         CHATGLM_INFO,
         STABLELM_INFO,
         JAIS_INFO,
+        BAICHUAN_INFO,
+        FALCON_INFO,
     ]
     for arch in supported:
         if arch.name == arch_name:

@@ -7,7 +7,7 @@ name = "mergekit"
 description = "Tools for merging pre-trained large language models"
 readme = "README.md"
 license = { text = "LGPL-3.0-or-later" }
-version = "0.0.3.2"
+version = "0.0.4"
 authors = [{ name = "Charles Goddard", email = "chargoddard@gmail.com" }]
 dependencies = [
     "torch>=2.0.0",
@@ -16,6 +16,7 @@ dependencies = [
     "safetensors==0.4.1",
     "accelerate==0.25.0",
     "pydantic==2.5.3",
+    "immutables==0.20",
     "transformers",
     "huggingface_hub",
     "peft",
@@ -40,7 +41,12 @@ mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
 bakllama = "mergekit.scripts.bakllama:main"
 
 [tool.setuptools]
-packages = ["mergekit"]
+packages = [
+    "mergekit",
+    "mergekit.io",
+    "mergekit.merge_methods",
+    "mergekit.scripts",
+]
 
 [tool.isort]
 profile = "black"
