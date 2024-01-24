@@ -290,7 +290,9 @@ def build(
 
     base_loader = loaders.get(base_model)
     writer = TensorWriter(
-        out_path=out_path, max_shard_size=merge_options.out_shard_size
+        out_path=out_path,
+        max_shard_size=merge_options.out_shard_size,
+        safe_serialization=merge_options.safe_serialization,
     )
 
     if config.dtype:
