@@ -176,7 +176,7 @@ def build_tokenizer(
     trust_remote_code: bool,
 ) -> Tuple[transformers.PreTrainedTokenizer, Dict[ModelReference, torch.IntTensor]]:
     if base_model is None:
-        base_model = referenced_models()[0]
+        base_model = referenced_models[0]
     if base_model is None:
         raise RuntimeError("No models referenced")
 
