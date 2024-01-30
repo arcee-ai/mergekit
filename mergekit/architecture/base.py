@@ -59,13 +59,13 @@ class ModuleArchitecture(ABC):
         """Key in config that represents number of layers"""
         return "num_hidden_layers"
 
-    def all_weights(self) -> List[str]:
+    def all_weights(self) -> List[WeightInfo]:
         num_layers = self.num_layers()
-        tensor_names = list(self.pre_weights())
+        res = list(self.pre_weights())
         for layer_idx in range(num_layers):
-            tensor_names.extend(self.layer_weights(index=layer_idx))
-        tensor_names.extend(self.post_weights())
-        return [ti.name if isinstance(ti, WeightInfo) else ti for ti in tensor_names]
+            res.extend(self.layer_weights(index=layer_idx))
+        res.extend(self.post_weights())
+        return res
 
 
 class ModuleDefinition(BaseModel, frozen=True, arbitrary_types_allowed=True):
@@ -75,16 +75,20 @@ class ModuleDefinition(BaseModel, frozen=True, arbitrary_types_allowed=True):
     subfolder: Optional[str] = None
 
 
-class ModelArchitecture(BaseModel, frozen=True, arbitrary_types_allowed=True):
+class ModelArchitecture(BaseModel, frozen=True):
     modules: Dict[str, ModuleDefinition]
 
-    def all_weights(self) -> List[str]:
-        tensor_names = []
+    def all_weights(self) -> List[WeightInfo]:
+        res = []
         for module in self.modules.values():
-            prefix = module.weight_prefix or ""
-            for name in module.architecture.all_weights():
-                tensor_names.append(prefix + name)
-        return tensor_names
+            for weight_info in module.architecture.all_weights():
+                res.append(
+                    WeightInfo(
+                        name=weight_info.prefixed_name(module.weight_prefix),
+                        is_embed=weight_info.is_embed,
+                    )
+                )
+        return res
 
 
 class StaticLayeredModuleArchitecture(ModuleArchitecture, BaseModel, frozen=True):

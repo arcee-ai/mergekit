@@ -46,9 +46,9 @@ def run_and_check_merge(
             arch_info = get_architecture_info(config)
 
             index = ShardedTensorIndex.from_disk(tmpdir)
-            for tensor_name in arch_info.all_weights():
-                if tensor_name not in index.tensor_paths:
-                    raise RuntimeError(f"Output missing tensor {tensor_name}")
+            for weight_info in arch_info.all_weights():
+                if weight_info.name not in index.tensor_paths:
+                    raise RuntimeError(f"Output missing tensor {weight_info.name}")
 
         if validate:
             validate(tmpdir)
