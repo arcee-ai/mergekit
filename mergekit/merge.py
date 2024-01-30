@@ -20,7 +20,7 @@ from typing import Optional
 import tqdm
 import transformers
 
-from mergekit.architecture import ArchitectureInfo, get_architecture_info
+from mergekit.architecture import ModelArchitecture, get_architecture_info
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
@@ -141,7 +141,7 @@ def _get_donor_tokenizer(
 
 def _model_out_config(
     config: MergeConfiguration,
-    arch_info: ArchitectureInfo,
+    arch_info: ModelArchitecture,
     tokenizer: Optional[transformers.PreTrainedTokenizerBase] = None,
     trust_remote_code: bool = False,
 ) -> transformers.PretrainedConfig:
@@ -162,17 +162,23 @@ def _model_out_config(
                 exc_info=e,
             )
 
-    try:
-        num_layers = sum(
-            s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
-            for s in config.slices
-        )
-        setattr(res, arch_info.num_layers_config_key(), num_layers)
-    except Exception as e:
-        logging.warning(
-            "Unable to set number of layers in output config - you may need to manually correct it.",
-            exc_info=e,
-        )
+    for module_name, module_def in config.modules.items():
+        module_info = arch_info.modules[module_name]
+        cfg_key = (
+            module_info.config_prefix or ""
+        ) + module_info.architecture.num_layers_config_key()
+        try:
+            num_layers = sum(
+                s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+                for s in module_def.slices
+            )
+            setattr(res, cfg_key, num_layers)
+        except Exception as e:
+            logging.warning(
+                f"Unable to set number of layers for module {module_name} in output config "
+                "- you may need to manually correct it.",
+                exc_info=e,
+            )
 
     return res
 

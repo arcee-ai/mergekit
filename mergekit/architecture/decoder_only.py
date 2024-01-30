@@ -13,85 +13,17 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from abc import ABC, abstractmethod
-from typing import ClassVar, List, Optional
+from typing import List, Optional
 
-from pydantic import BaseModel
 from transformers import PretrainedConfig
 
+from mergekit.architecture.base import (
+    ModuleArchitecture,
+    StaticLayeredModuleArchitecture,
+    WeightInfo,
+)
 
-class ArchitectureInfo(ABC):
-    @abstractmethod
-    def pre_weights(self) -> List[str]:
-        """Return a list of all weights preceding the first layer."""
-        ...
-
-    @abstractmethod
-    def post_weights(self) -> List[str]:
-        """Return a list of all weights following the final layer."""
-        ...
-
-    @abstractmethod
-    def layer_weight_formats(self) -> List[str]:
-        """Return a list of format strings all weights associated with a layer."""
-        ...
-
-    @abstractmethod
-    def embed_weights(self) -> List[str]:
-        ...
-
-    def num_layers(self, config: PretrainedConfig) -> int:
-        return config.num_hidden_layers
-
-    def num_layers_config_key(self) -> str:
-        """Key in config that represents number of layers"""
-        return "num_hidden_layers"
-
-
-class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
-    name: str
-
-    pre_weight_names: List[str]  # weights applied before first layer
-    post_weight_names: List[str]  # weights applied after last layer
-    embed_weight_names: List[str]  # weights for embed/lm_head
-    layer_prefix_format: str
-    layer_weight_suffixes: List[str]
-    num_layers_key: Optional[str] = None
-
-    def pre_weights(self) -> List[str]:
-        return self.pre_weight_names
-
-    def post_weights(self) -> List[str]:
-        return self.post_weight_names
-
-    def embed_weights(self) -> List[str]:
-        return self.embed_weight_names
-
-    def layer_weight_formats(self) -> List[str]:
-        res = []
-        for suffix in self.layer_weight_suffixes:
-            res.append(self.layer_prefix_format + "." + suffix)
-        return res
-
-    def num_layers_config_key(self) -> str:
-        if self.num_layers_key:
-            return self.num_layers_key
-        return super().num_layers_config_key()
-
-    def num_layers(self, config: PretrainedConfig) -> int:
-        return getattr(config, self.num_layers_config_key())
-
-    def all_weights(self, config: PretrainedConfig) -> List[str]:
-        num_layers = self.num_layers(config)
-        tensor_names = list(self.pre_weights())
-        for layer_idx in range(num_layers):
-            for f in self.layer_weight_formats():
-                tensor_names.append(f.format(idx=layer_idx))
-        tensor_names.extend(self.post_weights())
-        return tensor_names
-
-
-LLAMA_INFO = StaticTensorNames(
+LLAMA_INFO = StaticLayeredModuleArchitecture(
     name="LlamaForCausalLM",
     pre_weight_names=["model.embed_tokens.weight"],
     post_weight_names=["model.norm.weight", "lm_head.weight"],
@@ -110,48 +42,14 @@ LLAMA_INFO = StaticTensorNames(
     ],
 )
 
-MISTRAL_INFO = StaticTensorNames(
+MISTRAL_INFO = StaticLayeredModuleArchitecture(
     name="MistralForCausalLM",
     # lol
     **LLAMA_INFO.model_dump(exclude=["name"]),
 )
 
 
-class MixtralTensorNames(ArchitectureInfo, BaseModel):
-    ARCHITECTURE_NAME: ClassVar[str] = "MixtralForCausalLM"
-    num_local_experts: int
-
-    @classmethod
-    def from_config(cls, config: PretrainedConfig):
-        return MixtralTensorNames(num_local_experts=config.num_local_experts)
-
-    def pre_weights(self) -> List[str]:
-        return MISTRAL_INFO.pre_weights()
-
-    def post_weights(self) -> List[str]:
-        return MISTRAL_INFO.post_weights()
-
-    def embed_weights(self) -> List[str]:
-        return MISTRAL_INFO.embed_weights()
-
-    def num_layers_config_key(self) -> str:
-        return MISTRAL_INFO.num_layers_config_key()
-
-    def layer_weight_formats(self) -> List[str]:
-        num_experts = self.num_local_experts
-        res = [fmt for fmt in MISTRAL_INFO.layer_weight_formats() if ".mlp." not in fmt]
-        for expert_idx in range(num_experts):
-            for param in ("w1", "w2", "w3"):
-                fmt = (
-                    MISTRAL_INFO.layer_prefix_format
-                    + f".block_sparse_moe.experts.{expert_idx}.{param}.weight"
-                )
-                res.append(fmt)
-        res.append(MISTRAL_INFO.layer_prefix_format + ".block_sparse_moe.gate.weight")
-        return res
-
-
-STABLELM_INFO = StaticTensorNames(
+STABLELM_INFO = StaticLayeredModuleArchitecture(
     name="StableLMEpochForCausalLM",
     post_weight_names=LLAMA_INFO.post_weight_names + ["model.norm.bias"],
     layer_weight_suffixes=LLAMA_INFO.layer_weight_suffixes
@@ -164,7 +62,7 @@ STABLELM_INFO = StaticTensorNames(
     ),
 )
 
-GPT_NEOX_INFO = StaticTensorNames(
+GPT_NEOX_INFO = StaticLayeredModuleArchitecture(
     name="GPTNeoXForCausalLM",
     pre_weight_names=["gpt_neox.embed_in.weight"],
     post_weight_names=[
@@ -191,7 +89,7 @@ GPT_NEOX_INFO = StaticTensorNames(
     + ["attention.bias", "attention.masked_bias", "attention.rotary_emb.inv_freq"],
 )
 
-GPT2_INFO = StaticTensorNames(
+GPT2_INFO = StaticLayeredModuleArchitecture(
     name="GPT2LMHeadModel",
     pre_weight_names=["wte.weight", "wpe.weight"],
     post_weight_names=["ln_f.weight", "ln_f.bias"],
@@ -216,7 +114,7 @@ GPT2_INFO = StaticTensorNames(
     num_layers_key="n_layer",
 )
 
-JAIS_INFO = StaticTensorNames(
+JAIS_INFO = StaticLayeredModuleArchitecture(
     name="JAISLMHeadModel",
     pre_weight_names=["transformer.wte.weight", "transformer.relative_pe.slopes"],
     post_weight_names=["transformer.ln_f.weight", "transformer.ln_f.bias"],
@@ -241,7 +139,7 @@ JAIS_INFO = StaticTensorNames(
     num_layers_key="n_layer",
 )
 
-GPT2_SEQCLASS_INFO = StaticTensorNames(
+GPT2_SEQCLASS_INFO = StaticLayeredModuleArchitecture(
     name="GPT2ForSequenceClassification",
     pre_weight_names=["transformer.wte.weight", "transformer.wpe.weight"],
     post_weight_names=[
@@ -256,7 +154,7 @@ GPT2_SEQCLASS_INFO = StaticTensorNames(
 )
 
 
-QWEN_INFO = StaticTensorNames(
+QWEN_INFO = StaticLayeredModuleArchitecture(
     name="QWenLMHeadModel",
     pre_weight_names=["transformer.wte.weight"],
     post_weight_names=["transformer.ln_f.weight", "lm_head.weight"],
@@ -274,7 +172,7 @@ QWEN_INFO = StaticTensorNames(
     ],
 )
 
-CHATGLM_INFO = StaticTensorNames(
+CHATGLM_INFO = StaticLayeredModuleArchitecture(
     name="ChatGLMModel",
     pre_weight_names=[
         "transformer.embedding.word_embeddings.weight",
@@ -300,57 +198,37 @@ CHATGLM_INFO = StaticTensorNames(
     ],
 )
 
-FALCON_INFO = StaticTensorNames(
-    name="FalconForCausalLM",
-    pre_weight_names=["transformer.word_embeddings.weight"],
-    post_weight_names=[
-        "transformer.ln_f.weight",
-        "transformer.ln_f.bias",
-        "lm_head.weight",
-    ],
-    embed_weight_names=["transformer.word_embeddings.weight", "lm_head.weight"],
-    layer_prefix_format="transformer.h.{idx}",
-    layer_weight_suffixes=[
-        "ln_attn.bias",
-        "ln_attn.weight",
-        "ln_mlp.bias",
-        "ln_mlp.weight",
-        "mlp.dense_4h_to_h.weight",
-        "mlp.dense_h_to_4h.weight",
-        "self_attention.dense.weight",
-        "self_attention.query_key_value.weight",
-    ],
-)
 
+class PhiDecoderArchitecture(ModuleArchitecture):
+    architecture_name: str = "MixFormerSequentialForCausalLM"
+    num_configured_layers: int
 
-class PhiTensorNames(ArchitectureInfo, BaseModel):
-    ARCHITECTURE_NAME: ClassVar[str] = "MixFormerSequentialForCausalLM"
-    n_layer: int
+    def __init__(self, config: PretrainedConfig):
+        self.num_configured_layers = getattr(config, self.num_layers_config_key)
 
-    def from_config(cls, config: PretrainedConfig):
-        return PhiTensorNames(n_layer=config.n_layer)
+    def __eq__(self, rhs: ModuleArchitecture):
+        if not isinstance(rhs, PhiDecoderArchitecture):
+            return False
+        return self.num_layers() == rhs.num_layers()
 
-    def pre_weights(self) -> List[str]:
-        return ["layers.0.wte.weight"]
+    def pre_weights(self) -> List[WeightInfo]:
+        return [WeightInfo(name="layers.0.wte.weight", is_embed=True)]
 
-    def post_weights(self) -> List[str]:
-        fake_layer_idx = self.n_layer
+    def post_weights(self) -> List[WeightInfo]:
+        fake_layer_idx = self.num_configured_layers + 1
         return [
-            f"layers.{fake_layer_idx}.{suffix}"
+            WeightInfo(
+                name=f"layers.{fake_layer_idx}.{suffix}", is_embed="linear" in suffix
+            )
             for suffix in ["linear.bias", "linear.weight", "ln.bias", "ln.weight"]
         ]
 
-    def embed_weights(self) -> List[str]:
-        fake_layer_idx = self.n_layer
-        return [
-            "layers.0.wte.weight",
-            f"layers.{fake_layer_idx}.linear.weight",
-            f"layers.{fake_layer_idx}.linear.bias",
-        ]
+    def num_layers(self, config: PretrainedConfig) -> int:
+        return self.num_configured_layers
 
-    def layer_weight_formats(self) -> List[str]:
+    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
         return [
-            ("layers.{idx}." + suffix)
+            WeightInfo(name=("layers.{idx}." + suffix).format(idx=index))
             for suffix in [
                 "ln.bias",
                 "ln.weight",
@@ -366,14 +244,14 @@ class PhiTensorNames(ArchitectureInfo, BaseModel):
             ]
         ]
 
-    def num_layers(self, config: PretrainedConfig) -> int:
-        return config.n_layer
+    def slicable(self) -> bool:
+        return True
 
     def num_layers_config_key(self) -> str:
         return "n_layer"
 
 
-PHI2_INFO = StaticTensorNames(
+PHI2_INFO = StaticLayeredModuleArchitecture(
     name="PhiForCausalLM",
     pre_weight_names=["transformer.embd.wte.weight"],
     post_weight_names=[
@@ -400,7 +278,7 @@ PHI2_INFO = StaticTensorNames(
 )
 
 
-PHI2_INFO_AGAIN_BUT_DIFFERENT = StaticTensorNames(
+PHI2_INFO_AGAIN_BUT_DIFFERENT = StaticLayeredModuleArchitecture(
     name="PhiForCausalLM",
     pre_weight_names=["model.embed_tokens.weight"],
     post_weight_names=[
@@ -430,33 +308,11 @@ PHI2_INFO_AGAIN_BUT_DIFFERENT = StaticTensorNames(
 )
 
 
-BAICHUAN_INFO = StaticTensorNames(
-    name="BaichuanForCausalLM",
-    pre_weight_names=["model.embed_tokens.weight"],
-    post_weight_names=["model.norm.weight", "lm_head.weight"],
-    embed_weight_names=["model.embed_tokens.weight", "lm_head.weight"],
-    layer_prefix_format="model.layers.{idx}",
-    layer_weight_suffixes=[
-        "input_layernorm.weight",
-        "self_attn.W_pack.weight",
-        "self_attn.o_proj.weight",
-        "post_attention_layernorm.weight",
-        "mlp.gate_proj.weight",
-        "mlp.down_proj.weight",
-        "mlp.up_proj.weight",
-    ],
-)
-
-
-def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
-    if len(config.architectures) != 1:
-        raise RuntimeError("More than one architecture in config?")
-
-    arch_name = config.architectures[0]
-    if arch_name == PhiTensorNames.ARCHITECTURE_NAME:
-        return PhiTensorNames.from_config(config)
-    if arch_name == MixtralTensorNames.ARCHITECTURE_NAME:
-        return MixtralTensorNames.from_config(config)
+def get_decoder_only_arch(
+    arch_name: str, config: PretrainedConfig
+) -> Optional[ModuleArchitecture]:
+    if arch_name == PhiDecoderArchitecture.architecture_name:
+        return PhiDecoderArchitecture(config)
 
     if arch_name == PHI2_INFO.name:
         if config.model_type == "phi-msft":
@@ -474,11 +330,7 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         CHATGLM_INFO,
         STABLELM_INFO,
         JAIS_INFO,
-        BAICHUAN_INFO,
-        FALCON_INFO,
     ]
     for arch in supported:
         if arch.name == arch_name:
             return arch
-
-    raise RuntimeError(f"Unsupported architecture {arch_name}")
