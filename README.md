@@ -37,7 +37,22 @@ The script `mergekit-yaml` is the main entry point for `mergekit`. It takes a YA
 mergekit-yaml path/to/your/config.yml ./output-model-directory [--cuda] [--lazy-unpickle] [--allow-crimes] [... other options]
 ```
 
+This will run the merge and write your merged model to `./output-model-directory`.
+
 For more information on the arguments accepted by `mergekit-yaml` run the command `mergekit-yaml --help`.
+
+### Uploading to Huggingface
+
+When you have a merged model you're happy with, you may want to share it on the Hugging Face hub. `mergekit` generates a `README.md` for your merge with some basic information for a model card. You can edit it to include more details about your merge, like giving it a good name or explaining what it's good at; rewrite it entirely; or you can use the generated `README.md` as-is.
+
+Once you're happy with your model card uploading is simple:
+
+```
+# log in to huggingface with an access token (must have write permission)
+huggingface-cli login
+# upload your model
+huggingface-cli upload your_hf_username/my-cool-model ./output-model-directory .
+```
 
 ## Merge Configuration
 
