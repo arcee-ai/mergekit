@@ -43,9 +43,9 @@ For more information on the arguments accepted by `mergekit-yaml` run the comman
 
 ### Uploading to Huggingface
 
-When you have a merged model you're happy with, you may want to share it on the Hugging Face hub. `mergekit` generates a `README.md` for your merge with some basic information for a model card. You can edit it to include more details about your merge, like giving it a good name or explaining what it's good at; rewrite it entirely; or you can use the generated `README.md` as-is.
+When you have a merged model you're happy with, you may want to share it on the Hugging Face Hub. `mergekit` generates a `README.md` for your merge with some basic information for a model card. You can edit it to include more details about your merge, like giving it a good name or explaining what it's good at; rewrite it entirely; or use the generated `README.md` as-is. It is also possible to edit your `README.md` once it has been uploaded to the Hub.
 
-Once you're happy with your model card uploading is simple:
+Once you're happy with your model card and merged model, you can upload it to the Hugging Face Hub using the [huggingface_hub](https://huggingface.co/docs/huggingface_hub/index) Python library.
 
 ```
 # log in to huggingface with an access token (must have write permission)
@@ -53,7 +53,7 @@ huggingface-cli login
 # upload your model
 huggingface-cli upload your_hf_username/my-cool-model ./output-model-directory .
 ```
-
+The [documentation](https://huggingface.co/docs/huggingface_hub/guides/cli#huggingface-cli-upload) for the `huggingface_hub` goes into more detail about other options for uploading.
 ## Merge Configuration
 
 Merge configurations are YAML documents specifying the operations to perform in order to produce your merged model.
