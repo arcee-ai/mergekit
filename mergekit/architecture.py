@@ -315,6 +315,10 @@ def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
         raise RuntimeError("More than one architecture in config?")
 
     arch_name = config.architectures[0]
+
+    if arch_name == MixtralTensorNames.ARCHITECTURE_NAME:
+        return MixtralTensorNames.from_config(config)
+
     if arch_name not in NAME_TO_ARCH:
         raise RuntimeError(f"Unsupported architecture {arch_name}")
 
