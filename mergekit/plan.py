@@ -126,19 +126,18 @@ class MergePlanner:
 
     def plan_tensor(
         self,
-        name: str,
+        weight: WeightInfo,
         weights_in: List[WeightInfo],
         models: List[ModelReference],
         cfg_reader: ConfigReader,
-        is_embed: bool,
     ):
         tensor_merge_method = self._method
-        if self._tokenizer_task and is_embed:
+        if self._tokenizer_task and weight.is_embed:
             tensor_merge_method = TokenizerPermutationMerge(
                 tokenizer_task=self._tokenizer_task
             )
 
-        cfg_g = cfg_reader.for_tensor(name)
+        cfg_g = cfg_reader.for_tensor(weight.name)
         global_params = {}
         for p in tensor_merge_method.parameters():
             global_params[p.name] = cfg_g.parameter(
@@ -164,7 +163,7 @@ class MergePlanner:
         )
 
         tensor_task = tensor_merge_method.make_task(
-            output_tensor_name=name,
+            output_weight=weight,
             tensors=gather_tensors,
             parameters=ImmutableMap(data=global_params),
             tensor_parameters=ImmutableMap(
@@ -175,7 +174,7 @@ class MergePlanner:
             base_model=self.config.base_model,
         )
         save_task = SaveTensor(
-            tensor_name=name,
+            tensor_name=weight.name,
             tensor_task=tensor_task,
             writer_task=self._writer_task,
             clone=self.clone_tensors,
@@ -202,11 +201,10 @@ class MergePlanner:
 
         for idx, w_o in enumerate(weights_out):
             self.plan_tensor(
-                name=w_o.name,
+                weight=w_o,
                 weights_in=[weights_in[j][idx] for j in range(len(weights_in))],
                 models=[s.model for s in sources],
                 cfg_reader=cfg_reader.with_t(t),
-                is_embed=w_o.is_embed,
             )
 
         self._current_layers += 1
@@ -242,7 +240,7 @@ class MergePlanner:
 
         for weight_info in self.arch_info.pre_weights(config=self.out_model_config):
             self.plan_tensor(
-                weight_info.name,
+                weight_info,
                 [weight_info] * len(self.config.slices[0].sources),
                 [s.model for s in self.config.slices[0].sources],
                 ConfigReader(
@@ -250,7 +248,6 @@ class MergePlanner:
                     t=0,
                     tensor_name=weight_info.name,
                 ).for_out_slice(self.config.slices[0]),
-                is_embed=weight_info.is_embed,
             )
 
         for out_slice in self.config.slices:
@@ -258,7 +255,7 @@ class MergePlanner:
 
         for weight_info in self.arch_info.post_weights(config=self.out_model_config):
             self.plan_tensor(
-                weight_info.name,
+                weight_info,
                 [weight_info] * len(self.config.slices[-1].sources),
                 [s.model for s in self.config.slices[-1].sources],
                 ConfigReader(
@@ -266,7 +263,6 @@ class MergePlanner:
                     t=1,
                     tensor_name=weight_info.name,
                 ).for_out_slice(self.config.slices[-1]),
-                is_embed=weight_info.is_embed,
             )
 
         self._tasks.append(
