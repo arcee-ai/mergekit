@@ -16,7 +16,7 @@
 import importlib.resources
 import string
 from abc import ABC, abstractmethod
-from typing import ClassVar, Dict, List, Optional, Union
+from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field
 from transformers import PretrainedConfig
@@ -149,7 +149,7 @@ class JSONLayerTemplates(BaseModel, frozen=True):
 
 
 class JSONArchitectureDefinition(BaseModel, frozen=True):
-    value_of_model_type: str = Field(alias="model_type")
+    expected_model_type: str = Field(alias="model_type")
     architectures: List[str]
     pre_weights: List[WeightInfo]
     layer_templates: JSONLayerTemplates
@@ -243,32 +243,6 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
         return self.definition.num_layers_config_key
 
 
-def _load_json_arch(name: str) -> JsonArchitectureInfo:
-    text = importlib.resources.read_text(mergekit._data.architectures, name)
-    return JsonArchitectureInfo(
-        definition=JSONArchitectureDefinition.model_validate_json(text)
-    )
-
-
-def _load_all_architectures() -> List[JsonArchitectureInfo]:
-    res = []
-    for f in importlib.resources.contents(mergekit._data.architectures):
-        if f.lower().endswith(".json"):
-            res.append(_load_json_arch(f))
-    return res
-
-
-JSON_ARCHITECTURES = _load_all_architectures()
-
-NAME_TO_ARCH: Dict[str, List[JsonArchitectureInfo]] = {}
-for arch_info in JSON_ARCHITECTURES:
-    for name in arch_info.definition.architectures:
-        NAME_TO_ARCH[name] = NAME_TO_ARCH.get(name, [])
-        NAME_TO_ARCH[name].append(arch_info)
-
-MISTRAL_INFO = _load_json_arch("mistral.json")
-
-
 class MixtralTensorNames(ArchitectureInfo, BaseModel):
     ARCHITECTURE_NAME: ClassVar[str] = "MixtralForCausalLM"
     num_local_experts: int
@@ -310,6 +284,33 @@ class MixtralTensorNames(ArchitectureInfo, BaseModel):
         return False
 
 
+def _load_json_arch(name: str) -> JsonArchitectureInfo:
+    text = importlib.resources.read_text(mergekit._data.architectures, name)
+    return JsonArchitectureInfo(
+        definition=JSONArchitectureDefinition.model_validate_json(text)
+    )
+
+
+def _load_all_architectures() -> (
+    Tuple[List[JsonArchitectureInfo], Dict[str, List[JsonArchitectureInfo]]]
+):
+    architectures: List[JsonArchitectureInfo] = []
+    for f in importlib.resources.contents(mergekit._data.architectures):
+        if f.lower().endswith(".json"):
+            architectures.append(_load_json_arch(f))
+
+    name_to_arch: Dict[str, List[JsonArchitectureInfo]] = {}
+    for arch_info in architectures:
+        for name in arch_info.definition.architectures:
+            name_to_arch[name] = name_to_arch.get(name, [])
+            name_to_arch[name].append(arch_info)
+    return architectures, name_to_arch
+
+
+JSON_ARCHITECTURES, NAME_TO_ARCH = _load_all_architectures()
+MISTRAL_INFO = _load_json_arch("mistral.json")
+
+
 def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
     if len(config.architectures) != 1:
         raise RuntimeError("More than one architecture in config?")
@@ -327,7 +328,7 @@ def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
         return candidates[0]
 
     for c in candidates:
-        if c.definition.value_of_model_type == config.model_type:
+        if c.definition.expected_model_type == config.model_type:
             return c
 
     raise RuntimeError(
