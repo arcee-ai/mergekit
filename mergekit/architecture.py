@@ -20,32 +20,70 @@ from pydantic import BaseModel
 from transformers import PretrainedConfig
 
 
+class WeightInfo(BaseModel, frozen=True):
+    """Information about an individual weight tensor in a model.
+
+    Attributes:
+        name (str):
+            The name of the tensor representing the weight.
+        is_embed (bool):
+            Indicates whether the weight is for an embedding or language model head.
+        input_space (Optional[str]):
+            The name of the input space associated with the weight, if applicable.
+        output_space (Optional[str]):
+            The name of the output space associated with the weight, if applicable.
+        optional (bool):
+            Indicates whether the weight can be omitted from a model.
+        aliases (Optional[List[str]]):
+            List of alternative names for the weight, if applicable.
+    """
+
+    name: str
+    is_embed: bool = False
+    input_space: Optional[str] = None
+    output_space: Optional[str] = None
+    optional: bool = False
+    aliases: Optional[List[str]] = None
+
+
 class ArchitectureInfo(ABC):
     @abstractmethod
-    def pre_weights(self) -> List[str]:
+    def pre_weights(self) -> List[WeightInfo]:
         """Return a list of all weights preceding the first layer."""
         ...
 
     @abstractmethod
-    def post_weights(self) -> List[str]:
+    def post_weights(self) -> List[WeightInfo]:
         """Return a list of all weights following the final layer."""
         ...
 
     @abstractmethod
-    def layer_weight_formats(self) -> List[str]:
-        """Return a list of format strings all weights associated with a layer."""
+    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
+        """Return a list of all weights associated with a given layer."""
         ...
 
     @abstractmethod
-    def embed_weights(self) -> List[str]:
+    def sliceable(self) -> bool:
+        """
+        Return True if the layers of this architecture can be meaningfully sliced.
+        """
         ...
-
-    def num_layers(self, config: PretrainedConfig) -> int:
-        return config.num_hidden_layers
 
     def num_layers_config_key(self) -> str:
         """Key in config that represents number of layers"""
         return "num_hidden_layers"
+
+    def num_layers(self, config: PretrainedConfig) -> int:
+        return getattr(config, self.num_layers_config_key())
+
+    def all_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        """Return all weights associated with a model."""
+        num_layers = self.num_layers(config)
+        res = list(self.pre_weights())
+        for layer_idx in range(num_layers):
+            res.extend(self.layer_weights(layer_idx))
+        res.extend(self.post_weights())
+        return res
 
 
 class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
@@ -58,19 +96,23 @@ class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
     layer_weight_suffixes: List[str]
     num_layers_key: Optional[str] = None
 
-    def pre_weights(self) -> List[str]:
-        return self.pre_weight_names
+    def _make_weightinfo(self, name: str) -> WeightInfo:
+        return WeightInfo(name=name, is_embed=name in self.embed_weight_names)
 
-    def post_weights(self) -> List[str]:
-        return self.post_weight_names
+    def pre_weights(self) -> List[WeightInfo]:
+        return [self._make_weightinfo(n) for n in self.pre_weight_names]
 
-    def embed_weights(self) -> List[str]:
-        return self.embed_weight_names
+    def post_weights(self) -> List[WeightInfo]:
+        return [self._make_weightinfo(n) for n in self.post_weight_names]
 
-    def layer_weight_formats(self) -> List[str]:
+    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
         res = []
         for suffix in self.layer_weight_suffixes:
-            res.append(self.layer_prefix_format + "." + suffix)
+            res.append(
+                self._make_weightinfo(
+                    self.layer_prefix_format.format(idx=index) + "." + suffix
+                )
+            )
         return res
 
     def num_layers_config_key(self) -> str:
@@ -78,17 +120,8 @@ class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
             return self.num_layers_key
         return super().num_layers_config_key()
 
-    def num_layers(self, config: PretrainedConfig) -> int:
-        return getattr(config, self.num_layers_config_key())
-
-    def all_weights(self, config: PretrainedConfig) -> List[str]:
-        num_layers = self.num_layers(config)
-        tensor_names = list(self.pre_weights())
-        for layer_idx in range(num_layers):
-            for f in self.layer_weight_formats():
-                tensor_names.append(f.format(idx=layer_idx))
-        tensor_names.extend(self.post_weights())
-        return tensor_names
+    def sliceable(self) -> bool:
+        return True
 
 
 LLAMA_INFO = StaticTensorNames(
@@ -125,30 +158,34 @@ class MixtralTensorNames(ArchitectureInfo, BaseModel):
     def from_config(cls, config: PretrainedConfig):
         return MixtralTensorNames(num_local_experts=config.num_local_experts)
 
-    def pre_weights(self) -> List[str]:
+    def pre_weights(self) -> List[WeightInfo]:
         return MISTRAL_INFO.pre_weights()
 
-    def post_weights(self) -> List[str]:
+    def post_weights(self) -> List[WeightInfo]:
         return MISTRAL_INFO.post_weights()
-
-    def embed_weights(self) -> List[str]:
-        return MISTRAL_INFO.embed_weights()
 
     def num_layers_config_key(self) -> str:
         return MISTRAL_INFO.num_layers_config_key()
 
-    def layer_weight_formats(self) -> List[str]:
+    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
         num_experts = self.num_local_experts
-        res = [fmt for fmt in MISTRAL_INFO.layer_weight_formats() if ".mlp." not in fmt]
+        prefix = MISTRAL_INFO.layer_prefix_format.format(idx=index)
+        tensor_names = []
         for expert_idx in range(num_experts):
             for param in ("w1", "w2", "w3"):
-                fmt = (
-                    MISTRAL_INFO.layer_prefix_format
-                    + f".block_sparse_moe.experts.{expert_idx}.{param}.weight"
+                tensor_names.append(
+                    prefix + f".block_sparse_moe.experts.{expert_idx}.{param}.weight"
                 )
-                res.append(fmt)
-        res.append(MISTRAL_INFO.layer_prefix_format + ".block_sparse_moe.gate.weight")
+        tensor_names.append(prefix + ".block_sparse_moe.gate.weight")
+        res = []
+        for name in tensor_names:
+            res.append(
+                WeightInfo(name=name, is_embed=name in MISTRAL_INFO.embed_weight_names)
+            )
         return res
+
+    def sliceable(self) -> bool:
+        return True
 
 
 STABLELM_INFO = StaticTensorNames(
@@ -331,26 +368,21 @@ class PhiTensorNames(ArchitectureInfo, BaseModel):
         return PhiTensorNames(n_layer=config.n_layer)
 
     def pre_weights(self) -> List[str]:
-        return ["layers.0.wte.weight"]
+        return [WeightInfo(name="layers.0.wte.weight", is_embed=True)]
 
     def post_weights(self) -> List[str]:
         fake_layer_idx = self.n_layer
         return [
-            f"layers.{fake_layer_idx}.{suffix}"
+            WeightInfo(
+                name=f"layers.{fake_layer_idx}.{suffix}",
+                is_embed=suffix.startswith("linear."),
+            )
             for suffix in ["linear.bias", "linear.weight", "ln.bias", "ln.weight"]
         ]
 
-    def embed_weights(self) -> List[str]:
-        fake_layer_idx = self.n_layer
+    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
         return [
-            "layers.0.wte.weight",
-            f"layers.{fake_layer_idx}.linear.weight",
-            f"layers.{fake_layer_idx}.linear.bias",
-        ]
-
-    def layer_weight_formats(self) -> List[str]:
-        return [
-            ("layers.{idx}." + suffix)
+            WeightInfo(name=f"layers.{index}." + suffix)
             for suffix in [
                 "ln.bias",
                 "ln.weight",
@@ -366,8 +398,8 @@ class PhiTensorNames(ArchitectureInfo, BaseModel):
             ]
         ]
 
-    def num_layers(self, config: PretrainedConfig) -> int:
-        return config.n_layer
+    def sliceable(self) -> bool:
+        return True
 
     def num_layers_config_key(self) -> str:
         return "n_layer"
