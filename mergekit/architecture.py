@@ -13,11 +13,16 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import importlib.resources
+import string
 from abc import ABC, abstractmethod
-from typing import ClassVar, List, Optional
+from typing import ClassVar, List, Optional, Union
 
 from pydantic import BaseModel
 from transformers import PretrainedConfig
+from typing_extensions import Literal
+
+import mergekit._data.architectures
 
 
 class WeightInfo(BaseModel, frozen=True):
@@ -46,19 +51,36 @@ class WeightInfo(BaseModel, frozen=True):
     aliases: Optional[List[str]] = None
 
 
+class ProceduralSpaceInfo(BaseModel, frozen=True):
+    """Defines a procedural space computed from one or more other spaces.
+
+    Currently only supports residual connections.
+
+    Attributes:
+        name (str): The name of the space defined.
+        type (str): The type of procedural space.
+        inputs (List[str]): List of names of spaces used to define this space."""
+
+    name: str
+    type: Literal["residual"]
+    inputs: List[str]
+
+
 class ArchitectureInfo(ABC):
     @abstractmethod
-    def pre_weights(self) -> List[WeightInfo]:
+    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         """Return a list of all weights preceding the first layer."""
         ...
 
     @abstractmethod
-    def post_weights(self) -> List[WeightInfo]:
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         """Return a list of all weights following the final layer."""
         ...
 
     @abstractmethod
-    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
+    def layer_weights(
+        self, index: int, config: PretrainedConfig
+    ) -> Optional[List[WeightInfo]]:
         """Return a list of all weights associated with a given layer."""
         ...
 
@@ -74,16 +96,163 @@ class ArchitectureInfo(ABC):
         return "num_hidden_layers"
 
     def num_layers(self, config: PretrainedConfig) -> int:
+        """Return the number of layers in a model."""
         return getattr(config, self.num_layers_config_key())
 
     def all_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         """Return all weights associated with a model."""
         num_layers = self.num_layers(config)
-        res = list(self.pre_weights())
+        res = list(self.pre_weights(config))
         for layer_idx in range(num_layers):
-            res.extend(self.layer_weights(layer_idx))
-        res.extend(self.post_weights())
+            res.extend(self.layer_weights(layer_idx, config))
+        res.extend(self.post_weights(config))
         return res
+
+    def procedural_spaces(self, config: PretrainedConfig) -> List[ProceduralSpaceInfo]:
+        """Return a list of all procedurally defined spaces in a model."""
+        return []
+
+    def has_defined_spaces(self) -> bool:
+        """
+        Return True if this architecture defines space information needed for
+        matching-based merge methods.
+        """
+        return False
+
+
+class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed=True):
+    info: ArchitectureInfo
+    config: PretrainedConfig
+
+    def num_layers(self) -> int:
+        return self.info.num_layers(self.config)
+
+    def pre_weights(self) -> List[WeightInfo]:
+        return self.info.pre_weights(self.config)
+
+    def post_weights(self) -> List[WeightInfo]:
+        return self.info.post_weights(self.config)
+
+    def layer_weights(self, index: int) -> List[WeightInfo]:
+        return self.info.layer_weights(index, self.config)
+
+    def procedural_spaces(self) -> List[ProceduralSpaceInfo]:
+        return self.info.procedural_spaces(self.config)
+
+    def all_weights(self) -> List[WeightInfo]:
+        return self.info.all_weights(self.config)
+
+
+class JSONLayerTemplates(BaseModel):
+    weights: List[WeightInfo]
+    procedural_spaces: Optional[List[ProceduralSpaceInfo]] = None
+
+
+class JSONArchitectureDefinition(BaseModel):
+    architectures: List[str]
+    pre_weights: List[WeightInfo]
+    layer_templates: JSONLayerTemplates
+    post_weights: List[WeightInfo]
+    procedural_spaces: Optional[List[ProceduralSpaceInfo]] = None
+    num_layers_config_key: Optional[str] = None
+
+
+class TemplateWithArithmetic(string.Template):
+    idpattern = r"(?a:[_a-z][_a-z0-9]*([+-]1)?)"
+
+
+class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
+    definition: JSONArchitectureDefinition
+
+    def _substitute(
+        self,
+        item: Union[WeightInfo, ProceduralSpaceInfo],
+        config: PretrainedConfig,
+        layer_idx: Optional[int] = None,
+    ) -> Union[WeightInfo, ProceduralSpaceInfo]:
+        num_layers = self.num_layers(config)
+        substitutions = {
+            "num_layers": num_layers,
+            "num_layers+1": num_layers + 1,
+            "num_layers-1": num_layers - 1,
+        }
+        if layer_idx is not None:
+            substitutions.update(
+                {
+                    "layer_index": layer_idx,
+                    "layer_index+1": layer_idx + 1,
+                    "layer_index-1": layer_idx - 1,
+                }
+            )
+
+        obj_dict = item.model_dump(mode="json", exclude_unset=True)
+        for key in obj_dict:
+            if isinstance(obj_dict[key], str) and "{" in obj_dict[key]:
+                obj_dict[key] = TemplateWithArithmetic(obj_dict[key]).substitute(
+                    substitutions
+                )
+        return type(item).model_validate(obj_dict)
+
+    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return [
+            self._substitute(wi, config=config) for wi in self.definition.pre_weights
+        ]
+
+    def layer_weights(
+        self, index: int, config: PretrainedConfig
+    ) -> Optional[List[WeightInfo]]:
+        return [
+            self._substitute(wi, config=config, layer_idx=index)
+            for wi in self.definition.layer_templates.weights
+        ]
+
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return [
+            self._substitute(wi, config=config) for wi in self.definition.post_weights
+        ]
+
+    def sliceable(self) -> bool:
+        return True
+
+    def procedural_spaces(self, config: PretrainedConfig) -> List[ProceduralSpaceInfo]:
+        res = []
+        for s in self.definition.procedural_spaces or []:
+            res.append(self._substitute(s, config=config))
+        for idx in range(self.num_layers(config)):
+            for s in self.definition.layer_templates.procedural_spaces or []:
+                res.append(self._substitute(s, config=config, layer_idx=idx))
+        return res
+
+    def has_defined_spaces(self) -> bool:
+        if (
+            self.definition.procedural_spaces
+            or self.definition.layer_templates.procedural_spaces
+        ):
+            return True
+        for wi in (
+            self.definition.layer_templates.weights
+            + self.definition.pre_weights
+            + self.definition.post_weights
+        ):
+            if wi.input_space or wi.output_space:
+                return True
+        return False
+
+    def num_layers_config_key(self) -> str:
+        return self.definition.num_layers_config_key
+
+
+def _load_json_arch(name: str) -> JsonArchitectureInfo:
+    text = importlib.resources.read_text(mergekit._data.architectures, name)
+    return JsonArchitectureInfo(
+        definition=JSONArchitectureDefinition.model_validate_json(text)
+    )
+
+
+LLAMA_INFO = _load_json_arch("llama.json")
+MISTRAL_INFO = _load_json_arch("mistral.json")
+STABLELM_INFO = _load_json_arch("stablelm.json")
+PHI1_INFO = _load_json_arch("phi-1.json")
 
 
 class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
@@ -99,13 +268,15 @@ class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
     def _make_weightinfo(self, name: str) -> WeightInfo:
         return WeightInfo(name=name, is_embed=name in self.embed_weight_names)
 
-    def pre_weights(self) -> List[WeightInfo]:
+    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         return [self._make_weightinfo(n) for n in self.pre_weight_names]
 
-    def post_weights(self) -> List[WeightInfo]:
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         return [self._make_weightinfo(n) for n in self.post_weight_names]
 
-    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
+    def layer_weights(
+        self, index: int, config: PretrainedConfig
+    ) -> Optional[List[WeightInfo]]:
         res = []
         for suffix in self.layer_weight_suffixes:
             res.append(
@@ -124,32 +295,6 @@ class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
         return True
 
 
-LLAMA_INFO = StaticTensorNames(
-    name="LlamaForCausalLM",
-    pre_weight_names=["model.embed_tokens.weight"],
-    post_weight_names=["model.norm.weight", "lm_head.weight"],
-    embed_weight_names=["model.embed_tokens.weight", "lm_head.weight"],
-    layer_prefix_format="model.layers.{idx}",
-    layer_weight_suffixes=[
-        "input_layernorm.weight",
-        "mlp.up_proj.weight",
-        "mlp.down_proj.weight",
-        "mlp.gate_proj.weight",
-        "post_attention_layernorm.weight",
-        "self_attn.q_proj.weight",
-        "self_attn.k_proj.weight",
-        "self_attn.v_proj.weight",
-        "self_attn.o_proj.weight",
-    ],
-)
-
-MISTRAL_INFO = StaticTensorNames(
-    name="MistralForCausalLM",
-    # lol
-    **LLAMA_INFO.model_dump(exclude=["name"]),
-)
-
-
 class MixtralTensorNames(ArchitectureInfo, BaseModel):
     ARCHITECTURE_NAME: ClassVar[str] = "MixtralForCausalLM"
     num_local_experts: int
@@ -158,18 +303,20 @@ class MixtralTensorNames(ArchitectureInfo, BaseModel):
     def from_config(cls, config: PretrainedConfig):
         return MixtralTensorNames(num_local_experts=config.num_local_experts)
 
-    def pre_weights(self) -> List[WeightInfo]:
-        return MISTRAL_INFO.pre_weights()
+    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return MISTRAL_INFO.pre_weights(config)
 
-    def post_weights(self) -> List[WeightInfo]:
-        return MISTRAL_INFO.post_weights()
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return MISTRAL_INFO.post_weights(config)
 
     def num_layers_config_key(self) -> str:
         return MISTRAL_INFO.num_layers_config_key()
 
-    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
+    def layer_weights(
+        self, index: int, config: PretrainedConfig
+    ) -> Optional[List[WeightInfo]]:
         num_experts = self.num_local_experts
-        prefix = MISTRAL_INFO.layer_prefix_format.format(idx=index)
+        prefix = f"model.layers.{index}"
         tensor_names = []
         for expert_idx in range(num_experts):
             for param in ("w1", "w2", "w3"):
@@ -179,27 +326,15 @@ class MixtralTensorNames(ArchitectureInfo, BaseModel):
         tensor_names.append(prefix + ".block_sparse_moe.gate.weight")
         res = []
         for name in tensor_names:
-            res.append(
-                WeightInfo(name=name, is_embed=name in MISTRAL_INFO.embed_weight_names)
-            )
+            res.append(WeightInfo(name=name))
         return res
 
     def sliceable(self) -> bool:
         return True
 
+    def has_defined_spaces(self) -> bool:
+        return False
 
-STABLELM_INFO = StaticTensorNames(
-    name="StableLMEpochForCausalLM",
-    post_weight_names=LLAMA_INFO.post_weight_names + ["model.norm.bias"],
-    layer_weight_suffixes=LLAMA_INFO.layer_weight_suffixes
-    + [
-        "input_layernorm.bias",
-        "post_attention_layernorm.bias",
-    ],
-    **LLAMA_INFO.model_dump(
-        exclude=["name", "layer_weight_suffixes", "post_weight_names"]
-    ),
-)
 
 GPT_NEOX_INFO = StaticTensorNames(
     name="GPTNeoXForCausalLM",
@@ -359,52 +494,6 @@ FALCON_INFO = StaticTensorNames(
     ],
 )
 
-
-class PhiTensorNames(ArchitectureInfo, BaseModel):
-    ARCHITECTURE_NAME: ClassVar[str] = "MixFormerSequentialForCausalLM"
-    n_layer: int
-
-    def from_config(cls, config: PretrainedConfig):
-        return PhiTensorNames(n_layer=config.n_layer)
-
-    def pre_weights(self) -> List[str]:
-        return [WeightInfo(name="layers.0.wte.weight", is_embed=True)]
-
-    def post_weights(self) -> List[str]:
-        fake_layer_idx = self.n_layer
-        return [
-            WeightInfo(
-                name=f"layers.{fake_layer_idx}.{suffix}",
-                is_embed=suffix.startswith("linear."),
-            )
-            for suffix in ["linear.bias", "linear.weight", "ln.bias", "ln.weight"]
-        ]
-
-    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
-        return [
-            WeightInfo(name=f"layers.{index}." + suffix)
-            for suffix in [
-                "ln.bias",
-                "ln.weight",
-                "mixer.Wqkv.bias",
-                "mixer.Wqkv.weight",
-                "mixer.out_proj.bias",
-                "mixer.out_proj.weight",
-                "mixer.rotary_emb.inv_freq",
-                "mlp.fc1.bias",
-                "mlp.fc1.weight",
-                "mlp.fc2.bias",
-                "mlp.fc2.weight",
-            ]
-        ]
-
-    def sliceable(self) -> bool:
-        return True
-
-    def num_layers_config_key(self) -> str:
-        return "n_layer"
-
-
 PHI2_INFO = StaticTensorNames(
     name="PhiForCausalLM",
     pre_weight_names=["transformer.embd.wte.weight"],
@@ -485,8 +574,6 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         raise RuntimeError("More than one architecture in config?")
 
     arch_name = config.architectures[0]
-    if arch_name == PhiTensorNames.ARCHITECTURE_NAME:
-        return PhiTensorNames.from_config(config)
     if arch_name == MixtralTensorNames.ARCHITECTURE_NAME:
         return MixtralTensorNames.from_config(config)
 
@@ -496,7 +583,7 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         elif config.model_type == "phi":
             return PHI2_INFO_AGAIN_BUT_DIFFERENT
 
-    supported = [
+    supported: List[ArchitectureInfo] = [
         LLAMA_INFO,
         MISTRAL_INFO,
         GPT_NEOX_INFO,
@@ -508,9 +595,13 @@ def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
         JAIS_INFO,
         BAICHUAN_INFO,
         FALCON_INFO,
+        PHI1_INFO,
     ]
     for arch in supported:
-        if arch.name == arch_name:
+        if isinstance(arch, JsonArchitectureInfo):
+            if arch_name in arch.definition.architectures:
+                return arch
+        elif arch.name == arch_name:
             return arch
 
     raise RuntimeError(f"Unsupported architecture {arch_name}")

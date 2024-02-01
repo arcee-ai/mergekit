@@ -47,6 +47,8 @@ packages = [
     "mergekit.io",
     "mergekit.merge_methods",
     "mergekit.scripts",
+    "mergekit._data",
+    "mergekit._data.architectures",
 ]
 
 [tool.isort]
