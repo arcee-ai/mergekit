@@ -1,0 +1,74 @@
+{
+    "model_type": "gpt_neox",
+    "architectures": [
+        "GPTNeoXForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "gpt_neox.embed_in.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "gpt_neox.final_layer_norm.bias"
+        },
+        {
+            "name": "gpt_neox.final_layer_norm.weight"
+        },
+        {
+            "name": "embed_out.weight",
+            "is_embed": true
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "gpt_neox.layers.${layer_index}.attention.dense.weight"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.attention.dense.bias"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.attention.query_key_value.weight"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.attention.query_key_value.bias"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.input_layernorm.weight"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.input_layernorm.bias"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.mlp.dense_4h_to_h.weight"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.mlp.dense_4h_to_h.bias"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.mlp.dense_h_to_4h.weight"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.mlp.dense_h_to_4h.bias"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.post_attention_layernorm.weight"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.post_attention_layernorm.bias"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.attention.bias"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.attention.masked_bias"
+            },
+            {
+                "name": "gpt_neox.layers.${layer_index}.attention.rotary_emb.inv_freq"
+            }
+        ]
+    }
+}

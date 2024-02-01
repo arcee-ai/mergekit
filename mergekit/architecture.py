@@ -16,9 +16,9 @@
 import importlib.resources
 import string
 from abc import ABC, abstractmethod
-from typing import ClassVar, List, Optional, Union
+from typing import ClassVar, Dict, List, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from transformers import PretrainedConfig
 from typing_extensions import Literal
 
@@ -143,12 +143,13 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
         return self.info.all_weights(self.config)
 
 
-class JSONLayerTemplates(BaseModel):
+class JSONLayerTemplates(BaseModel, frozen=True):
     weights: List[WeightInfo]
     procedural_spaces: Optional[List[ProceduralSpaceInfo]] = None
 
 
-class JSONArchitectureDefinition(BaseModel):
+class JSONArchitectureDefinition(BaseModel, frozen=True):
+    value_of_model_type: str = Field(alias="model_type")
     architectures: List[str]
     pre_weights: List[WeightInfo]
     layer_templates: JSONLayerTemplates
@@ -249,50 +250,23 @@ def _load_json_arch(name: str) -> JsonArchitectureInfo:
     )
 
 
-LLAMA_INFO = _load_json_arch("llama.json")
+def _load_all_architectures() -> List[JsonArchitectureInfo]:
+    res = []
+    for f in importlib.resources.contents(mergekit._data.architectures):
+        if f.lower().endswith(".json"):
+            res.append(_load_json_arch(f))
+    return res
+
+
+JSON_ARCHITECTURES = _load_all_architectures()
+
+NAME_TO_ARCH: Dict[str, List[JsonArchitectureInfo]] = {}
+for arch_info in JSON_ARCHITECTURES:
+    for name in arch_info.definition.architectures:
+        NAME_TO_ARCH[name] = NAME_TO_ARCH.get(name, [])
+        NAME_TO_ARCH[name].append(arch_info)
+
 MISTRAL_INFO = _load_json_arch("mistral.json")
-STABLELM_INFO = _load_json_arch("stablelm.json")
-PHI1_INFO = _load_json_arch("phi-1.json")
-
-
-class StaticTensorNames(ArchitectureInfo, BaseModel, frozen=True):
-    name: str
-
-    pre_weight_names: List[str]  # weights applied before first layer
-    post_weight_names: List[str]  # weights applied after last layer
-    embed_weight_names: List[str]  # weights for embed/lm_head
-    layer_prefix_format: str
-    layer_weight_suffixes: List[str]
-    num_layers_key: Optional[str] = None
-
-    def _make_weightinfo(self, name: str) -> WeightInfo:
-        return WeightInfo(name=name, is_embed=name in self.embed_weight_names)
-
-    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
-        return [self._make_weightinfo(n) for n in self.pre_weight_names]
-
-    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
-        return [self._make_weightinfo(n) for n in self.post_weight_names]
-
-    def layer_weights(
-        self, index: int, config: PretrainedConfig
-    ) -> Optional[List[WeightInfo]]:
-        res = []
-        for suffix in self.layer_weight_suffixes:
-            res.append(
-                self._make_weightinfo(
-                    self.layer_prefix_format.format(idx=index) + "." + suffix
-                )
-            )
-        return res
-
-    def num_layers_config_key(self) -> str:
-        if self.num_layers_key:
-            return self.num_layers_key
-        return super().num_layers_config_key()
-
-    def sliceable(self) -> bool:
-        return True
 
 
 class MixtralTensorNames(ArchitectureInfo, BaseModel):
@@ -336,272 +310,22 @@ class MixtralTensorNames(ArchitectureInfo, BaseModel):
         return False
 
 
-GPT_NEOX_INFO = StaticTensorNames(
-    name="GPTNeoXForCausalLM",
-    pre_weight_names=["gpt_neox.embed_in.weight"],
-    post_weight_names=[
-        "gpt_neox.final_layer_norm.bias",
-        "gpt_neox.final_layer_norm.weight",
-        "embed_out.weight",
-    ],
-    embed_weight_names=["gpt_neox.embed_in.weight", "embed_out.weight"],
-    layer_prefix_format="gpt_neox.layers.{idx}",
-    layer_weight_suffixes=sum(
-        (
-            [f"{prefix}.weight", f"{prefix}.bias"]
-            for prefix in [
-                "attention.dense",
-                "attention.query_key_value",
-                "input_layernorm",
-                "mlp.dense_4h_to_h",
-                "mlp.dense_h_to_4h",
-                "post_attention_layernorm",
-            ]
-        ),
-        start=[],
-    )
-    + ["attention.bias", "attention.masked_bias", "attention.rotary_emb.inv_freq"],
-)
-
-GPT2_INFO = StaticTensorNames(
-    name="GPT2LMHeadModel",
-    pre_weight_names=["wte.weight", "wpe.weight"],
-    post_weight_names=["ln_f.weight", "ln_f.bias"],
-    embed_weight_names=["wte.weight"],
-    layer_prefix_format="h.{idx}",
-    layer_weight_suffixes=[
-        "attn.c_attn.weight",
-        "attn.c_attn.bias",
-        "attn.c_proj.weight",
-        "attn.c_proj.bias",
-        "ln_1.weight",
-        "ln_1.bias",
-        "ln_2.weight",
-        "ln_2.bias",
-        "mlp.c_proj.weight",
-        "mlp.c_proj.bias",
-        "mlp.c_fc.weight",
-        "mlp.c_fc.bias",
-        "mlp.c_proj.weight",
-        "mlp.c_proj.bias",
-    ],
-    num_layers_key="n_layer",
-)
-
-JAIS_INFO = StaticTensorNames(
-    name="JAISLMHeadModel",
-    pre_weight_names=["transformer.wte.weight", "transformer.relative_pe.slopes"],
-    post_weight_names=["transformer.ln_f.weight", "transformer.ln_f.bias"],
-    embed_weight_names=["transformer.wte.weight"],
-    layer_prefix_format="transformer.h.{idx}",
-    layer_weight_suffixes=[
-        "attn.c_attn.weight",
-        "attn.c_attn.bias",
-        "attn.c_proj.weight",
-        "attn.c_proj.bias",
-        "ln_1.weight",
-        "ln_1.bias",
-        "ln_2.weight",
-        "ln_2.bias",
-        "mlp.c_fc.weight",
-        "mlp.c_fc.bias",
-        "mlp.c_fc2.weight",
-        "mlp.c_fc2.bias",
-        "mlp.c_proj.weight",
-        "mlp.c_proj.bias",
-    ],
-    num_layers_key="n_layer",
-)
-
-GPT2_SEQCLASS_INFO = StaticTensorNames(
-    name="GPT2ForSequenceClassification",
-    pre_weight_names=["transformer.wte.weight", "transformer.wpe.weight"],
-    post_weight_names=[
-        "transformer.ln_f.weight",
-        "transformer.ln_f.bias",
-        "score.weight",
-    ],
-    layer_prefix_format="transformer.h.{idx}",
-    embed_weight_names=GPT2_INFO.embed_weight_names,
-    layer_weight_suffixes=GPT2_INFO.layer_weight_suffixes,
-    num_layers_key=GPT2_INFO.num_layers_key,
-)
-
-
-QWEN_INFO = StaticTensorNames(
-    name="QWenLMHeadModel",
-    pre_weight_names=["transformer.wte.weight"],
-    post_weight_names=["transformer.ln_f.weight", "lm_head.weight"],
-    embed_weight_names=["transformer.wte.weight", "lm_head.weight"],
-    layer_prefix_format="transformer.h.{idx}",
-    layer_weight_suffixes=[
-        "attn.c_attn.bias",
-        "attn.c_attn.weight",
-        "attn.c_proj.weight",
-        "ln_1.weight",
-        "ln_2.weight",
-        "mlp.c_proj.weight",
-        "mlp.w1.weight",
-        "mlp.w2.weight",
-    ],
-)
-
-CHATGLM_INFO = StaticTensorNames(
-    name="ChatGLMModel",
-    pre_weight_names=[
-        "transformer.embedding.word_embeddings.weight",
-        "transformer.rotary_pos_emb.inv_freq",
-    ],
-    post_weight_names=[
-        "transformer.encoder.final_layernorm.weight",
-        "transformer.output_layer.weight",
-    ],
-    embed_weight_names=[
-        "transformer.embedding.word_embeddings.weight",
-        "transformer.output_layer.weight",
-    ],
-    layer_prefix_format="transformer.encoder.layers.{idx}",
-    layer_weight_suffixes=[
-        "input_layernorm.weight",
-        "mlp.dense_4h_to_h.weight",
-        "mlp.dense_h_to_4h.weight",
-        "post_attention_layernorm.weight",
-        "self_attention.dense.weight",
-        "self_attention.query_key_value.bias",
-        "self_attention.query_key_value.weight",
-    ],
-)
-
-FALCON_INFO = StaticTensorNames(
-    name="FalconForCausalLM",
-    pre_weight_names=["transformer.word_embeddings.weight"],
-    post_weight_names=[
-        "transformer.ln_f.weight",
-        "transformer.ln_f.bias",
-        "lm_head.weight",
-    ],
-    embed_weight_names=["transformer.word_embeddings.weight", "lm_head.weight"],
-    layer_prefix_format="transformer.h.{idx}",
-    layer_weight_suffixes=[
-        "ln_attn.bias",
-        "ln_attn.weight",
-        "ln_mlp.bias",
-        "ln_mlp.weight",
-        "mlp.dense_4h_to_h.weight",
-        "mlp.dense_h_to_4h.weight",
-        "self_attention.dense.weight",
-        "self_attention.query_key_value.weight",
-    ],
-)
-
-PHI2_INFO = StaticTensorNames(
-    name="PhiForCausalLM",
-    pre_weight_names=["transformer.embd.wte.weight"],
-    post_weight_names=[
-        "lm_head.linear.bias",
-        "lm_head.linear.weight",
-        "lm_head.ln.bias",
-        "lm_head.ln.weight",
-    ],
-    embed_weight_names=["lm_head.linear.weight", "transformer.embd.wte.weight"],
-    layer_prefix_format="transformer.h.{idx}",
-    layer_weight_suffixes=[
-        "ln.bias",
-        "ln.weight",
-        "mixer.out_proj.bias",
-        "mixer.out_proj.weight",
-        "mixer.Wqkv.bias",
-        "mixer.Wqkv.weight",
-        "mlp.fc1.bias",
-        "mlp.fc1.weight",
-        "mlp.fc2.bias",
-        "mlp.fc2.weight",
-    ],
-    num_layers_key="n_layer",
-)
-
-
-PHI2_INFO_AGAIN_BUT_DIFFERENT = StaticTensorNames(
-    name="PhiForCausalLM",
-    pre_weight_names=["model.embed_tokens.weight"],
-    post_weight_names=[
-        "lm_head.bias",
-        "lm_head.weight",
-        "model.final_layernorm.bias",
-        "model.final_layernorm.weight",
-    ],
-    embed_weight_names=["lm_head.weight", "model.embed_tokens.weight"],
-    layer_prefix_format="model.layers.{idx}",
-    layer_weight_suffixes=[
-        "input_layernorm.bias",
-        "input_layernorm.weight",
-        "self_attn.dense.bias",
-        "self_attn.dense.weight",
-        "self_attn.q_proj.bias",
-        "self_attn.q_proj.weight",
-        "self_attn.k_proj.bias",
-        "self_attn.k_proj.weight",
-        "self_attn.v_proj.bias",
-        "self_attn.v_proj.weight",
-        "mlp.fc1.bias",
-        "mlp.fc1.weight",
-        "mlp.fc2.bias",
-        "mlp.fc2.weight",
-    ],
-)
-
-
-BAICHUAN_INFO = StaticTensorNames(
-    name="BaichuanForCausalLM",
-    pre_weight_names=["model.embed_tokens.weight"],
-    post_weight_names=["model.norm.weight", "lm_head.weight"],
-    embed_weight_names=["model.embed_tokens.weight", "lm_head.weight"],
-    layer_prefix_format="model.layers.{idx}",
-    layer_weight_suffixes=[
-        "input_layernorm.weight",
-        "self_attn.W_pack.weight",
-        "self_attn.o_proj.weight",
-        "post_attention_layernorm.weight",
-        "mlp.gate_proj.weight",
-        "mlp.down_proj.weight",
-        "mlp.up_proj.weight",
-    ],
-)
-
-
-def get_architecture_info(config: PretrainedConfig) -> StaticTensorNames:
+def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
     if len(config.architectures) != 1:
         raise RuntimeError("More than one architecture in config?")
 
     arch_name = config.architectures[0]
-    if arch_name == MixtralTensorNames.ARCHITECTURE_NAME:
-        return MixtralTensorNames.from_config(config)
+    if arch_name not in NAME_TO_ARCH:
+        raise RuntimeError(f"Unsupported architecture {arch_name}")
 
-    if arch_name == PHI2_INFO.name:
-        if config.model_type == "phi-msft":
-            return PHI2_INFO
-        elif config.model_type == "phi":
-            return PHI2_INFO_AGAIN_BUT_DIFFERENT
+    candidates = list(NAME_TO_ARCH[arch_name])
+    if len(candidates) == 1:
+        return candidates[0]
 
-    supported: List[ArchitectureInfo] = [
-        LLAMA_INFO,
-        MISTRAL_INFO,
-        GPT_NEOX_INFO,
-        QWEN_INFO,
-        GPT2_INFO,
-        GPT2_SEQCLASS_INFO,
-        CHATGLM_INFO,
-        STABLELM_INFO,
-        JAIS_INFO,
-        BAICHUAN_INFO,
-        FALCON_INFO,
-        PHI1_INFO,
-    ]
-    for arch in supported:
-        if isinstance(arch, JsonArchitectureInfo):
-            if arch_name in arch.definition.architectures:
-                return arch
-        elif arch.name == arch_name:
-            return arch
+    for c in candidates:
+        if c.definition.value_of_model_type == config.model_type:
+            return c
 
-    raise RuntimeError(f"Unsupported architecture {arch_name}")
+    raise RuntimeError(
+        f"Unsupported model_type {config.model_type} for architecture {arch_name}"
+    )

@@ -1,4 +1,5 @@
 {
+    "model_type": "stablelm_epoch",
     "architectures": [
         "StableLMEpochForCausalLM"
     ],

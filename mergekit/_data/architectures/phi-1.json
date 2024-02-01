@@ -1,4 +1,5 @@
 {
+    "model_type": "mixformer-sequential",
     "architectures": [
         "MixFormerSequentialForCausalLM"
     ],
