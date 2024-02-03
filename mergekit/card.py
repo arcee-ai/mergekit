@@ -165,7 +165,9 @@ def generate_card(
         model_bullets.append("* " + modelref_md(model))
 
     return CARD_TEMPLATE.format(
-        metadata=yaml.dump({"base_model": hf_bases, "tags": tags}),
+        metadata=yaml.dump(
+            {"base_model": hf_bases, "tags": tags, "library_name": "transformers"}
+        ),
         model_list="\n".join(model_bullets),
         base_text=base_text,
         merge_method=method_md(config.merge_method),
