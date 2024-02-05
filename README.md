@@ -1,4 +1,4 @@
-> [!NOTE]  
+> [!NOTE]
 > [Charles Goddard](https://github.com/cg123), author of `mergekit` (and person writing this note), has joined [arcee.ai](https://www.arcee.ai/). I will be continuing to develop `mergekit` with their backing and it will continue to be open source under the same license. For more words about this, see the blog post [here](https://blog.arcee.ai/arcee-and-mergekit-unite/).
 
 # mergekit

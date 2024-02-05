@@ -18,6 +18,7 @@ from typing import Any, Dict, List
 import torch
 from torch._tensor import Tensor
 
+from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
@@ -74,7 +75,7 @@ class LinearMerge(MergeMethod):
     def make_task(
         self,
         *,
-        output_tensor_name: str,
+        output_weight: WeightInfo,
         tensors: GatherTensors,
         parameters: Dict[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
@@ -84,5 +85,5 @@ class LinearMerge(MergeMethod):
             gather_tensors=tensors,
             tensor_parameters=tensor_parameters,
             normalize=parameters["normalize"],
-            parameter_name=output_tensor_name,
+            parameter_name=output_weight.name,
         )

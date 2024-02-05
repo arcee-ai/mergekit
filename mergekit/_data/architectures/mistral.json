@@ -1,0 +1,90 @@
+{
+    "model_type": "mistral",
+    "architectures": [
+        "MistralForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "model.embed_tokens.weight",
+            "is_embed": true,
+            "output_space": "h_0"
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "model.layers.${layer_index}.input_layernorm.weight",
+                "input_space": "h_${layer_index}"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.q_proj.weight",
+                "input_space": "h_${layer_index}",
+                "output_space": "attn_qk_${layer_index}"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.k_proj.weight",
+                "input_space": "h_${layer_index}",
+                "output_space": "attn_qk_${layer_index}"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.v_proj.weight",
+                "input_space": "h_${layer_index}",
+                "output_space": "attn_v_${layer_index}"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.o_proj.weight",
+                "input_space": "attn_v_${layer_index}",
+                "output_space": "post_attn_${layer_index}"
+            },
+            {
+                "name": "model.layers.${layer_index}.post_attention_layernorm.weight",
+                "input_space": "h_a_${layer_index}"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.up_proj.weight",
+                "input_space": "h_a_${layer_index}",
+                "output_space": "up_${layer_index}"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.gate_proj.weight",
+                "input_space": "h_a_${layer_index}",
+                "output_space": "up_${layer_index}"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.down_proj.weight",
+                "input_space": "up_${layer_index}",
+                "output_space": "post_mlp_${layer_index}"
+            }
+        ],
+        "procedural_spaces": [
+            {
+                "name": "h_a_${layer_index}",
+                "type": "residual",
+                "inputs": [
+                    "h_${layer_index}",
+                    "post_attn_${layer_index}"
+                ]
+            },
+            {
+                "name": "h_${layer_index+1}",
+                "type": "residual",
+                "inputs": [
+                    "h_a_${layer_index}",
+                    "post_mlp_${layer_index}"
+                ]
+            }
+        ]
+    },
+    "post_weights": [
+        {
+            "name": "model.norm.weight",
+            "input_space": "h_${num_layers}"
+        },
+        {
+            "name": "lm_head.weight",
+            "input_space": "h_${num_layers}",
+            "is_embed": true
+        }
+    ]
+}
