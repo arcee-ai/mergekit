@@ -1,5 +1,8 @@
 # LRP-Merge: Layer-wise Relevance Propagation for LLM Merging
 
+> [!NOTE]
+> [Charles Goddard](https://github.com/cg123), author of `mergekit`, has joined [arcee.ai](https://www.arcee.ai/). Development of `mergekit` continues with their backing and it remains open source. For more details, see the blog post [here](https://blog.arcee.ai/arcee-and-mergekit-unite/).
+
 LRP-Merge is a custom model merging method built on top of [Mergekit](https://github.com/arcee-ai/mergekit). It uses **Layer-wise Relevance Propagation (LRP)** scores to identify and preserve functionally critical weights during model merging.
 
 ---

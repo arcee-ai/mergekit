@@ -1,0 +1,62 @@
+{
+    "model_type": "phi-msft",
+    "architectures": [
+        "PhiForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "transformer.embd.wte.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "lm_head.linear.bias"
+        },
+        {
+            "name": "lm_head.linear.weight",
+            "is_embed": true
+        },
+        {
+            "name": "lm_head.ln.bias"
+        },
+        {
+            "name": "lm_head.ln.weight"
+        }
+    ],
+    "num_layers_config_key": "n_layer",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "transformer.h.${layer_index}.ln.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mixer.out_proj.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mixer.out_proj.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mixer.Wqkv.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mixer.Wqkv.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.fc1.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.fc1.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.fc2.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.fc2.weight"
+            }
+        ]
+    }
+}

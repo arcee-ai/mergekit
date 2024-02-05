@@ -1,0 +1,47 @@
+{
+    "model_type": "baichuan",
+    "architectures": [
+        "BaichuanForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "model.embed_tokens.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "model.norm.weight"
+        },
+        {
+            "name": "lm_head.weight",
+            "is_embed": true
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "model.layers.${layer_index}.input_layernorm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.W_pack.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.o_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.post_attention_layernorm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.gate_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.down_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.up_proj.weight"
+            }
+        ]
+    }
+}

@@ -1,0 +1,50 @@
+{
+    "model_type": "chatglm",
+    "architectures": [
+        "ChatGLMModel"
+    ],
+    "pre_weights": [
+        {
+            "name": "transformer.embedding.word_embeddings.weight",
+            "is_embed": true
+        },
+        {
+            "name": "transformer.rotary_pos_emb.inv_freq"
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "transformer.encoder.final_layernorm.weight"
+        },
+        {
+            "name": "transformer.output_layer.weight",
+            "is_embed": true
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "transformer.encoder.layers.${layer_index}.input_layernorm.weight"
+            },
+            {
+                "name": "transformer.encoder.layers.${layer_index}.mlp.dense_4h_to_h.weight"
+            },
+            {
+                "name": "transformer.encoder.layers.${layer_index}.mlp.dense_h_to_4h.weight"
+            },
+            {
+                "name": "transformer.encoder.layers.${layer_index}.post_attention_layernorm.weight"
+            },
+            {
+                "name": "transformer.encoder.layers.${layer_index}.self_attention.dense.weight"
+            },
+            {
+                "name": "transformer.encoder.layers.${layer_index}.self_attention.query_key_value.bias"
+            },
+            {
+                "name": "transformer.encoder.layers.${layer_index}.self_attention.query_key_value.weight"
+            }
+        ]
+    }
+}

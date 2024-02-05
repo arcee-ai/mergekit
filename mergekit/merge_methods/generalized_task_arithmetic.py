@@ -21,6 +21,7 @@ import torch
 from pydantic import BaseModel
 from typing_extensions import Literal
 
+from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
@@ -54,7 +55,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
 
     def make_task(
         self,
-        output_tensor_name: str,
+        output_weight: WeightInfo,
         tensors: GatherTensors,
         base_model: Optional[ModelReference],
         parameters: ImmutableMap[str, Any],
@@ -67,7 +68,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             tensor_parameters=tensor_parameters,
             int8_mask=parameters["int8_mask"],
             normalize=parameters["normalize"],
-            out_tensor_name=output_tensor_name,
+            out_tensor_name=output_weight.name,
         )
 
 

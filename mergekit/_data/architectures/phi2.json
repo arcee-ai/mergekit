@@ -1,0 +1,74 @@
+{
+    "model_type": "phi",
+    "architectures": [
+        "PhiForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "model.embed_tokens.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "lm_head.bias"
+        },
+        {
+            "name": "lm_head.weight",
+            "is_embed": true
+        },
+        {
+            "name": "model.final_layernorm.bias"
+        },
+        {
+            "name": "model.final_layernorm.weight"
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "model.layers.${layer_index}.input_layernorm.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.input_layernorm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.dense.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.dense.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.q_proj.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.q_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.k_proj.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.k_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.v_proj.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.v_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.fc1.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.fc1.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.fc2.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.fc2.weight"
+            }
+        ]
+    }
+}

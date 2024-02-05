@@ -1,0 +1,53 @@
+{
+    "model_type": "falcon",
+    "architectures": [
+        "FalconForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "transformer.word_embeddings.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "transformer.ln_f.weight"
+        },
+        {
+            "name": "transformer.ln_f.bias"
+        },
+        {
+            "name": "lm_head.weight",
+            "is_embed": true
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "transformer.h.${layer_index}.ln_attn.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln_attn.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln_mlp.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln_mlp.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.dense_4h_to_h.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.dense_h_to_4h.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.self_attention.dense.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.self_attention.query_key_value.weight"
+            }
+        ]
+    }
+}

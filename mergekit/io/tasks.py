@@ -1,9 +1,10 @@
 import os
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch._tensor import Tensor
 
+from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
 from mergekit.graph import Task
 from mergekit.io.lazy_tensor_loader import LazyTensorLoader
@@ -46,18 +47,35 @@ def _normalized_shard_name(path: str) -> int:
     return name.lower().replace("pytorch_model", "model")
 
 
-class LoadTensor(Task[torch.Tensor]):
+class LoadTensor(Task[Optional[torch.Tensor]]):
     model: ModelReference
     tensor: str
     dtype: Optional[str] = None
     device: Optional[str] = None
+    optional: bool = False
+    aliases: Optional[List[str]] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {}
 
-    def execute(self) -> torch.Tensor:
+    def _resolve_name(self, loader: LazyTensorLoader) -> Optional[str]:
+        all_names = [self.tensor] + (self.aliases or [])
+        for name in all_names:
+            if name in loader.index.tensor_paths:
+                return name
+        return None
+
+    def execute(self) -> Optional[torch.Tensor]:
         loader = LoaderCache().get(self.model)
-        x = loader.get_tensor(self.tensor, device=self.device or "cpu")
+        name = self._resolve_name(loader)
+        if not name:
+            if not self.optional:
+                raise RuntimeError(
+                    f"Tensor {self.tensor} required but not present in model {self.model}"
+                )
+            return None
+
+        x = loader.get_tensor(name, device=self.device or "cpu")
         if self.dtype:
             x = x.to(dtype=dtype_from_name(self.dtype))
         return x
@@ -67,21 +85,29 @@ class LoadTensor(Task[torch.Tensor]):
 
     def group_label(self) -> Optional[str]:
         loader = LoaderCache().get(self.model)
-        shard_path = loader.index.tensor_paths[self.tensor]
-        return _normalized_shard_name(shard_path)
+        name = self._resolve_name(loader)
+        if name:
+            shard_path = loader.index.tensor_paths[self.tensor]
+            return _normalized_shard_name(shard_path)
+        return None
 
 
 class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
-    tensor_names: ImmutableMap[ModelReference, str]
+    weight_info: ImmutableMap[ModelReference, WeightInfo]
     dtype: Optional[str] = None
     device: Optional[str] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {
-            f"{str(model)}:{tensor_name}": LoadTensor(
-                model=model, tensor=tensor_name, dtype=self.dtype, device=self.device
+            f"{str(model)}:{wi.name}": LoadTensor(
+                model=model,
+                tensor=wi.name,
+                dtype=self.dtype,
+                device=self.device,
+                optional=wi.optional,
+                aliases=wi.aliases,
             )
-            for (model, tensor_name) in self.tensor_names.items()
+            for (model, wi) in self.weight_info.items()
         }
 
     def group_label(self) -> Optional[str]:
@@ -92,10 +118,11 @@ class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
 
     def execute(self, **kwargs) -> Dict[ModelReference, Tensor]:
         key2model = {
-            f"{str(model)}:{tensor_name}": model
-            for (model, tensor_name) in self.tensor_names.items()
+            f"{str(model)}:{wi.name}": model for (model, wi) in self.weight_info.items()
         }
-        return {key2model[key]: kwargs[key] for key in key2model}
+        return {
+            key2model[key]: kwargs[key] for key in key2model if kwargs[key] is not None
+        }
 
 
 class TensorWriterTask(Task[TensorWriter]):

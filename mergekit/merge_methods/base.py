@@ -18,6 +18,7 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
+from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
@@ -40,7 +41,7 @@ class MergeMethod(ABC):
     def make_task(
         self,
         *,
-        output_tensor_name: str,
+        output_weight: WeightInfo,
         tensors: GatherTensors,
         parameters: ImmutableMap[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
