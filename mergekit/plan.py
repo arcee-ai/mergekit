@@ -32,6 +32,7 @@ from mergekit.config import (
 )
 from mergekit.graph import Task
 from mergekit.io.tasks import FinalizeModel, GatherTensors, SaveTensor, TensorWriterTask
+from mergekit.matching import SpacePlanner
 from mergekit.merge_methods import MergeMethod
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 from mergekit.options import MergeOptions
@@ -49,6 +50,7 @@ class MergePlanner:
     _tasks: List[Task] = []
     _current_layers: int = 0
     _tokenizer_task: Optional[BuildTokenizer] = None
+    _space_planner: Optional[SpacePlanner] = None
 
     def __init__(
         self,
@@ -77,6 +79,9 @@ class MergePlanner:
                 tokenizer_source=config.tokenizer_source,
                 trust_remote_code=options.trust_remote_code,
             )
+
+        if config.base_model:
+            self._space_planner = SpacePlanner(config.base_model)
 
     @lru_cache
     def model_arch_info(self, model: ModelReference):
@@ -156,6 +161,9 @@ class MergePlanner:
                     required=p.required and not is_base,
                     default=p.default_value,
                 )
+
+        if self._space_planner:
+            self._space_planner.add_weight(weight, zip(models, weights_in))
 
         gather_tensors = GatherTensors(
             weight_info=ImmutableMap(data=dict(zip(models, weights_in))),
@@ -237,6 +245,10 @@ class MergePlanner:
     def plan(self):
         self.normalize_config()
         self._tasks = []
+
+        if self._space_planner:
+            for space in self.arch_info.procedural_spaces(config=self.out_model_config):
+                self._space_planner.add_procedural_space(space)
 
         for weight_info in self.arch_info.pre_weights(config=self.out_model_config):
             self.plan_tensor(
