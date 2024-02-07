@@ -1,3 +1,6 @@
+> [!NOTE]
+> [Charles Goddard](https://github.com/cg123), author of `mergekit` (and person writing this note), has joined [arcee.ai](https://www.arcee.ai/). I will be continuing to develop `mergekit` with their backing and it will continue to be open source under the same license. For more words about this, see the blog post [here](https://blog.arcee.ai/arcee-and-mergekit-unite/).
+
 # mergekit
 
 `mergekit` is a toolkit for merging pre-trained language models. `mergekit` uses an out-of-core approach to perform unreasonably elaborate merges in resource-constrained situations. Merges can be run entirely on CPU or accelerated with as little as 8 GB of VRAM. Many merging algorithms are supported, with more coming as they catch my attention.
@@ -37,7 +40,24 @@ The script `mergekit-yaml` is the main entry point for `mergekit`. It takes a YA
 mergekit-yaml path/to/your/config.yml ./output-model-directory [--cuda] [--lazy-unpickle] [--allow-crimes] [... other options]
 ```
 
+This will run the merge and write your merged model to `./output-model-directory`.
+
 For more information on the arguments accepted by `mergekit-yaml` run the command `mergekit-yaml --help`.
+
+### Uploading to Huggingface
+
+When you have a merged model you're happy with, you may want to share it on the Hugging Face Hub. `mergekit` generates a `README.md` for your merge with some basic information for a model card. You can edit it to include more details about your merge, like giving it a good name or explaining what it's good at; rewrite it entirely; or use the generated `README.md` as-is. It is also possible to edit your `README.md` online once it has been uploaded to the Hub.
+
+Once you're happy with your model card and merged model, you can upload it to the Hugging Face Hub using the [huggingface_hub](https://huggingface.co/docs/huggingface_hub/index) Python library.
+
+```
+# log in to huggingface with an access token (must have write permission)
+huggingface-cli login
+# upload your model
+huggingface-cli upload your_hf_username/my-cool-model ./output-model-directory .
+```
+
+The [documentation](https://huggingface.co/docs/huggingface_hub/guides/cli#huggingface-cli-upload) for `huggingface_hub` goes into more detail about other options for uploading.
 
 ## Merge Configuration
 

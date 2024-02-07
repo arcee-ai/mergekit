@@ -19,8 +19,8 @@ from transformers import PretrainedConfig
 from mergekit.architecture.base import (
     ModelArchitecture,
     ModuleArchitecture,
+    ModuleConfiguredArchitecture,
     ModuleDefinition,
-    StaticLayeredModuleArchitecture,
     WeightInfo,
 )
 from mergekit.architecture.decoder_only import get_decoder_only_arch
@@ -32,12 +32,6 @@ def get_architecture_info(config: PretrainedConfig) -> ModelArchitecture:
     arch_name = config.architectures[0]
 
     if decoder := get_decoder_only_arch(arch_name, config=config):
-        if isinstance(decoder, StaticLayeredModuleArchitecture):
-            num_layers = getattr(config, decoder.num_layers_config_key())
-            decoder = StaticLayeredModuleArchitecture(
-                **decoder.model_dump(exclude=["configured_num_layers"]),
-                configured_num_layers=num_layers,
-            )
         return ModelArchitecture(
             modules={"decoder": ModuleDefinition(architecture=decoder)}
         )
@@ -49,6 +43,7 @@ __all__ = [
     "ModelArchitecture",
     "ModuleArchitecture",
     "ModuleDefinition",
+    "ModuleConfiguredArchitecture",
     "WeightInfo",
     "get_architecture_info",
 ]

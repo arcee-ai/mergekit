@@ -17,124 +17,164 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel
+from transformers import PretrainedConfig
+from typing_extensions import Literal
 
 
-class WeightInfo(BaseModel):
+class WeightInfo(BaseModel, frozen=True):
+    """Information about an individual weight tensor in a model.
+
+    Attributes:
+        name (str):
+            The name of the tensor representing the weight.
+        is_embed (bool):
+            Indicates whether the weight is for an embedding or language model head.
+        input_space (Optional[str]):
+            The name of the input space associated with the weight, if applicable.
+        output_space (Optional[str]):
+            The name of the output space associated with the weight, if applicable.
+        optional (bool):
+            Indicates whether the weight can be omitted from a model.
+        aliases (Optional[List[str]]):
+            List of alternative names for the weight, if applicable.
+    """
+
     name: str
     is_embed: bool = False
+    input_space: Optional[str] = None
+    output_space: Optional[str] = None
+    optional: bool = False
+    aliases: Optional[List[str]] = None
 
-    def prefixed_name(self, prefix: Optional[str] = None):
-        if prefix:
-            return prefix + self.name
-        return self.name
+
+class ProceduralSpaceInfo(BaseModel, frozen=True):
+    """Defines a procedural space computed from one or more other spaces.
+
+    Currently only supports residual connections.
+
+    Attributes:
+        name (str): The name of the space defined.
+        type (str): The type of procedural space.
+        inputs (List[str]): List of names of spaces used to define this space."""
+
+    name: str
+    type: Literal["residual"]
+    inputs: List[str]
+
+
+def _prefix_weight(weight: WeightInfo, prefix: Optional[str] = None) -> WeightInfo:
+    if prefix is None:
+        return weight
+    return WeightInfo(
+        name=prefix + weight.name,
+        **weight.model_dump(exclude={"name"}),
+    )
 
 
 class ModuleArchitecture(ABC):
     @abstractmethod
-    def num_layers(self) -> int:
-        """Return the number of layers in this module."""
-        ...
-
-    @abstractmethod
-    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
-        """Return a list of all weights associated with a given layer."""
-        ...
-
-    @abstractmethod
-    def pre_weights(self) -> List[WeightInfo]:
+    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         """Return a list of all weights preceding the first layer."""
         ...
 
     @abstractmethod
-    def post_weights(self) -> List[WeightInfo]:
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         """Return a list of all weights following the final layer."""
         ...
 
     @abstractmethod
-    def slicable(self) -> bool:
-        """Return True if the architecture can be sliced meaningfully."""
+    def layer_weights(
+        self, index: int, config: PretrainedConfig
+    ) -> Optional[List[WeightInfo]]:
+        """Return a list of all weights associated with a given layer."""
+        ...
+
+    @abstractmethod
+    def sliceable(self) -> bool:
+        """
+        Return True if the layers of this architecture can be meaningfully sliced.
+        """
         ...
 
     def num_layers_config_key(self) -> str:
         """Key in config that represents number of layers"""
         return "num_hidden_layers"
 
-    def all_weights(self) -> List[WeightInfo]:
-        num_layers = self.num_layers()
-        res = list(self.pre_weights())
+    def num_layers(self, config: PretrainedConfig) -> int:
+        """Return the number of layers in a model."""
+        return getattr(config, self.num_layers_config_key())
+
+    def all_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        """Return all weights associated with a model."""
+        num_layers = self.num_layers(config)
+        res = list(self.pre_weights(config))
         for layer_idx in range(num_layers):
-            res.extend(self.layer_weights(index=layer_idx))
-        res.extend(self.post_weights())
+            res.extend(self.layer_weights(layer_idx, config))
+        res.extend(self.post_weights(config))
         return res
+
+    def procedural_spaces(self, config: PretrainedConfig) -> List[ProceduralSpaceInfo]:
+        """Return a list of all procedurally defined spaces in a model."""
+        return []
+
+    def has_defined_spaces(self) -> bool:
+        """
+        Return True if this architecture defines space information needed for
+        matching-based merge methods.
+        """
+        return False
+
+
+class ModuleConfiguredArchitecture(
+    BaseModel, frozen=True, arbitrary_types_allowed=True
+):
+    info: ModuleArchitecture
+    config: PretrainedConfig
+    weight_prefix: Optional[str] = None
+
+    def num_layers(self) -> int:
+        return self.info.num_layers(self.config)
+
+    def pre_weights(self) -> List[WeightInfo]:
+        return [
+            _prefix_weight(w, self.weight_prefix)
+            for w in self.info.pre_weights(self.config)
+        ]
+
+    def post_weights(self) -> List[WeightInfo]:
+        return [
+            _prefix_weight(w, self.weight_prefix)
+            for w in self.info.post_weights(self.config)
+        ]
+
+    def layer_weights(self, index: int) -> List[WeightInfo]:
+        return [
+            _prefix_weight(w, self.weight_prefix)
+            for w in self.info.layer_weights(index, self.config)
+        ]
+
+    def procedural_spaces(self) -> List[ProceduralSpaceInfo]:
+        return self.info.procedural_spaces(self.config)
+
+    def all_weights(self) -> List[WeightInfo]:
+        return [
+            _prefix_weight(w, self.weight_prefix)
+            for w in self.info.all_weights(self.config)
+        ]
 
 
 class ModuleDefinition(BaseModel, frozen=True, arbitrary_types_allowed=True):
     architecture: ModuleArchitecture
     weight_prefix: Optional[str] = None
-    config_prefix: Optional[str] = None
     subfolder: Optional[str] = None
 
 
 class ModelArchitecture(BaseModel, frozen=True):
     modules: Dict[str, ModuleDefinition]
 
-    def all_weights(self) -> List[WeightInfo]:
+    def all_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         res = []
         for module in self.modules.values():
-            for weight_info in module.architecture.all_weights():
-                res.append(
-                    WeightInfo(
-                        name=weight_info.prefixed_name(module.weight_prefix),
-                        is_embed=weight_info.is_embed,
-                    )
-                )
+            for weight_info in module.architecture.all_weights(config=config):
+                res.append(_prefix_weight(weight_info, module.weight_prefix))
         return res
-
-
-class StaticLayeredModuleArchitecture(ModuleArchitecture, BaseModel, frozen=True):
-    name: str
-
-    pre_weight_names: List[str]
-    post_weight_names: List[str]
-    embed_weight_names: List[str]
-    layer_prefix_format: str
-    layer_weight_suffixes: List[str]
-    num_layers_key: Optional[str] = None
-    is_slicable: bool = True
-    configured_num_layers: Optional[int] = None
-
-    def num_layers(self) -> int:
-        if not self.configured_num_layers:
-            raise RuntimeError(
-                "num_layers() called on module with no configured_num_layers set"
-            )
-        return self.configured_num_layers
-
-    def layer_weights(self, index: int) -> Optional[List[WeightInfo]]:
-        if index >= self.configured_num_layers:
-            return None
-        res = []
-        for suffix in self.layer_weight_suffixes:
-            name = self.layer_prefix_format.format(idx=index) + "." + suffix
-            res.append(WeightInfo(name=name, is_embed=name in self.embed_weight_names))
-        return res
-
-    def pre_weights(self) -> List[WeightInfo]:
-        return [
-            WeightInfo(name=name, is_embed=name in self.embed_weight_names)
-            for name in self.pre_weight_names
-        ]
-
-    def post_weights(self) -> List[WeightInfo]:
-        return [
-            WeightInfo(name=name, is_embed=name in self.embed_weight_names)
-            for name in self.post_weight_names
-        ]
-
-    def num_layers_config_key(self) -> str:
-        if self.num_layers_key:
-            return self.num_layers_key
-        return super().num_layers_config_key()
-
-    def slicable(self) -> bool:
-        return self.is_slicable

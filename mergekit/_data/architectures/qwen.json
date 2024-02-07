@@ -1,0 +1,50 @@
+{
+    "model_type": "qwen",
+    "architectures": [
+        "QWenLMHeadModel"
+    ],
+    "pre_weights": [
+        {
+            "name": "transformer.wte.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "transformer.ln_f.weight"
+        },
+        {
+            "name": "lm_head.weight",
+            "is_embed": true
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "transformer.h.${layer_index}.attn.c_attn.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.attn.c_attn.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.attn.c_proj.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln_1.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln_2.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.c_proj.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.w1.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.w2.weight"
+            }
+        ]
+    }
+}

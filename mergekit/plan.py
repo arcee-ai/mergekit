@@ -16,10 +16,14 @@
 import logging
 import os
 from functools import lru_cache
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from mergekit import merge_methods
-from mergekit.architecture import ModelArchitecture, WeightInfo
+from mergekit.architecture import (
+    ModelArchitecture,
+    ModuleConfiguredArchitecture,
+    WeightInfo,
+)
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.config import (
     ConfigReader,
@@ -40,13 +44,13 @@ class MergePlanner:
     config: MergeConfiguration
     arch_info: ModelArchitecture
     options: MergeOptions
+    out_model_config: Any
     out_path: str
-    _writer_task: TensorWriterTask
-    _tensor_save_tasks: Dict[TensorWriterTask, List[SaveTensor]]
     _method: MergeMethod
     _tasks: List[Task] = []
     _current_module_layers: int = 0
     _tokenizer_task: Optional[BuildTokenizer] = None
+    _tensor_save_tasks: Dict[TensorWriterTask, List[SaveTensor]]
 
     def __init__(
         self,
@@ -54,12 +58,19 @@ class MergePlanner:
         arch_info: ModelArchitecture,
         out_path: str,
         options: MergeOptions,
+        out_model_config: Any,
     ):
         self.config = config
         self.arch_info = arch_info
         self.options = options
+        self.out_model_config = out_model_config
         self.out_path = out_path
         self._method = merge_methods.get(config.merge_method)
+        self._writer_task = TensorWriterTask(
+            out_path=out_path,
+            max_shard_size=options.out_shard_size,
+            safe_serialization=options.safe_serialization,
+        )
         self._tensor_save_tasks = {}
 
         if config.tokenizer_source:
@@ -69,6 +80,26 @@ class MergePlanner:
                 tokenizer_source=config.tokenizer_source,
                 trust_remote_code=options.trust_remote_code,
             )
+
+    @lru_cache
+    def _model_module_arch(self, model: ModelReference, module_name: str):
+        module_def = self.arch_info.modules[module_name]
+        return ModuleConfiguredArchitecture(
+            info=module_def.architecture,
+            config=model.config(trust_remote_code=self.options.trust_remote_code),
+            weight_prefix=module_def.weight_prefix,
+        )
+
+    @lru_cache
+    def _tensor_writer(self, subfolder: Optional[str] = None):
+        path = self.out_path
+        if subfolder:
+            path = os.path.join(path, subfolder)
+        return TensorWriterTask(
+            out_path=path,
+            max_shard_size=self.options.out_shard_size,
+            safe_serialization=self.options.safe_serialization,
+        )
 
     def normalize_config(self):
         base_model = self.config.base_model
@@ -86,7 +117,7 @@ class MergePlanner:
         if self.config.slices:
             if len(self.arch_info.modules) != 1:
                 raise RuntimeError(
-                    "Model has multiple modules, must use modules: syntax"
+                    "Model has multiple modules, must use modules: config syntax"
                 )
             module_name = list(self.arch_info.modules.keys())[0]
             self.config.modules = {
@@ -97,9 +128,7 @@ class MergePlanner:
         # modules.models -> modules.slices
         for module_name in self.config.modules:
             module_out = self.config.modules[module_name]
-            num_layers_key = (
-                self.arch_info.modules[module_name].config_prefix or ""
-            ) + self.arch_info.modules[module_name].architecture.num_layers_config_key()
+            module_arch = self.arch_info.modules[module_name].architecture
 
             if module_out.models:
                 slices_in = []
@@ -112,7 +141,7 @@ class MergePlanner:
                     model_cfg = model_in.model.config(
                         trust_remote_code=self.options.trust_remote_code
                     )
-                    num_layers = int(getattr(model_cfg, num_layers_key))
+                    num_layers = module_arch.num_layers(model_cfg)
                     slices_in.append(
                         InputSliceDefinition(
                             layer_range=[0, num_layers],
@@ -128,7 +157,7 @@ class MergePlanner:
                     base_cfg = base_model.config(
                         trust_remote_code=self.options.trust_remote_code
                     )
-                    num_layers = int(getattr(base_cfg, num_layers_key))
+                    num_layers = module_arch.num_layers(base_cfg)
                     slices_in.append(
                         InputSliceDefinition(
                             layer_range=[0, num_layers],
@@ -139,33 +168,21 @@ class MergePlanner:
                 module_out.slices = [OutputSliceDefinition(sources=slices_in)]
                 module_out.models = None
 
-    @lru_cache
-    def _tensor_writer(self, subfolder: Optional[str] = None):
-        path = self.out_path
-        if subfolder:
-            path = os.path.join(path, subfolder)
-        return TensorWriterTask(
-            out_path=path,
-            max_shard_size=self.options.out_shard_size,
-            safe_serialization=self.options.safe_serialization,
-        )
-
     def plan_tensor(
         self,
-        name: str,
-        names_in: List[str],
+        weight: WeightInfo,
+        weights_in: List[WeightInfo],
         models: List[ModelReference],
         cfg_reader: ConfigReader,
         tensor_writer: TensorWriterTask,
-        is_embed: bool = False,
     ):
         tensor_merge_method = self._method
-        if self._tokenizer_task and is_embed:
+        if self._tokenizer_task and weight.is_embed:
             tensor_merge_method = TokenizerPermutationMerge(
                 tokenizer_task=self._tokenizer_task
             )
 
-        cfg_g = cfg_reader.for_tensor(name)
+        cfg_g = cfg_reader.for_tensor(weight.name)
         global_params = {}
         for p in tensor_merge_method.parameters():
             global_params[p.name] = cfg_g.parameter(
@@ -173,10 +190,10 @@ class MergePlanner:
             )
 
         tensor_params = {}
-        for model, name_in in zip(models, names_in):
+        for model, weight_in in zip(models, weights_in):
             is_base = model == cfg_reader.config.base_model
             tensor_params[model] = {}
-            cfg_m = cfg_reader.for_tensor(name_in)
+            cfg_m = cfg_reader.for_tensor(weight_in.name)
             for p in tensor_merge_method.tensor_parameters():
                 tensor_params[model][p.name] = cfg_m.parameter(
                     p.name,
@@ -186,12 +203,12 @@ class MergePlanner:
                 )
 
         gather_tensors = GatherTensors(
-            tensor_names=ImmutableMap(data=dict(zip(models, names_in))),
+            weight_info=ImmutableMap(data=dict(zip(models, weights_in))),
             dtype=self.config.dtype,
         )
 
         tensor_task = tensor_merge_method.make_task(
-            output_tensor_name=name,
+            output_weight=weight,
             tensors=gather_tensors,
             parameters=ImmutableMap(data=global_params),
             tensor_parameters=ImmutableMap(
@@ -202,7 +219,7 @@ class MergePlanner:
             base_model=self.config.base_model,
         )
         save_task = SaveTensor(
-            tensor_name=name,
+            tensor_name=weight.name,
             tensor_task=tensor_task,
             writer_task=tensor_writer,
             clone=self.options.clone_tensors,
@@ -222,27 +239,23 @@ class MergePlanner:
     ):
         module_arch_def = self.arch_info.modules[module_name]
         weights_out: List[WeightInfo] = module_arch_def.architecture.layer_weights(
-            index=self._current_module_layers
+            index=self._current_module_layers,
+            config=self.out_model_config,
         )
         weights_in: List[List[WeightInfo]] = [
-            module_arch_def.architecture.layer_weights(
+            self._model_module_arch(s.model, module_name).layer_weights(
                 index=s.layer_range[0] + layer_offset
             )
             for s in sources
         ]
+
         for idx, w_o in enumerate(weights_out):
             self.plan_tensor(
-                name=w_o.prefixed_name(prefix=module_arch_def.weight_prefix),
-                names_in=[
-                    weights_in[j][idx].prefixed_name(
-                        prefix=module_arch_def.weight_prefix
-                    )
-                    for j in range(len(weights_in))
-                ],
+                weight=w_o,
+                weights_in=[weights_in[j][idx] for j in range(len(weights_in))],
                 models=[s.model for s in sources],
                 cfg_reader=cfg_reader.with_t(t),
                 tensor_writer=self._tensor_writer(subfolder=module_arch_def.subfolder),
-                is_embed=w_o.is_embed,
             )
 
         self._current_module_layers += 1
@@ -263,7 +276,7 @@ class MergePlanner:
         num_layers = slice_lengths[0]
 
         cfg_reader = ConfigReader(
-            config=self.config, slice_out=definition, module=module_def, t=0
+            config=self.config, slice_out=definition, t=0, module=module_def
         )
         for idx in range(num_layers):
             # compute t for interpolated gradients
@@ -286,19 +299,17 @@ class MergePlanner:
         module_arch_def = self.arch_info.modules[module_name]
         config_reader = ConfigReader(config=self.config, t=0, module=definition)
 
-        for weight_info in module_arch_def.architecture.pre_weights():
-            weight_name = weight_info.prefixed_name(
-                prefix=module_arch_def.weight_prefix
-            )
+        for weight_info in module_arch_def.architecture.pre_weights(
+            self.out_model_config
+        ):
             self.plan_tensor(
-                weight_name,
-                [weight_name] * len(definition.slices[0].sources),
+                weight_info,
+                [weight_info] * len(definition.slices[0].sources),
                 [s.model for s in definition.slices[0].sources],
-                config_reader.for_tensor(tensor_name=weight_name).for_out_slice(
+                config_reader.for_tensor(tensor_name=weight_info.name).for_out_slice(
                     definition.slices[0]
                 ),
                 tensor_writer=self._tensor_writer(subfolder=module_arch_def.subfolder),
-                is_embed=weight_info.is_embed,
             )
 
         for out_slice in definition.slices:
@@ -308,19 +319,17 @@ class MergePlanner:
                 module_name=module_name,
             )
 
-        for weight_info in module_arch_def.architecture.post_weights():
-            weight_name = weight_info.prefixed_name(
-                prefix=module_arch_def.weight_prefix
-            )
+        for weight_info in module_arch_def.architecture.post_weights(
+            self.out_model_config
+        ):
             self.plan_tensor(
-                weight_name,
-                [weight_name] * len(definition.slices[-1].sources),
+                weight_info,
+                [weight_info] * len(definition.slices[0].sources),
                 [s.model for s in definition.slices[-1].sources],
-                config_reader.for_tensor(tensor_name=weight_name).for_out_slice(
+                config_reader.for_tensor(tensor_name=weight_info.name).for_out_slice(
                     definition.slices[-1]
                 ),
                 tensor_writer=self._tensor_writer(subfolder=module_arch_def.subfolder),
-                is_embed=weight_info.is_embed,
             )
 
     def plan(self):
@@ -330,13 +339,11 @@ class MergePlanner:
         for module_name in self.config.modules:
             self.plan_module(module_name, self.config.modules[module_name])
 
-        for writer in self._tensor_save_tasks:
-            self._tasks.append(
-                FinalizeModel(
-                    tensor_save_tasks=tuple(self._tensor_save_tasks[writer]),
-                    writer_task=writer,
-                )
+        self._tasks.append(
+            FinalizeModel(
+                tensor_save_tasks=tuple(self._tasks), writer_task=self._writer_task
             )
+        )
         res = list(self._tasks)
         if self._tokenizer_task:
             res.append(self._tokenizer_task)
