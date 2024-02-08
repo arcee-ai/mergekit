@@ -85,7 +85,7 @@
         {
             "name": "lm_head.weight",
             "input_space": "h_${num_layers}",
-            "is_embed": true
+            "is_lm_head": true
         }
     ]
 }

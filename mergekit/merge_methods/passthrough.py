@@ -20,12 +20,11 @@ from torch._tensor import Tensor
 
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 
 
 class PassthroughMergeTask(Task[torch.Tensor]):
-    gather_tensors: GatherTensors
+    gather_tensors: Task
     scale: Optional[float] = None
 
     def arguments(self) -> Dict[str, Task]:
@@ -49,7 +48,7 @@ class PassthroughMerge(MergeMethod):
     def make_task(
         self,
         *,
-        tensors: GatherTensors,
+        tensors: Task[Dict[ModelReference, torch.Tensor]],
         parameters: ImmutableMap[str, Any],
         **kwargs,
     ) -> Task:

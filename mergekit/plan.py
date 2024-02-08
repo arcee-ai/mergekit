@@ -17,6 +17,8 @@ import logging
 from functools import lru_cache
 from typing import Any, List, Optional
 
+import torch
+
 from mergekit import merge_methods
 from mergekit.architecture import (
     ArchitectureInfo,
@@ -31,8 +33,8 @@ from mergekit.config import (
     OutputSliceDefinition,
 )
 from mergekit.graph import Task
-from mergekit.io.tasks import FinalizeModel, GatherTensors, SaveTensor, TensorWriterTask
-from mergekit.matching import SpacePlanner
+from mergekit.io.tasks import FinalizeModel, LoadTensor, SaveTensor, TensorWriterTask
+from mergekit.matching import CollectDictTask, SpacePlanner
 from mergekit.merge_methods import MergeMethod
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 from mergekit.options import MergeOptions
@@ -80,7 +82,7 @@ class MergePlanner:
                 trust_remote_code=options.trust_remote_code,
             )
 
-        if config.base_model:
+        if config.base_model and config.align_weights:
             self._space_planner = SpacePlanner(config.base_model)
 
     @lru_cache
@@ -137,7 +139,7 @@ class MergePlanner:
         cfg_reader: ConfigReader,
     ):
         tensor_merge_method = self._method
-        if self._tokenizer_task and weight.is_embed:
+        if self._tokenizer_task and (weight.is_embed or weight.is_lm_head):
             tensor_merge_method = TokenizerPermutationMerge(
                 tokenizer_task=self._tokenizer_task
             )
@@ -165,9 +167,23 @@ class MergePlanner:
         if self._space_planner:
             self._space_planner.add_weight(weight, zip(models, weights_in))
 
-        gather_tensors = GatherTensors(
-            weight_info=ImmutableMap(data=dict(zip(models, weights_in))),
-            dtype=self.config.dtype,
+        input_weight_tasks = {}
+        for model, weight_in in zip(models, weights_in):
+            input_weight_tasks[model] = LoadTensor(
+                model=model,
+                tensor=weight_in.name,
+                dtype=self.config.dtype,
+                aliases=weight_in.aliases,
+            )
+
+        if self._space_planner:
+            input_weight_tasks = {
+                model: self._space_planner.align_tensor(model, weight, task)
+                for model, task in input_weight_tasks.items()
+            }
+
+        gather_tensors = CollectDictTask[ModelReference, Optional[torch.Tensor]](
+            tasks=ImmutableMap(data=input_weight_tasks)
         )
 
         tensor_task = tensor_merge_method.make_task(

@@ -14,14 +14,14 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
+import torch
 from pydantic import BaseModel
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
 
 
 class ConfigParameterDef(BaseModel):
@@ -42,7 +42,7 @@ class MergeMethod(ABC):
         self,
         *,
         output_weight: WeightInfo,
-        tensors: GatherTensors,
+        tensors: Task[Dict[ModelReference, torch.Tensor]],
         parameters: ImmutableMap[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         base_model: Optional[ModelReference],

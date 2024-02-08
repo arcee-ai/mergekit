@@ -168,7 +168,7 @@ class Executor:
 
             arguments = {}
             for name, dep in task.arguments().items():
-                value = values[dep]
+                value = values[dep] if dep is not None else None
 
                 # ensure any input tensors are on math device if task asks for it
                 if use_math_device:
@@ -258,6 +258,9 @@ class Executor:
 
             task_dependencies[child] = set()
             for _, dep in child.arguments().items():
+                if dep is None:
+                    continue
+
                 task_dependencies[child].add(dep)
                 to_process.append(dep)
         return task_dependencies

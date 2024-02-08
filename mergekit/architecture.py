@@ -32,7 +32,9 @@ class WeightInfo(BaseModel, frozen=True):
         name (str):
             The name of the tensor representing the weight.
         is_embed (bool):
-            Indicates whether the weight is for an embedding or language model head.
+            Indicates whether the weight is for an embedding.
+        is_lm_head (bool):
+            Indicates whether the weight is for a language modeling head.
         input_space (Optional[str]):
             The name of the input space associated with the weight, if applicable.
         output_space (Optional[str]):
@@ -45,6 +47,7 @@ class WeightInfo(BaseModel, frozen=True):
 
     name: str
     is_embed: bool = False
+    is_lm_head: bool = False
     input_space: Optional[str] = None
     output_space: Optional[str] = None
     optional: bool = False

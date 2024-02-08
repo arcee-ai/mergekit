@@ -24,7 +24,6 @@ from typing_extensions import Literal
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 from mergekit.sparsify import SparsificationMethod, sparsify
 
@@ -56,7 +55,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
     def make_task(
         self,
         output_weight: WeightInfo,
-        tensors: GatherTensors,
+        tensors: Task[Dict[ModelReference, torch.Tensor]],
         base_model: Optional[ModelReference],
         parameters: ImmutableMap[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
@@ -74,7 +73,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
 
 class GTATask(Task[torch.Tensor]):
     method: GeneralizedTaskArithmeticMerge
-    tensors: GatherTensors
+    tensors: Task
     base_model: ModelReference
     out_tensor_name: str
     tensor_parameters: ImmutableMap[ModelReference, Any]

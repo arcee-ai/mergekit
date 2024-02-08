@@ -13,7 +13,8 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Dict, Generic, List, Optional, Tuple
+import copy
+from typing import Callable, Dict, Generic, List, Optional, Tuple, Union
 
 import torch
 from scipy.optimize import linear_sum_assignment
@@ -23,15 +24,24 @@ from typing_extensions import TypeVar
 from mergekit.architecture import ProceduralSpaceInfo, WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
+from mergekit.io.tasks import LoadTensor
 
-KeyT = TypeVar("KeyT")
-ValueT = TypeVar("ValueT")
+CollectKeyT = TypeVar("CollectKeyT")
+CollectValueT = TypeVar("CollectValueT")
+
+
+class NullTask(Task[None]):
+    def execute(self) -> None:
+        return None
+
+    def arguments(self):
+        return {}
 
 
 class CollectTupleTask(Task[Tuple]):
     """Collects the results of a number of tasks into a tuple."""
 
-    tasks: Tuple[Task]
+    tasks: Tuple[Task, ...]
 
     def arguments(self) -> Dict[str, Task]:
         return {f"a_{idx}": task for idx, task in enumerate(self.tasks)}
@@ -43,10 +53,12 @@ class CollectTupleTask(Task[Tuple]):
         return max(t.group_label() or "" for t in self.arguments().values())
 
 
-class CollectDictTask(Task[Dict[KeyT, ValueT]], Generic[KeyT, ValueT]):
+class CollectDictTask(
+    Task[Dict[CollectKeyT, CollectValueT]], Generic[CollectKeyT, CollectValueT]
+):
     """Collects a dictionary of tasks into a dictionary of results."""
 
-    tasks: ImmutableMap[KeyT, Task[ValueT]]
+    tasks: ImmutableMap[CollectKeyT, Task[CollectValueT]]
 
     @property
     def _ordered_keys(self):
@@ -59,7 +71,9 @@ class CollectDictTask(Task[Dict[KeyT, ValueT]], Generic[KeyT, ValueT]):
             )
         }
 
-    def execute(self, elements: List[ValueT]) -> Dict[KeyT, ValueT]:
+    def execute(
+        self, elements: List[CollectValueT]
+    ) -> Dict[CollectKeyT, CollectValueT]:
         return dict(zip(self._ordered_keys, elements))
 
     def group_label(self) -> Optional[str]:
@@ -67,14 +81,14 @@ class CollectDictTask(Task[Dict[KeyT, ValueT]], Generic[KeyT, ValueT]):
 
 
 class AlignModelToSpaceTask(Task[torch.Tensor]):
-    tensors_base: Tuple[Task[torch.Tensor]]
-    tensors_model: Tuple[Task[torch.Tensor]]
-    input_transforms: Optional[Dict[ModelReference, Task[torch.Tensor]]] = None
+    tensors_base: Tuple[Task, ...]
+    tensors_model: Tuple[Task, ...]
+    input_transforms: Optional[Tuple[Optional[Task], ...]] = None
 
     def arguments(self) -> Dict[str, Task]:
         res = {}
         if self.input_transforms:
-            res["input_transforms"] = CollectDictTask(tasks=self.input_transforms)
+            res["input_transforms"] = CollectTupleTask(tasks=self.input_transforms)
         res["base_tensors"] = CollectTupleTask(tasks=self.tensors_base)
         res["model_tensors"] = CollectTupleTask(tasks=self.tensors_model)
         return res
@@ -83,7 +97,7 @@ class AlignModelToSpaceTask(Task[torch.Tensor]):
         self,
         base_tensors: List[torch.Tensor],
         model_tensors: List[torch.Tensor],
-        input_transforms: Optional[List[torch.Tensor]] = None,
+        input_transforms: Optional[List[Optional[torch.Tensor]]] = None,
     ) -> Tensor:
         out_dim = base_tensors[0].shape[0]
         if not all(t.shape[0] == out_dim for t in (base_tensors + model_tensors)):
@@ -95,7 +109,7 @@ class AlignModelToSpaceTask(Task[torch.Tensor]):
             # Apply input transformations to model tensors
             new_model_tensors = []
             for x_model, tf_in in zip(model_tensors, input_transforms):
-                if tf_in:
+                if tf_in is not None:
                     new_model_tensors.append(x_model @ tf_in)
                 else:
                     new_model_tensors.append(x_model)
@@ -109,13 +123,14 @@ class AlignModelToSpaceTask(Task[torch.Tensor]):
             cost_mat += x_base @ x_model.T
 
         ri, ci = linear_sum_assignment(cost_mat.numpy(), maximize=True)
-        model_to_base = torch.zeros_like(cost_mat, dtype=bool)
+        model_to_base = torch.zeros_like(cost_mat)
         model_to_base[(ri, ci)] = 1
+
         return model_to_base
 
 
-class TransposeTensor(Task[torch.Tensor]):
-    tensor_task: Task[torch.Tensor]
+class TransposeTensor(Task[Optional[torch.Tensor]]):
+    tensor_task: Task
 
     def arguments(self) -> Dict[str, Task]:
         return {
@@ -124,15 +139,17 @@ class TransposeTensor(Task[torch.Tensor]):
 
     def execute(
         self,
-        tensor: torch.Tensor,
-    ) -> Tensor:
+        tensor: Optional[torch.Tensor],
+    ) -> Optional[Tensor]:
+        if tensor is None:
+            return None
         return tensor.T
 
 
-class GetAlignedTensor(Task[torch.Tensor]):
-    tensor_task: Task[torch.Tensor]
-    transform_in: Optional[Task[torch.Tensor]] = None
-    transform_out: Optional[Task[torch.Tensor]] = None
+class GetAlignedTensor(Task[Optional[torch.Tensor]]):
+    tensor_task: Union[Task[torch.Tensor], Task[Optional[torch.Tensor]]]
+    transform_in: Union[Task[Optional[torch.Tensor]], Task[torch.Tensor], None] = None
+    transform_out: Union[Task[Optional[torch.Tensor]], Task[torch.Tensor], None] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {
@@ -143,25 +160,31 @@ class GetAlignedTensor(Task[torch.Tensor]):
 
     def execute(
         self,
-        tensor: torch.Tensor,
+        tensor: Optional[torch.Tensor],
         transform_in: Optional[torch.Tensor] = None,
         transform_out: Optional[torch.Tensor] = None,
-    ) -> Tensor:
-        if transform_in:
-            tensor = tensor @ transform_in
-        if transform_out:
-            tensor = transform_out @ tensor
+    ) -> Optional[torch.Tensor]:
+        if tensor is None:
+            return None
+
+        if transform_in is not None:
+            tensor = tensor @ transform_in.to(dtype=tensor.dtype)
+        if transform_out is not None:
+            tensor = transform_out.to(dtype=tensor.dtype) @ tensor
         return tensor
 
 
 class ResidualSpaceTransform(Task[torch.Tensor]):
-    input_transform_tasks: Tuple[Task[torch.Tensor]]
+    input_transform_tasks: Tuple[Task, ...]
 
     def arguments(self) -> Dict[str, Task]:
         return {"transforms": CollectTupleTask(tasks=self.input_transform_tasks)}
 
     def execute(self, transforms: List[torch.Tensor]) -> Tensor:
-        return sum(transforms) / max(len(transforms), 1)
+        valid = [t for t in transforms if t is not None]
+        if not valid:
+            return None
+        return sum(valid) / max(len(valid), 1)
 
 
 class SpacePlanner:
@@ -188,6 +211,39 @@ class SpacePlanner:
 
     def add_procedural_space(self, info: ProceduralSpaceInfo):
         self.procedural_spaces[info.name] = info
+
+    def align_tensor(
+        self, model: ModelReference, weight: WeightInfo, tensor_task: Task
+    ) -> Task:
+        if weight.is_embed:
+            tensor_task = TransposeTensor(tensor_task=tensor_task)
+        res = GetAlignedTensor(
+            tensor_task=tensor_task,
+            transform_out=(
+                DelayedAlignTask(
+                    planner=self,
+                    space=weight.output_space,
+                    for_model=model,
+                )
+                if weight.output_space
+                else None
+            ),
+            transform_in=(
+                TransposeTensor(
+                    tensor_task=DelayedAlignTask(
+                        planner=self,
+                        space=weight.input_space,
+                        for_model=model,
+                    )
+                )
+                if weight.input_space
+                else None
+            ),
+        )
+        if weight.is_embed:
+            # and untranspose
+            res = TransposeTensor(tensor_task=res)
+        return res
 
 
 class DelayedAlignTask(Task[Optional[torch.Tensor]], arbitrary_types_allowed=True):
@@ -220,21 +276,35 @@ class DelayedAlignTask(Task[Optional[torch.Tensor]], arbitrary_types_allowed=Tru
         base_weights = weights[self.planner.base_model]
         input_transforms = tuple(
             [
-                DelayedAlignTask(
-                    planner=self.planner,
-                    space=weight.input_space,
-                    for_model=self.for_model,
+                (
+                    DelayedAlignTask(
+                        planner=self.planner,
+                        space=weight.input_space,
+                        for_model=self.for_model,
+                    )
+                    if weight.input_space is not None
+                    else NullTask()
                 )
                 for weight in model_weights
             ]
         )
 
+        def _load(model: ModelReference, w: WeightInfo):
+            res = LoadTensor(model=model, tensor=w.name, aliases=w.aliases)
+            if w.is_embed:
+                # embeddings store weights with shape (vocab_size, embed_dim)
+                # so flip 'em to (embed_dim, vocab_size)
+                res = TransposeTensor(tensor_task=res)
+            return res
+
         task = AlignModelToSpaceTask(
-            tensors_base=base_weights,
-            tensors_model=model_weights,
+            tensors_base=tuple(_load(self.planner.base_model, w) for w in base_weights),
+            tensors_model=tuple(_load(self.for_model, w) for w in model_weights),
             input_transforms=input_transforms,
         )
         return {"transform": task}
 
-    def execute(self, transform: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+    def execute(
+        self, transform: Optional[torch.Tensor] = None
+    ) -> Optional[torch.Tensor]:
         return transform

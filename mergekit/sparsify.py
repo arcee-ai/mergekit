@@ -29,7 +29,10 @@ def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
     if density >= 1:
         return tensor
 
-    k = int(density * tensor.view(-1).shape[0])
+    if not tensor.is_contiguous():
+        tensor = tensor.contiguous()
+
+    k = int(density * tensor.numel())
 
     assert k > 0, "not gonna zero out the whole tensor buddy"
     mask = torch.zeros_like(tensor)

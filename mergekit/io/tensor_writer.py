@@ -48,7 +48,7 @@ class TensorWriter:
         self.current_shard_size = 0
 
     def save_tensor(self, name: str, tensor: torch.Tensor, clone: bool = False):
-        tensor_size = tensor.view(-1).shape[0]
+        tensor_size = tensor.numel()
         if (
             self.current_shard
             and self.current_shard_size + tensor_size > self.max_shard_size
@@ -57,6 +57,9 @@ class TensorWriter:
 
         if clone:
             tensor = tensor.clone()
+
+        if not tensor.is_contiguous():
+            tensor = tensor.contiguous()
 
         self.current_shard[name] = tensor
         self.current_shard_size += tensor_size
