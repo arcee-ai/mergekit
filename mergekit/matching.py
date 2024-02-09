@@ -250,6 +250,7 @@ class DelayedAlignTask(Task[Optional[torch.Tensor]], arbitrary_types_allowed=Tru
     planner: SpacePlanner
     space: str
     for_model: ModelReference
+    dtype: Optional[str] = None
 
     def arguments(self) -> Dict[str, Task]:
         if self.space in self.planner.procedural_spaces:
@@ -290,7 +291,13 @@ class DelayedAlignTask(Task[Optional[torch.Tensor]], arbitrary_types_allowed=Tru
         )
 
         def _load(model: ModelReference, w: WeightInfo):
-            res = LoadTensor(model=model, tensor=w.name, aliases=w.aliases)
+            res = LoadTensor(
+                model=model,
+                tensor=w.name,
+                dtype=self.dtype,
+                optional=w.optional,
+                aliases=w.aliases,
+            )
             if w.is_embed:
                 # embeddings store weights with shape (vocab_size, embed_dim)
                 # so flip 'em to (embed_dim, vocab_size)
