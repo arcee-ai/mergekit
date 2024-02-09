@@ -13,8 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-import copy
-from typing import Callable, Dict, Generic, List, Optional, Tuple, Union
+from typing import Dict, Generic, List, Optional, Tuple, Union
 
 import torch
 from scipy.optimize import linear_sum_assignment
@@ -105,25 +104,33 @@ class AlignModelToSpaceTask(Task[torch.Tensor]):
                 "All tensors that share an output space must have same output dimension"
             )
 
+        work_dtype = (
+            torch.float32
+            if base_tensors[0].device.type == "cpu"
+            else base_tensors[0].dtype
+        )
+
         if input_transforms:
             # Apply input transformations to model tensors
             new_model_tensors = []
             for x_model, tf_in in zip(model_tensors, input_transforms):
                 if tf_in is not None:
-                    new_model_tensors.append(x_model @ tf_in)
+                    new_model_tensors.append(
+                        x_model.to(work_dtype) @ tf_in.to(work_dtype)
+                    )
                 else:
                     new_model_tensors.append(x_model)
             model_tensors = new_model_tensors
 
         # Solve LAP to find best permutation of model weights to base weights
         cost_mat = torch.zeros(
-            out_dim, out_dim, device=base_tensors[0].device, dtype=base_tensors[0].dtype
+            out_dim, out_dim, device=base_tensors[0].device, dtype=work_dtype
         )
         for x_base, x_model in zip(base_tensors, model_tensors):
-            cost_mat += x_base @ x_model.T
+            cost_mat += x_base.to(work_dtype) @ x_model.T.to(work_dtype)
 
         ri, ci = linear_sum_assignment(cost_mat.numpy(), maximize=True)
-        model_to_base = torch.zeros_like(cost_mat)
+        model_to_base = torch.zeros_like(cost_mat, dtype=base_tensors[0].dtype)
         model_to_base[(ri, ci)] = 1
 
         return model_to_base
@@ -167,11 +174,14 @@ class GetAlignedTensor(Task[Optional[torch.Tensor]]):
         if tensor is None:
             return None
 
+        work_dtype = torch.float32 if tensor.device.type == "cpu" else tensor.dtype
+        out_dtype = tensor.dtype
+
         if transform_in is not None:
-            tensor = tensor @ transform_in.to(dtype=tensor.dtype)
+            tensor = tensor.to(dtype=work_dtype) @ transform_in.to(dtype=work_dtype)
         if transform_out is not None:
-            tensor = transform_out.to(dtype=tensor.dtype) @ tensor
-        return tensor
+            tensor = transform_out.to(dtype=work_dtype) @ tensor.to(dtype=work_dtype)
+        return tensor.to(dtype=out_dtype)
 
 
 class ResidualSpaceTransform(Task[torch.Tensor]):

@@ -110,6 +110,13 @@ class MergeConfiguration(BaseModel):
             raise RuntimeError("Must specify either output slices or models to merge")
         return self
 
+    @model_validator(mode="after")
+    def validate_align_has_base(self):
+        if self.align_weights:
+            if not self.base_model:
+                raise RuntimeError("Must specify base model for align_weights")
+        return self
+
     def to_yaml(self) -> str:
         return yaml.dump(
             self.model_dump(exclude_defaults=True, mode="json"),
