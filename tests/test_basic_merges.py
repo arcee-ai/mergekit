@@ -2,6 +2,7 @@ from typing import Dict, Optional
 
 import pytest
 from common import make_picollama, run_and_check_merge
+from transformers import AutoConfig
 
 from mergekit.config import (
     InputModelDefinition,
@@ -42,12 +43,17 @@ class TestBasicMerges:
             slices=[
                 OutputSliceDefinition(
                     sources=[InputSliceDefinition(model="gpt2", layer_range=[0, 12])]
-                    * 2
                 )
-            ],
+            ]
+            * 2,
             dtype="bfloat16",
         )
-        run_and_check_merge(config)
+
+        def _check_config_layers(p: str):
+            config = AutoConfig.from_pretrained(p)
+            assert config.n_layer == 24
+
+        run_and_check_merge(config, validate=_check_config_layers)
 
     def test_linear_merge(self, model_a, model_b):
         config = self.two_model_config(model_a, model_b, merge_method="linear")
