@@ -42,15 +42,16 @@ class TestBasicMerges:
             merge_method="passthrough",
             slices=[
                 OutputSliceDefinition(
-                    sources=[InputSliceDefinition(model="gpt2", layer_range=[0, 8])] * 2
+                    sources=[InputSliceDefinition(model="gpt2", layer_range=[0, 12])]
                 )
-            ],
+            ]
+            * 2,
             dtype="bfloat16",
         )
 
         def _check_config_layers(p: str):
             config = AutoConfig.from_pretrained(p)
-            assert config.n_layer == 8
+            assert config.n_layer == 24
 
         run_and_check_merge(config, validate=_check_config_layers)
 
