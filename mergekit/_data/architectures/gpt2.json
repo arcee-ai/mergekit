@@ -1,0 +1,70 @@
+{
+    "model_type": "gpt2",
+    "architectures": [
+        "GPT2LMHeadModel"
+    ],
+    "pre_weights": [
+        {
+            "name": "wte.weight",
+            "is_embed": true
+        },
+        {
+            "name": "wpe.weight"
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "ln_f.weight"
+        },
+        {
+            "name": "ln_f.bias"
+        }
+    ],
+    "num_layers_config_key": "n_layer",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "h.${layer_index}.attn.c_attn.weight"
+            },
+            {
+                "name": "h.${layer_index}.attn.c_attn.bias"
+            },
+            {
+                "name": "h.${layer_index}.attn.c_proj.weight"
+            },
+            {
+                "name": "h.${layer_index}.attn.c_proj.bias"
+            },
+            {
+                "name": "h.${layer_index}.ln_1.weight"
+            },
+            {
+                "name": "h.${layer_index}.ln_1.bias"
+            },
+            {
+                "name": "h.${layer_index}.ln_2.weight"
+            },
+            {
+                "name": "h.${layer_index}.ln_2.bias"
+            },
+            {
+                "name": "h.${layer_index}.mlp.c_proj.weight"
+            },
+            {
+                "name": "h.${layer_index}.mlp.c_proj.bias"
+            },
+            {
+                "name": "h.${layer_index}.mlp.c_fc.weight"
+            },
+            {
+                "name": "h.${layer_index}.mlp.c_fc.bias"
+            },
+            {
+                "name": "h.${layer_index}.mlp.c_proj.weight"
+            },
+            {
+                "name": "h.${layer_index}.mlp.c_proj.bias"
+            }
+        ]
+    }
+}

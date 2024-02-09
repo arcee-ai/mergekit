@@ -1,0 +1,66 @@
+{
+    "model_type": "mixformer-sequential",
+    "architectures": [
+        "MixFormerSequentialForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "layers.0.wte.weight",
+            "is_embed": true
+        }
+    ],
+    "num_layers_config_key": "n_layer",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "layers.${layer_index}.ln.bias"
+            },
+            {
+                "name": "layers.${layer_index}.ln.weight"
+            },
+            {
+                "name": "layers.${layer_index}.mixer.Wqkv.bias"
+            },
+            {
+                "name": "layers.${layer_index}.mixer.Wqkv.weight"
+            },
+            {
+                "name": "layers.${layer_index}.mixer.out_proj.bias"
+            },
+            {
+                "name": "layers.${layer_index}.mixer.out_proj.weight"
+            },
+            {
+                "name": "layers.${layer_index}.mixer.rotary_emb.inv_freq"
+            },
+            {
+                "name": "layers.${layer_index}.mlp.fc1.bias"
+            },
+            {
+                "name": "layers.${layer_index}.mlp.fc1.weight"
+            },
+            {
+                "name": "layers.${layer_index}.mlp.fc2.bias"
+            },
+            {
+                "name": "layers.${layer_index}.mlp.fc2.weight"
+            }
+        ]
+    },
+    "post_weights": [
+        {
+            "name": "layers.${num_layers}.linear.bias",
+            "is_embed": true
+        },
+        {
+            "name": "layers.${num_layers}.linear.weight",
+            "is_embed": true
+        },
+        {
+            "name": "layers.${num_layers}.ln.bias"
+        },
+        {
+            "name": "layers.${num_layers}.ln.weight"
+        }
+    ]
+}

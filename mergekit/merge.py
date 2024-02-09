@@ -60,12 +60,18 @@ def run_merge(
     loader_cache.hf_cache_dir = options.transformers_cache
     loader_cache.trust_remote_code = options.trust_remote_code
 
+    # create config for output model
+    cfg_out = _model_out_config(
+        merge_config, arch_info, trust_remote_code=options.trust_remote_code
+    )
+
     logging.info("Planning operations")
     targets = MergePlanner(
         merge_config,
         arch_info,
         out_path=out_path,
         options=options,
+        out_model_config=cfg_out,
     ).plan()
 
     # warm up loader cache
@@ -85,9 +91,9 @@ def run_merge(
         if isinstance(value, TokenizerInfo):
             tokenizer = value.tokenizer
 
-    cfg_out = _model_out_config(
-        merge_config, arch_info, tokenizer, trust_remote_code=options.trust_remote_code
-    )
+    if tokenizer:
+        _update_config_vocab(cfg_out, tokenizer)
+
     logging.info("Saving config")
     cfg_out.save_pretrained(out_path)
 
@@ -142,7 +148,6 @@ def _get_donor_tokenizer(
 def _model_out_config(
     config: MergeConfiguration,
     arch_info: ArchitectureInfo,
-    tokenizer: Optional[transformers.PreTrainedTokenizerBase] = None,
     trust_remote_code: bool = False,
 ) -> transformers.PretrainedConfig:
     """Return a configuration for the resulting model."""
@@ -153,28 +158,33 @@ def _model_out_config(
     if config.dtype:
         res.torch_dtype = config.dtype
 
-    if tokenizer:
+    if config.slices:
         try:
-            res.vocab_size = len(tokenizer.get_vocab())
+            num_layers = sum(
+                s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+                for s in config.slices
+            )
+            setattr(res, arch_info.num_layers_config_key(), num_layers)
         except Exception as e:
             logging.warning(
-                "Unable to set vocabulary size in output config - you may need to manually correct it.",
+                "Unable to set number of layers in output config - you may need to manually correct it.",
                 exc_info=e,
             )
 
+    return res
+
+
+def _update_config_vocab(
+    config: transformers.PretrainedConfig,
+    tokenizer: transformers.PreTrainedTokenizerBase,
+):
     try:
-        num_layers = sum(
-            s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
-            for s in config.slices
-        )
-        setattr(res, arch_info.num_layers_config_key(), num_layers)
+        config.vocab_size = len(tokenizer.get_vocab())
     except Exception as e:
         logging.warning(
-            "Unable to set number of layers in output config - you may need to manually correct it.",
+            "Unable to set vocabulary size in output config - you may need to manually correct it.",
             exc_info=e,
         )
-
-    return res
 
 
 __all__ = ["MergeOptions", "run_merge"]

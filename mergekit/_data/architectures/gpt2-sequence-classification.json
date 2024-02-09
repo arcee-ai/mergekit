@@ -1,0 +1,72 @@
+{
+    "model_type": "gpt2",
+    "architectures": [
+        "GPT2ForSequenceClassification"
+    ],
+    "pre_weights": [
+        {
+            "name": "transformer.wte.weight"
+        },
+        {
+            "name": "transformer.wpe.weight"
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "transformer.ln_f.weight"
+        },
+        {
+            "name": "transformer.ln_f.bias"
+        },
+        {
+            "name": "score.weight"
+        }
+    ],
+    "num_layers_config_key": "n_layer",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "transformer.h.${layer_index}.attn.c_attn.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.attn.c_attn.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.attn.c_proj.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.attn.c_proj.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln_1.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln_1.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln_2.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln_2.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.c_proj.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.c_proj.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.c_fc.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.c_fc.bias"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.c_proj.weight"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.c_proj.bias"
+            }
+        ]
+    }
+}
