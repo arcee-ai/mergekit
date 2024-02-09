@@ -274,6 +274,7 @@ def build(
 
     base_model = ModelReference.parse(config.base_model)
     base_cfg = base_model.config(trust_remote_code=merge_options.trust_remote_code)
+    arch_info = mergekit.architecture.get_architecture_info(base_cfg)
     if not isinstance(base_cfg, MistralConfig):
         base_cfg_mistral = MistralConfig(**base_cfg.to_dict())
         base_cfg_mistral.sliding_window = None
@@ -321,8 +322,7 @@ def build(
         out_dtype = None
 
     logging.info("Copying parameters...")
-    MISTRAL_INFO = mergekit.architecture.MISTRAL_INFO
-    for tensor_name in MISTRAL_INFO.pre_weight_names + MISTRAL_INFO.post_weight_names:
+    for tensor_name in arch_info.pre_weight_names + arch_info.post_weight_names:
         tensor = base_loader.get_tensor(tensor_name)
         if not out_dtype:
             # All else has failed, take the first dtype we see
@@ -331,7 +331,7 @@ def build(
             tensor_name, tensor.to(dtype=out_dtype), clone=merge_options.clone_tensors
         )
 
-    for name_format in tqdm.tqdm(MISTRAL_INFO.layer_weight_formats()):
+    for name_format in tqdm.tqdm(arch_info.layer_weight_formats()):
         for layer_idx in range(base_cfg.num_hidden_layers):
             tensor_name = name_format.format(idx=layer_idx)
 
