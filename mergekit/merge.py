@@ -158,17 +158,18 @@ def _model_out_config(
     if config.dtype:
         res.torch_dtype = config.dtype
 
-    try:
-        num_layers = sum(
-            s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
-            for s in config.slices
-        )
-        setattr(res, arch_info.num_layers_config_key(), num_layers)
-    except Exception as e:
-        logging.warning(
-            "Unable to set number of layers in output config - you may need to manually correct it.",
-            exc_info=e,
-        )
+    if config.slices:
+        try:
+            num_layers = sum(
+                s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+                for s in config.slices
+            )
+            setattr(res, arch_info.num_layers_config_key(), num_layers)
+        except Exception as e:
+            logging.warning(
+                "Unable to set number of layers in output config - you may need to manually correct it.",
+                exc_info=e,
+            )
 
     return res
 
