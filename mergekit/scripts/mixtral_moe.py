@@ -322,7 +322,10 @@ def build(
 
     logging.info("Copying parameters...")
     MISTRAL_INFO = mergekit.architecture.MISTRAL_INFO
-    for tensor_name in MISTRAL_INFO.pre_weight_names + MISTRAL_INFO.post_weight_names:
+    for weight_info in MISTRAL_INFO.pre_weights(base_cfg) + MISTRAL_INFO.post_weights(
+        base_cfg
+    ):
+        tensor_name = weight_info.name
         tensor = base_loader.get_tensor(tensor_name)
         if not out_dtype:
             # All else has failed, take the first dtype we see
@@ -331,11 +334,11 @@ def build(
             tensor_name, tensor.to(dtype=out_dtype), clone=merge_options.clone_tensors
         )
 
-    for name_format in tqdm.tqdm(MISTRAL_INFO.layer_weight_formats()):
-        for layer_idx in range(base_cfg.num_hidden_layers):
-            tensor_name = name_format.format(idx=layer_idx)
+    for layer_idx in range(base_cfg.num_hidden_layers):
+        for weight_info in MISTRAL_INFO.layer_weights(index=layer_idx, config=base_cfg):
+            tensor_name = weight_info.name
 
-            if ".mlp." in name_format:
+            if ".mlp." in tensor_name:
                 for moe_index, expert in enumerate(config.experts):
                     expert_name = tensor_name.replace(
                         ".mlp.gate_proj", f".block_sparse_moe.experts.{moe_index}.w1"
