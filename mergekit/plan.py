@@ -15,7 +15,7 @@
 
 import logging
 from functools import lru_cache
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Dict
 
 import torch
 
@@ -44,6 +44,7 @@ from mergekit.tokenizer import BuildTokenizer
 class MergePlanner:
     config: MergeConfiguration
     arch_info: ArchitectureInfo
+    arch_dict: Dict[str, ConfiguredArchitectureInfo]
     clone_tensors: bool
     trust_remote_code: bool
     out_model_config: Any
@@ -58,12 +59,14 @@ class MergePlanner:
         self,
         config: MergeConfiguration,
         arch_info: ArchitectureInfo,
+        arch_dict: Dict[str, ConfiguredArchitectureInfo], # perhaps this should no longer be a disjoint step
         out_path: str,
         options: MergeOptions,
         out_model_config: Any,
     ):
         self.config = config
-        self.arch_info = arch_info
+        self.arch_info = arch_info  # Special because how referenced models list is constructed ?
+        self.arch_dict = arch_dict
         self.clone_tensors = options.clone_tensors
         self.trust_remote_code = options.trust_remote_code
         self.out_model_config = out_model_config
@@ -85,16 +88,7 @@ class MergePlanner:
         if config.base_model and config.align_weights:
             self._space_planner = SpacePlanner(config.base_model)
 
-    @lru_cache
-    def model_arch_info(self, model: ModelReference):
-        return ConfiguredArchitectureInfo(
-            info=self.arch_info,
-            config=model.config(trust_remote_code=self.trust_remote_code),
-        )
-
     def normalize_config(self):
-        base_model = self.config.base_model
-
         # if models to merge are specified instead of output slices, compute them
         if self.config.models:
             if self.config.slices:
@@ -103,13 +97,13 @@ class MergePlanner:
                 )
 
             slices_in = []
-            base_included = False
 
             for model_in in self.config.models:
-                if base_model and model_in.model == base_model:
-                    base_included = True
 
-                model_info = self.model_arch_info(model_in.model)
+                if model_in == self.config.base_model:
+                    continue
+
+                model_info = self.arch_dict[model_in.model.path]
                 slices_in.append(
                     InputSliceDefinition(
                         layer_range=[0, model_info.num_layers()],
@@ -118,18 +112,21 @@ class MergePlanner:
                     )
                 )
 
-            if base_model and not base_included:
-                logging.info("Base model specified but not in input models - adding")
-                base_info = self.model_arch_info(base_model)
-                slices_in.append(
+            # Ensures base model is first in list
+
+            if self.config.base_model:
+                base_model_info = self.arch_dict[self.config.base_model.path]
+                slices_in = [
                     InputSliceDefinition(
-                        layer_range=[0, base_info.num_layers()],
-                        model=base_model,
+                        layer_range=[0, base_model_info.num_layers()],
+                        model=self.config.base_model,
+                        parameters=self.config.base_model.parameters,
                     )
-                )
+                ] + slices_in
 
             self.config.slices = [OutputSliceDefinition(sources=slices_in)]
             self.config.models = None
+
 
     def plan_tensor(
         self,
@@ -217,7 +214,7 @@ class MergePlanner:
             config=self.out_model_config,
         )
         weights_in: List[List[WeightInfo]] = [
-            self.model_arch_info(s.model).layer_weights(
+            self.arch_dict(s.model.path).layer_weights(
                 index=s.layer_range[0] + layer_offset
             )
             for s in sources
@@ -234,6 +231,8 @@ class MergePlanner:
         self._current_layers += 1
 
     def plan_slice(self, definition: OutputSliceDefinition):
+        print("plan_slice:")
+        print(definition)
         slice_lengths = [
             s.layer_range[1] - s.layer_range[0] for s in definition.sources
         ]
@@ -266,30 +265,32 @@ class MergePlanner:
             for space in self.arch_info.procedural_spaces(config=self.out_model_config):
                 self._space_planner.add_procedural_space(space)
 
-        for weight_info in self.arch_info.pre_weights(config=self.out_model_config):
+        models_ = [s.model for s in self.config.slices[0].sources]
+        for weight_infos in zip(*[self.arch_dict[m.name].pre_weights(config=self.out_model_config) for m in models_.name]):
             self.plan_tensor(
-                weight_info,
-                [weight_info] * len(self.config.slices[0].sources),
-                [s.model for s in self.config.slices[0].sources],
-                ConfigReader(
+                weight_infos[0],
+                list(weight_infos),
+                models_,
+                ConfigReader( # possible trouble here?
                     config=self.config,
                     t=0,
-                    tensor_name=weight_info.name,
+                    tensor_name=weight_infos[0].name,
                 ).for_out_slice(self.config.slices[0]),
             )
 
         for out_slice in self.config.slices:
             self.plan_slice(out_slice)
 
-        for weight_info in self.arch_info.post_weights(config=self.out_model_config):
+        models_ = [s.model for s in self.config.slices[-1].sources]
+        for weight_infos in zip(*[self.arch_dict[m.name].post_weights(config=self.out_model_config) for m in models_.name]):
             self.plan_tensor(
-                weight_info,
-                [weight_info] * len(self.config.slices[-1].sources),
-                [s.model for s in self.config.slices[-1].sources],
+                weight_infos[0],
+                list(weight_infos),
+                models_,
                 ConfigReader(
                     config=self.config,
                     t=1,
-                    tensor_name=weight_info.name,
+                    tensor_name=weight_infos[0].name,
                 ).for_out_slice(self.config.slices[-1]),
             )
 

@@ -68,7 +68,7 @@ def run_merge(
     logging.info("Planning operations")
     targets = MergePlanner(
         merge_config,
-        arch_info,
+        model_arch_info,
         out_path=out_path,
         options=options,
         out_model_config=cfg_out,
@@ -159,6 +159,7 @@ def _model_out_config(
         res.torch_dtype = config.dtype
 
     try:
+        print(config.slices)
         num_layers = sum(
             s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
             for s in config.slices
