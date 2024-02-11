@@ -20,7 +20,7 @@ from typing import Optional
 import tqdm
 import transformers
 
-from mergekit.architecture import ArchitectureInfo, get_architecture_info
+from mergekit.architecture import ArchitectureInfo, get_architecture_info, ConfiguredArchitectureInfo
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
@@ -42,10 +42,26 @@ def run_merge(
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
+    ## TODO: ----------- reconcile these steps -------------
+
     model_arch_info = [
         get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
         for m in merge_config.referenced_models()
     ]
+
+    arch_dict = {
+        m.model.path: ConfiguredArchitectureInfo(
+            info=get_architecture_info(
+                m.config(trust_remote_code=options.trust_remote_code)
+            ),
+            config=m.model.config(trust_remote_code=options.trust_remote_code)
+            )
+    for m in merge_config.referenced_models()
+    }
+
+    ## ----------------------------------------------------
+
+
     if not options.allow_crimes:
         if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
             raise RuntimeError(
@@ -68,7 +84,8 @@ def run_merge(
     logging.info("Planning operations")
     targets = MergePlanner(
         merge_config,
-        model_arch_info,
+        arch_info,
+        arch_dict,
         out_path=out_path,
         options=options,
         out_model_config=cfg_out,
