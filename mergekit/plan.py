@@ -97,32 +97,33 @@ class MergePlanner:
                 )
 
             slices_in = []
+            base_model = None
 
             for model_in in self.config.models:
 
-                if model_in == self.config.base_model:
-                    continue
-
-                model_info = self.arch_dict[model_in.model.path]
-                slices_in.append(
-                    InputSliceDefinition(
+                model_info = self.arch_dict[model_in.model.model.path]
+                slice = InputSliceDefinition(
                         layer_range=[0, model_info.num_layers()],
                         model=model_in.model,
                         parameters=model_in.parameters,
                     )
-                )
+
+                if model_in.model == self.config.base_model:
+                    base_model = slice
+                else:
+                    slices_in.append(slice)
 
             # Ensures base model is first in list
-
             if self.config.base_model:
-                base_model_info = self.arch_dict[self.config.base_model.path]
-                slices_in = [
-                    InputSliceDefinition(
+                if not base_model:
+                    base_model_info = self.arch_dict[self.config.base_model.model.path]
+                    base_model = InputSliceDefinition(
                         layer_range=[0, base_model_info.num_layers()],
                         model=self.config.base_model,
-                        parameters=self.config.base_model.parameters,
+                        # TODO: possible problematic area
+                        # parameters=self.config.base_model.parameters,
                     )
-                ] + slices_in
+                slices_in = [base_model] + slices_in
 
             self.config.slices = [OutputSliceDefinition(sources=slices_in)]
             self.config.models = None
@@ -266,7 +267,9 @@ class MergePlanner:
                 self._space_planner.add_procedural_space(space)
 
         models_ = [s.model for s in self.config.slices[0].sources]
-        for weight_infos in zip(*[self.arch_dict[m.name].pre_weights(config=self.out_model_config) for m in models_.name]):
+        print("==========================")
+        print(list(zip(*[self.arch_dict[m.model.path].info.pre_weights(config=self.out_model_config) for m in models_])))
+        for weight_infos in zip(*[self.arch_dict[m.model.path].info.pre_weights(config=self.out_model_config) for m in models_]):
             self.plan_tensor(
                 weight_infos[0],
                 list(weight_infos),
@@ -282,7 +285,10 @@ class MergePlanner:
             self.plan_slice(out_slice)
 
         models_ = [s.model for s in self.config.slices[-1].sources]
-        for weight_infos in zip(*[self.arch_dict[m.name].post_weights(config=self.out_model_config) for m in models_.name]):
+        print("==========POST ==============")
+        for a in list(zip(*[self.arch_dict[m.model.path].info.post_weights(config=self.out_model_config) for m in models_])):
+            print(a)
+        for weight_infos in zip(*[self.arch_dict[m.model.path].info.post_weights(config=self.out_model_config) for m in models_]):
             self.plan_tensor(
                 weight_infos[0],
                 list(weight_infos),

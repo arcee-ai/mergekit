@@ -54,7 +54,7 @@ def run_merge(
             info=get_architecture_info(
                 m.config(trust_remote_code=options.trust_remote_code)
             ),
-            config=m.model.config(trust_remote_code=options.trust_remote_code)
+            config=m.config(trust_remote_code=options.trust_remote_code)
             )
     for m in merge_config.referenced_models()
     }
