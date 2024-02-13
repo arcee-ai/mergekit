@@ -15,7 +15,7 @@
 
 import logging
 from functools import lru_cache
-from typing import Any, List, Optional, Dict
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -59,13 +59,17 @@ class MergePlanner:
         self,
         config: MergeConfiguration,
         arch_info: ArchitectureInfo,
-        arch_dict: Dict[str, ConfiguredArchitectureInfo], # perhaps this should no longer be a disjoint step
+        arch_dict: Dict[
+            str, ConfiguredArchitectureInfo
+        ],  # perhaps this should no longer be a disjoint step
         out_path: str,
         options: MergeOptions,
         out_model_config: Any,
     ):
         self.config = config
-        self.arch_info = arch_info  # Special because how referenced models list is constructed ?
+        self.arch_info = (
+            arch_info  # Special because how referenced models list is constructed ?
+        )
         self.arch_dict = arch_dict
         self.clone_tensors = options.clone_tensors
         self.trust_remote_code = options.trust_remote_code
@@ -100,34 +104,31 @@ class MergePlanner:
             base_model = None
 
             for model_in in self.config.models:
-
                 model_info = self.arch_dict[model_in.model.model.path]
                 slice = InputSliceDefinition(
-                        layer_range=[0, model_info.num_layers()],
-                        model=model_in.model,
-                        parameters=model_in.parameters,
-                    )
+                    layer_range=[0, model_info.num_layers()],
+                    model=model_in.model,
+                    parameters=model_in.parameters,
+                )
 
                 if model_in.model == self.config.base_model:
                     base_model = slice
                 else:
                     slices_in.append(slice)
 
-            # Ensures base model is first in list
             if self.config.base_model:
                 if not base_model:
                     base_model_info = self.arch_dict[self.config.base_model.model.path]
                     base_model = InputSliceDefinition(
                         layer_range=[0, base_model_info.num_layers()],
                         model=self.config.base_model,
-                        # TODO: possible problematic area
-                        # parameters=self.config.base_model.parameters,
                     )
+
+                # Ensures base model is first in list
                 slices_in = [base_model] + slices_in
 
             self.config.slices = [OutputSliceDefinition(sources=slices_in)]
             self.config.models = None
-
 
     def plan_tensor(
         self,
@@ -215,7 +216,7 @@ class MergePlanner:
             config=self.out_model_config,
         )
         weights_in: List[List[WeightInfo]] = [
-            self.arch_dict(s.model.path).layer_weights(
+            self.arch_dict(s.model.model.path).layer_weights(
                 index=s.layer_range[0] + layer_offset
             )
             for s in sources
@@ -232,8 +233,6 @@ class MergePlanner:
         self._current_layers += 1
 
     def plan_slice(self, definition: OutputSliceDefinition):
-        print("plan_slice:")
-        print(definition)
         slice_lengths = [
             s.layer_range[1] - s.layer_range[0] for s in definition.sources
         ]
@@ -267,14 +266,19 @@ class MergePlanner:
                 self._space_planner.add_procedural_space(space)
 
         models_ = [s.model for s in self.config.slices[0].sources]
-        print("==========================")
-        print(list(zip(*[self.arch_dict[m.model.path].info.pre_weights(config=self.out_model_config) for m in models_])))
-        for weight_infos in zip(*[self.arch_dict[m.model.path].info.pre_weights(config=self.out_model_config) for m in models_]):
+        for weight_infos in zip(
+            *[
+                self.arch_dict[m.model.path].info.pre_weights(
+                    config=self.out_model_config
+                )
+                for m in models_
+            ]
+        ):
             self.plan_tensor(
                 weight_infos[0],
                 list(weight_infos),
                 models_,
-                ConfigReader( # possible trouble here?
+                ConfigReader(  # possible trouble here?
                     config=self.config,
                     t=0,
                     tensor_name=weight_infos[0].name,
@@ -285,10 +289,14 @@ class MergePlanner:
             self.plan_slice(out_slice)
 
         models_ = [s.model for s in self.config.slices[-1].sources]
-        print("==========POST ==============")
-        for a in list(zip(*[self.arch_dict[m.model.path].info.post_weights(config=self.out_model_config) for m in models_])):
-            print(a)
-        for weight_infos in zip(*[self.arch_dict[m.model.path].info.post_weights(config=self.out_model_config) for m in models_]):
+        for weight_infos in zip(
+            *[
+                self.arch_dict[m.model.path].info.post_weights(
+                    config=self.out_model_config
+                )
+                for m in models_
+            ]
+        ):
             self.plan_tensor(
                 weight_infos[0],
                 list(weight_infos),

@@ -20,7 +20,11 @@ from typing import Optional
 import tqdm
 import transformers
 
-from mergekit.architecture import ArchitectureInfo, get_architecture_info, ConfiguredArchitectureInfo
+from mergekit.architecture import (
+    ArchitectureInfo,
+    ConfiguredArchitectureInfo,
+    get_architecture_info,
+)
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
@@ -54,13 +58,12 @@ def run_merge(
             info=get_architecture_info(
                 m.config(trust_remote_code=options.trust_remote_code)
             ),
-            config=m.config(trust_remote_code=options.trust_remote_code)
-            )
-    for m in merge_config.referenced_models()
+            config=m.config(trust_remote_code=options.trust_remote_code),
+        )
+        for m in merge_config.referenced_models()
     }
 
     ## ----------------------------------------------------
-
 
     if not options.allow_crimes:
         if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
