@@ -216,7 +216,7 @@ class MergePlanner:
             config=self.out_model_config,
         )
         weights_in: List[List[WeightInfo]] = [
-            self.arch_dict(s.model.model.path).layer_weights(
+            self.arch_dict[s.model.model.path].layer_weights(
                 index=s.layer_range[0] + layer_offset
             )
             for s in sources
