@@ -23,6 +23,7 @@ dependencies = [
     "typing-extensions",
     "sentencepiece",
     "protobuf",
+    "scipy"
 ]
 
 [project.optional-dependencies]
