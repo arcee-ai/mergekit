@@ -60,7 +60,7 @@ def run_merge(
         for m in merge_config.referenced_models()
     ]
 
-    if not options.allow_crimes:
+    if not (options.allow_crimes or options.align_weights):
         if not all(
             a[1].info == model_arch_info[0][1].info for a in model_arch_info[1:]
         ):
