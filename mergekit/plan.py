@@ -104,7 +104,7 @@ class MergePlanner:
             base_model = None
 
             for model_in in self.config.models:
-                model_info = self.arch_dict[model_in.model.model.path]
+                model_info = self.arch_dict[model_in.model]
                 slice = InputSliceDefinition(
                     layer_range=[0, model_info.num_layers()],
                     model=model_in.model,
@@ -118,7 +118,7 @@ class MergePlanner:
 
             if self.config.base_model:
                 if not base_model:
-                    base_model_info = self.arch_dict[self.config.base_model.model.path]
+                    base_model_info = self.arch_dict[self.config.base_model]
                     base_model = InputSliceDefinition(
                         layer_range=[0, base_model_info.num_layers()],
                         model=self.config.base_model,
