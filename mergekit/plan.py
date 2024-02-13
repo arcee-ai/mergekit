@@ -44,7 +44,7 @@ from mergekit.tokenizer import BuildTokenizer
 class MergePlanner:
     config: MergeConfiguration
     arch_info: ArchitectureInfo
-    arch_dict: Dict[str, ConfiguredArchitectureInfo]
+    arch_dict: Dict[ModelReference, ConfiguredArchitectureInfo]
     clone_tensors: bool
     trust_remote_code: bool
     out_model_config: Any
@@ -60,7 +60,7 @@ class MergePlanner:
         config: MergeConfiguration,
         arch_info: ArchitectureInfo,
         arch_dict: Dict[
-            str, ConfiguredArchitectureInfo
+            ModelReference, ConfiguredArchitectureInfo
         ],  # perhaps this should no longer be a disjoint step
         out_path: str,
         options: MergeOptions,
@@ -216,9 +216,7 @@ class MergePlanner:
             config=self.out_model_config,
         )
         weights_in: List[List[WeightInfo]] = [
-            self.arch_dict[s.model.model.path].layer_weights(
-                index=s.layer_range[0] + layer_offset
-            )
+            self.arch_dict[s.model].layer_weights(index=s.layer_range[0] + layer_offset)
             for s in sources
         ]
 
@@ -268,9 +266,7 @@ class MergePlanner:
         models_ = [s.model for s in self.config.slices[0].sources]
         for weight_infos in zip(
             *[
-                self.arch_dict[m.model.path].info.pre_weights(
-                    config=self.out_model_config
-                )
+                self.arch_dict[m].info.pre_weights(config=self.out_model_config)
                 for m in models_
             ]
         ):
@@ -291,9 +287,7 @@ class MergePlanner:
         models_ = [s.model for s in self.config.slices[-1].sources]
         for weight_infos in zip(
             *[
-                self.arch_dict[m.model.path].info.post_weights(
-                    config=self.out_model_config
-                )
+                self.arch_dict[m].info.post_weights(config=self.out_model_config)
                 for m in models_
             ]
         ):

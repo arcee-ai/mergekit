@@ -15,7 +15,7 @@
 
 import logging
 import os
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 import tqdm
 import transformers
@@ -26,6 +26,7 @@ from mergekit.architecture import (
     get_architecture_info,
 )
 from mergekit.card import generate_card
+from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache
@@ -46,31 +47,27 @@ def run_merge(
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
-    ## TODO: ----------- reconcile these steps -------------
-
-    model_arch_info = [
-        get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
+    model_arch_info: List[Tuple[ModelReference, ConfiguredArchitectureInfo]] = [
+        (
+            m,
+            ConfiguredArchitectureInfo(
+                info=get_architecture_info(
+                    m.config(trust_remote_code=options.trust_remote_code)
+                ),
+                config=m.config(trust_remote_code=options.trust_remote_code),
+            ),
+        )
         for m in merge_config.referenced_models()
     ]
 
-    arch_dict = {
-        m.model.path: ConfiguredArchitectureInfo(
-            info=get_architecture_info(
-                m.config(trust_remote_code=options.trust_remote_code)
-            ),
-            config=m.config(trust_remote_code=options.trust_remote_code),
-        )
-        for m in merge_config.referenced_models()
-    }
-
-    ## ----------------------------------------------------
-
     if not options.allow_crimes:
-        if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
+        if not all(
+            a[1].info == model_arch_info[0][1].info for a in model_arch_info[1:]
+        ):
             raise RuntimeError(
                 "Must specify --allow-crimes to attempt to mix different architectures"
             )
-    arch_info = model_arch_info[0]
+    arch_info: ArchitectureInfo = model_arch_info[0][1].info
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
@@ -88,7 +85,7 @@ def run_merge(
     targets = MergePlanner(
         merge_config,
         arch_info,
-        arch_dict,
+        dict(model_arch_info),
         out_path=out_path,
         options=options,
         out_model_config=cfg_out,
