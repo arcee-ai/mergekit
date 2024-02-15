@@ -21,6 +21,9 @@ import tqdm
 import transformers
 
 from mergekit.architecture import (
+    JSON_MAPPINGS,  # TODO best write a function to get the JSON_MAPPINGS
+)
+from mergekit.architecture import (
     ArchitectureInfo,
     ConfiguredArchitectureInfo,
     get_architecture_info,
@@ -60,14 +63,31 @@ def run_merge(
         for m in merge_config.referenced_models()
     ]
 
-    if not (options.allow_crimes or options.align_weights):
+    if not (options.allow_crimes or merge_config.align_weights):
         if not all(
             a[1].info == model_arch_info[0][1].info for a in model_arch_info[1:]
         ):
             raise RuntimeError(
                 "Must specify --allow-crimes to attempt to mix different architectures"
             )
+
     arch_info: ArchitectureInfo = model_arch_info[0][1].info
+
+    if merge_config.align_weights:
+        new_model_arch_info = [model_arch_info[0]]
+        for m, destination_arch_info in model_arch_info[1:]:
+            mapping = JSON_MAPPINGS.get(arch_info.config.architecture, {}).get(
+                destination_arch_info.config.architecture_version
+            )
+            if mapping:
+                new_model_arch_info.append(
+                    (m, destination_arch_info.update_overrides(mapping))
+                )
+            else:
+                # warn user
+                new_model_arch_info.append((m, destination_arch_info))
+
+        model_arch_info = new_model_arch_info
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
@@ -202,6 +222,3 @@ def _update_config_vocab(
             "Unable to set vocabulary size in output config - you may need to manually correct it.",
             exc_info=e,
         )
-
-
-__all__ = ["MergeOptions", "run_merge"]
