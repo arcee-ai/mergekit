@@ -1,0 +1,12 @@
+{
+    "start_architectures": ["A"],
+    "destination_architectures": ["B"],
+    "pre_weights_mapping":{
+        "start" : ["a", "b", "c"],
+        "destination" : ["x", "y", "z"]
+    },
+    "post_weights_mapping":{
+        "start" : ["d", "e", "f"],
+        "destination" : ["m", "n", "o"]
+    }
+}
