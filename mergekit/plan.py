@@ -25,7 +25,7 @@ from mergekit.architecture import (
     ConfiguredArchitectureInfo,
     WeightInfo,
 )
-from mergekit.common import ImmutableMap, ModelReference
+from mergekit.common import ImmutableMap, ModelReference, zip_remove_nones
 from mergekit.config import (
     ConfigReader,
     InputSliceDefinition,
@@ -264,7 +264,7 @@ class MergePlanner:
                 self._space_planner.add_procedural_space(space)
 
         models_ = [s.model for s in self.config.slices[0].sources]
-        for weight_infos in zip(
+        for weight_infos in zip_remove_nones(
             *[
                 self.arch_dict[m].info.pre_weights(config=self.out_model_config)
                 for m in models_
@@ -274,7 +274,7 @@ class MergePlanner:
                 weight_infos[0],
                 list(weight_infos),
                 models_,
-                ConfigReader(  # possible trouble here?
+                ConfigReader(
                     config=self.config,
                     t=0,
                     tensor_name=weight_infos[0].name,
@@ -285,7 +285,7 @@ class MergePlanner:
             self.plan_slice(out_slice)
 
         models_ = [s.model for s in self.config.slices[-1].sources]
-        for weight_infos in zip(
+        for weight_infos in zip_remove_nones(
             *[
                 self.arch_dict[m].info.post_weights(config=self.out_model_config)
                 for m in models_

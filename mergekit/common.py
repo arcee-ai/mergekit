@@ -271,3 +271,15 @@ class ImmutableMap(Generic[T_K, T_V]):
 
     def values(self) -> Iterator[T_V]:
         return self.data.values()
+
+
+def zip_remove_nones(*args) -> List[List[Any]]:
+    """
+    Example:
+
+    >>> zip_remove_nones([1, None, 3], [2, 5, 6], [None, None, 7])
+    [[1, 2], [5], [3, 6, 7]]
+
+
+    """
+    return [[element for element in t if element is not None] for t in zip(args)]

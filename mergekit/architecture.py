@@ -16,7 +16,7 @@
 import importlib.resources
 import string
 from abc import ABC, abstractmethod
-from typing import ClassVar, Dict, List, Optional, Tuple, TypeAlias, Union
+from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field
 from transformers import PretrainedConfig
@@ -135,20 +135,20 @@ class MappingInfo(BaseModel, frozen=True):
 
     start_architectures: List[str]
     destination_architectures: List[str]
-    pre_weights_mapping: Dict[str, List[str]]
-    post_weights_mapping: Dict[str, List[str]]
+    pre_weights_mapping: Dict[str, List[Optional[str]]]
+    post_weights_mapping: Dict[str, List[Optional[str]]]
 
 
 class Mapping(BaseModel, frozen=True):
-    pre_weights: List[str]
-    post_weights: List[str]
+    pre_weights: List[Optional[str]]
+    post_weights: List[Optional[str]]
 
 
 class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed=True):
     info: ArchitectureInfo
     config: PretrainedConfig
     overrides: Optional[
-        Dict[str, List[str]]
+        Dict[str, List[Optional[str]]]
     ]  # TODO: check if the optional is necessary
 
     def num_layers(self) -> int:
@@ -234,14 +234,21 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
                 )
         return type(item).model_validate(obj_dict)
 
-    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+    def pre_weights(self, config: PretrainedConfig) -> List[Optional[WeightInfo]]:
         # assume fleshed out names for now in self.overrides
         weights = [
             self._substitute(wi, config=config) for wi in self.definition.pre_weights
         ]
 
         if self.overrides:
-            weights = [wi for wi in weights if wi.name in self.overrides["pre_weights"]]
+            new_weights = []
+            for wi in self.overrides["pre_weights"]:
+                for w in weights:
+                    if not w:
+                        new_weights.append(w)
+                    elif w.name == wi:
+                        new_weights.append(w)
+            weights = new_weights
 
         return weights
 
@@ -253,16 +260,21 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
             for wi in self.definition.layer_templates.weights
         ]
 
-    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+    def post_weights(self, config: PretrainedConfig) -> List[Optional[WeightInfo]]:
         # assume fleshed out names for now in self.overrides
         weights = [
             self._substitute(wi, config=config) for wi in self.definition.post_weights
         ]
 
         if self.overrides:
-            weights = [
-                wi for wi in weights if wi.name in self.overrides["post_weights"]
-            ]
+            new_weights = []
+            for wi in self.overrides["post_weights"]:
+                for w in weights:
+                    if not w:
+                        new_weights.append(w)
+                    elif w.name == wi:
+                        new_weights.append(w)
+            weights = new_weights
 
         return weights
 

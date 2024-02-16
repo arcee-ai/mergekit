@@ -3,10 +3,10 @@
     "destination_architectures": ["B"],
     "pre_weights_mapping":{
         "start" : ["a", "b", "c"],
-        "destination" : ["x", "y", "z"]
+        "destination" : [null, "y", "z"]
     },
     "post_weights_mapping":{
         "start" : ["d", "e", "f"],
-        "destination" : ["m", "n", "o"]
+        "destination" : ["m", null, null]
     }
 }
