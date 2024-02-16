@@ -50,7 +50,7 @@ packages = [
     "mergekit.scripts",
     "mergekit._data",
     "mergekit._data.architectures",
-    "mergekiy._data.mappings",
+    "mergekit._data.mappings",
 ]
 
 [tool.isort]
