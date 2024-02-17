@@ -23,6 +23,7 @@ from transformers import PretrainedConfig
 from typing_extensions import Literal
 
 import mergekit._data.architectures
+import mergekit._data.mappings
 
 
 class WeightInfo(BaseModel, frozen=True):
@@ -123,6 +124,11 @@ class ArchitectureInfo(ABC):
         return False
 
 
+class Mapping(BaseModel, frozen=True):
+    pre_weights: List[Optional[str]]
+    post_weights: List[Optional[str]]
+
+
 class MappingInfo(BaseModel, frozen=True):
     """Information about a mapping between two models.
 
@@ -138,33 +144,30 @@ class MappingInfo(BaseModel, frozen=True):
     pre_weights_mapping: Dict[str, List[Optional[str]]]
     post_weights_mapping: Dict[str, List[Optional[str]]]
 
-
-class Mapping(BaseModel, frozen=True):
-    pre_weights: List[Optional[str]]
-    post_weights: List[Optional[str]]
+    def destination_map(self) -> Mapping:
+        return Mapping(
+            pre_weights=self.pre_weights_mapping["destination"],
+            post_weights=self.post_weights_mapping["destination"],
+        )
 
 
 class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed=True):
     info: ArchitectureInfo
     config: PretrainedConfig
-    overrides: Optional[
-        Dict[str, List[Optional[str]]]
-    ]  # TODO: check if the optional is necessary
+    overrides: Optional[Mapping] = None  # TODO: check if the optional is necessary
 
     def num_layers(self) -> int:
         return self.info.num_layers(self.config)
 
-    def pre_weights(self) -> List[WeightInfo]:
-        if not self.overrides:
-            return self.info.pre_weights(self.config)
+    def pre_weights(self) -> List[Optional[WeightInfo]]:
+        if self.overrides:
+            return self.info.pre_weights(self.config, self.overrides.pre_weights)
+        return self.info.pre_weights(self.config)
 
-        return self.overrides["pre_weights"]
-
-    def post_weights(self) -> List[WeightInfo]:
-        if not self.overrides:
-            return self.info.post_weights(self.config)
-
-        return self.overrides["post_weights"]
+    def post_weights(self) -> List[Optional[WeightInfo]]:
+        if self.overrides:
+            return self.info.post_weights(self.config, self.overrides.post_weights)
+        return self.info.post_weights(self.config)
 
     def layer_weights(self, index: int) -> List[WeightInfo]:
         return self.info.layer_weights(index, self.config)
@@ -175,9 +178,7 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
     def all_weights(self) -> List[WeightInfo]:
         return self.info.all_weights(self.config)
 
-    def update_overrides(
-        self, overrides: Dict[str, List[str]]
-    ) -> "ConfiguredArchitectureInfo":
+    def update_overrides(self, overrides: Mapping) -> "ConfiguredArchitectureInfo":
         return ConfiguredArchitectureInfo(
             info=self.info, config=self.config, overrides=overrides
         )
@@ -234,15 +235,17 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
                 )
         return type(item).model_validate(obj_dict)
 
-    def pre_weights(self, config: PretrainedConfig) -> List[Optional[WeightInfo]]:
+    def pre_weights(
+        self, config: PretrainedConfig, overrides: Optional[List[Optional[str]]] = None
+    ) -> List[Optional[WeightInfo]]:
         # assume fleshed out names for now in self.overrides
         weights = [
             self._substitute(wi, config=config) for wi in self.definition.pre_weights
         ]
 
-        if self.overrides:
+        if overrides:
             new_weights = []
-            for wi in self.overrides["pre_weights"]:
+            for wi in overrides:
                 for w in weights:
                     if not w:
                         new_weights.append(w)
@@ -260,15 +263,17 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
             for wi in self.definition.layer_templates.weights
         ]
 
-    def post_weights(self, config: PretrainedConfig) -> List[Optional[WeightInfo]]:
+    def post_weights(
+        self, config: PretrainedConfig, overrides: Optional[List[Optional[str]]] = None
+    ) -> List[Optional[WeightInfo]]:
         # assume fleshed out names for now in self.overrides
         weights = [
             self._substitute(wi, config=config) for wi in self.definition.post_weights
         ]
 
-        if self.overrides:
+        if overrides:
             new_weights = []
-            for wi in self.overrides["post_weights"]:
+            for wi in overrides:
                 for w in weights:
                     if not w:
                         new_weights.append(w)
@@ -377,7 +382,7 @@ JSON_ARCHITECTURES, NAME_TO_ARCH = _load_all_architectures()
 MISTRAL_INFO = _load_json_arch("mistral.json")
 
 
-def _load_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
+def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
     if len(config.architectures) != 1:
         raise RuntimeError("More than one architecture in config?")
 
@@ -402,13 +407,13 @@ def _load_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
     )
 
 
-def _load_arch_mappings(name) -> JsonArchitectureInfo:
+def _load_arch_mappings(name) -> MappingInfo:
     text = importlib.resources.read_text(mergekit._data.mappings, name)
     return MappingInfo.model_validate_json(text)
 
 
 # TODO: should be immutable map
-def _load_all_mappings() -> Dict[str, Dict[str, Dict[str, List[str]]]]:
+def _load_all_mappings() -> Dict[str, Dict[str, Mapping]]:
     mappings: Dict[str, MappingInfo] = {}
     for f in importlib.resources.contents(mergekit._data.mappings):
         if f.lower().endswith(".json"):
@@ -419,12 +424,9 @@ def _load_all_mappings() -> Dict[str, Dict[str, Dict[str, List[str]]]]:
 
                 for destination_architecture in mapping.destination_architectures:
                     if destination_architecture not in mappings[start_architecture]:
-                        pre_weights = mapping["pre_weights"]["destination"]
-                        post_weights = mapping["post_weights"]["destination"]
-                        mappings[start_architecture][destination_architecture] = {
-                            "pre_weights": pre_weights,
-                            "post_weights": post_weights,
-                        }
+                        mappings[start_architecture][
+                            destination_architecture
+                        ] = mapping.destination_map()
 
     # TODO: think about reverse mapping
     return mappings

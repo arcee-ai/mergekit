@@ -282,4 +282,4 @@ def zip_remove_nones(*args) -> List[List[Any]]:
 
 
     """
-    return [[element for element in t if element is not None] for t in zip(args)]
+    return [[element for element in t if element is not None] for t in zip(*args)]

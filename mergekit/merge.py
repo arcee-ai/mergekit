@@ -75,10 +75,17 @@ def run_merge(
 
     if merge_config.align_weights:
         new_model_arch_info = [model_arch_info[0]]
+        base_model = model_arch_info[0][1]
         for m, destination_arch_info in model_arch_info[1:]:
-            mapping = JSON_MAPPINGS.get(arch_info.config.architecture, {}).get(
-                destination_arch_info.config.architecture_version
-            )
+            mapping = None
+            for arch in base_model.config.architectures:
+                for destination_arch in destination_arch_info.config.architectures:
+                    mapping = JSON_MAPPINGS.get(arch, {}).get(destination_arch)
+                    if mapping:
+                        break
+                if mapping:
+                    break
+
             if mapping:
                 new_model_arch_info.append(
                     (m, destination_arch_info.update_overrides(mapping))
