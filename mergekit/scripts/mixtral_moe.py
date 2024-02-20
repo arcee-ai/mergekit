@@ -113,7 +113,7 @@ def tokenize_prompts(
     prompts: List[str], tokenizer: transformers.PreTrainedTokenizerBase
 ):
     return tokenizer(
-        [tokenizer.bos_token + p for p in prompts],
+        [str(tokenizer.bos_token) + p for p in prompts],
         return_tensors="pt",
         padding=True,
         add_special_tokens=False,
@@ -366,6 +366,7 @@ def build(
     )
     tokenizer.padding_side = "left"
     tokenizer.pad_token_id = tokenizer.bos_token_id
+    tokenizer.pad_token = tokenizer.eos_token
 
     logging.info("Getting gate parameters...")
     gate_vecs = get_gate_params(
