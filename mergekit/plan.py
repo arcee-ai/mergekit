@@ -291,12 +291,13 @@ class MergePlanner:
 
         models_ = [s.model for s in self.config.slices[-1].sources]
         for models, weight_infos in zip_remove_nones(
+            models_,
             *[
                 self.arch_dict[m].info.post_weights(
                     config=self.out_model_config, overrides=self.arch_dict[m].overrides
                 )
                 for m in models_
-            ]
+            ],
         ):
             self.plan_tensor(
                 weight_infos[0],
