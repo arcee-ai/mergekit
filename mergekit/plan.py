@@ -264,30 +264,21 @@ class MergePlanner:
                 self._space_planner.add_procedural_space(space)
 
         models_ = [s.model for s in self.config.slices[0].sources]
-        print(models_)
-        print(
-            [
-                # TODO: this is wayy too complicated
-                self.arch_dict[m].info.pre_weights(
-                    config=self.out_model_config, overrides=self.arch_dict[m].overrides
-                )
-                for m in models_
-            ]
-        )
-        for weight_infos in zip_remove_nones(
+
+        for models, weight_infos in zip_remove_nones(
+            models_,
             *[
                 # TODO: this is wayy too complicated
                 self.arch_dict[m].info.pre_weights(
                     config=self.out_model_config, overrides=self.arch_dict[m].overrides
                 )
                 for m in models_
-            ]
+            ],
         ):
-            print(weight_infos)
             self.plan_tensor(
                 weight_infos[0],
                 list(weight_infos),
-                models_,
+                models,
                 ConfigReader(
                     config=self.config,
                     t=0,
@@ -299,7 +290,7 @@ class MergePlanner:
             self.plan_slice(out_slice)
 
         models_ = [s.model for s in self.config.slices[-1].sources]
-        for weight_infos in zip_remove_nones(
+        for models, weight_infos in zip_remove_nones(
             *[
                 self.arch_dict[m].info.post_weights(
                     config=self.out_model_config, overrides=self.arch_dict[m].overrides
@@ -310,7 +301,7 @@ class MergePlanner:
             self.plan_tensor(
                 weight_infos[0],
                 list(weight_infos),
-                models_,
+                models,
                 ConfigReader(
                     config=self.config,
                     t=1,
