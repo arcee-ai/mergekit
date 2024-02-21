@@ -190,7 +190,7 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
             if detect_layer_template(k):
                 if not detect_layer_template(v):
                     raise RuntimeError(
-                        f"Usage of mapping requires one-to-one mapping between architectures. A template was found in {k} but not in {v}"
+                        f"Cross-architecture merging requires one-to-one mapping between architectures. A template was found in {k} but not in {v}"
                     )
 
                 for layer_idx in range(self.num_layers()):
@@ -199,7 +199,7 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
                     ] = _template_substitution(v, self.config, layer_idx)
             elif detect_layer_template(v):
                 raise RuntimeError(
-                    f"Usage requires one-to-one mapping for {k} and {v}. A template was found in {v} but not in {k}"
+                    f"Cross-architecture merging requires one-to-one mapping between architectures. A template was found in {v} but not in {k}"
                 )
             else:
                 new_overrides[
