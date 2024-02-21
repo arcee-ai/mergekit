@@ -124,11 +124,6 @@ class ArchitectureInfo(ABC):
         return False
 
 
-class Mapping(BaseModel, frozen=True):
-    pre_weights: List[Optional[str]]
-    post_weights: List[Optional[str]]
-
-
 class MappingInfo(BaseModel, frozen=True):
     """Information about a mapping between two models.
 
@@ -141,36 +136,41 @@ class MappingInfo(BaseModel, frozen=True):
 
     start_architectures: List[str]
     destination_architectures: List[str]
-    pre_weights_mapping: Dict[str, List[Optional[str]]]
-    post_weights_mapping: Dict[str, List[Optional[str]]]
-
-    def destination_map(self) -> Mapping:
-        return Mapping(
-            pre_weights=self.pre_weights_mapping["destination"],
-            post_weights=self.post_weights_mapping["destination"],
-        )
+    weights_mapping: Dict[str, str]
 
 
 class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed=True):
     info: ArchitectureInfo
     config: PretrainedConfig
-    overrides: Optional[Mapping] = None  # TODO: check if the optional is necessary
+    overrides: Optional[Dict[str, str]] = None
+
+    def _substitute_name(self, weight: WeightInfo) -> WeightInfo:
+        if self.overrides and weight.name in self.overrides:
+            return WeightInfo(
+                name=self.overrides[weight.name], **self.model_dump(exclude=["name"])
+            )
+        return weight
 
     def num_layers(self) -> int:
         return self.info.num_layers(self.config)
 
-    def pre_weights(self) -> List[Optional[WeightInfo]]:
-        if self.overrides:
-            return self.info.pre_weights(self.config, self.overrides.pre_weights)
-        return self.info.pre_weights(self.config)
+    def pre_weights(self) -> List[WeightInfo]:
+        return [
+            self._substitute_name(wi)
+            for wi in self.info.pre_weights(self.config, self.overrides.pre_weights)
+        ]
 
-    def post_weights(self) -> List[Optional[WeightInfo]]:
-        if self.overrides:
-            return self.info.post_weights(self.config, self.overrides.post_weights)
-        return self.info.post_weights(self.config)
+    def post_weights(self) -> List[WeightInfo]:
+        return [
+            self._substitute_name(wi)
+            for wi in self.info.post_weights(self.config, self.overrides.pre_weights)
+        ]
 
     def layer_weights(self, index: int) -> List[WeightInfo]:
-        return self.info.layer_weights(index, self.config)
+        return [
+            self._substitute_name(wi)
+            for wi in self.info.layer_weights(index, self.config)
+        ]
 
     def procedural_spaces(self) -> List[ProceduralSpaceInfo]:
         return self.info.procedural_spaces(self.config)
@@ -178,7 +178,9 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
     def all_weights(self) -> List[WeightInfo]:
         return self.info.all_weights(self.config)
 
-    def update_overrides(self, overrides: Mapping) -> "ConfiguredArchitectureInfo":
+    def update_overrides(
+        self, overrides: Dict[str, str]
+    ) -> "ConfiguredArchitectureInfo":
         return ConfiguredArchitectureInfo(
             info=self.info, config=self.config, overrides=overrides
         )
@@ -235,51 +237,23 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
                 )
         return type(item).model_validate(obj_dict)
 
-    def pre_weights(
-        self, config: PretrainedConfig, overrides: Optional[List[Optional[str]]] = None
-    ) -> List[Optional[WeightInfo]]:
-        # assume fleshed out names for now in self.overrides
+    def pre_weights(self, config: PretrainedConfig) -> List[Optional[WeightInfo]]:
         weights = [
             self._substitute(wi, config=config) for wi in self.definition.pre_weights
         ]
 
-        if overrides:
-            new_weights = []
-            for wi in overrides:
-                for w in weights:
-                    if not w:
-                        new_weights.append(w)
-                    elif w.name == wi:
-                        new_weights.append(w)
-            weights = new_weights
-
         return weights
 
-    def layer_weights(
-        self, index: int, config: PretrainedConfig
-    ) -> Optional[List[WeightInfo]]:
+    def layer_weights(self, index: int, config: PretrainedConfig) -> List[WeightInfo]:
         return [
             self._substitute(wi, config=config, layer_idx=index)
             for wi in self.definition.layer_templates.weights
         ]
 
-    def post_weights(
-        self, config: PretrainedConfig, overrides: Optional[List[Optional[str]]] = None
-    ) -> List[Optional[WeightInfo]]:
-        # assume fleshed out names for now in self.overrides
+    def post_weights(self, config: PretrainedConfig) -> Optional[WeightInfo]:
         weights = [
             self._substitute(wi, config=config) for wi in self.definition.post_weights
         ]
-
-        if overrides:
-            new_weights = []
-            for wi in overrides:
-                for w in weights:
-                    if not w:
-                        new_weights.append(w)
-                    elif w.name == wi:
-                        new_weights.append(w)
-            weights = new_weights
 
         return weights
 
@@ -412,8 +386,7 @@ def _load_arch_mappings(name) -> MappingInfo:
     return MappingInfo.model_validate_json(text)
 
 
-# TODO: should be immutable map
-def _load_all_mappings() -> Dict[str, Dict[str, Mapping]]:
+def _load_all_mappings() -> Dict[str, Dict[str, Dict[str, str]]]:
     mappings: Dict[str, MappingInfo] = {}
     for f in importlib.resources.contents(mergekit._data.mappings):
         if f.lower().endswith(".json"):
@@ -426,9 +399,8 @@ def _load_all_mappings() -> Dict[str, Dict[str, Mapping]]:
                     if destination_architecture not in mappings[start_architecture]:
                         mappings[start_architecture][
                             destination_architecture
-                        ] = mapping.destination_map()
+                        ] = mapping.weights_mapping
 
-    # TODO: think about reverse mapping
     return mappings
 
 

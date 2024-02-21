@@ -25,7 +25,7 @@ from mergekit.architecture import (
     ConfiguredArchitectureInfo,
     WeightInfo,
 )
-from mergekit.common import ImmutableMap, ModelReference, zip_remove_nones
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.config import (
     ConfigReader,
     InputSliceDefinition,
@@ -263,22 +263,18 @@ class MergePlanner:
             for space in self.arch_info.procedural_spaces(config=self.out_model_config):
                 self._space_planner.add_procedural_space(space)
 
-        models_ = [s.model for s in self.config.slices[0].sources]
+        _models = [s.model for s in self.config.slices[0].sources]
 
-        for models, weight_infos in zip_remove_nones(
-            models_,
+        for weight_infos in zip(
             *[
-                # TODO: this is wayy too complicated
-                self.arch_dict[m].info.pre_weights(
-                    config=self.out_model_config, overrides=self.arch_dict[m].overrides
-                )
-                for m in models_
-            ],
+                self.arch_dict[m].info.pre_weights(config=self.out_model_config)
+                for m in _models
+            ]
         ):
             self.plan_tensor(
                 weight_infos[0],
                 list(weight_infos),
-                models,
+                _models,
                 ConfigReader(
                     config=self.config,
                     t=0,
@@ -289,20 +285,17 @@ class MergePlanner:
         for out_slice in self.config.slices:
             self.plan_slice(out_slice)
 
-        models_ = [s.model for s in self.config.slices[-1].sources]
-        for models, weight_infos in zip_remove_nones(
-            models_,
+        _models = [s.model for s in self.config.slices[-1].sources]
+        for weight_infos in zip(
             *[
-                self.arch_dict[m].info.post_weights(
-                    config=self.out_model_config, overrides=self.arch_dict[m].overrides
-                )
-                for m in models_
+                self.arch_dict[m].info.post_weights(config=self.out_model_config)
+                for m in _models
             ],
         ):
             self.plan_tensor(
                 weight_infos[0],
                 list(weight_infos),
-                models,
+                _models,
                 ConfigReader(
                     config=self.config,
                     t=1,
