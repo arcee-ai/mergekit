@@ -81,6 +81,5 @@
             "name": "model.norm.weight",
             "input_space": "h_${num_layers}"
         }
-
     ]
 }
