@@ -188,10 +188,8 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
     def all_weights(self) -> List[WeightInfo]:
         return self.info.all_weights(self.config)
 
-    def update_overrides(
-        self, overrides: Dict[str, str]
-    ) -> "ConfiguredArchitectureInfo":
-        # NOTE: this makes sure strings in overrides if templates are filled in
+    def set_overrides(self, overrides: Dict[str, str]) -> "ConfiguredArchitectureInfo":
+        # NOTE: this makes sure template strings in overrides are filled in
         overrides = {
             self.info._substitute(k, self.config): self.info._substitute(v, self.config)
             for k, v in overrides.items()
@@ -253,7 +251,7 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
                 )
         return type(item).model_validate(obj_dict)
 
-    def pre_weights(self, config: PretrainedConfig) -> List[Optional[WeightInfo]]:
+    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         weights = [
             self._substitute(wi, config=config) for wi in self.definition.pre_weights
         ]
@@ -266,7 +264,7 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
             for wi in self.definition.layer_templates.weights
         ]
 
-    def post_weights(self, config: PretrainedConfig) -> Optional[WeightInfo]:
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         weights = [
             self._substitute(wi, config=config) for wi in self.definition.post_weights
         ]

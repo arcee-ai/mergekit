@@ -99,18 +99,17 @@ class MergePlanner:
 
             if config.align_weights:
                 mapping = None
-                for arch in base_config.architectures:
-                    for destination_arch in m_config.architectures:
-                        mapping = JSON_MAPPINGS.get(arch, {}).get(destination_arch)
-                        if mapping:
-                            break
+                for arch, destination_arch in [
+                    (arch1, arch2)
+                    for arch1 in base_config.architectures
+                    for arch2 in m_config.architectures
+                ]:
+                    mapping = JSON_MAPPINGS.get(arch, {}).get(destination_arch)
                     if mapping:
+                        configured_arch_info = configured_arch_info.set_overrides(
+                            mapping
+                        )
                         break
-
-                if mapping:
-                    configured_arch_info = configured_arch_info.update_overrides(
-                        mapping
-                    )
 
             self.arch_dict[m] = configured_arch_info
 
