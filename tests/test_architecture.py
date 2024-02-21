@@ -6,7 +6,7 @@ from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_i
 
 class TestArchitecture:
     def test_set_overrides(self):
-        cfg = AutoConfig.from_pretrained("gpt-2")
+        cfg = AutoConfig.from_pretrained("gpt2")
         arch_info = get_architecture_info(cfg)
         configured_arch_info = ConfiguredArchitectureInfo(arch_info, cfg)
 
