@@ -120,7 +120,7 @@ class MergePlanner:
 
                 if not (mapping or is_same_arch):
                     raise RuntimeError(
-                        f"For cross architecture merge between architectures {base_config.architectures[0]} and {m_config.architectures[0]}, a mapping must be provided"
+                        f"For cross architecture merge between architectures {base_config.architectures[0]} and {m_config.architectures[0]}, a mapping must be provided in the directory _data/mappings"
                     )
 
             self.arch_dict[m] = configured_arch_info
