@@ -182,9 +182,11 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
         # NOTE: this makes sure template strings in overrides are filled in
 
         def detect_layer_template(s: str) -> bool:
-            return "{" in s and "layer_index" in s
+            return "${" in s and "layer_index" in s
 
         new_overrides = {}
+
+        num_layers = self.num_layers()
 
         for k, v in overrides.items():
             if detect_layer_template(k):
@@ -193,18 +195,18 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
                         f"Cross-architecture merging requires one-to-one mapping between architectures. A template was found in {k} but not in {v}"
                     )
 
-                for layer_idx in range(self.num_layers()):
+                for layer_idx in range(num_layers):
                     new_overrides[
-                        _template_substitution(k, self.config, layer_idx)
-                    ] = _template_substitution(v, self.config, layer_idx)
+                        _template_substitution(k, num_layers, layer_idx)
+                    ] = _template_substitution(v, num_layers, layer_idx)
             elif detect_layer_template(v):
                 raise RuntimeError(
                     f"Cross-architecture merging requires one-to-one mapping between architectures. A template was found in {v} but not in {k}"
                 )
             else:
                 new_overrides[
-                    _template_substitution(k, self.config)
-                ] = _template_substitution(v, self.config)
+                    _template_substitution(k, num_layers)
+                ] = _template_substitution(v, num_layers)
 
         return ConfiguredArchitectureInfo(
             info=self.info, config=self.config, overrides=new_overrides
@@ -231,7 +233,7 @@ class TemplateWithArithmetic(string.Template):
 
 
 def _template_substitution(
-    template: str, num_layers: int, layer_idx: Optional[int]
+    template: str, num_layers: int, layer_idx: Optional[int] = None
 ) -> str:
     if "{" not in template:
         return template
