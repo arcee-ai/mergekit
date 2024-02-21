@@ -123,6 +123,16 @@ class ArchitectureInfo(ABC):
         """
         return False
 
+    @abstractmethod
+    def _substitute(
+        self,
+        item: Union[WeightInfo, ProceduralSpaceInfo],
+        config: PretrainedConfig,
+        layer_idx: Optional[int] = None,
+    ) -> Union[WeightInfo, ProceduralSpaceInfo]:
+        """Substitute any template variables in the item with values from the config"""
+        ...
+
 
 class MappingInfo(BaseModel, frozen=True):
     """Information about a mapping between two models.
@@ -146,7 +156,7 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
 
     def _substitute_name(self, weight: WeightInfo) -> WeightInfo:
         if self.overrides and weight.name in self.overrides:
-            return WeightInfo(
+            return self.info.WeightInfo(
                 name=self.overrides[weight.name], **self.model_dump(exclude=["name"])
             )
         return weight
@@ -181,6 +191,12 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
     def update_overrides(
         self, overrides: Dict[str, str]
     ) -> "ConfiguredArchitectureInfo":
+        # NOTE: this makes sure strings in overrides if templates are filled in
+        overrides = {
+            self.info._substitute(k, self.config): self.info._substitute(v, self.config)
+            for k, v in overrides.items()
+        }
+
         return ConfiguredArchitectureInfo(
             info=self.info, config=self.config, overrides=overrides
         )

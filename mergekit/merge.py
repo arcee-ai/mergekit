@@ -20,14 +20,7 @@ from typing import Dict, List, Optional, Tuple
 import tqdm
 import transformers
 
-from mergekit.architecture import (
-    JSON_MAPPINGS,  # TODO best write a function to get the JSON_MAPPINGS
-)
-from mergekit.architecture import (
-    ArchitectureInfo,
-    ConfiguredArchitectureInfo,
-    get_architecture_info,
-)
+from mergekit.architecture import ArchitectureInfo, get_architecture_info
 from mergekit.card import generate_card
 from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
@@ -50,51 +43,18 @@ def run_merge(
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
-    model_arch_info: List[Tuple[ModelReference, ConfiguredArchitectureInfo]] = [
-        (
-            m,
-            ConfiguredArchitectureInfo(
-                info=get_architecture_info(
-                    m.config(trust_remote_code=options.trust_remote_code)
-                ),
-                config=m.config(trust_remote_code=options.trust_remote_code),
-            ),
-        )
+    model_arch_info: List[ArchitectureInfo] = [
+        get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
         for m in merge_config.referenced_models()
     ]
 
     if not (options.allow_crimes or merge_config.align_weights):
-        if not all(
-            a[1].info == model_arch_info[0][1].info for a in model_arch_info[1:]
-        ):
+        if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
             raise RuntimeError(
                 "Must specify --allow-crimes to attempt to mix different architectures"
             )
 
-    arch_info: ArchitectureInfo = model_arch_info[0][1].info
-
-    if merge_config.align_weights:
-        new_model_arch_info = [model_arch_info[0]]
-        base_model = model_arch_info[0][1]
-        for m, destination_arch_info in model_arch_info[1:]:
-            mapping = None
-            for arch in base_model.config.architectures:
-                for destination_arch in destination_arch_info.config.architectures:
-                    mapping = JSON_MAPPINGS.get(arch, {}).get(destination_arch)
-                    if mapping:
-                        break
-                if mapping:
-                    break
-
-            if mapping:
-                new_model_arch_info.append(
-                    (m, destination_arch_info.update_overrides(mapping))
-                )
-            else:
-                # warn user
-                new_model_arch_info.append((m, destination_arch_info))
-
-        model_arch_info = new_model_arch_info
+    arch_info: ArchitectureInfo = model_arch_info[0]
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
@@ -111,8 +71,6 @@ def run_merge(
     logging.info("Planning operations")
     targets = MergePlanner(
         merge_config,
-        arch_info,
-        dict(model_arch_info),
         out_path=out_path,
         options=options,
         out_model_config=cfg_out,
@@ -203,7 +161,6 @@ def _model_out_config(
         res.torch_dtype = config.dtype
 
     try:
-        print(config.slices)
         num_layers = sum(
             s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
             for s in config.slices

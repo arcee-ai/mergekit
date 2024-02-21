@@ -21,9 +21,11 @@ import torch
 
 from mergekit import merge_methods
 from mergekit.architecture import (
+    JSON_MAPPINGS,
     ArchitectureInfo,
     ConfiguredArchitectureInfo,
     WeightInfo,
+    get_architecture_info,
 )
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.config import (
@@ -43,8 +45,6 @@ from mergekit.tokenizer import BuildTokenizer
 
 class MergePlanner:
     config: MergeConfiguration
-    arch_info: ArchitectureInfo
-    arch_dict: Dict[ModelReference, ConfiguredArchitectureInfo]
     clone_tensors: bool
     trust_remote_code: bool
     out_model_config: Any
@@ -58,19 +58,11 @@ class MergePlanner:
     def __init__(
         self,
         config: MergeConfiguration,
-        arch_info: ArchitectureInfo,
-        arch_dict: Dict[
-            ModelReference, ConfiguredArchitectureInfo
-        ],  # perhaps this should no longer be a disjoint step
         out_path: str,
         options: MergeOptions,
         out_model_config: Any,
     ):
         self.config = config
-        self.arch_info = (
-            arch_info  # Special because how referenced models list is constructed ?
-        )
-        self.arch_dict = arch_dict
         self.clone_tensors = options.clone_tensors
         self.trust_remote_code = options.trust_remote_code
         self.out_model_config = out_model_config
@@ -91,6 +83,36 @@ class MergePlanner:
 
         if config.base_model and config.align_weights:
             self._space_planner = SpacePlanner(config.base_model)
+
+        self.arch_dict: Dict[ModelReference, ConfiguredArchitectureInfo] = {}
+        _models = config.referenced_models()
+        base_model = _models[0]
+        base_config = base_model.config(trust_remote_code=options.trust_remote_code)
+        self.arch_info = get_architecture_info(base_config)
+
+        for m in config.referenced_models():
+            m_config = m.config(trust_remote_code=options.trust_remote_code)
+            configured_arch_info = ConfiguredArchitectureInfo(
+                info=get_architecture_info(m_config),
+                config=m.config(m_config),
+            )
+
+            if config.align_weights:
+                mapping = None
+                for arch in base_config.architectures:
+                    for destination_arch in m_config.architectures:
+                        mapping = JSON_MAPPINGS.get(arch, {}).get(destination_arch)
+                        if mapping:
+                            break
+                    if mapping:
+                        break
+
+                if mapping:
+                    configured_arch_info = configured_arch_info.update_overrides(
+                        mapping
+                    )
+
+            self.arch_dict[m] = configured_arch_info
 
     def normalize_config(self):
         # if models to merge are specified instead of output slices, compute them
