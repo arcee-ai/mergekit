@@ -123,16 +123,6 @@ class ArchitectureInfo(ABC):
         """
         return False
 
-    @abstractmethod
-    def _substitute(
-        self,
-        item: Union[WeightInfo, ProceduralSpaceInfo],
-        config: PretrainedConfig,
-        layer_idx: Optional[int] = None,
-    ) -> Union[WeightInfo, ProceduralSpaceInfo]:
-        """Substitute any template variables in the item with values from the config"""
-        ...
-
 
 class MappingInfo(BaseModel, frozen=True):
     """Information about a mapping between two models.
@@ -190,13 +180,34 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
 
     def set_overrides(self, overrides: Dict[str, str]) -> "ConfiguredArchitectureInfo":
         # NOTE: this makes sure template strings in overrides are filled in
-        overrides = {
-            self.info._substitute(k, self.config): self.info._substitute(v, self.config)
-            for k, v in overrides.items()
-        }
+
+        def detect_layer_template(s: str) -> bool:
+            return "{" in s and "layer_index" in s
+
+        new_overrides = {}
+
+        for k, v in overrides.items():
+            if detect_layer_template(k):
+                if not detect_layer_template(v):
+                    raise RuntimeError(
+                        f"Usage of mapping requires one-to-one mapping between architectures. A template was found in {k} but not in {v}"
+                    )
+
+                for layer_idx in range(self.num_layers()):
+                    new_overrides[
+                        _template_substitution(k, self.config, layer_idx)
+                    ] = _template_substitution(v, self.config, layer_idx)
+            elif detect_layer_template(v):
+                raise RuntimeError(
+                    f"Usage requires one-to-one mapping for {k} and {v}. A template was found in {v} but not in {k}"
+                )
+            else:
+                new_overrides[
+                    _template_substitution(k, self.config)
+                ] = _template_substitution(v, self.config)
 
         return ConfiguredArchitectureInfo(
-            info=self.info, config=self.config, overrides=overrides
+            info=self.info, config=self.config, overrides=new_overrides
         )
 
 
@@ -219,6 +230,30 @@ class TemplateWithArithmetic(string.Template):
     idpattern = r"(?a:[_a-z][_a-z0-9]*([+-]1)?)"
 
 
+def _template_substitution(
+    template: str, num_layers: int, layer_idx: Optional[int]
+) -> str:
+    if "{" not in template:
+        return template
+
+    substitutions = {
+        "num_layers": num_layers,
+        "num_layers+1": num_layers + 1,
+        "num_layers-1": num_layers - 1,
+    }
+
+    if layer_idx is not None:
+        substitutions.update(
+            {
+                "layer_index": layer_idx,
+                "layer_index+1": layer_idx + 1,
+                "layer_index-1": layer_idx - 1,
+            }
+        )
+
+    return TemplateWithArithmetic(template).substitute(substitutions)
+
+
 class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
     definition: JSONArchitectureDefinition
 
@@ -229,25 +264,11 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
         layer_idx: Optional[int] = None,
     ) -> Union[WeightInfo, ProceduralSpaceInfo]:
         num_layers = self.num_layers(config)
-        substitutions = {
-            "num_layers": num_layers,
-            "num_layers+1": num_layers + 1,
-            "num_layers-1": num_layers - 1,
-        }
-        if layer_idx is not None:
-            substitutions.update(
-                {
-                    "layer_index": layer_idx,
-                    "layer_index+1": layer_idx + 1,
-                    "layer_index-1": layer_idx - 1,
-                }
-            )
-
         obj_dict = item.model_dump(mode="json", exclude_unset=True)
         for key in obj_dict:
-            if isinstance(obj_dict[key], str) and "{" in obj_dict[key]:
-                obj_dict[key] = TemplateWithArithmetic(obj_dict[key]).substitute(
-                    substitutions
+            if isinstance(obj_dict[key], str):
+                obj_dict[key] = _template_substitution(
+                    obj_dict[key], num_layers, layer_idx
                 )
         return type(item).model_validate(obj_dict)
 

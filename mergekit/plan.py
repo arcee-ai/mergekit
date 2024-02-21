@@ -44,6 +44,7 @@ from mergekit.tokenizer import BuildTokenizer
 
 
 class MergePlanner:
+    arch_dict: Dict[ModelReference, ConfiguredArchitectureInfo]
     config: MergeConfiguration
     clone_tensors: bool
     trust_remote_code: bool
@@ -84,7 +85,7 @@ class MergePlanner:
         if config.base_model and config.align_weights:
             self._space_planner = SpacePlanner(config.base_model)
 
-        self.arch_dict: Dict[ModelReference, ConfiguredArchitectureInfo] = {}
+        self.arch_dict = {}
         _models = config.referenced_models()
         base_model = _models[0]
         base_config = base_model.config(trust_remote_code=options.trust_remote_code)
@@ -99,17 +100,27 @@ class MergePlanner:
 
             if config.align_weights:
                 mapping = None
+                is_same_arch = False
+
                 for arch, destination_arch in [
                     (arch1, arch2)
                     for arch1 in base_config.architectures
                     for arch2 in m_config.architectures
                 ]:
+                    if arch == destination_arch:
+                        is_same_arch = True
+                        break
                     mapping = JSON_MAPPINGS.get(arch, {}).get(destination_arch)
                     if mapping:
                         configured_arch_info = configured_arch_info.set_overrides(
                             mapping
                         )
                         break
+
+                if not (mapping or is_same_arch):
+                    raise RuntimeError(
+                        "For cross architecture merges, a mapping is required!!!"
+                    )
 
             self.arch_dict[m] = configured_arch_info
 
