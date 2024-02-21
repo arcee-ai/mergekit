@@ -45,6 +45,7 @@ from mergekit.tokenizer import BuildTokenizer
 
 class MergePlanner:
     arch_dict: Dict[ModelReference, ConfiguredArchitectureInfo]
+    arch_info: ArchitectureInfo
     config: MergeConfiguration
     clone_tensors: bool
     trust_remote_code: bool
@@ -119,7 +120,7 @@ class MergePlanner:
 
                 if not (mapping or is_same_arch):
                     raise RuntimeError(
-                        "For cross architecture merges, a mapping is required!!!"
+                        f"For cross architecture merge between architectures {base_config.architectures[0]} and {m_config.architectures[0]}, a mapping must be provided"
                     )
 
             self.arch_dict[m] = configured_arch_info
