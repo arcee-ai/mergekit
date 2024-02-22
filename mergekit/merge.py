@@ -15,13 +15,14 @@
 
 import logging
 import os
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 import tqdm
 import transformers
 
 from mergekit.architecture import ArchitectureInfo, get_architecture_info
 from mergekit.card import generate_card
+from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache
@@ -42,16 +43,18 @@ def run_merge(
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
-    model_arch_info = [
+    model_arch_info: List[ArchitectureInfo] = [
         get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
         for m in merge_config.referenced_models()
     ]
-    if not options.allow_crimes:
+
+    if not (options.allow_crimes or merge_config.align_weights):
         if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
             raise RuntimeError(
                 "Must specify --allow-crimes to attempt to mix different architectures"
             )
-    arch_info = model_arch_info[0]
+
+    arch_info: ArchitectureInfo = model_arch_info[0]
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
@@ -68,7 +71,6 @@ def run_merge(
     logging.info("Planning operations")
     targets = MergePlanner(
         merge_config,
-        arch_info,
         out_path=out_path,
         options=options,
         out_model_config=cfg_out,
@@ -184,6 +186,3 @@ def _update_config_vocab(
             "Unable to set vocabulary size in output config - you may need to manually correct it.",
             exc_info=e,
         )
-
-
-__all__ = ["MergeOptions", "run_merge"]
