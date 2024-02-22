@@ -36,23 +36,32 @@ class WeightInfo(BaseModel, frozen=True):
             Indicates whether the weight is for an embedding.
         is_lm_head (bool):
             Indicates whether the weight is for a language modeling head.
+        is_vector (bool):
+            Indicates whether the weight is a vector (as opposed to a matrix).
         input_space (Optional[str]):
             The name of the input space associated with the weight, if applicable.
         output_space (Optional[str]):
             The name of the output space associated with the weight, if applicable.
+        head_space (Optional[str]):
+            The name of the head space associated with the weight, if applicable.
         optional (bool):
             Indicates whether the weight can be omitted from a model.
         aliases (Optional[List[str]]):
             List of alternative names for the weight, if applicable.
+        head_split (Optional[Literal[None, "input", "output"]]):
+            Indicates whether the input or output space is split across multiple heads.
     """
 
     name: str
     is_embed: bool = False
     is_lm_head: bool = False
+    is_vector: bool = False
     input_space: Optional[str] = None
     output_space: Optional[str] = None
+    head_space: Optional[str] = None
     optional: bool = False
     aliases: Optional[List[str]] = None
+    head_split: Literal[None, "input", "output"] = None
 
 
 class ProceduralSpaceInfo(BaseModel, frozen=True):
@@ -63,11 +72,11 @@ class ProceduralSpaceInfo(BaseModel, frozen=True):
     Attributes:
         name (str): The name of the space defined.
         type (str): The type of procedural space.
-        inputs (List[str]): List of names of spaces used to define this space."""
+        inputs (Tuple[str, ...]): List of names of spaces used to define this space."""
 
     name: str
-    type: Literal["residual"]
-    inputs: List[str]
+    type: Literal["residual", "kv_expand"]
+    inputs: Tuple[str, ...]
 
 
 class ArchitectureInfo(ABC):
@@ -272,6 +281,15 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
                 obj_dict[key] = _template_substitution(
                     obj_dict[key], num_layers, layer_idx
                 )
+            elif isinstance(obj_dict[key], list):
+                obj_dict[key] = [
+                    (
+                        TemplateWithArithmetic(s).substitute(substitutions)
+                        if isinstance(s, str)
+                        else s
+                    )
+                    for s in obj_dict[key]
+                ]
         return type(item).model_validate(obj_dict)
 
     def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:

@@ -6,10 +6,12 @@
     "pre_weights": [
         {
             "name": "wte.weight",
-            "is_embed": true
+            "is_embed": true,
+            "output_space": "h_0"
         },
         {
-            "name": "wpe.weight"
+            "name": "wpe.weight",
+            "output_space": "h_0"
         }
     ],
     "post_weights": [
@@ -24,46 +26,74 @@
     "layer_templates": {
         "weights": [
             {
-                "name": "h.${layer_index}.attn.c_attn.weight"
+                "name": "h.${layer_index}.ln_1.weight",
+                "input_space": "h_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.attn.c_attn.bias"
+                "name": "h.${layer_index}.ln_1.bias",
+                "input_space": "h_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.attn.c_proj.weight"
+                "name": "h.${layer_index}.attn.c_attn.weight",
+                "input_space": "h_${layer_index}",
+                "output_space": "qkv_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.attn.c_proj.bias"
+                "name": "h.${layer_index}.attn.c_attn.bias",
+                "input_space": "qkv_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.ln_1.weight"
+                "name": "h.${layer_index}.attn.c_proj.weight",
+                "input_space": "qkv_${layer_index}",
+                "output_space": "attn_out_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.ln_1.bias"
+                "name": "h.${layer_index}.attn.c_proj.bias",
+                "input_space": "attn_out_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.ln_2.weight"
+                "name": "h.${layer_index}.ln_2.weight",
+                "input_space": "post_attn_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.ln_2.bias"
+                "name": "h.${layer_index}.ln_2.bias",
+                "input_space": "post_attn_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.mlp.c_proj.weight"
+                "name": "h.${layer_index}.mlp.c_fc.weight",
+                "input_space": "post_attn_${layer_index}",
+                "output_space": "mlp_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.mlp.c_proj.bias"
+                "name": "h.${layer_index}.mlp.c_fc.bias",
+                "input_space": "mlp_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.mlp.c_fc.weight"
+                "name": "h.${layer_index}.mlp.c_proj.weight",
+                "input_space": "mlp_${layer_index}",
+                "output_space": "post_mlp_${layer_index}"
             },
             {
-                "name": "h.${layer_index}.mlp.c_fc.bias"
+                "name": "h.${layer_index}.mlp.c_proj.bias",
+                "input_space": "post_mlp_${layer_index}"
+            }
+        ],
+        "procedural_spaces": [
+            {
+                "name": "post_attn_${layer_index}",
+                "type": "residual",
+                "inputs": [
+                    "h_${layer_index}",
+                    "attn_out_${layer_index}"
+                ]
             },
             {
-                "name": "h.${layer_index}.mlp.c_proj.weight"
-            },
-            {
-                "name": "h.${layer_index}.mlp.c_proj.bias"
+                "name": "h_${layer_index+1}",
+                "type": "residual",
+                "inputs": [
+                    "post_mlp_${layer_index}",
+                    "h_${layer_index}"
+                ]
             }
         ]
     }

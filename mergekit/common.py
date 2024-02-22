@@ -173,7 +173,7 @@ class ModelReference(BaseModel, frozen=True):
 
 
 def dtype_from_name(name: Optional[str]) -> torch.dtype:
-    if name.startswith("torch."):
+    if name and name.startswith("torch."):
         name = name[len("torch.") :]
 
     if name == "bfloat16":
