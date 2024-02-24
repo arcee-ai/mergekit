@@ -15,7 +15,7 @@
 
 import logging
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from pydantic import BaseModel
@@ -28,24 +28,25 @@ from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 from mergekit.sparsify import SparsificationMethod, sparsify
 
-
 class ConsensusMethod(str, Enum):
     count = "count"
     sum = "sum"
-
 
 class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
     consensus_method: Optional[ConsensusMethod]
     sparsification_method: Optional[SparsificationMethod]
     default_normalize: bool
-
+    near_tuned_interpolation: bool = False  # Added NTI flag
+    nti_t: float = 0.0001  # Added NTI tuning parameter
+    
     def parameters(self) -> List[ConfigParameterDef]:
-        return [
+        base_params = [
             ConfigParameterDef(name="int8_mask", required=False, default_value=False),
-            ConfigParameterDef(
-                name="normalize", required=False, default_value=self.default_normalize
-            ),
+            ConfigParameterDef(name="normalize", required=False, default_value=self.default_normalize),
+            ConfigParameterDef(name="near_tuned_interpolation", required=False, default_value=self.near_tuned_interpolation),
+            ConfigParameterDef(name="nti_t", required=False, default_value=self.nti_t),
         ]
+        return base_params
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
         return [
@@ -68,9 +69,10 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             tensor_parameters=tensor_parameters,
             int8_mask=parameters["int8_mask"],
             normalize=parameters["normalize"],
+            near_tuned_interpolation=parameters["near_tuned_interpolation"],
+            nti_t=parameters["nti_t"],
             out_tensor_name=output_weight.name,
         )
-
 
 class GTATask(Task[torch.Tensor]):
     method: GeneralizedTaskArithmeticMerge
@@ -80,6 +82,8 @@ class GTATask(Task[torch.Tensor]):
     tensor_parameters: ImmutableMap[ModelReference, Any]
     int8_mask: bool
     normalize: bool
+    near_tuned_interpolation: bool
+    nti_t: float
 
     def uses_accelerator(self) -> bool:
         return True
@@ -92,7 +96,6 @@ class GTATask(Task[torch.Tensor]):
         tensors: Dict[ModelReference, torch.Tensor],
         **_kwargs,
     ) -> torch.Tensor:
-        # collect task vectors
         tvs, base = get_task_vectors(
             self.out_tensor_name,
             self.base_model,
@@ -102,7 +105,6 @@ class GTATask(Task[torch.Tensor]):
         if not tvs:
             return base
 
-        # sparsify
         if self.method.sparsification_method:
             for tv_info in tvs:
                 tv_info["delta"] = sparsify(
@@ -112,15 +114,23 @@ class GTATask(Task[torch.Tensor]):
                 )
 
         deltas = torch.stack([tv["delta"] for tv in tvs], dim=0)
-        weights = torch.tensor(
-            [tv["weight"] for tv in tvs], dtype=deltas.dtype, device=deltas.device
-        )
-        while len(deltas.shape) > len(weights.shape):
-            weights.unsqueeze_(-1)
-
+        
+        if self.near_tuned_interpolation:
+            t = self.nti_t
+            lweight = torch.abs(deltas).sum(dim=0)
+            lweight = t / lweight
+            lweight = torch.nan_to_num(lweight, nan=1.0, posinf=1.0, neginf=1.0)
+            lweight = torch.clamp(lweight, min=0.0, max=1.0)
+            weights = lweight.repeat(deltas.shape[0], 1)
+        else:
+            weights = torch.tensor(
+                [tv["weight"] for tv in tvs], dtype=deltas.dtype, device=deltas.device
+            )
+            while len(deltas.shape) > len(weights.shape):
+                weights.unsqueeze_(-1)
+        
         weighted_deltas = deltas * weights
 
-        # get sign consensus and mix deltas
         if self.method.consensus_method:
             mask_dtype = torch.int8 if self.int8_mask else base.dtype
             mask = get_mask(
