@@ -37,7 +37,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
     sparsification_method: Optional[SparsificationMethod]
     default_normalize: bool
     near_tuned_interpolation: bool = False  # Added NTI flag
-    nti_t: float = 0.0001  # Added NTI tuning parameter
+    nti_t: float = 0.0005  # Added NTI tuning parameter
     
     def parameters(self) -> List[ConfigParameterDef]:
         base_params = [
@@ -50,7 +50,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
         return [
-            ConfigParameterDef(name="weight", required=True),
+            ConfigParameterDef(name="weight", required=True, default_value=1.0),
             ConfigParameterDef(name="density", required=False, default_value=1.0),
         ]
 
@@ -121,13 +121,16 @@ class GTATask(Task[torch.Tensor]):
             lweight = t / lweight
             lweight = torch.nan_to_num(lweight, nan=1.0, posinf=1.0, neginf=1.0)
             lweight = torch.clamp(lweight, min=0.0, max=1.0)
-            weights = lweight.repeat(deltas.shape[0], 1)
+            weights = lweight.unsqueeze(0)  # Add batch dimension
+            while weights.dim() < deltas.dim():
+                weights = weights.unsqueeze(-1)
+            weights = weights.expand_as(deltas)
         else:
             weights = torch.tensor(
                 [tv["weight"] for tv in tvs], dtype=deltas.dtype, device=deltas.device
             )
-            while len(deltas.shape) > len(weights.shape):
-                weights.unsqueeze_(-1)
+            if deltas.dim() > 1:
+                weights = weights.unsqueeze(-1).expand_as(deltas)
         
         weighted_deltas = deltas * weights
 
