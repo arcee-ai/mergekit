@@ -53,13 +53,13 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
     dtype: Optional[str] = None
     device: Optional[str] = None
     optional: bool = False
-    aliases: Optional[List[str]] = None
+    aliases: Optional[Tuple[str, ...]] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {}
 
     def _resolve_name(self, loader: LazyTensorLoader) -> Optional[str]:
-        all_names = [self.tensor] + (self.aliases or [])
+        all_names = [self.tensor] + list(self.aliases or [])
         for name in all_names:
             if name in loader.index.tensor_paths:
                 return name
@@ -87,7 +87,7 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
         loader = LoaderCache().get(self.model)
         name = self._resolve_name(loader)
         if name:
-            shard_path = loader.index.tensor_paths[self.tensor]
+            shard_path = loader.index.tensor_paths[name]
             return _normalized_shard_name(shard_path)
         return None
 

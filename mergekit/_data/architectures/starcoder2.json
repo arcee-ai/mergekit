@@ -1,0 +1,78 @@
+{
+    "model_type": "starcoder2",
+    "architectures": [
+        "Starcoder2ForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "model.embed_tokens.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "lm_head.weight",
+            "is_embed": true,
+            "aliases": ["model.embed_tokens.weight"]
+        },
+        {
+            "name": "model.norm.bias"
+        },
+        {
+            "name": "model.norm.weight"
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "model.layers.${layer_index}.input_layernorm.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.input_layernorm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.q_proj.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.q_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.k_proj.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.k_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.v_proj.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.v_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.o_proj.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.o_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.post_attention_layernorm.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.post_attention_layernorm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.c_fc.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.c_fc.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.c_proj.bias"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.c_proj.weight"
+            }
+        ]
+    }
+}
