@@ -196,7 +196,7 @@ def get_mask(
     sign = delta.sign().to(mask_dtype)
 
     if method == "sum":
-        sign_weight = (sign * delta.abs()).sum(dim=0)
+        sign_weight = delta.sum(dim=0)
         majority_sign = (sign_weight >= 0).to(mask_dtype) * 2 - 1
         del sign_weight
     elif method == "count":
