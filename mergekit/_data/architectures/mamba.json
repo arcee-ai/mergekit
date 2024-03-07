@@ -1,0 +1,57 @@
+{
+    "model_type": "mamba",
+    "architectures": [
+        "MambaForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "backbone.embeddings.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "backbone.norm_f.weight"
+        },
+        {
+            "name": "lm_head.weight",
+            "is_embed": true,
+            "aliases": ["backbone.embeddings.weight"]
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "backbone.layers.${layer_index}.mixer.A_log"
+            },
+            {
+                "name": "backbone.layers.${layer_index}.mixer.conv1d.bias"
+            },
+            {
+                "name": "backbone.layers.${layer_index}.mixer.conv1d.weight"
+            },
+            {
+                "name": "backbone.layers.${layer_index}.mixer.D"
+            },
+            {
+                "name": "backbone.layers.${layer_index}.mixer.dt_proj.bias"
+            },
+            {
+                "name": "backbone.layers.${layer_index}.mixer.dt_proj.weight"
+            },
+            {
+                "name": "backbone.layers.${layer_index}.mixer.in_proj.weight"
+            },
+            {
+                "name": "backbone.layers.${layer_index}.mixer.out_proj.weight"
+            },
+            {
+                "name": "backbone.layers.${layer_index}.mixer.x_proj.weight"
+            },
+            {
+                "name": "backbone.layers.${layer_index}.norm.weight"
+            }
+        ]
+    }
+}
