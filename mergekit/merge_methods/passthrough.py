@@ -53,4 +53,6 @@ class PassthroughMerge(MergeMethod):
         parameters: ImmutableMap[str, Any],
         **kwargs,
     ) -> Task:
-        return PassthroughMergeTask(gather_tensors=tensors, scale=parameters["scale"])
+        return PassthroughMergeTask(
+            gather_tensors=tensors, scale=parameters.data.get("scale", None)
+        )
