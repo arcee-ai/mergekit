@@ -38,7 +38,7 @@ class PassthroughMergeTask(Task[torch.Tensor]):
         model, tensor = list(tensors.items())[0]
         scale = self.tensor_parameters[model].data.get("scale", None)
         if scale is not None:
-            tensor *= scale
+            tensor = tensor * scale
 
         return tensor
 
