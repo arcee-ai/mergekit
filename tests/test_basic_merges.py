@@ -11,6 +11,7 @@ from mergekit.config import (
     OutputSliceDefinition,
     ParameterSetting,
 )
+from mergekit.io import LazyTensorLoader, ShardedTensorIndex
 
 
 @pytest.fixture(scope="session")
@@ -54,6 +55,38 @@ class TestBasicMerges:
             assert config.n_layer == 24
 
         run_and_check_merge(config, validate=_check_config_layers)
+
+    def test_passthrough_scale(self, model_a):
+        config = MergeConfiguration(
+            merge_method="passthrough",
+            models=[
+                InputModelDefinition(
+                    model=model_a,
+                    parameters={
+                        "scale": [
+                            {"filter": "o_proj", "value": 0},
+                            {"value": 1},
+                        ]
+                    },
+                )
+            ],
+        )
+
+        def _check_o_proj(p: str):
+            loader = LazyTensorLoader(index=ShardedTensorIndex.from_disk(p))
+            saw_any = False
+            for name in loader.index.tensor_paths:
+                if "o_proj" in name:
+                    param = loader.get_tensor(name)
+                    assert (param == 0).all()
+                    saw_any = True
+                elif "lm_head" in name:
+                    param = loader.get_tensor(name)
+                    assert param.count_nonzero() > 0
+
+            assert saw_any, "No o_proj parameters found"
+
+        run_and_check_merge(config, validate=_check_o_proj)
 
     def test_linear_merge(self, model_a, model_b):
         config = self.two_model_config(model_a, model_b, merge_method="linear")
