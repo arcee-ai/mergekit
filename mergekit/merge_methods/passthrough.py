@@ -43,7 +43,7 @@ class PassthroughMergeTask(Task[torch.Tensor]):
 
 
 class PassthroughMerge(MergeMethod):
-    def parameters(self) -> List[ConfigParameterDef]:
+    def tensor_parameters(self) -> List[ConfigParameterDef]:
         return [ConfigParameterDef(name="scale", required=False, default_value=None)]
 
     def make_task(
