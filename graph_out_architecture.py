@@ -1,7 +1,6 @@
 import argparse
-import json
-import pprint
 import string
+from dataclasses import dataclass
 from typing import Optional
 
 import pydantic
@@ -10,8 +9,8 @@ from graphviz import Digraph
 
 class Weight(pydantic.BaseModel):
     name: str
-    output_space: Optional[str]
-    input_space: Optional[str]
+    output_space: Optional[str] = None
+    input_space: Optional[str] = None
 
 
 class LayerTemplate(pydantic.BaseModel):
@@ -19,8 +18,30 @@ class LayerTemplate(pydantic.BaseModel):
     residual_weights: list[Weight]
 
 
+class Model(pydantic.BaseModel):
+    pre_weights: list[Weight]
+    post_weights: list[Weight]
+    layer_template: LayerTemplate
+
+
 class TemplateWithArithmetic(string.Template):
     idpattern = r"(?a:[_a-z][_a-z0-9]*([+-]1)?)"
+
+
+# Assuming the JSON data is loaded into a variable named `data`
+
+
+@dataclass
+class Edge:
+    start: str
+    end: str
+    name: str
+
+
+@dataclass
+class Graph(object):
+    nodes: list[str]
+    edges: list[Edge]
 
 
 def _template_substitution(template: str, layer_idx: int) -> str:
@@ -36,38 +57,95 @@ def _template_substitution(template: str, layer_idx: int) -> str:
     return TemplateWithArithmetic(template).substitute(substitutions)
 
 
-# Assuming the JSON data is loaded into a variable named `data`
+def create_graph(data):
+    input_to_node = {}  #  edge -> [node]
+    # TODO: change name
+    # Guarantees: the node is only mentioned once
+    node_to_output = {}  #  node -> [edge]
+
+    # TODO: worry about the name later
+    residual_connections = {}
+
+    node_list = (
+        data.pre_weights + data.post_weights + data.layer_template.normal_weights
+    )
+
+    for weight in node_list:
+        if weight.input_space:
+            if weight.input_space not in input_to_node:
+                input_to_node[weight.input_space] = set()
+
+            input_to_node[weight.input_space].add(weight.name)
+
+        if weight.output_space:
+            if weight.output_space not in node_to_output:
+                node_to_output[weight.name] = set()
+
+            node_to_output[weight.name].add(weight.output_space)
+
+    for layer in data.layer_template.residual_weights:
+        residual_connections[layer.input_space] = (layer.output_space, layer.name)
+
+    edges_list = []
+    # TODO: filter for Nones
+
+    # simplify this
+    for node in node_to_output.keys():
+        for connected_edge in node_to_output[node]:
+            # find connected edge
+            if connected_edge in residual_connections:
+                transfer_edge, name = residual_connections[connected_edge]
+                connected_nodes = input_to_node[transfer_edge]
+                for connected_node in connected_nodes:
+                    edges_list.append(Edge(node, connected_node, name))
+
+            if connected_edge in input_to_node:
+                connected_nodes = input_to_node[connected_edge]
+                for connected_node in connected_nodes:
+                    edges_list.append(Edge(node, connected_node, connected_edge))
+
+    return Graph(nodes=[n.name for n in node_list], edges=edges_list)
 
 
-def create_graphviz_diagram(data):
+def create_graphviz_diagram(graph):
     dot = Digraph(comment="Model Architecture")
 
-    # Add pre_weights and post_weights as nodes
-    for weight in data["pre_weights"]:
-        print(weight["name"])
-        dot.node(weight["name"], weight["name"])
+    for node in graph.nodes:
+        dot.node(node, node)
 
-    for weight in data["post_weights"]:
-        dot.node(weight["name"], weight["name"])
-
-    # Add layer weights as nodes and connect them
-    for layer in data["layers_template"]["normal_weights"]:
-        print(layer)
-        dot.node(layer.name, layer.name)
-        if layer.input_space:
-            dot.edge(layer.input_space, layer.name)
-        if layer.output_space:
-            dot.edge(layer.name, layer.output_space)
-
-    # Add procedural spaces and their connections
-    for space in data["layers_template"]["residual_weights"]:
-        # dot.node(space.name, space.name)
-        if space.input_space:
-            dot.edge(space.input_space, space.name)
-        if space.output_space:
-            dot.edge(space.name, space.output_space)
+    for edge in graph.edges:
+        print(edge)
+        dot.edge(edge.start, edge.end, label=edge.name)
 
     return dot
+
+
+def expand_template(model: Model, num_layers: int) -> str:
+    # TODO: figure out the non-deprecated view
+    # TODO: should model be set to frozen
+
+    new_normal_weights = []
+    new_residual_weights = []
+
+    # render template
+    for weight in model.layer_template.normal_weights:
+        weight_template = weight.model_dump_json()
+        for i in range(args.num_layers + 1):
+            punched_weight = _template_substitution(weight_template, i)
+            new_normal_weights.append(Weight.parse_raw(punched_weight))
+
+    for weight in model.layer_template.residual_weights:
+        # stringify the weight and apply the template
+        weight_template = weight.model_dump_json()
+        for i in range(1, args.num_layers + 1):
+            punched_weight = _template_substitution(weight_template, i)
+            # convert the string back to a dictionary
+            new_residual_weights.append(Weight.parse_raw(punched_weight))
+
+    model.layer_template.normal_weights = new_normal_weights
+    model.layer_template.residual_weights = new_residual_weights
+
+    return model
 
 
 if __name__ == "__main__":
@@ -92,41 +170,15 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    load_json = json.load(open(args.json_file))
-    pprint.pprint(load_json)
-    template_normal_weights = [
-        Weight(**weight) for weight in load_json["layers_template"]["normal_weights"]
-    ]
-    template_residual_weights = [
-        Weight(**weight) for weight in load_json["layers_template"]["residual_weights"]
-    ]
+    json_definition = open(args.json_file).read()
 
-    new_normal_weights = []
-    new_residual_weights = []
+    model = Model.model_validate_json(json_definition)
 
-    # render template
-    for weight in template_normal_weights:
-        # stringify the weight and apply the template
-        weight_template = weight.model_dump_json()
-        for i in range(1, args.num_layers + 1):
-            punched_weight = _template_substitution(weight_template, i)
-            new_normal_weights.append(Weight.parse_raw(punched_weight))
+    expanded_model = expand_template(model, args.num_layers)
 
-    for weight in template_residual_weights:
-        # stringify the weight and apply the template
-        weight_template = weight.model_dump_json()
-        for i in range(1, args.num_layers + 1):
-            punched_weight = _template_substitution(weight_template, i)
-            # convert the string back to a dictionary
-            new_residual_weights.append(Weight.parse_raw(punched_weight))
+    g = create_graph(model)
 
-    load_json["layers_template"]["normal_weights"] = new_normal_weights
-    load_json["layers_template"]["residual_weights"] = new_residual_weights
+    diagram = create_graphviz_diagram(g)
 
-    pprint.pprint(load_json)
-
-    diagram = create_graphviz_diagram(load_json)
-
-    # Render the diagram to a file (e.g., 'model_architecture.gv')
     diagram.render(args.output, format="png")
     print("Diagram created.")

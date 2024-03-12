@@ -1,0 +1,83 @@
+{
+   "pre_weights" : [
+	   {"name": "wte.weight",
+	    "output_space": "h.0"},
+
+	   {"name":"wpe.weight",
+	   "output_space": "h.0"}
+  ],
+
+
+  "layer_template": {
+	  "normal_weights": [
+		  { "name" :  "h.${layer}.ln.weight",
+		    "input_space": "h.${layer}",
+		    "output_space": "h.${layer}_1"
+		  },
+		  { "name" :  "h.${layer}.ln.bias",
+		    "input_space": "h.${layer}_1",
+		    "output_space": "h.${layer}_2"
+		  },
+		  { "name" :  "h.${layer}.attn.c_attn.weight",
+		    "input_space": "h.${layer}_2",
+		    "output_space": "h.${layer}_3"
+		  },
+		  { "name" :  "h.${layer}.attn.c_attn.bias",
+		    "input_space": "h.${layer}_3",
+		    "output_space": "h.${layer}_4"
+		  },
+		  { "name" :  "h.${layer}.attn.c_proj.weight",
+		    "input_space": "h.${layer}_4",
+		    "output_space": "h.${layer}_5"
+		  },
+		  { "name" :  "h.${layer}.attn.c_proj.bias",
+		    "input_space": "h.${layer}_5",
+		    "output_space": "h.${layer}_stop_gap"
+		  },
+		  {"name":  "h.${layer}.ln_2.weight",
+		    "input_space": "h.${layer}_stop_gap",
+		    "output_space": "h.${layer}_6"
+		  },
+		  {"name":  "h.${layer}.ln_2.bias",
+		    "input_space": "h.${layer}_6",
+		    "output_space": "h.${layer}_7"
+		  },
+		  {"name":  "h.${layer}.mlp.c_fc.weight",
+		    "input_space": "h.${layer}_7",
+		    "output_space": "h.${layer}_8"
+		  },
+		  {"name":  "h.${layer}.mlp.c_fc.bias",
+		    "input_space": "h.${layer}_8",
+		    "output_space": "h.${layer}_9"
+		  },
+		  {"name":  "h.${layer}.mlp.c_proj.weight",
+		    "input_space": "h.${layer}_9",
+		    "output_space": "h.${layer}_10"
+		  },
+		  {"name":  "h.${layer}.mlp.c_proj.bias",
+		    "input_space": "h.${layer}_10",
+		    "output_space": "h.${layer+1}"
+		  }
+	  ],
+
+
+	  "residual_weights" : [
+		  {"name":"over_attention",
+		   "input_space": "h.${layer}",
+		   "output_space": "h.${layer}_stop_gap"},
+		 { "name":"over_mlp",
+		    "input_space": "h.${layer}_stop_gap",
+		    "output_space": "h.${layer+1}"}
+	  ]
+  },
+
+  "post_weights": [
+	   {"name": "ln_f.weight",
+	   "input_space": "h.4",
+	   "output_space": "ln_f_w_out"
+	  },
+	  {"name":"ln_f.bias",
+	  "input_space": "ln_f_w_out"
+	  }
+	]
+}
