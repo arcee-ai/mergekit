@@ -192,6 +192,15 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
                 obj_dict[key] = TemplateWithArithmetic(obj_dict[key]).substitute(
                     substitutions
                 )
+            elif (
+                isinstance(obj_dict[key], list)
+                and isinstance(obj_dict[key][0], str)
+                and "{" in obj_dict[key][0]
+            ):
+                obj_dict[key] = [
+                    TemplateWithArithmetic(x).substitute(substitutions)
+                    for x in obj_dict[key]
+                ]
         return type(item).model_validate(obj_dict)
 
     def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:

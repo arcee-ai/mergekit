@@ -1,34 +1,12 @@
 import argparse
 import string
 from dataclasses import dataclass
-from typing import Optional
+from typing import List
 
-import pydantic
 from graphviz import Digraph
+from transformers import AutoConfig
 
-
-class Weight(pydantic.BaseModel):
-    name: str
-    output_space: Optional[str] = None
-    input_space: Optional[str] = None
-
-
-class LayerTemplate(pydantic.BaseModel):
-    normal_weights: list[Weight]
-    residual_weights: list[Weight]
-
-
-class Model(pydantic.BaseModel):
-    pre_weights: list[Weight]
-    post_weights: list[Weight]
-    layer_template: LayerTemplate
-
-
-class TemplateWithArithmetic(string.Template):
-    idpattern = r"(?a:[_a-z][_a-z0-9]*([+-]1)?)"
-
-
-# Assuming the JSON data is loaded into a variable named `data`
+from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_info
 
 
 @dataclass
@@ -39,25 +17,12 @@ class Edge:
 
 
 @dataclass
-class Graph(object):
-    nodes: list[str]
-    edges: list[Edge]
+class Graph:
+    nodes: List[str]
+    edges: List[Edge]
 
 
-def _template_substitution(template: str, layer_idx: int) -> str:
-    if "{" not in template:
-        return template
-
-    substitutions = {
-        "layer": layer_idx,
-        "layer+1": layer_idx + 1,
-        "layer-1": layer_idx - 1,
-    }
-
-    return TemplateWithArithmetic(template).substitute(substitutions)
-
-
-def create_graph(data):
+def create_graph(data: ConfiguredArchitectureInfo):
     input_to_node = {}  #  edge -> [node]
     # TODO: change name
     # Guarantees: the node is only mentioned once
@@ -66,9 +31,7 @@ def create_graph(data):
     # TODO: worry about the name later
     residual_connections = {}
 
-    node_list = (
-        data.pre_weights + data.post_weights + data.layer_template.normal_weights
-    )
+    node_list = data.all_weights()
 
     for weight in node_list:
         if weight.input_space:
@@ -83,13 +46,12 @@ def create_graph(data):
 
             node_to_output[weight.name].add(weight.output_space)
 
-    for layer in data.layer_template.residual_weights:
-        residual_connections[layer.input_space] = (layer.output_space, layer.name)
+    # TODO: figure out guarantee on this always containing two weights
+    for layer in data.procedural_spaces():
+        residual_connections[layer.inputs[0]] = (layer.inputs[1], layer.name)
 
     edges_list = []
-    # TODO: filter for Nones
 
-    # simplify this
     for node in node_to_output.keys():
         for connected_edge in node_to_output[node]:
             # find connected edge
@@ -120,49 +82,17 @@ def create_graphviz_diagram(graph):
     return dot
 
 
-def expand_template(model: Model, num_layers: int) -> str:
-    # TODO: figure out the non-deprecated view
-    # TODO: should model be set to frozen
-
-    new_normal_weights = []
-    new_residual_weights = []
-
-    # render template
-    for weight in model.layer_template.normal_weights:
-        weight_template = weight.model_dump_json()
-        for i in range(args.num_layers + 1):
-            punched_weight = _template_substitution(weight_template, i)
-            new_normal_weights.append(Weight.parse_raw(punched_weight))
-
-    for weight in model.layer_template.residual_weights:
-        # stringify the weight and apply the template
-        weight_template = weight.model_dump_json()
-        for i in range(1, args.num_layers + 1):
-            punched_weight = _template_substitution(weight_template, i)
-            # convert the string back to a dictionary
-            new_residual_weights.append(Weight.parse_raw(punched_weight))
-
-    model.layer_template.normal_weights = new_normal_weights
-    model.layer_template.residual_weights = new_residual_weights
-
-    return model
-
-
 if __name__ == "__main__":
     # Load the JSON data
     parser = argparse.ArgumentParser(
         description="Create a graphviz diagram of the model architecture."
     )
     parser.add_argument(
-        "json_file",
+        "--model",
         type=str,
-        help="The JSON file containing the model architecture data.",
+        help="Model name whose architecture is defined in Json architecture",
     )
 
-    # add argument for number of layers
-    parser.add_argument(
-        "--num_layers", type=int, help="The number of layers in the model."
-    )
     parser.add_argument(
         "--output",
         type=str,
@@ -170,13 +100,14 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    json_definition = open(args.json_file).read()
+    model_config = AutoConfig.from_pretrained(args.model)
 
-    model = Model.model_validate_json(json_definition)
+    arch_info = get_architecture_info(model_config)
+    configured_arch_info = ConfiguredArchitectureInfo(
+        info=arch_info, config=model_config
+    )
 
-    expanded_model = expand_template(model, args.num_layers)
-
-    g = create_graph(model)
+    g = create_graph(configured_arch_info)
 
     diagram = create_graphviz_diagram(g)
 
