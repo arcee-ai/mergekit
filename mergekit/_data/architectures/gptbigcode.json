@@ -1,11 +1,12 @@
 {
-    "model_type": "gpt2",
+    "model_type": "gpt_bigcode",
     "architectures": [
-        "GPT2ForSequenceClassification"
+        "GPTBigCodeForCausalLM"
     ],
     "pre_weights": [
         {
-            "name": "transformer.wte.weight"
+            "name": "transformer.wte.weight",
+            "is_embed": true
         },
         {
             "name": "transformer.wpe.weight"
@@ -19,7 +20,10 @@
             "name": "transformer.ln_f.bias"
         },
         {
-            "name": "score.weight"
+            "name": "lm_head.weight",
+            "aliases": [
+                "transformer.wte.weight"
+            ]
         }
     ],
     "num_layers_config_key": "n_layer",
