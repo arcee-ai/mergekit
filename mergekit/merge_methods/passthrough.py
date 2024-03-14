@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import torch
 from torch._tensor import Tensor
@@ -26,7 +26,7 @@ from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 
 class PassthroughMergeTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
-    scale: Optional[float] = None
+    tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
 
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
@@ -35,22 +35,25 @@ class PassthroughMergeTask(Task[torch.Tensor]):
         if len(tensors) != 1:
             raise RuntimeError("Passthrough merge expects exactly one tensor")
 
-        res = list(tensors.values())[0]
-        if self.scale is not None:
-            res *= self.scale
+        model, tensor = list(tensors.items())[0]
+        scale = self.tensor_parameters[model].data.get("scale", None)
+        if scale is not None:
+            tensor = tensor * scale
 
-        return res
+        return tensor
 
 
 class PassthroughMerge(MergeMethod):
-    def parameters(self) -> List[ConfigParameterDef]:
+    def tensor_parameters(self) -> List[ConfigParameterDef]:
         return [ConfigParameterDef(name="scale", required=False, default_value=None)]
 
     def make_task(
         self,
         *,
         tensors: GatherTensors,
-        parameters: ImmutableMap[str, Any],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         **kwargs,
     ) -> Task:
-        return PassthroughMergeTask(gather_tensors=tensors, scale=parameters["scale"])
+        return PassthroughMergeTask(
+            gather_tensors=tensors, tensor_parameters=tensor_parameters
+        )
