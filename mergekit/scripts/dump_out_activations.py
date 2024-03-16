@@ -27,6 +27,11 @@ from mergekit.architecture import ProceduralSpaceInfo, WeightInfo, get_architect
 from mergekit.common import ModelReference, dtype_from_name
 
 
+def parse_items(ctx, param, value):
+    # Split the value by commas and strip whitespace
+    return [item.strip() for item in value.split(",")]
+
+
 # taken from DALM
 def mean_hidden_state(hidden_state, mask):
     a2 = torch.sum(hidden_state * mask.unsqueeze(-1), 1)
@@ -34,20 +39,28 @@ def mean_hidden_state(hidden_state, mask):
 
 
 @click.command("mergekit-activations-dump")
+# take in single model path or list of model paths
+
+
 @click.argument("model-path", type=str)
-@click.option(
-    "--target-model-path",
-    "-t",
-    required=True,
-    type=str,
-    help="Target model to align weights to",
-)
 @click.option(
     "--dataset", "-d", required=True, type=str, help="Dataset to use for activations"
 )
 @click.option("--out-path", "-o", required=True, type=str, help="Output model path")
 @click.option("--batch-size", "-b", type=int, default=2, help="Batch size")
 @click.option("--max-length", "-l", type=int, default=512, help="Max length")
+@click.option(
+    "--dump-type",
+    type=click.Choice(["hidden-state", "activation"], case_sensitive=False),
+    default="hidden-state",
+    help="Choose between hidden-state or activation",
+)
+@click.option(
+    "--hook-modules",
+    callback=parse_items,
+    help="Specify modules to hook into separated by commas (e.g., --hook-layers a,b,c)",
+    default=None,
+)
 @click.option(
     "--dtype",
     type=str,
@@ -56,15 +69,20 @@ def mean_hidden_state(hidden_state, mask):
 )
 def main(
     model_path: str,
-    target_model_path: str,
     dataset: str,
     out_path: str,
     batch_size: int,
     max_length: int,
+    dump_type: str,
+    hook_modules: Optional[List[str]],
     dtype: Optional[str],
 ):
+    # NOTES: it seems somewhat doable that you can hook onto activations
+
+    if dump_type == "hidden-state" and hook_modules is None:
+        raise ValueError("hook-layers must be specified for hidden-state dump type")
+
     model = ModelReference.model_validate(model_path)
-    target_model = ModelReference.model_validate(target_model_path)
 
     # TODO: make subset commandline configurable
     dataset = datasets.load_dataset(dataset)["eval"]
@@ -72,41 +90,62 @@ def main(
     model_config = AutoConfig.from_pretrained(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
 
-    activations = [
-        [
+    activations = None
+    model = None
+    if dump_type == "hidden-state":
+        activations = [
             torch.zeros(model_config.hidden_size)
             for _ in range(model_config.num_hidden_layers + 1)
         ]
-        for _ in range(2)
-    ]
-
-    for model_index, model in enumerate([model_path, target_model]):
         model_config = AutoConfig.from_pretrained(model_path)
         model_config.output_hidden_states = True
         model_config.return_dict = True
-
         model = AutoModelForCausalLM.from_pretrained(model_path, config=model_config)
 
-        model.eval()
-        model.to("cuda")
+    elif dump_type == "activation":
+        activations = DefaultDict[str, List[torch.Tensor]]()
+        model = AutoModelForCausalLM.from_pretrained(model_path)
 
-        # TODO set seed somewhere for reproducibility
-        datasets_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    model.eval()
+    model.to("cuda")
 
-        for batch in datasets_dataloader:
-            inputs = tokenizer(
-                batch["text"],
-                return_tensors="pt",
-                padding="max_length",
-                truncation=True,
-                max_length=max_length,
-            )
-            inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    # TODO set seed somewhere for reproducibility
+    datasets_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-            with torch.no_grad():
-                # next token prediction
-                outputs = model(**inputs)
-                # get mask
+    # TODO: possibly wrong and might leads to loads of memory consumption
+    # TODO: running average ?
+    def activation_hook(name):
+        def hook(module, input, output):
+            if name not in activations:
+                activations[name] = [output.detach()]
+            else:
+                # runnign average here?
+                activations[name].append(output.detach())
+
+        return hook
+
+    if dump_type == "activation":
+        # get module
+        for module_str in hook_modules:
+            module = model.get_submodule(module_str)
+            module.register_forward_hook(activation_hook(module_str))
+
+    for batch in datasets_dataloader:
+        inputs = tokenizer(
+            batch["text"],
+            return_tensors="pt",
+            padding="max_length",
+            truncation=True,
+            max_length=max_length,
+        )
+        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+        with torch.no_grad(), torch.cuda.amp.autocast():
+            # next token prediction
+
+            outputs = model(**inputs)
+            # get mask
+            if dump_type == "hidden-state":
                 mask = inputs["attention_mask"]
 
                 # lot of loss of information with repeated averaging, maybe just the CLS token?
@@ -114,4 +153,6 @@ def main(
                     (1.0 / batch_size) * torch.sum(mean_hidden_state(x, mask), dim=0)
                     for x in outputs.hidden_states
                 ]
-                activations[model_index] = activations[model_index] + hidden_states
+
+                for i, hidden_state in enumerate(hidden_states):
+                    activations[i] += hidden_state
