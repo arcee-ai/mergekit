@@ -113,7 +113,7 @@ def tokenize_prompts(
     prompts: List[str], tokenizer: transformers.PreTrainedTokenizerBase
 ):
     return tokenizer(
-        [tokenizer.bos_token or "" + p for p in prompts],
+        [(tokenizer.bos_token or "") + p for p in prompts],
         return_tensors="pt",
         padding=True,
         add_special_tokens=False,
