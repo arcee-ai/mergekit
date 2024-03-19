@@ -28,6 +28,8 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from mergekit.architecture import ProceduralSpaceInfo, WeightInfo, get_architecture_info
 from mergekit.common import ModelReference, dtype_from_name
 
+logging.basicConfig(level=logging.INFO)
+
 
 def parse_items(ctx, param, value):
     if value is not None:
@@ -50,6 +52,19 @@ def mean_hidden_state(hidden_state, mask):
 )
 @click.option("--out-path", "-o", required=True, type=str, help="Output model path")
 @click.option("--batch-size", "-b", type=int, default=2, help="Batch size")
+@click.option(
+    "--dataset-size",
+    "-s",
+    type=int,
+    default=None,
+    help="Dataset size. If None, use full dataset",
+)
+@click.option(
+    "--dataset-column", "-c", type=str, default="text", help="Dataset column to use"
+)
+@click.option(
+    "--dataset-subset", "-u", type=str, default="eval", help="Dataset subset to use"
+)
 @click.option("--max-length", "-l", type=int, default=512, help="Max length")
 @click.option(
     "--dump-type",
@@ -72,10 +87,13 @@ def mean_hidden_state(hidden_state, mask):
 def main(
     model_path: str,
     dataset: str,
+    dataset_column: str,
     out_path: str,
     batch_size: int,
     max_length: int,
     dump_type: str,
+    dataset_size: Optional[int],
+    dataset_subset: Optional[str],
     hook_modules: Optional[List[str]],
     dtype: Optional[str],
 ):
@@ -86,8 +104,7 @@ def main(
 
     model = ModelReference.model_validate(model_path)
 
-    # TODO: make subset commandline configurable
-    dataset = datasets.load_dataset(dataset)["eval"]
+    dataset = datasets.load_dataset(dataset)[dataset_subset]
 
     model_config = AutoConfig.from_pretrained(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -117,6 +134,11 @@ def main(
     model.to("cuda")
 
     # TODO set seed somewhere for reproducibility
+    if dataset_size is not None:
+        logging.info(f"Using dataset size {dataset_size}")
+        dataset = dataset[:dataset_size]
+    dataset = dataset[dataset_column]
+
     datasets_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     # TODO: possibly wrong and might leads to loads of memory consumption
@@ -139,7 +161,7 @@ def main(
 
     for batch in datasets_dataloader:
         inputs = tokenizer(
-            batch["text"],
+            batch,
             return_tensors="pt",
             padding="max_length",
             truncation=True,
@@ -174,6 +196,7 @@ def main(
             temp[f"hidden_state_{i}"] = activations[i] / len(dataset)
         activations = temp
 
+    logging.info(f"Saving activations to {out_path}")
     # dump out activations using safe tensors
     save_file(activations, os.path.join(out_path, "activations.safetensors"))
 
