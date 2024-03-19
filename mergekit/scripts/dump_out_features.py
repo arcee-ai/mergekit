@@ -220,3 +220,6 @@ def main(
 
 if __name__ == "__main__":
     main()
+
+
+# python dump_out_activations.py  gpt2 -o dump_output --dump-type activation -d arcee-ai/pmc-test-perplexity  -s 8  -c text  -u test  --device cpu --hook-modules mlp.act,attn.c_proj
