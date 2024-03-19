@@ -122,9 +122,6 @@ def main(
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
       
-    model_config = AutoConfig.from_pretrained(model_path)
-    model = AutoModelForCausalLM.from_pretrained(model_path, config=model_config)
-
     model.eval()
     model.to(device)
 
