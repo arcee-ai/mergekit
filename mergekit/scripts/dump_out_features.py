@@ -30,6 +30,9 @@ from mergekit.common import ModelReference, dtype_from_name
 
 logging.basicConfig(level=logging.INFO)
 
+# set seed
+torch.manual_seed(42)
+np.random.seed(42)
 
 def parse_items(ctx, param, value):
     if value is not None:
@@ -84,6 +87,12 @@ def mean_hidden_state(hidden_state, mask):
     default=None,
     help="Data type to convert weights to",
 )
+@click.option(
+    "--device",
+    type=str,
+    default=None,
+    help="device to compute the activations",
+)
 def main(
     model_path: str,
     dataset: str,
@@ -96,6 +105,7 @@ def main(
     dataset_subset: Optional[str],
     hook_modules: Optional[List[str]],
     dtype: Optional[str],
+    device: Optional[str],
 ):
     # NOTES: it seems somewhat doable that you can hook onto activations
 
@@ -111,94 +121,101 @@ def main(
 
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
-
-    activations = None
-    model = None
-    if dump_type == "hidden-state":
-        # get layer template from model
-        activations = [
-            torch.zeros(model_config.hidden_size)
-            for _ in range(model_config.num_hidden_layers + 1)
-        ]
-        model_config = AutoConfig.from_pretrained(model_path)
-        model_config.output_hidden_states = True
-        model_config.return_dict = True
-        model = AutoModelForCausalLM.from_pretrained(model_path, config=model_config)
-
-    # sizes not known in advance
-    elif dump_type == "activation":
-        activations = DefaultDict[str, List[torch.Tensor]]()
-        model = AutoModelForCausalLM.from_pretrained(model_path)
+      
+    model_config = AutoConfig.from_pretrained(model_path)
+    model = AutoModelForCausalLM.from_pretrained(model_path, config=model_config)
 
     model.eval()
-    model.to("cuda")
+    model.to(device)
 
-    # TODO set seed somewhere for reproducibility
     if dataset_size is not None:
-        logging.info(f"Using dataset size {dataset_size}")
+        logging.info("Using dataset size %s", dataset_size)
         dataset = dataset[:dataset_size]
     dataset = dataset[dataset_column]
 
     datasets_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    # TODO: possibly wrong and might leads to loads of memory consumption
-    # TODO: running average ?
-    def activation_hook(name):
-        def hook(module, input, output):
-            if name not in activations:
-                activations[name] = [output.detach()]
-            else:
-                # runnign average here?
-                activations[name].append(output.detach())
+    def get_features(model, layer_names, feature_type='activations'):
+        """
+        Extracts 'activations' or 'hidden-states' from specified layers of a model.
 
-        return hook
+        Parameters:
+        - model (torch.nn.Module): Model for feature extraction.
+        - layer_names (list): Target layers for 'activations' mode.
+        - feature_type (str): 'activations' (default) or 'hidden-states'.
+        
+        Returns:
+        - features (dict): Captured features, empty for 'hidden-states'.
+        - hooks (list): Handles for 'activations' hooks, empty for 'hidden-states'.
+        """
+        features = {}
+        hooks = []
 
-    if dump_type == "activation":
-        # get module
-        for module_str in hook_modules:
-            module = model.get_submodule(module_str)
-            module.register_forward_hook(activation_hook(module_str))
+        if feature_type == 'activation':
+            def hook_fn(module, input, output):
+                for name, mod in model.named_modules():
+                    if mod == module:
+                        features[name] = output.detach()
+                        break
 
+            for name, module in model.named_modules():
+                if any(layer_name in name for layer_name in layer_names):
+                    hooks.append(module.register_forward_hook(hook_fn))
+        
+        return features, hooks
+    
+    # Example usage for capturing activations]
+    features, hooks = get_features(model, hook_modules, feature_type=dump_type)
+
+    # Define a dictionary for storing features with identifiers
+    feature_storage = {}
     for batch in datasets_dataloader:
-        inputs = tokenizer(
-            batch,
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-            max_length=max_length,
-        )
-        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+        # Wrap the model call in torch.no_grad() to avoid computing gradients
+        with torch.no_grad():
 
-        with torch.no_grad(), torch.cuda.amp.autocast():
-            # next token prediction
+            inputs = tokenizer(
+                batch,
+                return_tensors="pt",
+                padding="max_length",
+                truncation=True,
+                max_length=max_length,
+            )
+            inputs = {k: v.to(device) for k, v in inputs.items()}
 
-            outputs = model(**inputs)
-            # get mask
-            if dump_type == "hidden-state":
-                mask = inputs["attention_mask"]
+            outputs = model(**inputs,  output_hidden_states=(dump_type =='hidden-state'))
 
-                # lot of loss of information with repeated averaging, maybe just the CLS token?
-                hidden_states = [
-                    (1.0 / batch_size) * torch.sum(mean_hidden_state(x, mask), dim=0)
-                    for x in outputs.hidden_states
-                ]
+            if features:  # Activations were requested
+                for name, feature in features.items():
+                    identifier = f"{name}_activation"
+                    if identifier not in feature_storage:
+                        feature_storage[identifier] = []
 
+                    feature_data = feature.cpu().detach()
+
+                    # Split the tensor along the batch dimension and extend the list
+                    for single_feature_data in feature_data.cpu().detach():
+                        feature_storage[identifier].append(single_feature_data)
+
+            if dump_type == 'hidden-state':
+                hidden_states = outputs.hidden_states
                 for i, hidden_state in enumerate(hidden_states):
-                    activations[i] += hidden_state.to("cpu")
+                    identifier = f"layer_{i}_hidden_state"
+                    if identifier not in feature_storage:
+                        feature_storage[identifier] = []
+                    # Split the tensor along the batch dimension and extend the list
+                    for single_hidden_state in hidden_state.cpu().detach():
+                        feature_storage[identifier].append(single_hidden_state)
+    
+    # After processing the entire dataset, remove the hooks
+    for hook in hooks:
+        hook.remove()
 
-    # Question: when activations are used, is there a keyword argument to specify the layer?
-    #  Yes, there is a keyword argument to specify the layer
-    # TODO: save activations / hidden states to file
+    # After processing all batches, you may want to convert lists to numpy arrays for convenience
+    for identifier in feature_storage.keys():
+        feature_storage[identifier] = torch.stack(feature_storage[identifier], dim=0)
 
-    if dump_type == "hidden-state":
-        temp = {}
-        for i, hidden_state in enumerate(hidden_states):
-            temp[f"hidden_state_{i}"] = activations[i] / len(dataset)
-        activations = temp
-
-    logging.info(f"Saving activations to {out_path}")
-    # dump out activations using safe tensors
-    save_file(activations, os.path.join(out_path, "activations.safetensors"))
+    # Save the features to disk
+    save_file(feature_storage,  f"features_{dump_type}.bin")
 
 
 if __name__ == "__main__":
