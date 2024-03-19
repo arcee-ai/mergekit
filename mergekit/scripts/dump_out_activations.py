@@ -14,12 +14,14 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import logging
+import os
 from typing import DefaultDict, Dict, List, Optional, Set
 
 import click
 import datasets
 import numpy as np
 import torch
+from safetensors.torch import save_file
 from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
@@ -28,8 +30,8 @@ from mergekit.common import ModelReference, dtype_from_name
 
 
 def parse_items(ctx, param, value):
-    # Split the value by commas and strip whitespace
-    return [item.strip() for item in value.split(",")]
+    if value is not None:
+        return [item.strip() for item in value.split(",")]
 
 
 # taken from DALM
@@ -79,8 +81,8 @@ def main(
 ):
     # NOTES: it seems somewhat doable that you can hook onto activations
 
-    if dump_type == "hidden-state" and hook_modules is None:
-        raise ValueError("hook-layers must be specified for hidden-state dump type")
+    if dump_type == "activation" and hook_modules is None:
+        raise ValueError("hook-layers must be specified for activation dump type")
 
     model = ModelReference.model_validate(model_path)
 
@@ -90,9 +92,13 @@ def main(
     model_config = AutoConfig.from_pretrained(model_path)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
 
+    if not tokenizer.pad_token:
+        tokenizer.pad_token = tokenizer.eos_token
+
     activations = None
     model = None
     if dump_type == "hidden-state":
+        # get layer template from model
         activations = [
             torch.zeros(model_config.hidden_size)
             for _ in range(model_config.num_hidden_layers + 1)
@@ -102,6 +108,7 @@ def main(
         model_config.return_dict = True
         model = AutoModelForCausalLM.from_pretrained(model_path, config=model_config)
 
+    # sizes not known in advance
     elif dump_type == "activation":
         activations = DefaultDict[str, List[torch.Tensor]]()
         model = AutoModelForCausalLM.from_pretrained(model_path)
@@ -155,4 +162,21 @@ def main(
                 ]
 
                 for i, hidden_state in enumerate(hidden_states):
-                    activations[i] += hidden_state
+                    activations[i] += hidden_state.to("cpu")
+
+    # Question: when activations are used, is there a keyword argument to specify the layer?
+    #  Yes, there is a keyword argument to specify the layer
+    # TODO: save activations / hidden states to file
+
+    if dump_type == "hidden-state":
+        temp = {}
+        for i, hidden_state in enumerate(hidden_states):
+            temp[f"hidden_state_{i}"] = activations[i] / len(dataset)
+        activations = temp
+
+    # dump out activations using safe tensors
+    save_file(activations, os.path.join(out_path, "activations.safetensors"))
+
+
+if __name__ == "__main__":
+    main()
