@@ -110,7 +110,7 @@ class ModelPermuter:
             elif not weight_info.is_vector:
                 logging.warning(f"Weight {weight_info.name} has no output space")
 
-            if weight_info.head_group:
+            if weight_info.head_group is not None:
                 self.head_group_weights[weight_info.head_group].append(weight_info)
 
         for ps in self.model_arch_info.procedural_spaces(config=self.model_config):
@@ -190,6 +190,10 @@ class ModelPermuter:
             M_in = self.get_transform(wi.input_space, inverse=True, hard=hard_perm)
             M_out = self.get_transform(wi.output_space, inverse=False, hard=hard_perm)
 
+            # print(f"{wi.name}: {wi.input_space} -> {wi.output_space}")
+            # print(f"M_in: {M_in.shape if M_in is not None else None}")
+            # print(f"tensor: {tensor.shape}")
+            # print(f"M_out: {M_out.shape if M_out is not None else None}")
             if wi.is_embed:
                 # nn.Embedding stores the embedding matrix as (vocab_size, embed_dim)
                 # but we want to treat it as (embed_dim, vocab_size) for the purposes of
@@ -216,7 +220,11 @@ class ModelPermuter:
         hard_perm: bool = False,
     ) -> Dict[WeightInfo, torch.Tensor]:
         res: Dict[WeightInfo, torch.Tensor] = {}
-        for weight_info in self.space_out_tensors.get(space, []):
+        tensors = self.space_out_tensors.get(space, [])
+        if space.startswith("head:"):
+            tensors = self.head_group_weights.get(space[len("head:") :], [])
+
+        for weight_info in tensors:
             res[weight_info] = self.get_weight(
                 weight_info,
                 model,
