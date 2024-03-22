@@ -1,88 +1,41 @@
+import click
 import torch
-from abc import ABC, abstractmethod
-import safetensors.torch import load_file, save_file
+import safetensors.torch
+from typing import Optional, List
+from zipit_metrics import CovarianceMetric
 
-class MetricCalculator(ABC):
-    
-    @abstractmethod
-    def update(self, batch_size, *feats, **aux_params):
-        pass
-    
-    @abstractmethod
-    def finalize(self, numel, eps=1e-4):
-        pass
+@click.command()
+@click.argument("model1_path", type=str, default='gpt2_features_activation.bin')
+@click.argument("model2_path", type=str, default='lvwerra_gpt2-imdb_features_activation.bin')
+@click.option("--out-path", "-o", required=True, type=str, help="Output path for metric tensors")
+@click.option("--metric", "-m", type=str, default='covariance', help="Metric to calculate (default: covariance)")
+@click.option("--device", "-d", type=str, default="cpu", help="Device to compute on (default: cpu)")
+def main(model1_path, model2_path, out_path, metric, device):
+    metric_classes = {'covariance': CovarianceMetric()}
+    if metric not in metric_classes:
+        raise ValueError(f"Unsupported metric: {metric}")
 
-class CovarianceMetric(MetricCalculator):
-    name = 'covariance'
-    
-    def __init__(self):
-        self.std = None
-        self.mean = None
-        self.outer = None
-    
-    def update(self, batch_size, *feats, **aux_params):
-        feats = torch.cat(feats, dim=0)
-        feats = torch.nan_to_num(feats)
+    model1_layers = safetensors.torch.load_file(model1_path)
+    model2_layers = safetensors.torch.load_file(model2_path)
+
+    metrics_results = {}
+
+    for layer_name in model1_layers.keys():
+        layer1_data = model1_layers[layer_name].float().to(device)
+        layer2_data = model2_layers[layer_name].float().to(device)
+
+        concatenated_layer = torch.cat((layer1_data, layer2_data), dim=-1)
+        concatenated_layer = concatenated_layer.view(-1, concatenated_layer.shape[-1])
         
-        mean = feats.mean(dim=1, keepdim=True)
-        centered_feats = feats - mean
-        outer = centered_feats @ centered_feats.T / feats.shape[1]
-        
-        if self.mean is None: self.mean = torch.zeros_like(mean)
-        if self.outer is None: self.outer = torch.zeros_like(outer)
-            
-        self.mean += mean.squeeze() * batch_size
-        self.outer += outer * batch_size
-    
-    def finalize(self, numel, eps=1e-4):
-        cov = self.outer / numel - torch.outer(self.mean, self.mean) / numel**2
-        return cov
+        metric_instance = metric_classes[metric]()
+        metric_instance.update(concatenated_layer)
+        final_metric = metric_instance.finalize()
+        identifier = f"{layer_name}_{metric}"
+        metrics_results[identifier] = final_metric
 
-class MeanMetric(MetricCalculator):
-    name = 'mean'
-    
-    def __init__(self):
-        self.mean = None
-    
-    def update(self, batch_size, *feats, **aux_params):
-        feats = torch.cat(feats, dim=0)
-        mean = feats.mean(dim=1)
-        
-        if self.mean is None: self.mean = torch.zeros_like(mean)
-        self.mean += mean * batch_size
-    
-    def finalize(self, numel, eps=1e-4):
-        return self.mean / numel
+    # Saving the metrics results as SafeTensors
+    for identifier, tensor in metrics_results.items():
+        safetensors.torch.save_file({identifier: tensor}, f"{out_path}/{identifier}_metric.safetensor")
 
-model1_layers = load_file('model1_safetensor.pth')
-model2_layers = load_file('model2_safetensor.pth')
-
-metric_classes = {'covariance': CovarianceMetric, 'mean': MeanMetric}
-metrics = {layer_name: {metric_name: metric() for metric_name, metric in metric_classes.items()}
-           for layer_name in model1_layers.keys()}
-
-for layer_name in model1_layers.keys():
-    layer1_data = model1_layers[layer_name].float()
-    layer2_data = model2_layers[layer_name].float()
-    
-    if layer1_data.dim() == 2:
-        layer1_data = layer1_data.unsqueeze(0)
-    if layer2_data.dim() == 2:
-        layer2_data = layer2_data.unsqueeze(0)
-    
-    concatenated_layers = torch.cat((layer1_data, layer2_data), dim=0)
-    
-    for metric in metrics[layer_name].values():
-        metric.update(concatenated_layers.shape[0], concatenated_layers)
-        
-metric_results = {}
-for layer_name, layer_metrics in metrics.items():
-    metric_results[layer_name] = {metric_name: metric.finalize(concatenated_layers.numel()).numpy()
-                                  for metric_name, metric in layer_metrics.items()}
-
-# Saving the metrics as a SafeTensor
-save_file(metric_results, 'nn_layer_metrics.st')
-
-# Inform the user
-print("Metrics have been saved as SafeTensors to 'nn_layer_metrics.st'.")
-
+if __name__ == "__main__":
+    main()

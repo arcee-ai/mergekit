@@ -211,9 +211,14 @@ def main(
     for identifier in feature_storage.keys():
         feature_storage[identifier] = torch.stack(feature_storage[identifier], dim=0)
 
-    # Save the features to disk
-    save_file(feature_storage,  f"features_{dump_type}.bin")
+    if "/" in model_path:
+        # Replace "/" with "_"
+        model_path = model_path.replace("/", "_")
 
+    # Save the features to disk
+    save_file(feature_storage,  f"{model_path}_features_{dump_type}.bin")
+
+    # TO DO: save the attention mask
 
 if __name__ == "__main__":
     main()
