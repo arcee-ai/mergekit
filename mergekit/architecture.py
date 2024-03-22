@@ -48,7 +48,7 @@ class WeightInfo(BaseModel, frozen=True):
             Indicates RoPE is applied after the weight.
         optional (bool):
             Indicates whether the weight can be omitted from a model.
-        aliases (Optional[List[str]]):
+        aliases (Optional[Tuple[str, ...]]):
             List of alternative names for the weight, if applicable.
     """
 
@@ -61,7 +61,7 @@ class WeightInfo(BaseModel, frozen=True):
     head_group: Optional[str] = None
     rope: bool = False
     optional: bool = False
-    aliases: Optional[List[str]] = None
+    aliases: Optional[Tuple[str, ...]] = None
 
 
 class ProceduralSpaceInfo(BaseModel, frozen=True):

@@ -1,5 +1,4 @@
-import pytest
-from transformers import AutoConfig, LlamaConfig
+from transformers import AutoConfig
 
 from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_info
 

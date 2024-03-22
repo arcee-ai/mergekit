@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 from torch._tensor import Tensor
@@ -53,13 +53,13 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
     dtype: Optional[str] = None
     device: Optional[str] = None
     optional: bool = False
-    aliases: Optional[List[str]] = None
+    aliases: Optional[Tuple[str, ...]] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {}
 
     def _resolve_name(self, loader: LazyTensorLoader) -> Optional[str]:
-        all_names = [self.tensor] + (self.aliases or [])
+        all_names = [self.tensor] + list(self.aliases or [])
         for name in all_names:
             if name in loader.index.tensor_paths:
                 return name
