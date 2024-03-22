@@ -13,23 +13,35 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-import logging
-from typing import DefaultDict, Dict, List, Optional, Set
+from typing import Optional
 
 import click
 import torch
 
-from mergekit.architecture import ProceduralSpaceInfo, WeightInfo, get_architecture_info
-from mergekit.common import ModelReference, dtype_from_name
-from mergekit.io.tasks import LoaderCache
-from mergekit.io.tensor_writer import TensorWriter
+from mergekit.common import ModelReference
 from mergekit.options import MergeOptions, add_merge_options
+from mergekit.permuter import ModelPermuter
 
 
 def rand_perm_mat(n: int) -> torch.Tensor:
     P = torch.zeros(n, n)
     for i, j in enumerate(torch.randperm(n)):
         P[i, j] = 1
+    return P
+
+
+def rand_rope_rotations(n_heads: int, head_dim: int) -> torch.Tensor:
+    theta = torch.randn(n_heads, head_dim // 2)
+    theta_p = torch.cat([theta, theta], dim=-1)
+    cos_theta = torch.cos(theta_p)
+    sin_theta = torch.sin(theta_p)
+
+    P = torch.zeros(n_heads, head_dim, head_dim)
+    idx = torch.arange(head_dim // 2)
+    P[:, idx, idx] = cos_theta[:, idx]
+    P[:, idx, head_dim // 2 + idx] = sin_theta[:, idx]
+    P[:, head_dim // 2 + idx, idx] = -sin_theta[:, idx]
+    P[:, head_dim // 2 + idx, head_dim // 2 + idx] = cos_theta[:, idx]
     return P
 
 
@@ -64,226 +76,87 @@ def main(
 ):
     chosen_space = space
     model = ModelReference.model_validate(model_path)
+    permuter = ModelPermuter(model=model, options=merge_options, dtype=dtype)
 
-    cache = LoaderCache()
-    cache.lazy_unpickle = merge_options.lazy_unpickle
-    cache.lora_cache_dir = merge_options.lora_merge_cache
-    cache.hf_cache_dir = merge_options.transformers_cache
-    cache.get(model)
+    num_heads = permuter.model_config.num_attention_heads
 
-    model_config = model.config(trust_remote_code=merge_options.trust_remote_code)
-    model_arch_info = get_architecture_info(
-        model.config(trust_remote_code=merge_options.trust_remote_code)
-    )
-    if not model_arch_info.has_defined_spaces():
-        raise RuntimeError(f"Model {model} does not have defined spaces - cannot align")
+    head_permutations = {}
+    for head_group in permuter.head_group_weights.keys():
+        P = torch.eye(num_heads, num_heads)
+        if chosen_space == f"head:{head_group}" or not chosen_space:
+            P = rand_perm_mat(num_heads)
+        head_permutations[head_group] = P
 
-    space_in_tensors = DefaultDict[str, List[WeightInfo]](list)
-    space_out_tensors = DefaultDict[str, List[WeightInfo]](list)
-    all_spaces = []
-    for weight_info in model_arch_info.all_weights(config=model_config):
-        if weight_info.input_space:
-            space_in_tensors[weight_info.input_space].append(weight_info)
-            if weight_info.input_space not in all_spaces:
-                all_spaces.append(weight_info.input_space)
-        else:
-            logging.warning(f"Weight {weight_info.name} has no input space")
-
-        if weight_info.output_space:
-            space_out_tensors[weight_info.output_space].append(weight_info)
-            if weight_info.output_space not in all_spaces:
-                all_spaces.append(weight_info.output_space)
-        elif not weight_info.is_vector:
-            logging.warning(f"Weight {weight_info.name} has no output space")
-
-    space_proc_refs: DefaultDict[str, List[ProceduralSpaceInfo]] = DefaultDict(list)
-    for ps in model_arch_info.procedural_spaces(config=model_config):
-        for s in ps.inputs:
-            space_proc_refs[s].append(ps)
-
-    transforms: Dict[str, torch.Tensor] = {}
-    transforms_inv: Dict[str, torch.Tensor] = {}
-
-    dtype = dtype_from_name(dtype) if dtype else None
-
-    for space in all_spaces:
-        if space not in space_out_tensors:
-            logging.warning(f"Space {space} has no output tensors")
-        if space not in space_in_tensors:
-            logging.warning(f"Space {space} has no input tensors")
-
-    hidden_size = model_config.hidden_size
-    num_attention_heads = model_config.num_attention_heads
-    head_dim = hidden_size // num_attention_heads
-
-    def _get_weight(
-        wi: WeightInfo,
-        model: ModelReference,
-        transform_in: bool = True,
-        transform_out: bool = True,
-        verbose: bool = False,
-        transpose_embed: bool = True,
-    ):
-        loader = cache.get(model)
-        if wi.name == "lm_head.weight" and wi.name not in loader.index.tensor_paths:
-            wi = WeightInfo(
-                name="model.embed_tokens.weight", **wi.model_dump(exclude=["name"])
-            )
-        tensor = loader.get_tensor(wi.name, device="cuda")
-        if dtype is not None:
-            tensor = tensor.to(dtype=dtype)
-
-        if verbose:
-            logging.warning(f"{wi.name}: {wi.input_space} -> {wi.output_space}")
-
-        if wi.is_vector:
-            if transform_in and wi.input_space:
-                tensor = transforms[wi.input_space] @ tensor
-        else:
-            if wi.is_embed:
-                # nn.Embedding stores the embedding matrix as (vocab_size, embed_dim)
-                # but we want to treat it as (embed_dim, vocab_size) for the purposes of
-                # the permutations
-                tensor = tensor.T
-
-            if wi.head_split and not permute_head_dims:
-                # split input or output into attention heads and then reorder to (head_dim, output_dim, input_dim)
-                if wi.head_split == "input":
-                    tensor = tensor.view(tensor.shape[0], -1, head_dim).permute(2, 0, 1)
-                    # (head_dim, output_dim, num_heads)
-                elif wi.head_split == "output":
-                    tensor = tensor.view(-1, head_dim, tensor.shape[-1]).permute(
-                        1, 0, 2
-                    )
-                    # (head_dim, num_heads, input_dim)
-
-            if transform_in and wi.input_space:
-                tensor = tensor @ transforms_inv[wi.input_space]
-
-            if transform_out:
-                if wi.output_space:
-                    tensor = transforms[wi.output_space] @ tensor
-
-            if transform_out and wi.head_split and not permute_head_dims:
-                if wi.head_split == "input":
-                    tensor = tensor.permute(1, 2, 0).reshape(tensor.shape[1], -1)
-                elif wi.head_split == "output":
-                    tensor = tensor.permute(1, 0, 2).reshape(-1, tensor.shape[-1])
-
-            if wi.is_embed and not transpose_embed:
-                # undo the transpose we did earlier
-                tensor = tensor.T
-        return tensor
-
-    def _space_tensors(
-        model: ModelReference,
-        space: str,
-        transform_in: bool = True,
-        transform_out: bool = True,
-        transpose_embed: bool = True,
-    ):
-        res: Dict[WeightInfo, torch.Tensor] = {}
-        for weight_info in space_out_tensors.get(space, []):
-            res[weight_info] = _get_weight(
-                weight_info,
-                model,
-                transform_in=transform_in,
-                transform_out=transform_out,
-                transpose_embed=transpose_embed,
-            )
-
-        tensors = []
-        for weight_info in sorted(res.keys(), key=lambda x: x.name):
-            tensor = res[weight_info]
-            if len(tensor.shape) > 2:
-                tensors.extend([t.squeeze(0) for t in tensor.split(1, dim=0)])
-            else:
-                tensors.append(tensor)
-        return tensors
-
-    for space in all_spaces:
-        tensors = _space_tensors(model, space, transform_in=False, transform_out=False)
-        if not tensors:
+    for space in permuter.all_spaces:
+        tensor_info = permuter.space_tensors(
+            model, space, transform_in=False, transform_out=False
+        )
+        if not tensor_info:
             # must be a residual space
             continue
+
+        tensors = []
+        head_group = None
+        rope = None
+        for weight_info in sorted(tensor_info.keys(), key=lambda x: x.name):
+            tensor = tensor_info[weight_info]
+            tensors.append(tensor)
+
+            if rope is None:
+                rope = weight_info.rope
+            if rope != weight_info.rope:
+                raise RuntimeError(
+                    f"Space {space} has tensors with different RoPE status"
+                )
+            if weight_info.head_group:
+                if head_group is not None and head_group != weight_info.head_group:
+                    raise RuntimeError(
+                        f"Space {space} has tensors from different head groups"
+                    )
+                head_group = weight_info.head_group
 
         out_dim = tensors[0].shape[0]
         if not all(t.shape[0] == out_dim for t in tensors):
             print([t.shape for t in tensors])
             raise RuntimeError(f"Space {space} has tensors of different sizes")
 
-        P = torch.eye(
-            out_dim, out_dim, device=tensors[0].device, dtype=tensors[0].dtype
-        )
-        if space == chosen_space or not chosen_space:
-            P = rand_perm_mat(out_dim).to(tensors[0].device, tensors[0].dtype)
-
-        transforms[space] = P
-        transforms_inv[space] = P.T
-
-    def _update_proc(
-        space: ProceduralSpaceInfo, touched: Optional[Set[ProceduralSpaceInfo]] = None
-    ):
-        if touched is None:
-            touched = set()
-
-        if space.type == "residual":
-            # as in Transformer Fusion with Optimal Transport, average the input transforms
-            tfs = [transforms.get(s, None) for s in space.inputs]
-            if not all(t is not None for t in tfs):
-                return
-            new_transform = sum(tfs) / max(len(tfs), 1)
-
-        elif space.type == "kronecker":
-            # kronecker product of input transforms
-            tfs = [transforms.get(s, None) for s in space.inputs]
-            if not all(t is not None for t in tfs):
-                return
-            new_transform = torch.kron(*tfs)
-
-        else:
-            raise RuntimeError(f"Unsupported procedural space type {space.type}")
-
-        if (space.name not in transforms) or not torch.allclose(
-            new_transform, transforms[space.name]
-        ):
-            logging.warning(
-                f"Updating procedural space {space.name} of type {space.type}"
+        if head_group:
+            P_head_dim = (
+                torch.eye(permuter.head_dim, permuter.head_dim)
+                .unsqueeze(0)
+                .repeat(num_heads, 1, 1)
             )
-            transforms[space.name] = new_transform
-            transforms_inv[space.name] = torch.linalg.pinv(
-                new_transform.float(), rtol=1e-5
-            ).to(new_transform.dtype)
-            if transforms_inv[space.name].isinf().any():
-                logging.warning(f"Space {space.name} has inf in pinverse")
-            if transforms_inv[space.name].isnan().any():
-                logging.warning(f"Space {space.name} has nan in pinverse")
-            for other in space_proc_refs[space.name]:
-                if other not in touched:
-                    touched.add(other)
-                    _update_proc(other, touched=touched)
+            if permute_head_dims:
+                if rope:
+                    P_head_dim = rand_rope_rotations(num_heads, permuter.head_dim)
+                else:
+                    for i in range(num_heads):
+                        P_head_dim[i] = rand_perm_mat(permuter.head_dim)
 
-    for ps in model_arch_info.procedural_spaces(config=model_config):
-        _update_proc(ps)
+            print(f"{space}: RoPE = {rope}, head_group = {head_group}")
+            P_heads = head_permutations[head_group]
+            P = torch.zeros(
+                out_dim, out_dim, device=tensors[0].device, dtype=tensors[0].dtype
+            )
+            for head_idx in range(num_heads):
+                new_head_idx = torch.argmax(P_heads[head_idx])
+                P[
+                    head_idx * permuter.head_dim : (head_idx + 1) * permuter.head_dim,
+                    new_head_idx
+                    * permuter.head_dim : (new_head_idx + 1)
+                    * permuter.head_dim,
+                ] = P_head_dim[head_idx]
+            print(f"{space}: {P.max(dim=-1).values}")
+        else:
+            P = torch.eye(
+                out_dim, out_dim, device=tensors[0].device, dtype=tensors[0].dtype
+            )
+            if space == chosen_space or not chosen_space:
+                P = rand_perm_mat(out_dim).to(tensors[0].device, tensors[0].dtype)
+        permuter.set_transform(space, P, P.t())
 
-    # write permuted model
-    writer = TensorWriter(
-        out_path=out_path,
-        max_shard_size=merge_options.out_shard_size,
-        safe_serialization=merge_options.safe_serialization,
-    )
-    for weight_info in model_arch_info.all_weights(config=model_config):
-        tensor = _get_weight(
-            weight_info,
-            model,
-            transform_in=True,
-            transform_out=True,
-            verbose=False,
-            transpose_embed=False,
-        ).cpu()
-        writer.save_tensor(weight_info.name, tensor, clone=merge_options.clone_tensors)
-    writer.finalize()
-    model_config.save_pretrained(out_path)
+    permuter.update_all_proc_spaces()
+    permuter.write_permuted_model(out_path)
 
 
 if __name__ == "__main__":

@@ -15,14 +15,13 @@
 
 import logging
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import tqdm
 import transformers
 
 from mergekit.architecture import ArchitectureInfo, get_architecture_info
 from mergekit.card import generate_card
-from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache

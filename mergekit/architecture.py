@@ -42,14 +42,14 @@ class WeightInfo(BaseModel, frozen=True):
             The name of the input space associated with the weight, if applicable.
         output_space (Optional[str]):
             The name of the output space associated with the weight, if applicable.
-        head_space (Optional[str]):
-            The name of the head space associated with the weight, if applicable.
+        head_group (Optional[str]):
+            The name of the group of heads associated with the weight, if applicable.
+        rope (bool):
+            Indicates RoPE is applied after the weight.
         optional (bool):
             Indicates whether the weight can be omitted from a model.
         aliases (Optional[List[str]]):
             List of alternative names for the weight, if applicable.
-        head_split (Optional[Literal[None, "input", "output"]]):
-            Indicates whether the input or output space is split across multiple heads.
     """
 
     name: str
@@ -58,10 +58,10 @@ class WeightInfo(BaseModel, frozen=True):
     is_vector: bool = False
     input_space: Optional[str] = None
     output_space: Optional[str] = None
-    head_space: Optional[str] = None
+    head_group: Optional[str] = None
+    rope: bool = False
     optional: bool = False
     aliases: Optional[List[str]] = None
-    head_split: Literal[None, "input", "output"] = None
 
 
 class ProceduralSpaceInfo(BaseModel, frozen=True):
@@ -72,7 +72,8 @@ class ProceduralSpaceInfo(BaseModel, frozen=True):
     Attributes:
         name (str): The name of the space defined.
         type (str): The type of procedural space.
-        inputs (Tuple[str, ...]): List of names of spaces used to define this space."""
+        inputs (Tuple[str, ...]): List of names of spaces used to define this space.
+    """
 
     name: str
     type: Literal["residual", "kv_expand"]
@@ -284,7 +285,7 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
             elif isinstance(obj_dict[key], list):
                 obj_dict[key] = [
                     (
-                        TemplateWithArithmetic(s).substitute(substitutions)
+                        _template_substitution(s, num_layers, layer_idx)
                         if isinstance(s, str)
                         else s
                     )
