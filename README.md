@@ -164,3 +164,15 @@ Parameters: same as [TIES](#ties) for `dare_ties`, or [Linear](#linear) for `dar
 ### Passthrough
 
 `passthrough` is a no-op that simply passes input tensors through unmodified. It is meant to be used for layer-stacking type merges where you have only one input model. Useful for frankenmerging.
+
+# Citation
+
+We now have a [paper](https://arxiv.org/abs/2403.13257) you can cite for the MergeKit library:
+
+```bibtex
+@article{goddard2024arcee,
+  title={Arcee's MergeKit: A Toolkit for Merging Large Language Models},
+  author={Goddard, Charles and Siriwardhana, Shamane and Ehghaghi, Malikeh and Meyers, Luke and Karpukhin, Vlad and Benedict, Brian and McQuade, Mark and Solawetz, Jacob},
+  journal={arXiv preprint arXiv:2403.13257},
+  year={2024}
+}
