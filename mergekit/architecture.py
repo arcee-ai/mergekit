@@ -284,7 +284,7 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
             elif isinstance(obj_dict[key], list):
                 obj_dict[key] = [
                     (
-                        TemplateWithArithmetic(s).substitute(substitutions)
+                        _template_substitution(s, num_layers, layer_idx)
                         if isinstance(s, str)
                         else s
                     )

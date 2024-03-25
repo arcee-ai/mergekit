@@ -92,7 +92,7 @@
                 "type": "residual",
                 "inputs": [
                     "post_mlp_${layer_index}",
-                    "h_${layer_index}"
+                    "post_attn_${layer_index}"
                 ]
             }
         ]
