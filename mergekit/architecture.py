@@ -275,6 +275,10 @@ class MixtralTensorNames(ArchitectureInfo, BaseModel):
         res = []
         for name in tensor_names:
             res.append(WeightInfo(name=name))
+        for weight_info in MISTRAL_INFO.layer_weights(index, config):
+            if ".mlp." in weight_info.name:
+                continue
+            res.append(weight_info)
         return res
 
     def sliceable(self) -> bool:
