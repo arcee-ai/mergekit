@@ -7,11 +7,11 @@
         {
             "name": "wte.weight",
             "is_embed": true,
-            "output_space": "h_0"
+            "output_space": "running_residual"
         },
         {
             "name": "wpe.weight",
-            "output_space": "h_0"
+            "output_space": "running_residual"
         }
     ],
     "post_weights": [
@@ -27,15 +27,15 @@
         "weights": [
             {
                 "name": "h.${layer_index}.ln_1.weight",
-                "input_space": "h_${layer_index}"
+                "input_space": "running_residual"
             },
             {
                 "name": "h.${layer_index}.ln_1.bias",
-                "input_space": "h_${layer_index}"
+                "input_space": "running_residual"
             },
             {
                 "name": "h.${layer_index}.attn.c_attn.weight",
-                "input_space": "h_${layer_index}",
+                "input_space": "running_residual",
                 "output_space": "qkv_${layer_index}"
             },
             {
@@ -53,15 +53,15 @@
             },
             {
                 "name": "h.${layer_index}.ln_2.weight",
-                "input_space": "post_attn_${layer_index}"
+                "input_space": "running_residual"
             },
             {
                 "name": "h.${layer_index}.ln_2.bias",
-                "input_space": "post_attn_${layer_index}"
+                "input_space": "running_residual"
             },
             {
                 "name": "h.${layer_index}.mlp.c_fc.weight",
-                "input_space": "post_attn_${layer_index}",
+                "input_space": "running_residual",
                 "output_space": "mlp_${layer_index}"
             },
             {
@@ -71,29 +71,11 @@
             {
                 "name": "h.${layer_index}.mlp.c_proj.weight",
                 "input_space": "mlp_${layer_index}",
-                "output_space": "post_mlp_${layer_index}"
+                "output_space": "running_residual"
             },
             {
                 "name": "h.${layer_index}.mlp.c_proj.bias",
-                "input_space": "post_mlp_${layer_index}"
-            }
-        ],
-        "procedural_spaces": [
-            {
-                "name": "post_attn_${layer_index}",
-                "type": "residual",
-                "inputs": [
-                    "h_${layer_index}",
-                    "attn_out_${layer_index}"
-                ]
-            },
-            {
-                "name": "h_${layer_index+1}",
-                "type": "residual",
-                "inputs": [
-                    "post_mlp_${layer_index}",
-                    "h_${layer_index}"
-                ]
+                "input_space": "running_residual"
             }
         ]
     }

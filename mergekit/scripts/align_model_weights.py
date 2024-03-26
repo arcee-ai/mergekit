@@ -41,17 +41,26 @@ def split_heads(
     return res
 
 
-def estimate_theta(x_0: torch.Tensor, x_1: torch.Tensor, head_dim: int) -> torch.Tensor:
-    # x_0, x_1 shape: (..., n_heads, seq_len, head_dim)
-    q_0_c = torch.complex(x_0[..., : head_dim // 2], x_0[..., head_dim // 2 :])
-    q_1_c = torch.complex(x_1[..., : head_dim // 2], x_1[..., head_dim // 2 :])
-    ratio = q_1_c / q_0_c
+def estimate_theta(x_0: torch.Tensor, x_1: torch.Tensor, num_heads: int, head_dim: int):
+    if len(x_0.shape) == 2:
+        x_0 = x_0.unsqueeze(0)
+        x_1 = x_1.unsqueeze(0)
 
-    # average over sequence length
-    ratio = ratio.mean(dim=-2)
+    num_samples = x_0.shape[0]
 
-    theta_approx = torch.angle(ratio)
-    return theta_approx
+    theta_est = torch.zeros(
+        num_samples, num_heads, head_dim // 2, device=x_0.device, dtype=x_0.dtype
+    )
+    for i in range(num_heads):
+        q_0_block = x_0[:, i * head_dim : (i + 1) * head_dim, :]
+        q_1_block = x_1[:, i * head_dim : (i + 1) * head_dim, :]
+
+        for j in range(head_dim // 2):
+            theta_est[:, i, j] = torch.atan2(
+                q_0_block[:, head_dim // 2 + j, j], q_0_block[:, j, j]
+            ) - torch.atan2(q_1_block[:, head_dim // 2 + j, j], q_1_block[:, j, j])
+
+    return theta_est.mean(dim=0)
 
 
 def theta_to_matrix(theta: torch.Tensor, head_dim: int) -> torch.Tensor:
@@ -68,6 +77,26 @@ def theta_to_matrix(theta: torch.Tensor, head_dim: int) -> torch.Tensor:
     P[:, idx, head_dim // 2 + idx] = sin_theta[:, idx]
     P[:, head_dim // 2 + idx, idx] = -sin_theta[:, idx]
     P[:, head_dim // 2 + idx, head_dim // 2 + idx] = cos_theta[:, idx]
+
+    return P
+
+
+def head_permutation_matrix(
+    P_heads: torch.Tensor, P_head_dim: torch.Tensor, head_dim: int, num_heads: int
+) -> torch.Tensor:
+    P = torch.zeros(
+        head_dim * num_heads,
+        head_dim * num_heads,
+        device=P_heads.device,
+        dtype=P_heads.dtype,
+    )
+    for head_idx in range(num_heads):
+        new_head_idx = torch.argmax(P_heads[head_idx])
+        P[
+            head_idx * head_dim : (head_idx + 1) * head_dim,
+            new_head_idx * head_dim : (new_head_idx + 1) * head_dim,
+        ] = P_head_dim[head_idx]
+
     return P
 
 
@@ -116,6 +145,7 @@ def main(
         permuter.loader_cache.get(m)
 
     head_permutations = {}
+    inner_permutations = {}
 
     def align_tensors(
         space: str, in_tensors: List[torch.Tensor], target_tensors: List[torch.Tensor]
@@ -173,9 +203,9 @@ def main(
 
         return model_to_base
 
-    all_space_names = permuter.all_spaces + [
+    all_space_names = [
         f"head:{group}" for group in permuter.head_group_weights.keys()
-    ]
+    ] + permuter.all_spaces
     for iter_idx in tqdm.tqdm(range(iters), desc="Iterating"):
         change_count = 0
         perm = (
@@ -219,12 +249,24 @@ def main(
             assert len(in_tensors) == len(target_tensors)
 
             if is_head_group:
+                # find best permutation of heads given the current inner dimension permutation
+                P_head_dim = inner_permutations.get(space, None)
+                if P_head_dim is not None:
+                    num_heads = in_tensors[0].shape[0] // permuter.head_dim
+                    M = head_permutation_matrix(
+                        P_heads=torch.eye(num_heads, device=in_tensors[0].device),
+                        P_head_dim=P_head_dim,
+                        head_dim=permuter.head_dim,
+                        num_heads=num_heads,
+                    )
+                    in_tensors = [M @ x for x in in_tensors]
+
                 in_heads = split_heads(in_tensors, permuter.head_dim, heads_first=False)
                 target_heads = split_heads(
                     target_tensors, permuter.head_dim, heads_first=False
                 )
-
                 P_heads = align_tensors(space, in_heads, target_heads)
+
                 old_transform = head_permutations.get(space, None)
                 head_permutations[space] = P_heads
 
@@ -250,68 +292,78 @@ def main(
                     )
 
             if head_group:
+                # find best permutation of inner dimensions given the current head permutation
                 num_heads = in_tensors[0].shape[0] // permuter.head_dim
                 P_heads = head_permutations.get(f"head:{head_group}", None)
                 if P_heads is None:
                     P_heads = torch.eye(num_heads, device=in_tensors[0].device)
 
-                expanded = torch.kron(
-                    torch.eye(permuter.head_dim, device=in_tensors[0].device),
-                    P_heads,
+                P_x_heads = head_permutation_matrix(
+                    P_heads=P_heads,
+                    P_head_dim=torch.eye(
+                        permuter.head_dim,
+                        permuter.head_dim,
+                        device=in_tensors[0].device,
+                        dtype=in_tensors[0].dtype,
+                    )
+                    .unsqueeze(0)
+                    .repeat(num_heads, 1, 1),
+                    head_dim=permuter.head_dim,
+                    num_heads=num_heads,
                 )
 
-                x_in = (
-                    torch.stack(
-                        [
-                            (expanded @ x).view(-1, permuter.head_dim, x.shape[-1])
-                            for x in in_tensors
-                        ],
+                if rope:
+                    # using RoPE, need to find rotation instead of permutation
+                    x_in = torch.stack(
+                        [(P_x_heads @ x) for x in in_tensors],
                         dim=0,
                     )
-                    .permute(1, 0, 3, 2)
-                    .reshape(num_heads, -1, permuter.head_dim)
-                )
-                x_target = (
-                    torch.stack(
-                        [
-                            x.view(-1, permuter.head_dim, x.shape[-1])
-                            for x in target_tensors
-                        ],
+                    x_target = torch.stack(
+                        [x for x in target_tensors],
                         dim=0,
                     )
-                    .permute(1, 0, 3, 2)
-                    .reshape(num_heads, -1, permuter.head_dim)
-                )
-                theta = estimate_theta(
-                    x_in,
-                    x_target,
-                    permuter.head_dim,
-                )
-                P_head_dim = theta_to_matrix(-theta, permuter.head_dim)
+                    theta = estimate_theta(
+                        x_0=x_target,
+                        x_1=x_in,
+                        num_heads=num_heads,
+                        head_dim=permuter.head_dim,
+                    )
+                    P_head_dim = theta_to_matrix(-theta, permuter.head_dim)
+                else:
+                    # no RoPE, just find permutation
+                    P_head_dim = torch.zeros(
+                        num_heads,
+                        permuter.head_dim,
+                        permuter.head_dim,
+                        device=in_tensors[0].device,
+                        dtype=in_tensors[0].dtype,
+                    )
+                    in_feats = split_heads(
+                        [(P_x_heads @ x) for x in in_tensors],
+                        permuter.head_dim,
+                        heads_first=True,
+                    )
+                    target_feats = split_heads(
+                        target_tensors, permuter.head_dim, heads_first=True
+                    )
+                    for i, (x_in, x_target) in enumerate(zip(in_feats, target_feats)):
+                        P_head_dim[i] = align_tensors(
+                            f"{space}_head_{i}", [x_in], [x_target]
+                        )
 
-                out_dim = in_tensors[0].shape[0]
-                P = torch.zeros(
-                    out_dim,
-                    out_dim,
-                    device=in_tensors[0].device,
-                    dtype=in_tensors[0].dtype,
+                inner_permutations[space] = P_head_dim
+
+                model_to_base = head_permutation_matrix(
+                    P_heads=P_heads,
+                    P_head_dim=P_head_dim,
+                    head_dim=permuter.head_dim,
+                    num_heads=num_heads,
                 )
-                for head_idx in range(num_heads):
-                    new_head_idx = torch.argmax(P_heads[head_idx])
-                    P[
-                        head_idx
-                        * permuter.head_dim : (head_idx + 1)
-                        * permuter.head_dim,
-                        new_head_idx
-                        * permuter.head_dim : (new_head_idx + 1)
-                        * permuter.head_dim,
-                    ] = P_head_dim[head_idx]
-                model_to_base = P
             else:
                 model_to_base = align_tensors(space, in_tensors, target_tensors)
 
             old_transform = permuter.transforms.get(space, None)
-            base_to_model = None if sinkhorn else model_to_base.T
+            base_to_model = None if (sinkhorn or rope) else model_to_base.T
             permuter.set_transform(space, model_to_base, inverse=base_to_model)
 
             if old_transform is None or not torch.allclose(
