@@ -216,7 +216,7 @@ def main(
         for space in tqdm.tqdm(
             perm,
             leave=False,
-            total=len(permuter.all_spaces),
+            total=len(all_space_names),
             desc="Aligning spaces",
         ):
             is_head_group = space.startswith("head:")
