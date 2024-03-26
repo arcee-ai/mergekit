@@ -23,6 +23,11 @@ from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.slerp import SlerpMerge
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
+from mergekit.merge_methods.generalized_anysize import (
+    ConsensusMethod,
+    GeneralizedAnySizeMerge,
+    SparsificationMethod,
+)
 
 
 def get(method: str) -> MergeMethod:
@@ -32,6 +37,12 @@ def get(method: str) -> MergeMethod:
         return SlerpMerge()
     elif method == "passthrough":
         return PassthroughMerge()
+    elif method == "task_anysize":
+        return GeneralizedAnySizeMerge(
+            consensus_method=None,
+            sparsification_method=None,
+            default_normalize=False,
+        )
     elif method == "task_arithmetic":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=None,
@@ -65,6 +76,7 @@ __all__ = [
     "LinearMerge",
     "SlerpMerge",
     "PassthroughMerge",
+    "GeneralizedAnySizeMerge", 
     "GeneralizedTaskArithmeticMerge",
     "TokenizerPermutationMerge",
 ]
