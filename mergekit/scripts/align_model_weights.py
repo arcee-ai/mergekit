@@ -60,7 +60,14 @@ def estimate_theta(x_0: torch.Tensor, x_1: torch.Tensor, num_heads: int, head_di
                 q_0_block[:, head_dim // 2 + j, j], q_0_block[:, j, j]
             ) - torch.atan2(q_1_block[:, head_dim // 2 + j, j], q_1_block[:, j, j])
 
-    return theta_est.mean(dim=0)
+    # can't directly average theta as it wraps around
+    # instead, average sin and cos separately and then recombine
+    cos_theta = torch.cos(theta_est)
+    sin_theta = torch.sin(theta_est)
+    cos_theta_avg = cos_theta.mean(dim=0)
+    sin_theta_avg = sin_theta.mean(dim=0)
+    theta_avg = torch.atan2(sin_theta_avg, cos_theta_avg)
+    return theta_avg
 
 
 def theta_to_matrix(theta: torch.Tensor, head_dim: int) -> torch.Tensor:
@@ -202,7 +209,6 @@ def main(
             ri, ci = linear_sum_assignment(cost_mat.cpu().numpy(), maximize=True)
             model_to_base = torch.zeros_like(cost_mat, dtype=target_tensors[0].dtype)
             model_to_base[(ri, ci)] = 1
-
         return model_to_base
 
     all_space_names = [
