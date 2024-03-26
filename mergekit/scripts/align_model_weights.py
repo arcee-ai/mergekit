@@ -169,7 +169,7 @@ def main(
         if sinkhorn:
             honk_in = torch.cat(in_tensors, dim=1)
             honk_target = torch.cat(target_tensors, dim=1)
-            cost_mat = ot.dist(honk_in, honk_target, metric="sqeuclidean")
+            cost_mat = ot.dist(honk_in.cuda(), honk_target.cuda(), metric="sqeuclidean")
 
             mass = (
                 torch.ones(out_dim, device=cost_mat.device, dtype=cost_mat.dtype)
@@ -193,9 +193,11 @@ def main(
         else:
             cost_mat = torch.zeros(
                 out_dim, out_dim, device=target_tensors[0].device, dtype=work_dtype
-            )
+            ).cuda()
             for x_target, x_model in zip(target_tensors, in_tensors):
-                cost_mat += x_target.to(work_dtype) @ x_model.T.to(work_dtype)
+                cost_mat += (
+                    x_target.to(work_dtype).cuda() @ x_model.T.to(work_dtype).cuda()
+                )
 
             ri, ci = linear_sum_assignment(cost_mat.cpu().numpy(), maximize=True)
             model_to_base = torch.zeros_like(cost_mat, dtype=target_tensors[0].dtype)
@@ -258,8 +260,8 @@ def main(
                         P_head_dim=P_head_dim,
                         head_dim=permuter.head_dim,
                         num_heads=num_heads,
-                    )
-                    in_tensors = [M @ x for x in in_tensors]
+                    ).cuda()
+                    in_tensors = [M @ x.cuda() for x in in_tensors]
 
                 in_heads = split_heads(in_tensors, permuter.head_dim, heads_first=False)
                 target_heads = split_heads(
@@ -310,16 +312,16 @@ def main(
                     .repeat(num_heads, 1, 1),
                     head_dim=permuter.head_dim,
                     num_heads=num_heads,
-                )
+                ).cuda()
 
                 if rope:
                     # using RoPE, need to find rotation instead of permutation
                     x_in = torch.stack(
-                        [(P_x_heads @ x) for x in in_tensors],
+                        [(P_x_heads @ x.cuda()) for x in in_tensors],
                         dim=0,
                     )
                     x_target = torch.stack(
-                        [x for x in target_tensors],
+                        [x.cuda() for x in target_tensors],
                         dim=0,
                     )
                     theta = estimate_theta(
@@ -337,9 +339,9 @@ def main(
                         permuter.head_dim,
                         device=in_tensors[0].device,
                         dtype=in_tensors[0].dtype,
-                    )
+                    ).cuda()
                     in_feats = split_heads(
-                        [(P_x_heads @ x) for x in in_tensors],
+                        [(P_x_heads @ x.cuda()) for x in in_tensors],
                         permuter.head_dim,
                         heads_first=True,
                     )
@@ -348,7 +350,7 @@ def main(
                     )
                     for i, (x_in, x_target) in enumerate(zip(in_feats, target_feats)):
                         P_head_dim[i] = align_tensors(
-                            f"{space}_head_{i}", [x_in], [x_target]
+                            f"{space}_head_{i}", [x_in], [x_target.cuda()]
                         )
 
                 inner_permutations[space] = P_head_dim
@@ -375,8 +377,7 @@ def main(
                         model_to_base.shape[0],
                         model_to_base.shape[1],
                         device=model_to_base.device,
-                        dtype=model_to_base.dtype,
-                    ),
+                    ).to(model_to_base.dtype),
                 ):
                     change_count += 1
                 for proc in permuter.space_proc_refs[space]:
