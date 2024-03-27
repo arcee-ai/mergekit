@@ -133,7 +133,6 @@ def main(
                     for i in range(num_heads):
                         P_head_dim[i] = rand_perm_mat(permuter.head_dim)
 
-            print(f"{space}: RoPE = {rope}, head_group = {head_group}")
             P_heads = head_permutations[head_group]
             P = torch.zeros(
                 out_dim, out_dim, device=tensors[0].device, dtype=tensors[0].dtype
@@ -146,7 +145,6 @@ def main(
                     * permuter.head_dim : (new_head_idx + 1)
                     * permuter.head_dim,
                 ] = P_head_dim[head_idx]
-            print(f"{space}: {P.max(dim=-1).values}")
         else:
             P = torch.eye(
                 out_dim, out_dim, device=tensors[0].device, dtype=tensors[0].dtype
