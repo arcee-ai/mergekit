@@ -107,7 +107,7 @@ def head_permutation_matrix(
     return P
 
 
-@click.command("mergekit-align-model")
+@click.command("mergekit-rebasin")
 @click.argument("model_path", type=str)
 @click.option(
     "--target", "-t", required=True, type=str, help="Target model to align weights to"
@@ -133,6 +133,13 @@ def head_permutation_matrix(
     default=None,
     help="Data type to convert weights to",
 )
+@click.option(
+    "--hard-permutation-init/--no-hard-permutation-init",
+    "-H",
+    is_flag=True,
+    default=False,
+    help="Convert transport maps to permutation matrices at the start of each iteration",
+)
 @add_merge_options
 def main(
     model_path: str,
@@ -142,6 +149,7 @@ def main(
     sinkhorn: bool,
     sinkhorn_reg: float,
     dtype: Optional[str],
+    hard_permutation_init: bool,
     merge_options: MergeOptions,
 ):
     model = ModelReference.model_validate(model_path)
@@ -236,7 +244,11 @@ def main(
                 continue
 
             in_tensors = permuter.space_tensors(
-                model, space, transform_in=True, transform_out=False
+                model,
+                space,
+                transform_in=True,
+                transform_out=False,
+                hard_perm=hard_permutation_init,
             )
             if not in_tensors:
                 continue
@@ -372,6 +384,7 @@ def main(
 
             old_transform = permuter.transforms.get(space, None)
             base_to_model = None if (sinkhorn or rope) else model_to_base.T
+            # for sinkhorn or RoPE, let permuter compute a pseudo-inverse
             permuter.set_transform(space, model_to_base, inverse=base_to_model)
 
             if old_transform is None or not torch.allclose(

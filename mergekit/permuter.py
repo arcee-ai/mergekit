@@ -32,6 +32,28 @@ from mergekit.io.tasks import LoaderCache
 from mergekit.options import MergeOptions
 
 
+def tm_to_perm(tm: torch.Tensor):
+    """
+    Convert a 2D float tensor representing a soft transport map to a best-effort permutation matrix.
+
+    Args:
+        res (torch.Tensor): A 2D float tensor with values between 0 and 1.
+    """
+    masked = tm.clone()
+    permutation_matrix = torch.zeros_like(tm)
+
+    for _ in range(min(tm.shape[0], tm.shape[1])):
+        max_val = torch.max(masked).item()
+        max_ind = (masked == max_val).nonzero(as_tuple=True)
+        max_row, max_col = max_ind[0][0].item(), max_ind[1][0].item()
+
+        permutation_matrix[max_row, max_col] = 1
+        masked[max_row, :] = -1e9
+        masked[:, max_col] = -1e9
+
+    return permutation_matrix
+
+
 class ModelPermuter:
     model: ModelReference
     transforms: Dict[str, torch.Tensor]
@@ -140,10 +162,7 @@ class ModelPermuter:
 
         res = tfs[space]
         if hard:
-            # convert soft transport map to permutation matrix
-            max_indices = res.argmax(dim=1)
-            res = torch.zeros_like(res)
-            res[torch.arange(res.shape[0]), max_indices] = 1
+            res = tm_to_perm(res)
 
         return res
 
