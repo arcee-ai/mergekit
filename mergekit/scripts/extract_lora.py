@@ -109,7 +109,8 @@ def create_peft_config(base_model_name_or_path, rank, alpha, target_modules):
 @click.option("--base-model", type=str, help="Model ID or path to use as base model")
 @click.option("--finetuned-model", type=str, help="Model ID or path to use as PEFT extraction target model")
 @click.option("--rank", type=int, default=32, help="Rank for the low-rank decomposition")
-def main(out_path: str, base_model: str, finetuned_model: str, rank: int):
+@click.option("--device", type=str, default=None, help="PyTorch device to perform SVD computation on")
+def main(out_path: str, base_model: str, finetuned_model: str, rank: int, device: str):
     """
     Decomposes delta weights between a base model and a finetuned model and saves a PEFT model.
     """
@@ -133,7 +134,7 @@ def main(out_path: str, base_model: str, finetuned_model: str, rank: int):
         base_weight = base_loader.get_tensor(f"{layer_name}.weight")
         finetuned_weight = finetuned_loader.get_tensor(f"{layer_name}.weight")
         
-        lora_A, lora_B = decompose_delta_weight(finetuned_weight, base_weight, rank, device='cpu')
+        lora_A, lora_B = decompose_delta_weight(finetuned_weight, base_weight, rank, device=device)
         
         lora_weights[f"base_model.model.{layer_name}.lora_A.weight"] = lora_A.to('cpu').contiguous()
         lora_weights[f"base_model.model.{layer_name}.lora_B.weight"] = lora_B.to('cpu').contiguous()
