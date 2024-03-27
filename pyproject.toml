@@ -40,6 +40,7 @@ mergekit-legacy = "mergekit.scripts.legacy:main"
 mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
 bakllama = "mergekit.scripts.bakllama:main"
 mergekit-moe = "mergekit.scripts.mixtral_moe:main"
+mergekit-extract-lora = "mergekit.scripts.extract_lora:main"
 
 [tool.setuptools]
 packages = [

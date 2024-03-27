@@ -165,6 +165,16 @@ Parameters: same as [TIES](#ties) for `dare_ties`, or [Linear](#linear) for `dar
 
 `passthrough` is a no-op that simply passes input tensors through unmodified. It is meant to be used for layer-stacking type merges where you have only one input model. Useful for frankenmerging.
 
+## LoRA extraction
+
+Mergekit allows extracting PEFT-compatible low-rank approximations of finetuned models.
+
+### Usage:
+
+```sh
+mergekit-extract-lora extracted_peft_model_output_path --base-model=your_base_model --finetuned-model=finetuned_model_to_extract_lora_from --rank=desired_rank
+```
+
 # Citation
 
 We now have a [paper](https://arxiv.org/abs/2403.13257) you can cite for the MergeKit library:
