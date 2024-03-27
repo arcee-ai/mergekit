@@ -19,6 +19,11 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
     GeneralizedTaskArithmeticMerge,
     SparsificationMethod,
 )
+from mergekit.merge_methods.generalized_swapping_values import (
+    ConsensusMethod,
+    GeneralizedSwappingValues,
+    SparsificationMethod,
+)
 from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.slerp import SlerpMerge
@@ -36,6 +41,24 @@ def get(method: str) -> MergeMethod:
         return GeneralizedTaskArithmeticMerge(
             consensus_method=None,
             sparsification_method=None,
+            default_normalize=False,
+        )
+    elif method == "task_swapping":
+        return GeneralizedSwappingValues(
+            consensus_method=None,
+            sparsification_method=None,
+            default_normalize=False,
+        )
+    elif method == "task_swapping_ties":
+        return GeneralizedSwappingValues(
+            consensus_method=ConsensusMethod.sum,
+            sparsification_method=SparsificationMethod.magnitude,
+            default_normalize=True,
+        )
+    elif method == "task_swapping_dare_ties":
+        return GeneralizedSwappingValues(
+            consensus_method=ConsensusMethod.sum,
+            sparsification_method=SparsificationMethod.rescaled_random,
             default_normalize=False,
         )
     elif method == "ties":
@@ -66,5 +89,6 @@ __all__ = [
     "SlerpMerge",
     "PassthroughMerge",
     "GeneralizedTaskArithmeticMerge",
+    "GeneralizedSwappingValues", 
     "TokenizerPermutationMerge",
 ]
