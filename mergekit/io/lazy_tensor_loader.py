@@ -121,7 +121,15 @@ class LazyTensorLoader:
         self.current_shard = None
         self.lazy_unpickle = lazy_unpickle
 
-    def get_tensor(self, key: str, device: str = "cpu") -> Optional[Tensor]:
+    def get_tensor(
+        self, key: str, device: str = "cpu", aliases: Optional[List[str]] = None
+    ) -> Optional[Tensor]:
+        if aliases and key not in self.index.tensor_paths:
+            for alias in aliases:
+                if alias in self.index.tensor_paths:
+                    key = alias
+                    break
+
         if self.current_shard is None or key not in self.current_shard.keys():
             if key not in self.index.tensor_paths:
                 raise KeyError(key)
