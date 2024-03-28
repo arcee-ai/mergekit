@@ -41,6 +41,9 @@ def tm_to_perm(tm: torch.Tensor):
     """
     masked = tm.clone()
     permutation_matrix = torch.zeros_like(tm)
+    mask_value = -1e9
+    if tm.dtype == torch.float16:
+        mask_value = -1e4
 
     for _ in range(min(tm.shape[0], tm.shape[1])):
         max_val = torch.max(masked).item()
@@ -48,8 +51,8 @@ def tm_to_perm(tm: torch.Tensor):
         max_row, max_col = max_ind[0][0].item(), max_ind[1][0].item()
 
         permutation_matrix[max_row, max_col] = 1
-        masked[max_row, :] = -1e9
-        masked[:, max_col] = -1e9
+        masked[max_row, :] = mask_value
+        masked[:, max_col] = mask_value
 
     return permutation_matrix
 
