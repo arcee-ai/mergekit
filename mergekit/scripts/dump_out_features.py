@@ -23,7 +23,7 @@ import numpy as np
 import torch
 from safetensors.torch import save_file
 from torch.utils.data import DataLoader
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import  AutoModel, AutoTokenizer
 
 from mergekit.architecture import ProceduralSpaceInfo, WeightInfo, get_architecture_info
 from mergekit.common import ModelReference, dtype_from_name
@@ -112,11 +112,11 @@ def main(
     if dump_type == "activation" and hook_modules is None:
         raise ValueError("hook-layers must be specified for activation dump type")
 
-    model = ModelReference.model_validate(model_path)
+    _ = ModelReference.model_validate(model_path)
 
     dataset = datasets.load_dataset(dataset)[dataset_subset]
 
-    model_config = AutoConfig.from_pretrained(model_path)
+    model = AutoModel.from_pretrained(model_path, output_attentions=True)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
 
     if not tokenizer.pad_token:
@@ -179,8 +179,10 @@ def main(
             )
             inputs = {k: v.to(device) for k, v in inputs.items()}
 
-            outputs = model(**inputs,  output_hidden_states=(dump_type =='hidden-state'))
-
+            # outputs = model(**inputs,  output_hidden_states=(dump_type =='hidden-state'))
+            outputs = model(inputs["input_ids"], attention_mask=inputs["attention_mask"], output_hidden_states=(dump_type =='hidden-state'), 
+                            output_attentions=(dump_type =='hidden-state'))
+   
             if features:  # Activations were requested
                 for name, feature in features.items():
                     identifier = f"{name}_activation"
@@ -193,15 +195,23 @@ def main(
                     for single_feature_data in feature_data.cpu().detach():
                         feature_storage[identifier].append(single_feature_data)
 
+            # Process hidden states and attention outputs if requested
             if dump_type == 'hidden-state':
                 hidden_states = outputs.hidden_states
+                attention_states = outputs.attentions
+
                 for i, hidden_state in enumerate(hidden_states):
-                    identifier = f"layer_{i}_hidden_state"
-                    if identifier not in feature_storage:
-                        feature_storage[identifier] = []
-                    # Split the tensor along the batch dimension and extend the list
-                    for single_hidden_state in hidden_state.cpu().detach():
-                        feature_storage[identifier].append(single_hidden_state)
+                    identifier_hs = f"layer_{i}_hidden_state"
+                    if identifier_hs not in feature_storage:
+                        feature_storage[identifier_hs] = []
+                    feature_storage[identifier_hs].extend(hidden_state.cpu().detach().numpy())
+
+                for i, attention_state in enumerate(attention_states):
+                    identifier_attn = f"layer_{i}_attention"
+                    if identifier_attn not in feature_storage:
+                        feature_storage[identifier_attn] = []
+                    feature_storage[identifier_attn].extend(attention_state.cpu().detach().numpy())
+
     
     # After processing the entire dataset, remove the hooks
     for hook in hooks:
@@ -224,4 +234,4 @@ if __name__ == "__main__":
     main()
 
 
-# python dump_out_activations.py  gpt2 -o dump_output --dump-type activation -d arcee-ai/pmc-test-perplexity  -s 8  -c text  -u test  --device cpu --hook-modules mlp.act,attn.c_proj
+# python dump_out_activations.py  TinyLlama/TinyLlama-1.1B-Chat-v1.0 -o dump_output --dump-type activation -d arcee-ai/pmc-test-perplexity  -s 8  -c text  -u test  --device cpu --hook-modules mlp.act,attn.c_proj
