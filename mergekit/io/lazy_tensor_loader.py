@@ -141,3 +141,9 @@ class LazyTensorLoader:
     def flush(self):
         self.current_shard = None
         self.current_keys = None
+
+    @classmethod
+    def from_disk(
+        cls, base_path: str, lazy_unpickle: bool = True
+    ) -> "LazyTensorLoader":
+        return LazyTensorLoader(ShardedTensorIndex.from_disk(base_path), lazy_unpickle)

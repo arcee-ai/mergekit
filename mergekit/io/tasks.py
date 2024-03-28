@@ -9,6 +9,7 @@ from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
 from mergekit.graph import Task
 from mergekit.io.lazy_tensor_loader import LazyTensorLoader
 from mergekit.io.tensor_writer import TensorWriter
+from mergekit.options import MergeOptions
 
 
 class LoaderCache:
@@ -31,15 +32,18 @@ class LoaderCache:
             merged = model.merged(
                 cache_dir=self.lora_cache_dir, trust_remote_code=self.trust_remote_code
             )
-            self.loaders[model] = LazyTensorLoader(
-                merged.tensor_index(cache_dir=self.hf_cache_dir),
-                lazy_unpickle=self.lazy_unpickle,
-            )
+            self.loaders[model] = merged.lazy_loader(cache_dir=self.hf_cache_dir)
         return self.loaders[model]
 
     def flush_all(self):
         for loader in self.loaders.values():
             loader.flush()
+
+    def setup(self, options: MergeOptions):
+        self.lora_cache_dir = options.lora_merge_cache
+        self.hf_cache_dir = options.transformers_cache
+        self.lazy_unpickle = options.lazy_unpickle
+        self.trust_remote_code = options.trust_remote_code
 
 
 def _normalized_shard_name(path: str) -> int:

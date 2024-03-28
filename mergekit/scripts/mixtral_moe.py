@@ -141,9 +141,9 @@ def get_gate_params(
             (model_cfg.num_hidden_layers, len(experts), model_cfg.hidden_size)
         )
     elif mode == "cheap_embed":
-        embed = LazyTensorLoader(
-            model_ref.tensor_index(), lazy_unpickle=lazy_unpickle
-        ).get_tensor("model.embed_tokens.weight")
+        embed = model_ref.lazy_loader(lazy_unpickle=lazy_unpickle).get_tensor(
+            "model.embed_tokens.weight"
+        )
 
         def _do_it(tokenized):
             return get_cheap_embedding(
@@ -299,8 +299,8 @@ def build(
     for model in tqdm.tqdm(
         [base_model] + [e.model_ref for e in config.experts], desc="Warm up loaders"
     ):
-        loaders[model] = LazyTensorLoader(
-            model.tensor_index(cache_dir=merge_options.transformers_cache),
+        loaders[model] = model.lazy_loader(
+            cache_dir=merge_options.transformers_cache,
             lazy_unpickle=merge_options.lazy_unpickle,
         )
 
