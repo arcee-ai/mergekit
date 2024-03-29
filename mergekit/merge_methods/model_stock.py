@@ -51,11 +51,10 @@ class ModelStockMergeTask(Task[torch.Tensor]):
 
         rectify_embed_sizes(self.parameter_name, [w_0] + ws)
 
-        is_vector = w_0.dim() == 1
         out_shape = w_0.shape
 
         if self.filter_wise:
-            if is_vector:
+            if w_0.dim() == 1:
                 # bias (or other single-vector) parameters should be treated as row vectors
                 w_0 = w_0.unsqueeze(0)
                 ws = [w.unsqueeze(0) for w in ws]
