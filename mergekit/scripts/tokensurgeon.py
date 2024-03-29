@@ -50,14 +50,14 @@ from mergekit.options import MergeOptions, add_merge_options
     "--barycentric/--no-barycentric",
     "-b/-nb",
     is_flag=True,
-    default=True,
+    default=False,
     help="Use barycentric interpolation instead of distance weighting",
 )
 @click.option(
     "--cosine-similarity/--no-cosine-similarity",
     "-c/-nc",
     is_flag=True,
-    default=True,
+    default=False,
     help="Use cosine similarity for nearest neighbour search",
 )
 @add_merge_options
@@ -393,9 +393,9 @@ def get_embeddings(
                     torch.tensor([1.0], device=e_c_0.device, dtype=e_c_0.dtype),
                 ]
             ).unsqueeze(-1)
-            weights = torch.linalg.lstsq(knn_e_c.float(), e_c.float()).solution.to(
-                dtype=e_c_0.dtype
-            )
+            weights = torch.linalg.lstsq(
+                knn_e_c.float(), e_c.float(), rcond=1e-6
+            ).solution.to(dtype=e_c_0.dtype)
         else:
             # Just weight by distance
             if cosine_similarity:
@@ -445,6 +445,15 @@ def get_embeddings(
         logging.debug(f"\tMax: {knn_err.max().item()}")
         logging.debug(f"\tMin: {knn_err.min().item()}")
         logging.debug(f"\tStddev: {knn_err.std().item()}")
+        if knn_err.mean().isnan() or knn_err.mean().isinf():
+            logging.error(
+                "NaN or infinite reconstruction error detected - output is "
+                "definitely broken!"
+            )
+        if knn_err.mean().item() >= 0.01:
+            logging.warning(
+                "Unreasonably high reconstruction error - expect some issues!"
+            )
 
     return res
 
