@@ -342,10 +342,13 @@ tokenizer = AutoTokenizer.from_pretrained("path/to/merged-model")
 
 **Remember:** Colab sessions are temporary. Always save your results to Google Drive before closing!
 
+
 ## mergekit
 
 > [!NOTE]  
 > [Charles Goddard](https://github.com/cg123), author of `mergekit`, has joined [arcee.ai](https://www.arcee.ai/). Development of `mergekit` continues with their backing and it remains open source. For more details, see the blog post [here](https://blog.arcee.ai/arcee-and-mergekit-unite/).
+
+# mergekit
 
 `mergekit` is a toolkit for merging pre-trained language models. `mergekit` uses an out-of-core approach to perform unreasonably elaborate merges in resource-constrained situations. Merges can be run entirely on CPU or accelerated with as little as 8 GB of VRAM. Many merging algorithms are supported, with more coming as they catch my attention.
 
@@ -357,6 +360,8 @@ Features:
 - Lazy loading of tensors for low memory use
 - Interpolated gradients for parameter values (inspired by Gryphe's [BlockMerge_Gradient](https://github.com/Gryphe/BlockMerge_Gradient) script)
 - Piecewise assembly of language models from layers ("Frankenmerging")
+
+🔊 Call to Evolve - to solve evolutionary merge methods as a community - please see https://github.com/arcee-ai/mergekit/issues/207.
 
 ## Installation
 
