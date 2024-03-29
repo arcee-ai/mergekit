@@ -139,7 +139,7 @@ class LazyTensorLoader:
 
             shard_file = self.index.tensor_paths[key]
             shard_full_path = os.path.join(self.index.base_path, shard_file)
-            logging.info(f"Opening shard {shard_full_path}")
+            logging.debug(f"Opening shard {shard_full_path}")
             self.current_shard = TensorLoader.get(
                 shard_full_path, use_lazy_unpickle=self.lazy_unpickle, device=device
             )
