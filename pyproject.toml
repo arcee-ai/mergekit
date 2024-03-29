@@ -50,6 +50,8 @@ packages = [
     "mergekit._data",
     "mergekit._data.architectures",
 ]
+include-package-data = true
+package-data = { "mergekit._data.architectures" = ["*.json"] }
 
 [tool.isort]
 profile = "black"
