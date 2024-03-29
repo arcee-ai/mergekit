@@ -44,13 +44,7 @@ class ModelStockMergeTask(Task[torch.Tensor]):
                 "ModelStockMerge requires at least 3 models (base plus two+ others)"
             )
 
-        if self.base_model not in tensors:
-            raise ValueError("Base model tensor not found")
-        w_0 = tensors[self.base_model]
-        ws = [tensors[k] for k in tensors if k != self.base_model]
-
-        rectify_embed_sizes(self.parameter_name, [w_0] + ws)
-
+        w_0, ws = self.get_rectified_weights(tensors)
         out_shape = w_0.shape
 
         if self.filter_wise:
@@ -90,6 +84,18 @@ class ModelStockMergeTask(Task[torch.Tensor]):
         w_h = t * w_avg + (1 - t) * w_0
 
         return w_h.reshape(out_shape)
+
+    def get_rectified_weights(self, tensors: Dict[ModelReference, torch.Tensor]):
+        if self.base_model not in tensors:
+            raise ValueError("Base model tensor not found")
+
+        all_weights = [tensors[self.base_model]] + [
+            tensors[k] for k in tensors if k != self.base_model
+        ]
+        rectify_embed_sizes(self.parameter_name, all_weights)
+        w_0 = all_weights[0]
+        ws = all_weights[1:]
+        return w_0, ws
 
 
 class ModelStockMerge(MergeMethod):
