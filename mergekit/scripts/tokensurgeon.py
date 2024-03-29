@@ -16,7 +16,7 @@
 import logging
 import sys
 import unicodedata
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import click
 import torch
@@ -38,7 +38,9 @@ from mergekit.options import MergeOptions, add_merge_options
 @click.argument("model", type=str)
 @click.argument("donor", type=str)
 @click.argument("out_path", type=str)
-@click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
+@click.option(
+    "-v", "verbosity", count=True, help="Verbose logging", default=0, show_default=False
+)
 @click.option(
     "-k",
     type=int,
@@ -64,46 +66,43 @@ def main(
     model: str,
     donor: str,
     out_path: str,
-    verbose: bool,
+    verbosity: int,
     k: int,
     barycentric: bool,
     cosine_similarity: bool,
     merge_options: MergeOptions,
 ):
-    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
+    """
+    Replace the tokenizer of a model with that of a donor model. Attempts to
+    approximate embeddings for tokens that are in the donor model but not the
+    original model.
 
-    model_ref = ModelReference.model_validate(model)
-    donor_ref = ModelReference.model_validate(donor)
-    replace_tokenizer(
-        model=model_ref,
-        donor=donor_ref,
-        out_path=out_path,
-        k=k,
-        barycentric=barycentric,
-        cosine_similarity=cosine_similarity,
-        options=merge_options,
-    )
+    This greatly reduces the amount of training required to settle in the new
+    embeddings, and potentially removes the need for fine-tuning entirely for
+    tokenizers that are sufficiently similar.
 
+    The model and donor model must have the same architecture.
+    """
+    log_level = logging.WARNING
+    if verbosity == 1:
+        log_level = logging.INFO
+    elif verbosity > 1:
+        log_level = logging.DEBUG
+    logging.basicConfig(level=log_level)
 
-def replace_tokenizer(
-    model: ModelReference,
-    donor: ModelReference,
-    out_path: str,
-    k: int,
-    barycentric: bool,
-    cosine_similarity: bool,
-    options: MergeOptions,
-):
+    model = ModelReference.model_validate(model)
+    donor = ModelReference.model_validate(donor)
+
     cache = LoaderCache()
-    cache.setup(options=options)
+    cache.setup(options=merge_options)
 
-    device = "cuda" if options.cuda else "cpu"
+    device = "cuda" if merge_options.cuda else "cpu"
 
-    arch_info = validate_architecture(model, donor, options)
-    embed_info, lm_head_info = get_embedding_info(model, options)
+    arch_info, donor_cfg = validate_architecture(model, donor, merge_options)
+    embed_info, lm_head_info = get_embedding_info(model, merge_options)
 
-    _, old_vocab = load_tokenizer(model, options)
-    tokenizer, new_vocab = load_tokenizer(donor, options)
+    _, old_vocab = load_tokenizer(model, merge_options)
+    tokenizer, new_vocab = load_tokenizer(donor, merge_options)
     common_tokens = list(set(old_vocab.keys()) & set(new_vocab.keys()))
 
     old_embed = cache.get(model).get_tensor(
@@ -118,26 +117,28 @@ def replace_tokenizer(
     if hidden_size_1 != hidden_size_0:
         report_issue(
             f"Embedding sizes do not match: {hidden_size_0} vs {hidden_size_1}",
-            error=not options.allow_crimes,
+            error=not merge_options.allow_crimes,
         )
 
     min_overlap = max(hidden_size_0, hidden_size_1)
     if len(common_tokens) < min_overlap:
         report_issue(
             f"Common tokens ({len(common_tokens)}) less than embedding size ({min_overlap})",
-            error=not options.allow_crimes,
+            error=not merge_options.allow_crimes,
         )
 
     logging.info("Computing new embeddings")
-    new_embed = lstsq_embeddings(
+    new_embed = get_embeddings(
         old_embed,
         donor_embed,
         old_vocab,
         new_vocab,
         common_tokens,
+        accept_prefix=False,
         k=k,
         barycentric=barycentric,
         cosine_similarity=cosine_similarity,
+        name=embed_info.name,
     )
 
     old_lm_head = cache.get(model).get_tensor(
@@ -148,7 +149,7 @@ def replace_tokenizer(
     )
 
     logging.info("Computing new lm_head embeddings")
-    new_lm_head = lstsq_embeddings(
+    new_lm_head = get_embeddings(
         old_lm_head,
         donor_lm_head,
         old_vocab,
@@ -158,14 +159,15 @@ def replace_tokenizer(
         k=k,
         barycentric=barycentric,
         cosine_similarity=cosine_similarity,
+        name=lm_head_info.name,
     )
 
     # Save out the new model
     logging.info(f"Saving new model to {out_path}")
     writer = TensorWriter(
         out_path,
-        max_shard_size=options.out_shard_size,
-        safe_serialization=options.safe_serialization,
+        max_shard_size=merge_options.out_shard_size,
+        safe_serialization=merge_options.safe_serialization,
     )
     for weight_info in tqdm.tqdm(arch_info.all_weights(), desc="Saving weights"):
         if weight_info.name == embed_info.name:
@@ -176,7 +178,7 @@ def replace_tokenizer(
             tensor = cache.get(model).get_tensor(
                 weight_info.name, aliases=weight_info.aliases
             )
-        writer.save_tensor(weight_info.name, tensor, clone=options.clone_tensors)
+        writer.save_tensor(weight_info.name, tensor, clone=merge_options.clone_tensors)
     writer.finalize()
 
     tokenizer.save_pretrained(out_path)
@@ -187,10 +189,27 @@ def replace_tokenizer(
         logging.error(
             "Could not set vocab size in config.json - you may need to update it manually."
         )
+    for key in [
+        "pad_token_id",
+        "eos_token_id",
+        "bos_token_id",
+        "unk_token_id",
+        "mask_token_id",
+    ]:
+        if hasattr(donor_cfg, key) and (value := getattr(donor_cfg, key)) is not None:
+            try:
+                setattr(cfg_out, key, value)
+            except AttributeError:
+                logging.error(f"Could not set {key}!")
     cfg_out.save_pretrained(out_path)
 
 
 def normalize_token(token: str) -> str:
+    """
+    Normalize a token for comparison.
+
+    Replaces Ġ prefix with Llama-style ▁ and normalizes unicode.
+    """
     if token.startswith("Ġ"):
         return "▁" + token[1:]
     return unicodedata.normalize("NFKC", token)
@@ -199,6 +218,7 @@ def normalize_token(token: str) -> str:
 def get_embedding_info(
     model: ModelReference, options: MergeOptions
 ) -> Tuple[WeightInfo, WeightInfo]:
+    """Get WeightInfo for the input and output embeddings of a model."""
     cfg = model.config(trust_remote_code=options.trust_remote_code)
     arch_info = get_architecture_info(cfg)
 
@@ -219,6 +239,7 @@ def get_embedding_info(
 
 
 def report_issue(message: str, error: bool = False):
+    """Log an issue and exit if error is True."""
     if error:
         logging.error(message)
         sys.exit(1)
@@ -226,47 +247,89 @@ def report_issue(message: str, error: bool = False):
         logging.warning(message)
 
 
-def lstsq_embeddings(
-    embed_0: torch.Tensor,
-    embed_1: torch.Tensor,
-    vocab_0: Dict[str, int],
-    vocab_1: Dict[str, int],
+def get_embeddings(
+    original_embed: torch.Tensor,
+    donor_embed: torch.Tensor,
+    original_vocab: Dict[str, int],
+    donor_vocab: Dict[str, int],
     common_tokens: List[str],
+    *,
     accept_prefix: bool = False,
-    k: int = 5,
+    k: int = 8,
     barycentric: bool = False,
     cosine_similarity: bool = False,
+    log_reconstruction_error: bool = True,
+    log_statistics: bool = True,
+    name: Optional[str] = None,
 ) -> torch.Tensor:
-    hidden_size_0 = embed_0.shape[1]
-    hidden_size_1 = embed_1.shape[1]
+    """
+    Generate embeddings for a target vocabulary.
+
+    For tokens present in both vocabularies, the embedding from original_embed is
+    directly copied. For tokens not present in the original vocabulary, the
+    embedding is approximated using the k-nearest neighbours among the tokens that
+    are present in both vocabularies. This can be done using either barycentric
+    interpolation or distance weighted averaging.
+
+    Args:
+        original_embed (torch.Tensor): Embedding matrix for the original vocabulary.
+        donor_embed (torch.Tensor): Embedding matrix for the new vocabulary.
+        original_vocab (Dict[str, int]): Maps tokens to indices in original_embed.
+        donor_vocab (Dict[str, int]): Maps tokens to indices in donor_embed.
+        common_tokens (List[str]): Tokens that are common to both vocabularies.
+        accept_prefix (bool): If True, allows using prefix matches for tokens when
+            an exact match is not found.
+        k (int): Number of nearest neighbours to use for embedding interpolation.
+        barycentric (bool): If True, uses barycentric interpolation for embedding
+            approximation. Otherwise, uses distance weighting.
+        cosine_similarity (bool): If True, uses cosine similarity to find nearest
+            neighbors. Otherwise, uses Euclidean distance.
+
+    Returns:
+        torch.Tensor: Embedding matrix for the new vocabulary.
+            Shape is (len(donor_vocab), original_embed.shape[1]).
+    """
+    hidden_size_0 = original_embed.shape[1]
+    hidden_size_1 = donor_embed.shape[1]
 
     e_c_0 = torch.empty(
-        len(common_tokens), hidden_size_0, device=embed_0.device, dtype=embed_0.dtype
+        len(common_tokens),
+        hidden_size_0,
+        device=original_embed.device,
+        dtype=original_embed.dtype,
     )
     e_c_1 = torch.empty(
-        len(common_tokens), hidden_size_1, device=embed_1.device, dtype=embed_1.dtype
+        len(common_tokens),
+        hidden_size_1,
+        device=donor_embed.device,
+        dtype=donor_embed.dtype,
     )
     for i, token in enumerate(common_tokens):
-        idx_0 = vocab_0[token]
-        idx_1 = vocab_1[token]
-        e_c_0[i] = embed_0[idx_0]
-        e_c_1[i] = embed_1[idx_1]
+        idx_0 = original_vocab[token]
+        idx_1 = donor_vocab[token]
+        e_c_0[i] = original_embed[idx_0]
+        e_c_1[i] = donor_embed[idx_1]
 
     exact_matches = 0
     prefix_matches = 0
     knn_matches = 0
     res = torch.zeros(
-        max(vocab_1.values()) + 1,
+        max(donor_vocab.values()) + 1,
         hidden_size_0,
-        device=embed_0.device,
-        dtype=embed_0.dtype,
+        device=original_embed.device,
+        dtype=original_embed.dtype,
     )
 
+    # message for tqdm
+    desc = "Computing embeddings"
+    if name:
+        desc += f" ({name})"
+
     knn_reconstruction_error = []
-    for token in tqdm.tqdm(vocab_1, desc="Merging tokens"):
-        idx_1 = vocab_1[token]
-        if token in vocab_0:
-            res[idx_1] = embed_0[vocab_0[token]]
+    for token in tqdm.tqdm(donor_vocab, desc=desc):
+        idx_1 = donor_vocab[token]
+        if token in original_vocab:
+            res[idx_1] = original_embed[original_vocab[token]]
             exact_matches += 1
             continue
 
@@ -277,8 +340,8 @@ def lstsq_embeddings(
             found_prefix = False
             for j in range(len(token) - 1, 0, -1):
                 prefix = token[:j]
-                if prefix in vocab_0 and prefix not in vocab_1:
-                    res[idx_1] = embed_0[vocab_0[prefix]]
+                if prefix in original_vocab and prefix not in donor_vocab:
+                    res[idx_1] = original_embed[original_vocab[prefix]]
                     found_prefix = True
                     break
 
@@ -287,7 +350,7 @@ def lstsq_embeddings(
                 continue
 
         # If we can't find a prefix match, approximate from k nearest neighbours
-        token_embedding = embed_1[idx_1]
+        token_embedding = donor_embed[idx_1]
         if cosine_similarity:
             cos_similarities = torch.nn.functional.cosine_similarity(
                 token_embedding.unsqueeze(0), e_c_1, dim=1
@@ -303,7 +366,7 @@ def lstsq_embeddings(
             # Find least squares barycentric weights
             # Constrain sum of weights to 1 by adding a row of 1s
             constraint_row = torch.ones(
-                (1, knn_embeddings.shape[0]), device=embed_0.device
+                (1, knn_embeddings.shape[0]), device=original_embed.device
             )
             knn_e_c = torch.cat([knn_embeddings.T, constraint_row], dim=0)
             e_c = torch.cat(
@@ -326,33 +389,44 @@ def lstsq_embeddings(
                 )
             weights /= weights.sum()
 
-        # compute reconstruction error in embed_1 space
-        knn_reconstruction_error.append(
-            torch.nn.functional.mse_loss(
-                (knn_embeddings.T.to(weights.dtype) @ weights).squeeze(),
-                token_embedding,
-            ).item()
-        )
+        if log_reconstruction_error:
+            # compute reconstruction error in donor_embed space
+            knn_reconstruction_error.append(
+                torch.nn.functional.mse_loss(
+                    (knn_embeddings.T.to(weights.dtype) @ weights).squeeze(),
+                    token_embedding,
+                ).item()
+            )
 
-        # Reconstruct the embedding in embed_0 space
+        # Reconstruct the embedding in original_embed space
         res[idx_1] = (e_c_0[indices].T @ weights).squeeze()
         knn_matches += 1
 
-    logging.info("Token breakdown:")
-    logging.info(f"\tExact matches: {exact_matches}")
-    if prefix_matches:
-        logging.info(f"\tPrefix matches: {prefix_matches}")
-    logging.info(f"\tKNN solutions: {knn_matches}")
+    if log_statistics:
+        logging.info("Token breakdown:")
+        logging.info(f"\tExact matches: {exact_matches}")
+        if prefix_matches:
+            logging.info(f"\tPrefix matches: {prefix_matches}")
+        logging.info(f"\tKNN solutions: {knn_matches}")
+
+        pct_approx = int((len(donor_vocab) - exact_matches) * 100 / len(donor_vocab))
+        if pct_approx > 10:
+            # encourage best practices
+            logging.warning(
+                f"Large number of tokens ({pct_approx}%) could not be exactly "
+                "matched - be sure to fine tune this sucker!"
+            )
+
     if knn_reconstruction_error:
         knn_err = torch.tensor(
-            knn_reconstruction_error, device=embed_0.device, dtype=torch.float32
+            knn_reconstruction_error, device=original_embed.device, dtype=torch.float32
         )
         logging.info("KNN reconstruction error:")
         logging.info(f"\tMean: {knn_err.mean().item()}")
-        logging.info(f"\tMedian: {knn_err.median().item()}")
-        logging.info(f"\tMax: {knn_err.max().item()}")
-        logging.info(f"\tMin: {knn_err.min().item()}")
-        logging.info(f"\tStddev: {knn_err.std().item()}")
+        logging.debug(f"\tMedian: {knn_err.median().item()}")
+        logging.debug(f"\tMax: {knn_err.max().item()}")
+        logging.debug(f"\tMin: {knn_err.min().item()}")
+        logging.debug(f"\tStddev: {knn_err.std().item()}")
 
     return res
 
@@ -360,6 +434,8 @@ def lstsq_embeddings(
 def load_tokenizer(
     model: ModelReference, options: MergeOptions
 ) -> Tuple[transformers.PreTrainedTokenizerBase, Dict[str, int]]:
+    """Load a tokenizer from a model. Returns the tokenizer and a mapping of
+    normalized tokens to indices."""
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model.model.path,
         revision=model.model.revision,
@@ -372,19 +448,23 @@ def load_tokenizer(
 
 def validate_architecture(
     model: ModelReference, donor: ModelReference, options: MergeOptions
-) -> ConfiguredArchitectureInfo:
+) -> Tuple[ConfiguredArchitectureInfo, transformers.PretrainedConfig]:
+    """
+    Validate that the architectures of two models match.
+
+    Returns the architecture info for the model and the config for the donor.
+    """
     model_cfg = model.config(trust_remote_code=options.trust_remote_code)
+    donor_cfg = donor.config(trust_remote_code=options.trust_remote_code)
     model_arch_info = get_architecture_info(model_cfg)
-    donor_arch_info = get_architecture_info(
-        donor.config(trust_remote_code=options.trust_remote_code)
-    )
+    donor_arch_info = get_architecture_info(donor_cfg)
     if donor_arch_info != model_arch_info:
         report_issue(
             f"Model architectures do not match: {model_arch_info} vs {donor_arch_info}",
             error=not options.allow_crimes,
         )
 
-    return ConfiguredArchitectureInfo(info=model_arch_info, config=model_cfg)
+    return ConfiguredArchitectureInfo(info=model_arch_info, config=model_cfg), donor_cfg
 
 
 if __name__ == "__main__":
