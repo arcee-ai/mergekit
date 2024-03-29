@@ -42,19 +42,21 @@ from mergekit.options import MergeOptions, add_merge_options
 @click.option(
     "-k",
     type=int,
-    default=5,
+    default=8,
     help="Number of nearest neighbours to use for embedding interpolation",
 )
 @click.option(
     "--barycentric/--no-barycentric",
+    "-b/-nb",
     is_flag=True,
-    default=False,
-    help="Use barycentric interpolation instead of distance-weighted",
+    default=True,
+    help="Use barycentric interpolation instead of distance weighting",
 )
 @click.option(
     "--cosine-similarity/--no-cosine-similarity",
+    "-c/-nc",
     is_flag=True,
-    default=False,
+    default=True,
     help="Use cosine similarity for nearest neighbour search",
 )
 @add_merge_options
