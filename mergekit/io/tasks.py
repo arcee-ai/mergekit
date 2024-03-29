@@ -146,6 +146,7 @@ class SaveTensor(Task[None]):
     tensor_task: Task
     writer_task: TensorWriterTask
     clone: bool
+    optional: bool = False
 
     def arguments(self) -> Dict[str, Task]:
         return {"writer": self.writer_task, "tensor": self.tensor_task}
@@ -156,7 +157,11 @@ class SaveTensor(Task[None]):
     def group_label(self) -> Optional[str]:
         return self.tensor_task.group_label()
 
-    def execute(self, writer: TensorWriter, tensor: torch.Tensor) -> None:
+    def execute(self, writer: TensorWriter, tensor: Optional[torch.Tensor]) -> None:
+        if tensor is None:
+            if not self.optional:
+                raise RuntimeError(f"No value for required tensor {self.tensor_name}")
+            return
         writer.save_tensor(name=self.tensor_name, tensor=tensor, clone=self.clone)
 
 
