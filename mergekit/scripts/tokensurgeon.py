@@ -459,18 +459,35 @@ def load_tokenizer(
         revision=model.model.revision,
         trust_remote_code=options.trust_remote_code,
     )
+
+    gpt2_style = [
+        transformers.GPT2Tokenizer,
+        transformers.GPT2TokenizerFast,
+        transformers.OpenAIGPTTokenizer,
+        transformers.OpenAIGPTTokenizerFast,
+    ]
+    for candidate in ["Qwen2Tokenizer", "Qwen2TokenizerFast"]:
+        if hasattr(transformers, candidate):
+            gpt2_style.append(getattr(transformers, candidate))
+
+    sp_style = [
+        transformers.LlamaTokenizer,
+        transformers.LlamaTokenizerFast,
+        transformers.T5Tokenizer,
+        transformers.T5TokenizerFast,
+    ]
+    for candidate in ["GemmaTokenizer", "GemmaTokenizerFast"]:
+        if hasattr(transformers, candidate):
+            sp_style.append(getattr(transformers, candidate))
+
     if isinstance(
         tokenizer,
-        (
-            transformers.GPT2Tokenizer,
-            transformers.OpenAIGPTTokenizer,
-            transformers.GPT2TokenizerFast,
-            transformers.OpenAIGPTTokenizerFast,
-        ),
+        tuple(gpt2_style),
     ):
         word_start_prefix = "Ġ"
     elif isinstance(
-        tokenizer, (transformers.LlamaTokenizer, transformers.LlamaTokenizerFast)
+        tokenizer,
+        tuple(sp_style),
     ):
         word_start_prefix = "▁"
     else:
