@@ -15,10 +15,12 @@
 
 import logging
 import sys
+import unicodedata
 from typing import Dict, List, Tuple
 
 import click
 import torch
+import tqdm
 import transformers
 
 from mergekit.architecture import (
@@ -36,18 +38,64 @@ from mergekit.options import MergeOptions, add_merge_options
 @click.argument("model", type=str)
 @click.argument("donor", type=str)
 @click.argument("out_path", type=str)
+@click.option("-v", "--verbose", is_flag=True, help="Verbose logging")
+@click.option(
+    "-k",
+    type=int,
+    default=5,
+    help="Number of nearest neighbours to use for embedding interpolation",
+)
+@click.option(
+    "--barycentric/--no-barycentric",
+    is_flag=True,
+    default=False,
+    help="Use barycentric interpolation instead of distance-weighted",
+)
+@click.option(
+    "--cosine-similarity/--no-cosine-similarity",
+    is_flag=True,
+    default=False,
+    help="Use cosine similarity for nearest neighbour search",
+)
 @add_merge_options
-def main(model: str, donor: str, out_path: str, options: MergeOptions):
+def main(
+    model: str,
+    donor: str,
+    out_path: str,
+    verbose: bool,
+    k: int,
+    barycentric: bool,
+    cosine_similarity: bool,
+    merge_options: MergeOptions,
+):
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
+
     model_ref = ModelReference.model_validate(model)
     donor_ref = ModelReference.model_validate(donor)
-    replace_tokenizer(model_ref, donor_ref, out_path, options)
+    replace_tokenizer(
+        model=model_ref,
+        donor=donor_ref,
+        out_path=out_path,
+        k=k,
+        barycentric=barycentric,
+        cosine_similarity=cosine_similarity,
+        options=merge_options,
+    )
 
 
 def replace_tokenizer(
-    model: ModelReference, donor: ModelReference, out_path: str, options: MergeOptions
+    model: ModelReference,
+    donor: ModelReference,
+    out_path: str,
+    k: int,
+    barycentric: bool,
+    cosine_similarity: bool,
+    options: MergeOptions,
 ):
     cache = LoaderCache()
     cache.setup(options=options)
+
+    device = "cuda" if options.cuda else "cpu"
 
     arch_info = validate_architecture(model, donor, options)
     embed_info, lm_head_info = get_embedding_info(model, options)
@@ -56,9 +104,11 @@ def replace_tokenizer(
     tokenizer, new_vocab = load_tokenizer(donor, options)
     common_tokens = list(set(old_vocab.keys()) & set(new_vocab.keys()))
 
-    old_embed = cache.get(model).get_tensor(embed_info.name, aliases=embed_info.aliases)
+    old_embed = cache.get(model).get_tensor(
+        embed_info.name, aliases=embed_info.aliases, device=device
+    )
     donor_embed = cache.get(donor).get_tensor(
-        embed_info.name, aliases=embed_info.aliases
+        embed_info.name, aliases=embed_info.aliases, device=device
     )
 
     (_, hidden_size_0) = old_embed.shape
@@ -76,18 +126,36 @@ def replace_tokenizer(
             error=not options.allow_crimes,
         )
 
-    logging.info(
-        f"Computing new embeddings for {len(new_vocab) - len(common_tokens)} tokens"
-    )
+    logging.info("Computing new embeddings")
     new_embed = lstsq_embeddings(
-        old_embed, donor_embed, old_vocab, new_vocab, common_tokens
-    )
-    new_lm_head = lstsq_embeddings(
-        cache.get(model).get_tensor(lm_head_info.name, aliases=lm_head_info.aliases),
-        cache.get(donor).get_tensor(lm_head_info.name, aliases=lm_head_info.aliases),
+        old_embed,
+        donor_embed,
         old_vocab,
         new_vocab,
         common_tokens,
+        k=k,
+        barycentric=barycentric,
+        cosine_similarity=cosine_similarity,
+    )
+
+    old_lm_head = cache.get(model).get_tensor(
+        lm_head_info.name, aliases=lm_head_info.aliases, device=device
+    )
+    donor_lm_head = cache.get(donor).get_tensor(
+        lm_head_info.name, aliases=lm_head_info.aliases, device=device
+    )
+
+    logging.info("Computing new lm_head embeddings")
+    new_lm_head = lstsq_embeddings(
+        old_lm_head,
+        donor_lm_head,
+        old_vocab,
+        new_vocab,
+        common_tokens,
+        accept_prefix=True,
+        k=k,
+        barycentric=barycentric,
+        cosine_similarity=cosine_similarity,
     )
 
     # Save out the new model
@@ -97,7 +165,7 @@ def replace_tokenizer(
         max_shard_size=options.out_shard_size,
         safe_serialization=options.safe_serialization,
     )
-    for weight_info in arch_info.all_weights():
+    for weight_info in tqdm.tqdm(arch_info.all_weights(), desc="Saving weights"):
         if weight_info.name == embed_info.name:
             tensor = new_embed
         elif weight_info.name == lm_head_info.name:
@@ -110,13 +178,20 @@ def replace_tokenizer(
     writer.finalize()
 
     tokenizer.save_pretrained(out_path)
-    arch_info.config.save_pretrained(out_path)
+    cfg_out = arch_info.config
+    try:
+        cfg_out.vocab_size = tokenizer.vocab_size
+    except AttributeError:
+        logging.error(
+            "Could not set vocab size in config.json - you may need to update it manually."
+        )
+    cfg_out.save_pretrained(out_path)
 
 
 def normalize_token(token: str) -> str:
     if token.startswith("Ġ"):
         return "▁" + token[1:]
-    return token
+    return unicodedata.normalize("NFKC", token)
 
 
 def get_embedding_info(
@@ -155,22 +230,129 @@ def lstsq_embeddings(
     vocab_0: Dict[str, int],
     vocab_1: Dict[str, int],
     common_tokens: List[str],
+    accept_prefix: bool = False,
+    k: int = 5,
+    barycentric: bool = False,
+    cosine_similarity: bool = False,
 ) -> torch.Tensor:
     hidden_size_0 = embed_0.shape[1]
     hidden_size_1 = embed_1.shape[1]
 
-    e_0 = torch.empty(hidden_size_0, len(common_tokens))
-    e_1 = torch.empty(hidden_size_1, len(common_tokens))
+    e_c_0 = torch.empty(
+        len(common_tokens), hidden_size_0, device=embed_0.device, dtype=embed_0.dtype
+    )
+    e_c_1 = torch.empty(
+        len(common_tokens), hidden_size_1, device=embed_1.device, dtype=embed_1.dtype
+    )
     for i, token in enumerate(common_tokens):
-        e_0[:, i] = embed_0[vocab_0[token]]
-        e_1[:, i] = embed_1[vocab_1[token]]
+        idx_0 = vocab_0[token]
+        idx_1 = vocab_1[token]
+        e_c_0[i] = embed_0[idx_0]
+        e_c_1[i] = embed_1[idx_1]
 
-    M = torch.linalg.lstsq(e_1, e_0).solution
-    new_embed = embed_1 @ M
-    for token in common_tokens:
-        new_embed[vocab_1[token], :] = embed_0[vocab_0[token], :]
+    exact_matches = 0
+    prefix_matches = 0
+    knn_matches = 0
+    res = torch.zeros(
+        max(vocab_1.values()) + 1,
+        hidden_size_0,
+        device=embed_0.device,
+        dtype=embed_0.dtype,
+    )
 
-    return new_embed
+    knn_reconstruction_error = []
+    for token in tqdm.tqdm(vocab_1, desc="Merging tokens"):
+        idx_1 = vocab_1[token]
+        if token in vocab_0:
+            res[idx_1] = embed_0[vocab_0[token]]
+            exact_matches += 1
+            continue
+
+        if accept_prefix:
+            # For the LM head, we can accept prefix matches so long as the prefix is
+            # not also in the new vocab - this is to avoid including the same embedding
+            # vector multiple times
+            found_prefix = False
+            for j in range(len(token) - 1, 0, -1):
+                prefix = token[:j]
+                if prefix in vocab_0 and prefix not in vocab_1:
+                    res[idx_1] = embed_0[vocab_0[prefix]]
+                    found_prefix = True
+                    break
+
+            if found_prefix:
+                prefix_matches += 1
+                continue
+
+        # If we can't find a prefix match, approximate from k nearest neighbours
+        token_embedding = embed_1[idx_1]
+        if cosine_similarity:
+            cos_similarities = torch.nn.functional.cosine_similarity(
+                token_embedding.unsqueeze(0), e_c_1, dim=1
+            )
+            distances = 1 - cos_similarities
+        else:
+            # euclidean distance
+            distances = torch.cdist(token_embedding.unsqueeze(0), e_c_1).squeeze()
+        _, indices = torch.topk(distances, k, largest=False)
+        knn_embeddings = e_c_1[indices]
+
+        if barycentric:
+            # Find least squares barycentric weights
+            # Constrain sum of weights to 1 by adding a row of 1s
+            constraint_row = torch.ones(
+                (1, knn_embeddings.shape[0]), device=embed_0.device
+            )
+            knn_e_c = torch.cat([knn_embeddings.T, constraint_row], dim=0)
+            e_c = torch.cat(
+                [
+                    token_embedding,
+                    torch.tensor([1.0], device=e_c_0.device, dtype=e_c_0.dtype),
+                ]
+            ).unsqueeze(-1)
+            weights = torch.linalg.lstsq(knn_e_c.float(), e_c.float()).solution.to(
+                dtype=e_c_0.dtype
+            )
+        else:
+            # Just weight by distance
+            if cosine_similarity:
+                weights = cos_similarities[indices].unsqueeze(-1).to(dtype=e_c_0.dtype)
+            else:
+                # weights = 1 / distances[indices].to(dtype=e_c_0.dtype).clamp(min=1e-6)
+                weights = torch.nn.functional.softmin(
+                    distances[indices].to(dtype=e_c_0.dtype), dim=0
+                )
+            weights /= weights.sum()
+
+        # compute reconstruction error in embed_1 space
+        knn_reconstruction_error.append(
+            torch.nn.functional.mse_loss(
+                (knn_embeddings.T.to(weights.dtype) @ weights).squeeze(),
+                token_embedding,
+            ).item()
+        )
+
+        # Reconstruct the embedding in embed_0 space
+        res[idx_1] = (e_c_0[indices].T @ weights).squeeze()
+        knn_matches += 1
+
+    logging.info("Token breakdown:")
+    logging.info(f"\tExact matches: {exact_matches}")
+    if prefix_matches:
+        logging.info(f"\tPrefix matches: {prefix_matches}")
+    logging.info(f"\tKNN solutions: {knn_matches}")
+    if knn_reconstruction_error:
+        knn_err = torch.tensor(
+            knn_reconstruction_error, device=embed_0.device, dtype=torch.float32
+        )
+        logging.info("KNN reconstruction error:")
+        logging.info(f"\tMean: {knn_err.mean().item()}")
+        logging.info(f"\tMedian: {knn_err.median().item()}")
+        logging.info(f"\tMax: {knn_err.max().item()}")
+        logging.info(f"\tMin: {knn_err.min().item()}")
+        logging.info(f"\tStddev: {knn_err.std().item()}")
+
+    return res
 
 
 def load_tokenizer(
@@ -204,4 +386,5 @@ def validate_architecture(
 
 
 if __name__ == "__main__":
-    main()
+    with torch.no_grad():
+        main()
