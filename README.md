@@ -122,6 +122,7 @@ A quick overview of the currently supported merge methods:
 | [DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)            | `dare_ties`          | ✅          | ✅              |
 | [DARE](https://arxiv.org/abs/2311.03099) [Task Arithmetic](https://arxiv.org/abs/2212.04089) | `dare_linear`        | ✅          | ✅              |
 | Passthrough                                                                                  | `passthrough`        | ❌          | ❌              |
+| [Model Stock](https://arxiv.org/abs/2403.19522)                                              | `model_stock`        | ✅          | ✅              |
 
 ### Linear
 
@@ -164,6 +165,14 @@ Parameters: same as [TIES](#ties) for `dare_ties`, or [Linear](#linear) for `dar
 
 `passthrough` is a no-op that simply passes input tensors through unmodified. It is meant to be used for layer-stacking type merges where you have only one input model. Useful for frankenmerging.
 
+### [Model Stock](https://arxiv.org/abs/2403.19522)
+
+Uses some neat geometric properties of fine tuned models to compute good weights for linear interpolation. Requires at least three models, including a base model.
+
+Parameters:
+
+- `filter_wise`: if true, weight calculation will be per-row rather than per-tensor. Not recommended.
+
 # Citation
 
 We now have a [paper](https://arxiv.org/abs/2403.13257) you can cite for the MergeKit library:
@@ -175,3 +184,4 @@ We now have a [paper](https://arxiv.org/abs/2403.13257) you can cite for the Mer
   journal={arXiv preprint arXiv:2403.13257},
   year={2024}
 }
+```

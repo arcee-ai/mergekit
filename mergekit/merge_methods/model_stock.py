@@ -13,21 +13,22 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import torch
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ModelReference, rectify_embed_sizes
+from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
-from mergekit.merge_methods.base import MergeMethod
+from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
 
 
 class ModelStockMergeTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     base_model: ModelReference
     parameter_name: str
+    filter_wise: bool = False
 
     def uses_accelerator(self) -> bool:
         return True
@@ -38,45 +39,78 @@ class ModelStockMergeTask(Task[torch.Tensor]):
     def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
         if len(tensors) == 1 and self.base_model in tensors:
             return tensors[self.base_model]
-        if len(tensors) != 3:
+        if len(tensors) < 3:
             raise ValueError(
-                "ModelStockMerge requires exactly 3 tensors (base plus two others)"
+                "ModelStockMerge requires at least 3 models (base plus two+ others)"
             )
 
         if self.base_model not in tensors:
             raise ValueError("Base model tensor not found")
         w_0 = tensors[self.base_model]
-        w_1, w_2 = [tensors[k] for k in tensors if k != self.base_model]
+        ws = [tensors[k] for k in tensors if k != self.base_model]
 
-        rectify_embed_sizes(self.parameter_name, [w_0, w_1, w_2])
+        rectify_embed_sizes(self.parameter_name, [w_0] + ws)
 
-        w_1_offset = w_1 - w_0
-        w_2_offset = w_2 - w_0
+        is_vector = w_0.dim() == 1
+        out_shape = w_0.shape
 
-        norm_product = torch.norm(w_1_offset, dim=-1) * torch.norm(w_2_offset, dim=-1)
-        cos_theta = (
-            (w_1_offset * w_2_offset).sum(dim=-1, keepdim=True)
-            / norm_product.clamp(min=1e-6)
-        ).clamp(-1, 1)
-        cos_theta = cos_theta.unsqueeze(-1)
+        if self.filter_wise:
+            if is_vector:
+                # bias (or other single-vector) parameters should be treated as row vectors
+                w_0 = w_0.unsqueeze(0)
+                ws = [w.unsqueeze(0) for w in ws]
+        else:
+            w_0 = w_0.view(-1)
+            ws = [w.view(-1) for w in ws]
 
+        offsets = [w - w_0 for w in ws]
+
+        # now there is a question of how to come up with a value for theta.
+        # in the two-vector case, we can get an exact angle between the two vectors
+        # but the paper doesn't explicitly say what to do in the multi-vector case -
+        # they keep using a singular theta value and don't elaborate on how to
+        # calculate it. i'm going to assume an average of pairwise angles for now? i guess?
+
+        cos_thetas = []
+        for i, w_0_offset in enumerate(offsets):
+            for j in range(i + 1, len(offsets)):
+                w_1_offset = offsets[j]
+
+                norm_product = torch.norm(w_0_offset, dim=-1) * torch.norm(
+                    w_1_offset, dim=-1
+                )
+                cos_theta = (
+                    (w_0_offset * w_1_offset).sum(dim=-1) / norm_product.clamp(min=1e-6)
+                ).clamp(-1, 1)
+                cos_thetas.append(cos_theta)
+
+        cos_theta = torch.stack(cos_thetas).mean(dim=0).unsqueeze(-1)
         t = (2 * cos_theta) / (1 + cos_theta)
 
-        w_12 = (w_1 + w_2) / 2
-        return t * w_12 + (1 - t) * w_0
+        w_avg = sum(ws) / len(ws)
+        w_h = t * w_avg + (1 - t) * w_0
+
+        return w_h.reshape(out_shape)
 
 
 class ModelStockMerge(MergeMethod):
+    def parameters(self) -> torch.List[ConfigParameterDef]:
+        return [
+            ConfigParameterDef(name="filter_wise", required=False, default_value=False)
+        ]
+
     def make_task(
         self,
         *,
         output_weight: WeightInfo,
         tensors: GatherTensors,
         base_model: Optional[ModelReference],
+        parameters: ImmutableMap[str, Any],
         **_kwargs,
     ) -> Task:
         return ModelStockMergeTask(
             gather_tensors=tensors,
             base_model=base_model,
             parameter_name=output_weight.name,
+            filter_wise=parameters["filter_wise"],
         )
