@@ -15,7 +15,6 @@
 
 import logging
 import sys
-import unicodedata
 from typing import Dict, List, Optional, Tuple
 
 import click
@@ -100,6 +99,7 @@ def main(
 
     arch_info, donor_cfg = validate_architecture(model, donor, merge_options)
     embed_info, lm_head_info = get_embedding_info(model, merge_options)
+    donor_embed_info, donor_lm_head_info = get_embedding_info(donor, merge_options)
 
     _, old_vocab = load_tokenizer(model, merge_options)
     tokenizer, new_vocab = load_tokenizer(donor, merge_options)
@@ -109,7 +109,7 @@ def main(
         embed_info.name, aliases=embed_info.aliases, device=device
     )
     donor_embed = cache.get(donor).get_tensor(
-        embed_info.name, aliases=embed_info.aliases, device=device
+        donor_embed_info.name, aliases=donor_embed_info.aliases, device=device
     )
 
     (_, hidden_size_0) = old_embed.shape
@@ -141,26 +141,27 @@ def main(
         name=embed_info.name,
     )
 
-    old_lm_head = cache.get(model).get_tensor(
-        lm_head_info.name, aliases=lm_head_info.aliases, device=device
-    )
-    donor_lm_head = cache.get(donor).get_tensor(
-        lm_head_info.name, aliases=lm_head_info.aliases, device=device
-    )
+    if lm_head_info:
+        old_lm_head = cache.get(model).get_tensor(
+            lm_head_info.name, aliases=lm_head_info.aliases, device=device
+        )
+        donor_lm_head = cache.get(donor).get_tensor(
+            donor_lm_head_info.name, aliases=donor_lm_head_info.aliases, device=device
+        )
 
-    logging.info("Computing new lm_head embeddings")
-    new_lm_head = get_embeddings(
-        old_lm_head,
-        donor_lm_head,
-        old_vocab,
-        new_vocab,
-        common_tokens,
-        accept_prefix=True,
-        k=k,
-        barycentric=barycentric,
-        cosine_similarity=cosine_similarity,
-        name=lm_head_info.name,
-    )
+        logging.info("Computing new lm_head embeddings")
+        new_lm_head = get_embeddings(
+            old_lm_head,
+            donor_lm_head,
+            old_vocab,
+            new_vocab,
+            common_tokens,
+            accept_prefix=True,
+            k=k,
+            barycentric=barycentric,
+            cosine_similarity=cosine_similarity,
+            name=lm_head_info.name,
+        )
 
     # Save out the new model
     logging.info(f"Saving new model to {out_path}")
@@ -172,7 +173,7 @@ def main(
     for weight_info in tqdm.tqdm(arch_info.all_weights(), desc="Saving weights"):
         if weight_info.name == embed_info.name:
             tensor = new_embed
-        elif weight_info.name == lm_head_info.name:
+        elif lm_head_info is not None and weight_info.name == lm_head_info.name:
             tensor = new_lm_head
         else:
             tensor = cache.get(model).get_tensor(
@@ -195,6 +196,7 @@ def main(
         "bos_token_id",
         "unk_token_id",
         "mask_token_id",
+        "padding_side",
     ]:
         if hasattr(donor_cfg, key) and (value := getattr(donor_cfg, key)) is not None:
             try:
@@ -204,15 +206,31 @@ def main(
     cfg_out.save_pretrained(out_path)
 
 
-def normalize_token(token: str) -> str:
+def normalize_token(token: str, word_start_prefix: str = "▁") -> str:
     """
     Normalize a token for comparison.
 
-    Replaces Ġ prefix with Llama-style ▁ and normalizes unicode.
+    Converts word start prefixes and maps special tokens to their
+    standard forms.
     """
-    if token.startswith("Ġ"):
-        return "▁" + token[1:]
-    return unicodedata.normalize("NFKC", token)
+    if token.startswith(word_start_prefix):
+        token = (
+            "<!~WORD_START_HIGHLY_UNIQUE_STRING_DO_NOT_STEAL~!>"
+            + token[len(word_start_prefix) :]
+        )
+
+    special_map = {
+        "<s>": "[BOS]",
+        "</s>": "[EOS]",
+        "<pad>": "[PAD]",
+        "<unk>": "[UNK]",
+        "<mask>": "[MASK]",
+        "<cls>": "[CLS]",
+        "<sep>": "[SEP]",
+    }
+    if token in special_map:
+        return special_map[token]
+    return token
 
 
 def get_embedding_info(
@@ -441,8 +459,27 @@ def load_tokenizer(
         revision=model.model.revision,
         trust_remote_code=options.trust_remote_code,
     )
+    if isinstance(
+        tokenizer,
+        (
+            transformers.GPT2Tokenizer,
+            transformers.OpenAIGPTTokenizer,
+            transformers.GPT2TokenizerFast,
+            transformers.OpenAIGPTTokenizerFast,
+        ),
+    ):
+        word_start_prefix = "Ġ"
+    elif isinstance(
+        tokenizer, (transformers.LlamaTokenizer, transformers.LlamaTokenizerFast)
+    ):
+        word_start_prefix = "▁"
+    else:
+        logging.warning("Unknown tokenizer type - assuming 'Ġ' word start prefix")
+        word_start_prefix = "Ġ"
+
     return tokenizer, {
-        normalize_token(token): i for token, i in tokenizer.get_vocab().items()
+        normalize_token(token, word_start_prefix=word_start_prefix): i
+        for token, i in tokenizer.get_vocab().items()
     }
 
 
@@ -460,7 +497,7 @@ def validate_architecture(
     donor_arch_info = get_architecture_info(donor_cfg)
     if donor_arch_info != model_arch_info:
         report_issue(
-            f"Model architectures do not match: {model_arch_info} vs {donor_arch_info}",
+            f"Model architectures do not match: {model_arch_info.name()} vs {donor_arch_info.name()}",
             error=not options.allow_crimes,
         )
 
