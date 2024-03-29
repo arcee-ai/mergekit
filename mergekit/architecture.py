@@ -18,6 +18,7 @@ from typing import ClassVar, List, Optional
 
 from pydantic import BaseModel
 from transformers import PretrainedConfig
+from transformers import LlamaTokenizer, LlamaForCausalLM
 
 
 class ArchitectureInfo(ABC):
@@ -104,9 +105,13 @@ LLAMA_INFO = StaticTensorNames(
         "mlp.gate_proj.weight",
         "post_attention_layernorm.weight",
         "self_attn.q_proj.weight",
+        "self_attn.q_proj.bias",
         "self_attn.k_proj.weight",
+        "self_attn.k_proj.bias",
         "self_attn.v_proj.weight",
+        "self_attn.v_proj.bias",
         "self_attn.o_proj.weight",
+        "self_attn.o_proj.bias",
     ],
 )
 
