@@ -16,7 +16,6 @@
 from typing import Any, Dict, List
 
 import torch
-from torch._tensor import Tensor
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
@@ -37,7 +36,9 @@ class LinearMergeTask(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs) -> Tensor:
+    def execute(
+        self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs
+    ) -> torch.Tensor:
         keys = list(tensors.keys())
 
         tensors = [tensors[key] for key in keys]

@@ -125,6 +125,12 @@ class TestBasicMerges:
         )
         run_and_check_merge(config)
 
+    def test_model_stock_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_b, model_c, merge_method="model_stock", base_model=model_a
+        )
+        run_and_check_merge(config)
+
     def two_model_config(
         self,
         model_a,
