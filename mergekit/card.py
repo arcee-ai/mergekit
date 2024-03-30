@@ -14,7 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import os
-from typing import List, Optional, Sequence
+from typing import Generator, List, Optional
 
 import huggingface_hub
 import yaml
@@ -67,7 +67,7 @@ def is_hf(path: str) -> bool:
         return False
 
 
-def extract_hf_paths(models: List[ModelReference]) -> Sequence[str]:
+def extract_hf_paths(models: List[ModelReference]) -> Generator[str, None, None]:
     """
     Yields all valid Hugging Face paths from a list of ModelReference objects.
 
@@ -96,6 +96,7 @@ def method_md(merge_method: str) -> str:
         "task_arithmetic": "[task arithmetic](https://arxiv.org/abs/2212.04089)",
         "dare_ties": "[DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)",
         "dare_linear": "linear [DARE](https://arxiv.org/abs/2311.03099)",
+        "model_stock": "[Model Stock](https://arxiv.org/abs/2403.19522)",
     }
     return methods.get(merge_method, merge_method)
 

@@ -2,7 +2,6 @@ import os
 from typing import Dict, Optional, Tuple
 
 import torch
-from torch._tensor import Tensor
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
@@ -116,7 +115,7 @@ class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
     def priority(self) -> int:
         return -10
 
-    def execute(self, **kwargs) -> Dict[ModelReference, Tensor]:
+    def execute(self, **kwargs) -> Dict[ModelReference, torch.Tensor]:
         key2model = {
             f"{str(model)}:{wi.name}": model for (model, wi) in self.weight_info.items()
         }
