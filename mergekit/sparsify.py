@@ -23,8 +23,18 @@ class SparsificationMethod(str, Enum):
     random = "random"
     rescaled_random = "rescaled_random"
 
+def rescaling(tensor: torch.Tensor, mask: torch.Tensor):
+    """Rescales the values to match the original tensor sum."""
+    org_sum = tensor.sum()
+    new_sum = (tensor * mask).sum()
+    
+    tensor *= (new_sum / org_sum)
 
-def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
+    return tensor * mask
+
+def magnitude(
+    tensor: torch.Tensor, density: float, rescale: bool = False
+    ) -> torch.Tensor:
     """Masks out the smallest values, retaining a proportion of `density`."""
     if density >= 1:
         return tensor
@@ -39,7 +49,12 @@ def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
     topk = torch.topk(w, k=k, largest=True)
     mask.view(-1)[topk.indices] = 1
 
-    return tensor * mask
+    if rescale:
+        res = rescaling(tensor, mask)
+    else:
+        res = tensor * mask
+
+    return res
 
 
 def bernoulli(
