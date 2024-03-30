@@ -43,25 +43,30 @@ def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
     return tensor * mask
 
 
-def magnitude_outliers(
-    tensor: torch.Tensor, density: float, outlier_fraction: float = 0.2
-):
+def magnitude_outliers(tensor: torch.Tensor, density: float, gamma: float = 0.01):
     """Masks out smallest values in addition to large outliers.
+
+    The `gamma` proportion of the largest weights are first removed, then the
+    smallest weights are removed to achieve the desired density.
 
     Args:
         tensor (torch.Tensor): The tensor to sparsify.
         density (float): The proportion of weights to retain.
-        outlier_fraction (float): The fraction of removed elements that are large-magnitude.
+        gamma (float): Percent of largest weights to remove.
     """
     if density >= 1:
         return tensor
 
     num_elems = tensor.numel()
-    n = int(density * num_elems)
+    target_n = int(density * num_elems)
+    n_top = int(gamma * num_elems)
+    n_bot = num_elems - target_n - n_top
 
-    to_remove = num_elems - n
-    r_top = int(outlier_fraction * to_remove)
-    r_bot = to_remove - r_top
+    if n_bot < 0:
+        # cut down on the number of large weights to remove in
+        # order to hit the target density
+        n_top += n_bot
+        n_bot = 0
 
     w = tensor.abs().view(-1)
     if w.device.type == "cpu":
@@ -69,7 +74,7 @@ def magnitude_outliers(
     indices = torch.sort(w, descending=False).indices
     mask = torch.zeros_like(tensor)
 
-    mask.view(-1)[indices[r_bot:-r_top]] = 1
+    mask.view(-1)[indices[n_bot:-n_top]] = 1
 
     return tensor * mask
 
@@ -96,17 +101,18 @@ def bernoulli(
 
 
 def sparsify(
-    tensor: torch.Tensor, density: float, method: SparsificationMethod, **kwargs
+    tensor: torch.Tensor,
+    density: float,
+    method: SparsificationMethod,
+    gamma: float = 0,
 ) -> torch.Tensor:
     if method == SparsificationMethod.magnitude:
-        return magnitude(tensor, density=density, **kwargs)
+        return magnitude(tensor, density=density)
     elif method == SparsificationMethod.random:
-        return bernoulli(tensor, density=density, rescale=False, **kwargs)
+        return bernoulli(tensor, density=density, rescale=False)
     elif method == SparsificationMethod.rescaled_random:
-        return bernoulli(tensor, density=density, rescale=True, **kwargs)
+        return bernoulli(tensor, density=density, rescale=True)
     elif method == SparsificationMethod.magnitude_outliers:
-        return magnitude_outliers(
-            tensor, density=density, **kwargs
-        )  # TODO: plumb through
+        return magnitude_outliers(tensor, density=density, gamma=gamma)
     else:
         raise NotImplementedError(method)
