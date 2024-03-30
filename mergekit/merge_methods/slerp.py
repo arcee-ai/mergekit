@@ -17,7 +17,6 @@ from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
-from torch._tensor import Tensor
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
@@ -38,7 +37,7 @@ class SlerpTask(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> Tensor:
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
         if len(tensors) == 1:
             return list(tensors.values())[0]
         elif len(tensors) != 2:

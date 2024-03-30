@@ -16,7 +16,6 @@
 from typing import Any, Dict, List
 
 import torch
-from torch._tensor import Tensor
 
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
@@ -31,7 +30,7 @@ class PassthroughMergeTask(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> Tensor:
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
         if len(tensors) != 1:
             raise RuntimeError("Passthrough merge expects exactly one tensor")
 
