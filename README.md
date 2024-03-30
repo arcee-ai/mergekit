@@ -176,7 +176,7 @@ Parameters: same as [Linear](#linear), plus:
 - `density` - fraction of weights in differences from the base model to retain
 - `gamma` - fraction of largest magnitude differences to remove
 
-Note that `gamma` corresponds with the parameter `β` described in the paper, while `density` is the final density of the sparsified tensors (related to `γ` and `β` by `density = 1 - γ - β`).
+Note that `gamma` corresponds with the parameter `β` described in the paper, while `density` is the final density of the sparsified tensors (related to `γ` and `β` by `density = 1 - γ - β`). For good default values, try `density: 0.9` and `gamma: 0.01`.
 
 ### [Model Stock](https://arxiv.org/abs/2403.19522)
 
