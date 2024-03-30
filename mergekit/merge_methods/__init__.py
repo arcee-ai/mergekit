@@ -45,6 +45,12 @@ def get(method: str) -> MergeMethod:
             sparsification_method=SparsificationMethod.magnitude,
             default_normalize=True,
         )
+    elif method == "rescaled_ties":
+        return GeneralizedTaskArithmeticMerge(
+            consensus_method=ConsensusMethod.sum,
+            sparsification_method=SparsificationMethod.magnitude,
+            default_normalize=True,
+        )
     elif method == "dare_ties":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=ConsensusMethod.sum,

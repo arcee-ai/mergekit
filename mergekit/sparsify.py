@@ -20,6 +20,7 @@ import torch
 
 class SparsificationMethod(str, Enum):
     magnitude = "magnitude"
+    rescaled_magnitude = "rescaled_magnitude"
     random = "random"
     rescaled_random = "rescaled_random"
 
@@ -83,6 +84,8 @@ def sparsify(
 ) -> torch.Tensor:
     if method == SparsificationMethod.magnitude:
         return magnitude(tensor, density=density)
+    if method == SparsificationMethod.rescaled_magnitude:
+        return magnitude(tensor, density=density, rescale=True)
     elif method == SparsificationMethod.random:
         return bernoulli(tensor, density=density, rescale=False)
     elif method == SparsificationMethod.rescaled_random:
