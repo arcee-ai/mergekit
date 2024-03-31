@@ -17,7 +17,6 @@ from typing import Any, Dict, List, Optional
 
 import torch
 from pydantic import BaseModel
-from torch._tensor import Tensor
 
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
@@ -43,7 +42,7 @@ class TokenizerPermutationMergeTask(Task[torch.Tensor]):
 
     def execute(
         self, tokenizer_info: TokenizerInfo, tensors: Dict[ModelReference, torch.Tensor]
-    ) -> Tensor:
+    ) -> torch.Tensor:
         if not tensors:
             return None
         if len(tensors) == 1:

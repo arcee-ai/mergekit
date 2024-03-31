@@ -20,6 +20,7 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
     SparsificationMethod,
 )
 from mergekit.merge_methods.linear import LinearMerge
+from mergekit.merge_methods.model_stock import ModelStockMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.slerp import SlerpMerge
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
@@ -56,6 +57,8 @@ def get(method: str) -> MergeMethod:
             sparsification_method=SparsificationMethod.rescaled_random,
             default_normalize=False,
         )
+    elif method == "model_stock":
+        return ModelStockMerge()
     raise RuntimeError(f"Unimplemented merge method {method}")
 
 
