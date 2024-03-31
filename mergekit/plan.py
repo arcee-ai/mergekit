@@ -31,7 +31,13 @@ from mergekit.config import (
     OutputSliceDefinition,
 )
 from mergekit.graph import Task
-from mergekit.io.tasks import FinalizeModel, GatherTensors, SaveTensor, TensorWriterTask
+from mergekit.io.tasks import (
+    FinalizeModel,
+    GatherTensors,
+    LoaderCache,
+    SaveTensor,
+    TensorWriterTask,
+)
 from mergekit.merge_methods import MergeMethod
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 from mergekit.options import MergeOptions
@@ -41,8 +47,7 @@ from mergekit.tokenizer import BuildTokenizer
 class MergePlanner:
     config: MergeConfiguration
     arch_info: ArchitectureInfo
-    clone_tensors: bool
-    trust_remote_code: bool
+    options: MergeOptions
     out_model_config: Any
     _writer_task: TensorWriterTask
     _method: MergeMethod
@@ -60,8 +65,7 @@ class MergePlanner:
     ):
         self.config = config
         self.arch_info = arch_info
-        self.clone_tensors = options.clone_tensors
-        self.trust_remote_code = options.trust_remote_code
+        self.options = options
         self.out_model_config = out_model_config
         self._method = merge_methods.get(config.merge_method)
         self._writer_task = TensorWriterTask(
@@ -82,7 +86,7 @@ class MergePlanner:
     def model_arch_info(self, model: ModelReference):
         return ConfiguredArchitectureInfo(
             info=self.arch_info,
-            config=model.config(trust_remote_code=self.trust_remote_code),
+            config=model.config(trust_remote_code=self.options.trust_remote_code),
         )
 
     def normalize_config(self):
@@ -131,6 +135,19 @@ class MergePlanner:
         models: List[ModelReference],
         cfg_reader: ConfigReader,
     ):
+        if weight.optional:
+            # check if any input weights are present
+            any_weight = False
+            for model, w_in in zip(models, weights_in):
+                index = LoaderCache().get(model).index
+                if w_in.name in index.tensor_paths:
+                    any_weight = True
+                    break
+
+            if not any_weight:
+                logging.info(f"Skipping optional weight {weight.name}")
+                return
+
         tensor_merge_method = self._method
         if self._tokenizer_task and weight.is_embed:
             tensor_merge_method = TokenizerPermutationMerge(
@@ -177,7 +194,8 @@ class MergePlanner:
             tensor_name=weight.name,
             tensor_task=tensor_task,
             writer_task=self._writer_task,
-            clone=self.clone_tensors,
+            clone=self.options.clone_tensors,
+            optional=weight.optional,
         )
         self._tasks.append(save_task)
 

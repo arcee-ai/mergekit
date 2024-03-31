@@ -65,6 +65,12 @@ def run_merge(
         merge_config, arch_info, trust_remote_code=options.trust_remote_code
     )
 
+    # warm up loader cache
+    for model in tqdm.tqdm(
+        merge_config.referenced_models(), desc="Warmup loader cache"
+    ):
+        loader_cache.get(model)
+
     logging.info("Planning operations")
     targets = MergePlanner(
         merge_config,
@@ -73,12 +79,6 @@ def run_merge(
         options=options,
         out_model_config=cfg_out,
     ).plan()
-
-    # warm up loader cache
-    for model in tqdm.tqdm(
-        merge_config.referenced_models(), desc="Warmup loader cache"
-    ):
-        loader_cache.get(model)
 
     exec = Executor(
         tasks=targets,
