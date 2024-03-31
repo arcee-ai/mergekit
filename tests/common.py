@@ -31,9 +31,7 @@ def run_and_check_merge(
 
         if check_nan:
             # check for NaN in output
-            loader = LazyTensorLoader(
-                ShardedTensorIndex.from_disk(tmpdir), lazy_unpickle=False
-            )
+            loader = LazyTensorLoader.from_disk(tmpdir, lazy_unpickle=False)
             tp = loader.index.tensor_paths
             sorted_tensors = sorted(tp.keys(), key=lambda k: tp[k])
             for tensor_name in sorted_tensors:

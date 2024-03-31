@@ -11,7 +11,7 @@ from mergekit.config import (
     OutputSliceDefinition,
     ParameterSetting,
 )
-from mergekit.io import LazyTensorLoader, ShardedTensorIndex
+from mergekit.io import LazyTensorLoader
 
 
 @pytest.fixture(scope="session")
@@ -73,7 +73,7 @@ class TestBasicMerges:
         )
 
         def _check_o_proj(p: str):
-            loader = LazyTensorLoader(index=ShardedTensorIndex.from_disk(p))
+            loader = LazyTensorLoader.from_disk(p)
             saw_any = False
             for name in loader.index.tensor_paths:
                 if "o_proj" in name:

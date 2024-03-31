@@ -141,9 +141,9 @@ def get_gate_params(
             (model_cfg.num_hidden_layers, len(experts), model_cfg.hidden_size)
         )
     elif mode == "cheap_embed":
-        embed = LazyTensorLoader(
-            model_ref.tensor_index(), lazy_unpickle=lazy_unpickle
-        ).get_tensor("model.embed_tokens.weight")
+        embed = model_ref.lazy_loader(lazy_unpickle=lazy_unpickle).get_tensor(
+            "model.embed_tokens.weight"
+        )
 
         def _do_it(tokenized):
             return get_cheap_embedding(
@@ -299,8 +299,8 @@ def build(
     for model in tqdm.tqdm(
         [base_model] + [e.model_ref for e in config.experts], desc="Warm up loaders"
     ):
-        loaders[model] = LazyTensorLoader(
-            model.tensor_index(cache_dir=merge_options.transformers_cache),
+        loaders[model] = model.lazy_loader(
+            cache_dir=merge_options.transformers_cache,
             lazy_unpickle=merge_options.lazy_unpickle,
         )
 
@@ -326,7 +326,7 @@ def build(
         base_cfg
     ):
         tensor_name = weight_info.name
-        tensor = base_loader.get_tensor(tensor_name)
+        tensor = base_loader.get_tensor(tensor_name, aliases=weight_info.aliases)
         if not out_dtype:
             # All else has failed, take the first dtype we see
             out_dtype = tensor.dtype
@@ -350,7 +350,9 @@ def build(
                         ".mlp.up_proj", f".block_sparse_moe.experts.{moe_index}.w3"
                     )
                     expert_loader = loaders.get(expert.model_ref)
-                    tensor = expert_loader.get_tensor(tensor_name)
+                    tensor = expert_loader.get_tensor(
+                        tensor_name, aliases=weight_info.aliases
+                    )
                     if expert.noise_scale:
                         tensor += torch.randn_like(tensor) * expert.noise_scale
                     writer.save_tensor(
@@ -358,7 +360,10 @@ def build(
                     )
                 continue
             writer.save_tensor(
-                tensor_name, base_loader.get_tensor(tensor_name).to(dtype=out_dtype)
+                tensor_name,
+                base_loader.get_tensor(tensor_name, aliases=weight_info.aliases).to(
+                    dtype=out_dtype
+                ),
             )
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(

@@ -1,6 +1,6 @@
 import torch
 
-from mergekit.io import LazyTensorLoader, ShardedTensorIndex
+from mergekit.io import LazyTensorLoader
 
 
 class TestLazyUnpickle:
@@ -11,9 +11,7 @@ class TestLazyUnpickle:
         }
         path = tmp_path / "pytorch_model.bin"
         torch.save(data, path)
-        loader = LazyTensorLoader(
-            ShardedTensorIndex.from_disk(tmp_path), lazy_unpickle=True
-        )
+        loader = LazyTensorLoader.from_disk(tmp_path)
         for name in data:
             assert name in loader.index.tensor_paths
             tensor = loader.get_tensor(name)
