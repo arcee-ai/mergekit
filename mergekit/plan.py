@@ -161,9 +161,11 @@ class MergePlanner:
                 p.name, model=None, required=p.required, default=p.default_value
             )
 
+        base_model = cfg_reader.base_model
+
         tensor_params = {}
         for model, weight_in in zip(models, weights_in):
-            is_base = model == cfg_reader.config.base_model
+            is_base = model == base_model
             tensor_params[model] = {}
             cfg_m = cfg_reader.for_tensor(weight_in.name)
             for p in tensor_merge_method.tensor_parameters():
@@ -188,7 +190,7 @@ class MergePlanner:
                     key: ImmutableMap(data=tensor_params[key]) for key in tensor_params
                 }
             ),
-            base_model=self.config.base_model,
+            base_model=base_model,
         )
         save_task = SaveTensor(
             tensor_name=weight.name,

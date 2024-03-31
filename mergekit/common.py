@@ -36,7 +36,7 @@ import immutables
 import peft
 import torch
 import transformers
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_serializer, model_validator
 from pydantic_core import core_schema
 from transformers import AutoConfig, PretrainedConfig
 from typing_extensions import TypeVar
@@ -168,6 +168,13 @@ class ModelReference(BaseModel, frozen=True):
                 return {"model": chunks[0], "lora": chunks[1]}
             raise RuntimeError(f"Can't parse {value}")
         return value
+
+    @model_serializer()
+    def serialize(self):
+        res = str(self)
+        if '"' in res or " " in res:
+            return self
+        return res
 
     @classmethod
     def parse(cls, value: str) -> "ModelReference":
