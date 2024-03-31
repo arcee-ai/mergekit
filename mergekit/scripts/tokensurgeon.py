@@ -34,6 +34,8 @@ from mergekit.io import TensorWriter
 from mergekit.io.tasks import LoaderCache
 from mergekit.options import MergeOptions, add_merge_options
 
+LOG = logging.getLogger(__name__)
+
 
 @click.command("mergekit-tokensurgeon")
 @click.argument("model", type=str)
@@ -90,6 +92,7 @@ def main(
     elif verbosity > 1:
         log_level = logging.DEBUG
     logging.basicConfig(level=log_level)
+    LOG.warning("This tool is experimental and may produce unexpected results.")
 
     model = ModelReference.model_validate(model)
     donor = ModelReference.model_validate(donor)
@@ -129,7 +132,7 @@ def main(
             error=not merge_options.allow_crimes,
         )
 
-    logging.info("Computing new embeddings")
+    LOG.info("Computing new embeddings")
     new_embed = get_embeddings(
         old_embed,
         donor_embed,
@@ -151,7 +154,7 @@ def main(
             donor_lm_head_info.name, aliases=donor_lm_head_info.aliases, device=device
         )
 
-        logging.info("Computing new lm_head embeddings")
+        LOG.info("Computing new lm_head embeddings")
         new_lm_head = get_embeddings(
             old_lm_head,
             donor_lm_head,
@@ -166,7 +169,7 @@ def main(
         )
 
     # Save out the new model
-    logging.info(f"Saving new model to {out_path}")
+    LOG.info(f"Saving new model to {out_path}")
     writer = TensorWriter(
         out_path,
         max_shard_size=merge_options.out_shard_size,
@@ -189,7 +192,7 @@ def main(
     try:
         cfg_out.vocab_size = tokenizer.vocab_size
     except AttributeError:
-        logging.error(
+        LOG.error(
             "Could not set vocab size in config.json - you may need to update it manually."
         )
     for key in [
@@ -204,7 +207,7 @@ def main(
             try:
                 setattr(cfg_out, key, value)
             except AttributeError:
-                logging.error(f"Could not set {key}!")
+                LOG.error(f"Could not set {key}!")
     cfg_out.save_pretrained(out_path)
 
 
@@ -279,10 +282,10 @@ def get_embedding_info(
 def report_issue(message: str, error: bool = False):
     """Log an issue and exit if error is True."""
     if error:
-        logging.error(message)
+        LOG.error(message)
         sys.exit(1)
     else:
-        logging.warning(message)
+        LOG.warning(message)
 
 
 def get_embeddings(
@@ -467,16 +470,16 @@ def get_embeddings(
         knn_matches += 1
 
     if log_statistics:
-        logging.info("Token breakdown:")
-        logging.info(f"\tExact matches: {exact_matches}")
+        LOG.info("Token breakdown:")
+        LOG.info(f"\tExact matches: {exact_matches}")
         if prefix_matches:
-            logging.info(f"\tPrefix matches: {prefix_matches}")
-        logging.info(f"\tKNN solutions: {knn_matches}")
+            LOG.info(f"\tPrefix matches: {prefix_matches}")
+        LOG.info(f"\tKNN solutions: {knn_matches}")
 
         pct_approx = int((len(donor_vocab) - exact_matches) * 100 / len(donor_vocab))
         if pct_approx > 10:
             # encourage best practices
-            logging.warning(
+            LOG.warning(
                 f"Large number of tokens ({pct_approx}%) could not be exactly "
                 "matched - be sure to fine tune this sucker!"
             )
@@ -485,21 +488,19 @@ def get_embeddings(
         knn_err = torch.tensor(
             knn_reconstruction_error, device=original_embed.device, dtype=torch.float32
         )
-        logging.info("KNN reconstruction error:")
-        logging.info(f"\tMean: {knn_err.mean().item()}")
-        logging.debug(f"\tMedian: {knn_err.median().item()}")
-        logging.debug(f"\tMax: {knn_err.max().item()}")
-        logging.debug(f"\tMin: {knn_err.min().item()}")
-        logging.debug(f"\tStddev: {knn_err.std().item()}")
+        LOG.info("KNN reconstruction error:")
+        LOG.info(f"\tMean: {knn_err.mean().item()}")
+        LOG.debug(f"\tMedian: {knn_err.median().item()}")
+        LOG.debug(f"\tMax: {knn_err.max().item()}")
+        LOG.debug(f"\tMin: {knn_err.min().item()}")
+        LOG.debug(f"\tStddev: {knn_err.std().item()}")
         if knn_err.mean().isnan() or knn_err.mean().isinf():
-            logging.error(
+            LOG.error(
                 "NaN or infinite reconstruction error detected - output is "
                 "definitely broken!"
             )
         if knn_err.mean().item() >= 0.01:
-            logging.warning(
-                "Unreasonably high reconstruction error - expect some issues!"
-            )
+            LOG.warning("Unreasonably high reconstruction error - expect some issues!")
 
     return res
 
@@ -551,7 +552,7 @@ def load_tokenizer(
         else:
             word_start_prefix = "▁"
     else:
-        logging.warning("Unknown tokenizer type - assuming 'Ġ' word start prefix")
+        LOG.warning("Unknown tokenizer type - assuming 'Ġ' word start prefix")
         word_start_prefix = "Ġ"
 
     tokenizer.all_special_tokens
