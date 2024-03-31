@@ -13,14 +13,16 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import enum
 import logging
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Generator, List, Optional, Tuple, Union
 
 import click
 import torch
 import tqdm
 import transformers
+from typing_extensions import TypeAlias
 
 from mergekit.architecture import (
     ConfiguredArchitectureInfo,
@@ -206,31 +208,49 @@ def main(
     cfg_out.save_pretrained(out_path)
 
 
-def normalize_token(token: str, word_start_prefix: str = "▁") -> str:
+class TokenMarker(enum.Enum):
+    SPECIAL = "special"
+    WORD_START = "word_start"
+
+
+NormalizedToken: TypeAlias = Union[str, Tuple[TokenMarker, str]]
+
+
+def normalize_token(
+    token: str,
+    special_tokens_map: Dict[str, Union[str, List[str]]],
+    word_start_prefix: str = "▁",
+) -> NormalizedToken:
     """
     Normalize a token for comparison.
-
-    Converts word start prefixes and maps special tokens to their
-    standard forms.
     """
     if token.startswith(word_start_prefix):
-        token = (
-            "<!~WORD_START_HIGHLY_UNIQUE_STRING_DO_NOT_STEAL~!>"
-            + token[len(word_start_prefix) :]
-        )
+        return (TokenMarker.WORD_START, token[len(word_start_prefix) :])
 
-    special_map = {
-        "<s>": "[BOS]",
-        "</s>": "[EOS]",
-        "<pad>": "[PAD]",
-        "<unk>": "[UNK]",
-        "<mask>": "[MASK]",
-        "<cls>": "[CLS]",
-        "<sep>": "[SEP]",
-    }
-    if token in special_map:
-        return special_map[token]
+    for special_token_type, values in special_tokens_map.items():
+        if isinstance(values, str):
+            values = [values]
+        if token in values:
+            return (TokenMarker.SPECIAL, special_token_type)
     return token
+
+
+def token_prefixes(
+    token: NormalizedToken, allow_whitespace: bool = False
+) -> Generator[NormalizedToken, None, None]:
+    """Yield potential prefixes of a token."""
+    marker = None
+    if isinstance(token, tuple):
+        marker, token = token
+
+    for i in range(len(token) - 1, 0, -1):
+        prefix = token[:i]
+        if not allow_whitespace and not prefix.strip():
+            break
+        if marker is not None:
+            yield (marker, prefix)
+        else:
+            yield prefix
 
 
 def get_embedding_info(
@@ -268,8 +288,8 @@ def report_issue(message: str, error: bool = False):
 def get_embeddings(
     original_embed: torch.Tensor,
     donor_embed: torch.Tensor,
-    original_vocab: Dict[str, int],
-    donor_vocab: Dict[str, int],
+    original_vocab: Dict[NormalizedToken, int],
+    donor_vocab: Dict[NormalizedToken, int],
     common_tokens: List[str],
     *,
     accept_prefix: bool = False,
@@ -292,8 +312,10 @@ def get_embeddings(
     Args:
         original_embed (torch.Tensor): Embedding matrix for the original vocabulary.
         donor_embed (torch.Tensor): Embedding matrix for the new vocabulary.
-        original_vocab (Dict[str, int]): Maps tokens to indices in original_embed.
-        donor_vocab (Dict[str, int]): Maps tokens to indices in donor_embed.
+        original_vocab (Dict[NormalizedToken, int]): Maps tokens to indices in
+            original_embed.
+        donor_vocab (Dict[NormalizedToken, int]): Maps tokens to indices in
+            donor_embed.
         common_tokens (List[str]): Tokens that are common to both vocabularies.
         accept_prefix (bool): If True, allows using prefix matches for tokens when
             an exact match is not found.
@@ -302,6 +324,11 @@ def get_embeddings(
             approximation. Otherwise, uses distance weighting.
         cosine_similarity (bool): If True, uses cosine similarity to find nearest
             neighbors. Otherwise, uses Euclidean distance.
+        log_reconstruction_error (bool): If True, logs the mean squared error of
+            the reconstructed embeddings.
+        log_statistics (bool): If True, logs statistics about the embedding
+            approximation process.
+        name (Optional[str]): Name of the embedding matrix. Used for logging.
 
     Returns:
         torch.Tensor: Embedding matrix for the new vocabulary.
@@ -351,13 +378,32 @@ def get_embeddings(
             exact_matches += 1
             continue
 
+        if isinstance(token, str):
+            if len(token) == 1 and ord(token) < 256:
+                # check for matching byte tokens
+                byte_tok = f"<0x{ord(token):02X}>"
+                if byte_tok in original_vocab:
+                    res[idx_1] = original_embed[original_vocab[byte_tok]]
+                    exact_matches += 1
+                    continue
+            elif token.startswith("<0x") and token.endswith(">") and len(token) == 6:
+                # check for character tokens matching byte tokens
+                try:
+                    byte = int(token[3:-1], 16)
+                except ValueError:
+                    pass
+                else:
+                    if chr(byte) in original_vocab:
+                        res[idx_1] = original_embed[original_vocab[chr(byte)]]
+                        exact_matches += 1
+                        continue
+
         if accept_prefix:
             # For the LM head, we can accept prefix matches so long as the prefix is
             # not also in the new vocab - this is to avoid including the same embedding
             # vector multiple times
             found_prefix = False
-            for j in range(len(token) - 1, 0, -1):
-                prefix = token[:j]
+            for prefix in token_prefixes(token, allow_whitespace=False):
                 if prefix in original_vocab and prefix not in donor_vocab:
                     res[idx_1] = original_embed[original_vocab[prefix]]
                     found_prefix = True
@@ -460,7 +506,7 @@ def get_embeddings(
 
 def load_tokenizer(
     model: ModelReference, options: MergeOptions
-) -> Tuple[transformers.PreTrainedTokenizerBase, Dict[str, int]]:
+) -> Tuple[transformers.PreTrainedTokenizerBase, Dict[NormalizedToken, int]]:
     """Load a tokenizer from a model. Returns the tokenizer and a mapping of
     normalized tokens to indices."""
     tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -489,6 +535,7 @@ def load_tokenizer(
         if hasattr(transformers, candidate):
             sp_style.append(getattr(transformers, candidate))
 
+    vocab = tokenizer.get_vocab()
     if isinstance(
         tokenizer,
         tuple(gpt2_style),
@@ -498,14 +545,23 @@ def load_tokenizer(
         tokenizer,
         tuple(sp_style),
     ):
-        word_start_prefix = "▁"
+        if "Ġhello" in vocab:
+            # dumb special case for deepseek's tokenizer
+            word_start_prefix = "Ġ"
+        else:
+            word_start_prefix = "▁"
     else:
         logging.warning("Unknown tokenizer type - assuming 'Ġ' word start prefix")
         word_start_prefix = "Ġ"
 
+    tokenizer.all_special_tokens
     return tokenizer, {
-        normalize_token(token, word_start_prefix=word_start_prefix): i
-        for token, i in tokenizer.get_vocab().items()
+        normalize_token(
+            token,
+            special_tokens_map=tokenizer.special_tokens_map,
+            word_start_prefix=word_start_prefix,
+        ): i
+        for token, i in vocab.items()
     }
 
 
