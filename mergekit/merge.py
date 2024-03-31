@@ -55,10 +55,7 @@ def run_merge(
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
-    loader_cache.lazy_unpickle = options.lazy_unpickle
-    loader_cache.lora_cache_dir = options.lora_merge_cache
-    loader_cache.hf_cache_dir = options.transformers_cache
-    loader_cache.trust_remote_code = options.trust_remote_code
+    loader_cache.setup(options=options)
 
     # create config for output model
     cfg_out = _model_out_config(
