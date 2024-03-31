@@ -14,7 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import tempfile
-from typing import List
+from typing import List, Optional
 
 import click
 import cma
@@ -22,7 +22,7 @@ import lm_eval
 import numpy as np
 import ray
 import torch
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
@@ -41,11 +41,20 @@ METHOD_PARAM_MAPS = {
 class ModelGenomeDefinition(BaseModel, frozen=True):
     models: List[ModelReference]
     merge_method: str
+    base_model: Optional[ModelReference] = None
+
+    @model_validator(mode="after")
+    def validate(self):
+        assert self.merge_method in METHOD_PARAM_MAPS
+
+        if self.merge_method in ["ties", "dare_ties", "task_arithmetic"]:
+            assert self.base_model is not None, "base_model is required for this method"
+        else:
+            assert self.base_model is None, "base_model is not used for this method"
 
     def to_config(self, genotype: torch.Tensor) -> MergeConfiguration:
         (n_layers, n_models, n_params) = genotype.shape
         assert n_models == len(self.models)
-        assert self.merge_method in METHOD_PARAM_MAPS
         assert n_params == len(METHOD_PARAM_MAPS[self.merge_method])
 
         slices = []
@@ -78,6 +87,9 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
                         METHOD_PARAM_MAPS[self.merge_method]
                     ):
                         params[param] = genotype[layer_idx, model_idx, param_idx]
+                        if param == "density":
+                            # ensure density is in [0, 1]
+                            params[param] = torch.abs(params[param]).clamp(0, 1).item()
                     s["sources"][model_idx]["parameters"] = params
 
             slices.append(s)
@@ -91,11 +103,12 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
                     "int8_mask": True,
                 },
                 "dtype": "bfloat16",
+                "base_model": self.base_model,
             }
         )
 
 
-@ray.remote(num_gpus=1)
+@ray.remote(num_gpus=0.25)
 def evaluate_candidate(
     genome_def: ModelGenomeDefinition,
     genotype: torch.Tensor,
@@ -122,6 +135,7 @@ def evaluate_candidate(
 @click.option(
     "--model", "-m", "models", type=ModelReference.model_validate, multiple=True
 )
+@click.option("--base-model", "-b", type=ModelReference.model_validate, default=None)
 @click.option("--merge-method", "-M", type=str, required=True)
 @click.option("--max-fevals", type=int, default=100)
 @add_merge_options
@@ -129,17 +143,20 @@ def main(
     task: str,
     models: List[ModelReference],
     merge_method: str,
+    base_model: Optional[ModelReference],
     max_fevals: int,
     merge_options: MergeOptions,
 ):
-    genome_def = ModelGenomeDefinition(models=models, merge_method=merge_method)
+    genome_def = ModelGenomeDefinition(
+        models=models, merge_method=merge_method, base_model=base_model
+    )
 
     cfg_0 = models[0].config(trust_remote_code=merge_options.trust_remote_code)
     n_layers = cfg_0.num_hidden_layers
     genotype_dim = n_layers * len(models) * len(METHOD_PARAM_MAPS[merge_method])
 
     def parallel_eval(inputs: List[np.ndarray]) -> List[float]:
-        """Evaluate a batch of candidate genomes in parallel using Ray"""
+        """Evaluate a batch of candidate genotypes. Parallelized with Ray."""
         return ray.get(
             [
                 evaluate_candidate.remote(
@@ -153,19 +170,40 @@ def main(
         )
 
     def single_eval(genome: np.ndarray) -> float:
-        """Evaluate a single candidate genome. Used during initialization."""
+        """Evaluate a single candidate genotype."""
         return parallel_eval([genome])[0]
 
-    xbest, es = cma.fmin2(
-        single_eval,
-        x0=np.random.randn(genotype_dim),
-        sigma0=0.5,
-        parallel_objective=parallel_eval,
-        options={"maxfevals": max_fevals},
-    )
+    x0 = np.random.randn(genotype_dim)
+    xbest = x0
+    xbest_score = -np.inf
+
+    def progress_callback(es: cma.CMAEvolutionStrategy):
+        nonlocal xbest, xbest_score
+        if es.result.fbest > xbest_score:
+            xbest = es.result.xbest
+            xbest_score = es.result.fbest
+            print(f"New best score: {xbest_score:.4f}")
+            print(
+                genome_def.to_config(
+                    torch.tensor(xbest).view(n_layers, len(models), -1)
+                ).to_yaml()
+            )
+
+    try:
+        xbest, es = cma.fmin2(
+            single_eval,
+            x0=np.random.randn(genotype_dim),
+            sigma0=0.5,
+            parallel_objective=parallel_eval,
+            options={"maxfevals": max_fevals},
+            callback=progress_callback,
+        )
+        xbest_score = es.result.fbest
+    except KeyboardInterrupt:
+        pass
 
     print(f"!!! OPTIMIZATION COMPLETE !!!")
-    print(f"Best score: {es.result.fbest:.4f}")
+    print(f"Best score: {xbest_score:.4f}")
     print()
 
     best_config = genome_def.to_config(
