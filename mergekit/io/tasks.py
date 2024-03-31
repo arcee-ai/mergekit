@@ -2,7 +2,6 @@ import os
 from typing import Dict, Optional, Tuple
 
 import torch
-from torch._tensor import Tensor
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
@@ -120,7 +119,7 @@ class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
     def priority(self) -> int:
         return -10
 
-    def execute(self, **kwargs) -> Dict[ModelReference, Tensor]:
+    def execute(self, **kwargs) -> Dict[ModelReference, torch.Tensor]:
         key2model = {
             f"{str(model)}:{wi.name}": model for (model, wi) in self.weight_info.items()
         }
@@ -150,6 +149,7 @@ class SaveTensor(Task[None]):
     tensor_task: Task
     writer_task: TensorWriterTask
     clone: bool
+    optional: bool = False
 
     def arguments(self) -> Dict[str, Task]:
         return {"writer": self.writer_task, "tensor": self.tensor_task}
@@ -160,7 +160,11 @@ class SaveTensor(Task[None]):
     def group_label(self) -> Optional[str]:
         return self.tensor_task.group_label()
 
-    def execute(self, writer: TensorWriter, tensor: torch.Tensor) -> None:
+    def execute(self, writer: TensorWriter, tensor: Optional[torch.Tensor]) -> None:
+        if tensor is None:
+            if not self.optional:
+                raise RuntimeError(f"No value for required tensor {self.tensor_name}")
+            return
         writer.save_tensor(name=self.tensor_name, tensor=tensor, clone=self.clone)
 
 
