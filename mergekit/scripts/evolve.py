@@ -93,6 +93,14 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
                             params[param] = torch.abs(params[param]).clamp(0, 1).item()
                     s["sources"][model_idx]["parameters"] = params
 
+            if self.base_model and (self.base_model not in self.models):
+                s["sources"].append(
+                    {
+                        "model": self.base_model,
+                        "layer_range": [layer_idx, layer_idx + 1],
+                    }
+                )
+
             slices.append(s)
 
         return MergeConfiguration.model_validate(
