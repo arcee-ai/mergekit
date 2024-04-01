@@ -180,3 +180,24 @@ class FinalizeModel(Task[None]):
 
     def execute(self, writer: TensorWriter, **kwargs) -> None:
         writer.finalize()
+
+
+class BuildStateDict(Task[Dict[str, torch.Tensor]]):
+    tensors: ImmutableMap[WeightInfo, Task[torch.Tensor]]
+
+    def arguments(self) -> Dict[str, Task]:
+        return {str(wi): t for wi, t in self.tensors.items()}
+
+    def execute(self, **kwargs) -> Dict[str, torch.Tensor]:
+        return {str(wi): t for wi, t in self.tensors.items()}
+
+
+class ReturnTensor(Task[torch.Tensor]):
+    weight_info: WeightInfo
+    tensor_task: Task[torch.Tensor]
+
+    def arguments(self) -> Dict[str, Task]:
+        return {"tensor": self.tensor_task}
+
+    def execute(self, tensor: torch.Tensor) -> torch.Tensor:
+        return tensor

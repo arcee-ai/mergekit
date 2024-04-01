@@ -16,19 +16,25 @@
 import tempfile
 from typing import List, Optional
 
+import accelerate
 import click
 import cma
 import lm_eval
+import lm_eval.models
 import numpy as np
 import ray
 import torch
+import transformers
 from pydantic import BaseModel, model_validator
 
+from mergekit.architecture import get_architecture_info
 from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
-from mergekit.io.tasks import LoaderCache
-from mergekit.merge import run_merge
+from mergekit.graph import Executor
+from mergekit.io.tasks import LoaderCache, ReturnTensor
+from mergekit.merge import _model_out_config, run_merge
 from mergekit.options import MergeOptions, add_merge_options
+from mergekit.plan import MergePlanner
 
 METHOD_PARAM_MAPS = {
     "linear": ["weight"],
@@ -43,6 +49,7 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
     models: List[ModelReference]
     merge_method: str
     base_model: Optional[ModelReference] = None
+    tokenizer_source: Optional[str] = None
 
     @model_validator(mode="after")
     def validate(self):
@@ -81,6 +88,9 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
                     s["sources"][chosen.indices[0].item()],
                     s["sources"][chosen.indices[1].item()],
                 ]
+                if self.tokenizer_source:
+                    s["sources"][0]["parameters"]["weight"] = 1 - t
+                    s["sources"][1]["parameters"]["weight"] = t
             else:
                 for model_idx in range(n_models):
                     params = {}
@@ -113,34 +123,66 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
                 },
                 "dtype": "bfloat16",
                 "base_model": self.base_model,
+                "tokenizer_source": self.tokenizer_source,
             }
         )
 
 
-@ray.remote(num_gpus=0.25)
-def evaluate_candidate(
-    genome_def: ModelGenomeDefinition,
-    genotype: torch.Tensor,
-    options: MergeOptions,
-    task: str,
-    **kwargs,
-) -> float:
-    config = genome_def.to_config(genotype)
+@ray.remote(num_gpus=1)
+class MergeEvaluator:
+    def __init__(
+        self,
+        genome_def: ModelGenomeDefinition,
+        options: MergeOptions,
+        exemplar_config: transformers.PretrainedConfig,
+    ):
+        self.genome_def = genome_def
+        self.options = options
+        self.cache = LoaderCache()
+        self.cache.setup(options)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        run_merge(config, out_path=tmpdir, options=options)
+        self.arch_info = get_architecture_info(exemplar_config)
+        self.model = (
+            transformers.AutoModelForCausalLM.from_config(
+                exemplar_config,
+                trust_remote_code=options.trust_remote_code,
+                attn_implementation="flash_attention_2",
+                torch_dtype=torch.bfloat16,
+            )
+            .bfloat16()
+            .cuda()
+            .eval()
+            .requires_grad_(False)
+        )
 
+    def evaluate(self, genotype: torch.Tensor, task: str, **kwargs) -> float:
+        config = self.genome_def.to_config(genotype)
+        planner = MergePlanner(
+            config,
+            self.arch_info,
+            self.options,
+            _model_out_config(config, self.arch_info, self.options.trust_remote_code),
+        )
+
+        tasks = planner.plan_in_memory()
+        executor = Executor(tasks, math_device="cuda", storage_device="cuda")
+        for tensor_task, value in executor.run(quiet=True):
+            assert isinstance(tensor_task, ReturnTensor)
+            if self.model.load_state_dict(
+                {tensor_task.weight_info.name: value}, strict=False
+            ).unexpected_keys:
+                raise RuntimeError(f"Unexpected keys in tensor {tensor_task}")
+
+        model = lm_eval.models.huggingface.HFLM(pretrained=self.model)
         results = lm_eval.evaluator.simple_evaluate(
-            model="hf",
-            model_args=f"pretrained={tmpdir},dtype=bfloat16",
+            model=model,
             tasks=[task],
-            device="cuda",
             log_samples=False,
             verbosity="WARNING",
             **kwargs,
         )
 
-    return results["results"][task]["acc,none"]
+        return results["results"][task]["acc,none"]
 
 
 @click.command("mergekit-evolve")
@@ -153,6 +195,7 @@ def evaluate_candidate(
 @click.option(
     "--num-fewshot", type=int, default=None, help="Number of few-shot examples"
 )
+@click.option("--tokenizer-source", type=str, default=None)
 @click.option("--max-fevals", type=int, default=100)
 @add_merge_options
 def main(
@@ -161,11 +204,15 @@ def main(
     merge_method: str,
     base_model: Optional[ModelReference],
     num_fewshot: Optional[int],
+    tokenizer_source: Optional[str],
     max_fevals: int,
     merge_options: MergeOptions,
 ):
     genome_def = ModelGenomeDefinition(
-        models=models, merge_method=merge_method, base_model=base_model
+        models=models,
+        merge_method=merge_method,
+        base_model=base_model,
+        tokenizer_source=tokenizer_source,
     )
 
     cfg_0 = models[0].config(trust_remote_code=merge_options.trust_remote_code)
@@ -178,28 +225,39 @@ def main(
     for model in models:
         cache.get(model)
 
+    x0 = np.random.uniform(low=0, high=1, size=genotype_dim)
+
+    xbest = x0
+    xbest_score = -np.inf
+
+    exemplar_config = _model_out_config(
+        genome_def.to_config(torch.tensor(x0).view(n_layers, len(models), -1)),
+        get_architecture_info(cfg_0),
+        merge_options.trust_remote_code,
+    )
+
+    actors = [
+        MergeEvaluator.remote(genome_def, merge_options, exemplar_config)
+        for _ in range(torch.cuda.device_count())
+    ]
+    pool = ray.util.ActorPool(actors)
+
     def parallel_eval(inputs: List[np.ndarray]) -> List[float]:
         """Evaluate a batch of candidate genotypes. Parallelized with Ray."""
-        return ray.get(
-            [
-                evaluate_candidate.remote(
-                    genome_def,
-                    torch.tensor(genome).view(n_layers, len(models), -1),
-                    merge_options,
+        return list(
+            pool.map(
+                lambda a, x: a.evaluate.remote(
+                    torch.tensor(x).view(n_layers, len(models), -1),
                     task,
                     num_fewshot=num_fewshot,
-                )
-                for genome in inputs
-            ]
+                ),
+                inputs,
+            )
         )
 
     def single_eval(genome: np.ndarray) -> float:
         """Evaluate a single candidate genotype."""
         return parallel_eval([genome])[0]
-
-    x0 = np.random.uniform(low=0, high=1, size=genotype_dim)
-    xbest = x0
-    xbest_score = -np.inf
 
     def progress_callback(es: cma.CMAEvolutionStrategy):
         nonlocal xbest, xbest_score

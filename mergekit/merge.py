@@ -75,10 +75,9 @@ def run_merge(
     targets = MergePlanner(
         merge_config,
         arch_info,
-        out_path=out_path,
         options=options,
         out_model_config=cfg_out,
-    ).plan()
+    ).plan_to_disk(out_path=out_path)
 
     exec = Executor(
         tasks=targets,
