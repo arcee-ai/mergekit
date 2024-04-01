@@ -26,6 +26,7 @@ from pydantic import BaseModel, model_validator
 
 from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
+from mergekit.io.tasks import LoaderCache
 from mergekit.merge import run_merge
 from mergekit.options import MergeOptions, add_merge_options
 
@@ -162,6 +163,12 @@ def main(
     cfg_0 = models[0].config(trust_remote_code=merge_options.trust_remote_code)
     n_layers = cfg_0.num_hidden_layers
     genotype_dim = n_layers * len(models) * len(METHOD_PARAM_MAPS[merge_method])
+
+    # fetch all models on the main process
+    cache = LoaderCache()
+    cache.setup(merge_options)
+    for model in models:
+        cache.get(model)
 
     def parallel_eval(inputs: List[np.ndarray]) -> List[float]:
         """Evaluate a batch of candidate genotypes. Parallelized with Ray."""
