@@ -114,6 +114,7 @@ def evaluate_candidate(
     genotype: torch.Tensor,
     options: MergeOptions,
     task: str,
+    **kwargs,
 ) -> float:
     config = genome_def.to_config(genotype)
 
@@ -125,18 +126,24 @@ def evaluate_candidate(
             model_args=f"pretrained={tmpdir},dtype=bfloat16",
             tasks=[task],
             device="cuda",
+            log_samples=False,
+            verbosity="WARNING",
+            **kwargs,
         )
 
     return results["results"][task]["acc,none"]
 
 
 @click.command("mergekit-evolve")
-@click.argument("task", type=str)
+@click.option("--task", type=str, required=True)
 @click.option(
     "--model", "-m", "models", type=ModelReference.model_validate, multiple=True
 )
 @click.option("--base-model", "-b", type=ModelReference.model_validate, default=None)
 @click.option("--merge-method", "-M", type=str, required=True)
+@click.option(
+    "--num-fewshot", type=int, default=None, help="Number of few-shot examples"
+)
 @click.option("--max-fevals", type=int, default=100)
 @add_merge_options
 def main(
@@ -144,6 +151,7 @@ def main(
     models: List[ModelReference],
     merge_method: str,
     base_model: Optional[ModelReference],
+    num_fewshot: Optional[int],
     max_fevals: int,
     merge_options: MergeOptions,
 ):
@@ -164,6 +172,7 @@ def main(
                     torch.tensor(genome).view(n_layers, len(models), -1),
                     merge_options,
                     task,
+                    num_fewshot=num_fewshot,
                 )
                 for genome in inputs
             ]
@@ -173,7 +182,7 @@ def main(
         """Evaluate a single candidate genotype."""
         return parallel_eval([genome])[0]
 
-    x0 = np.random.randn(genotype_dim)
+    x0 = np.random.uniform(low=0, high=1, size=genotype_dim)
     xbest = x0
     xbest_score = -np.inf
 
@@ -192,7 +201,7 @@ def main(
     try:
         xbest, es = cma.fmin2(
             single_eval,
-            x0=np.random.randn(genotype_dim),
+            x0=x0,
             sigma0=0.5,
             parallel_objective=parallel_eval,
             options={"maxfevals": max_fevals},
@@ -202,14 +211,14 @@ def main(
     except KeyboardInterrupt:
         pass
 
-    print(f"!!! OPTIMIZATION COMPLETE !!!")
+    print("!!! OPTIMIZATION COMPLETE !!!")
     print(f"Best score: {xbest_score:.4f}")
     print()
 
     best_config = genome_def.to_config(
         torch.tensor(xbest).view(n_layers, len(models), -1)
     )
-    print(f"Best merge configuration:")
+    print("Best merge configuration:")
     print(best_config.to_yaml())
 
 
