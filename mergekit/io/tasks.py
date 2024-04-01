@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -45,9 +46,16 @@ class LoaderCache:
         self.trust_remote_code = options.trust_remote_code
 
 
+shard_name_re = re.compile(r"model\-([0-9]+)-of-([0-9]+)")
+
+
 def _normalized_shard_name(path: str) -> int:
     name, _ext = os.path.splitext(os.path.basename(path))
-    return name.lower().replace("pytorch_model", "model")
+    name = name.lower().replace("pytorch_model", "model")
+    if m := shard_name_re.search(name):
+        frac = int(m.group(1)) / int(m.group(2))
+        name = f"model-{int(frac*100):03d}pct"
+    return name
 
 
 class LoadTensor(Task[Optional[torch.Tensor]]):
@@ -89,11 +97,10 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
     def group_label(self) -> Optional[str]:
         loader = LoaderCache().get(self.model)
         name = self._resolve_name(loader)
-        # if name:
-        #     shard_path = loader.index.tensor_paths[name]
-        #     return _normalized_shard_name(shard_path)
-        # return None
-        return name
+        if name:
+            shard_path = loader.index.tensor_paths[name]
+            return _normalized_shard_name(shard_path)
+        return None
 
 
 class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):

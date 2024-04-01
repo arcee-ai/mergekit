@@ -32,7 +32,6 @@ from mergekit.config import (
 )
 from mergekit.graph import Task
 from mergekit.io.tasks import (
-    BuildStateDict,
     FinalizeModel,
     GatherTensors,
     LoaderCache,

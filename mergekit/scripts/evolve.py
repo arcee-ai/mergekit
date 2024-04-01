@@ -13,10 +13,8 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-import tempfile
 from typing import List, Optional
 
-import accelerate
 import click
 import cma
 import lm_eval
@@ -24,7 +22,6 @@ import lm_eval.models
 import numpy as np
 import ray
 import torch
-import tqdm
 import transformers
 from pydantic import BaseModel, model_validator
 
@@ -33,7 +30,7 @@ from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache, ReturnTensor
-from mergekit.merge import _model_out_config, run_merge
+from mergekit.merge import _model_out_config
 from mergekit.options import MergeOptions, add_merge_options
 from mergekit.plan import MergePlanner
 
