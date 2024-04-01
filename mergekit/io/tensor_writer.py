@@ -61,7 +61,7 @@ class TensorWriter:
             tensor = tensor.clone()
 
         self.current_shard[name] = tensor
-        self.total_size += tensor.nbytes
+        self.total_size += tensor.numel() * tensor.element_size()
         self.current_shard_size += tensor_size
 
     def flush_current_shard(self):
