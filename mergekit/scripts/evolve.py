@@ -24,6 +24,7 @@ import lm_eval.models
 import numpy as np
 import ray
 import torch
+import tqdm
 import transformers
 from pydantic import BaseModel, model_validator
 
@@ -89,8 +90,8 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
                     s["sources"][chosen.indices[1].item()],
                 ]
                 if self.tokenizer_source:
-                    s["sources"][0]["parameters"]["weight"] = 1 - t
-                    s["sources"][1]["parameters"]["weight"] = t
+                    s["sources"][0]["parameters"] = {"weight": 1 - t}
+                    s["sources"][1]["parameters"] = {"weight": t}
             else:
                 for model_idx in range(n_models):
                     params = {}
@@ -128,6 +129,37 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
         )
 
 
+class NoInit:
+    def __enter__(self):
+        def noop(*args, **kwargs):
+            pass
+
+        (k, u, n) = (
+            torch.nn.init.kaiming_uniform_,
+            torch.nn.init.uniform_,
+            torch.nn.init.normal_,
+        )
+        torch.nn.init.kaiming_uniform_ = noop
+        torch.nn.init.uniform_ = noop
+        torch.nn.init.normal_ = noop
+
+        transformers.modeling_utils._init_weights = False
+        self.funcs = (k, u, n)
+
+    def __exit__(self, *args):
+        (k, u, n) = self.funcs
+        (
+            torch.nn.init.kaiming_uniform_,
+            torch.nn.init.uniform_,
+            torch.nn.init.normal_,
+        ) = (
+            k,
+            u,
+            n,
+        )
+        transformers.modeling_utils._init_weights = True
+
+
 @ray.remote(num_gpus=1)
 class MergeEvaluator:
     def __init__(
@@ -142,18 +174,20 @@ class MergeEvaluator:
         self.cache.setup(options)
 
         self.arch_info = get_architecture_info(exemplar_config)
-        self.model = (
-            transformers.AutoModelForCausalLM.from_config(
-                exemplar_config,
-                trust_remote_code=options.trust_remote_code,
-                attn_implementation="flash_attention_2",
-                torch_dtype=torch.bfloat16,
+        with NoInit():
+            self.model = (
+                transformers.AutoModelForCausalLM.from_config(
+                    exemplar_config,
+                    trust_remote_code=options.trust_remote_code,
+                    attn_implementation="flash_attention_2",
+                    torch_dtype=torch.bfloat16,
+                )
+                .bfloat16()
+                .cuda()
+                .eval()
+                .requires_grad_(False)
             )
-            .bfloat16()
-            .cuda()
-            .eval()
-            .requires_grad_(False)
-        )
+        print("Model initialized")
 
     def evaluate(self, genotype: torch.Tensor, task: str, **kwargs) -> float:
         config = self.genome_def.to_config(genotype)
@@ -165,13 +199,15 @@ class MergeEvaluator:
         )
 
         tasks = planner.plan_in_memory()
-        executor = Executor(tasks, math_device="cuda", storage_device="cuda")
-        for tensor_task, value in executor.run(quiet=True):
+        executor = Executor(tasks, math_device="cuda")
+        for tensor_task, value in executor.run(quiet=False):
             assert isinstance(tensor_task, ReturnTensor)
             if self.model.load_state_dict(
-                {tensor_task.weight_info.name: value}, strict=False
+                {tensor_task.weight_info.name: value}, strict=False, assign=False
             ).unexpected_keys:
                 raise RuntimeError(f"Unexpected keys in tensor {tensor_task}")
+
+            del value
 
         model = lm_eval.models.huggingface.HFLM(pretrained=self.model)
         results = lm_eval.evaluator.simple_evaluate(
@@ -182,7 +218,7 @@ class MergeEvaluator:
             **kwargs,
         )
 
-        return results["results"][task]["acc,none"]
+        return -results["results"][task]["acc,none"]
 
 
 @click.command("mergekit-evolve")
@@ -228,7 +264,7 @@ def main(
     x0 = np.random.uniform(low=0, high=1, size=genotype_dim)
 
     xbest = x0
-    xbest_score = -np.inf
+    xbest_cost = np.inf
 
     exemplar_config = _model_out_config(
         genome_def.to_config(torch.tensor(x0).view(n_layers, len(models), -1)),
@@ -260,11 +296,11 @@ def main(
         return parallel_eval([genome])[0]
 
     def progress_callback(es: cma.CMAEvolutionStrategy):
-        nonlocal xbest, xbest_score
-        if es.result.fbest > xbest_score:
+        nonlocal xbest, xbest_cost
+        if es.result.fbest < xbest_cost:
             xbest = es.result.xbest
-            xbest_score = es.result.fbest
-            print(f"New best score: {xbest_score:.4f}")
+            xbest_cost = es.result.fbest
+            print(f"New best cost: {xbest_cost:.4f}")
             print(
                 genome_def.to_config(
                     torch.tensor(xbest).view(n_layers, len(models), -1)
@@ -280,12 +316,12 @@ def main(
             options={"maxfevals": max_fevals},
             callback=progress_callback,
         )
-        xbest_score = es.result.fbest
+        xbest_cost = es.result.fbest
     except KeyboardInterrupt:
         pass
 
     print("!!! OPTIMIZATION COMPLETE !!!")
-    print(f"Best score: {xbest_score:.4f}")
+    print(f"Best cost: {xbest_cost:.4f}")
     print()
 
     best_config = genome_def.to_config(

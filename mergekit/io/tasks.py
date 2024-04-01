@@ -199,5 +199,11 @@ class ReturnTensor(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {"tensor": self.tensor_task}
 
+    def priority(self) -> int:
+        return 10000
+
+    def group_label(self) -> Optional[str]:
+        return self.tensor_task.group_label()
+
     def execute(self, tensor: torch.Tensor) -> torch.Tensor:
         return tensor
