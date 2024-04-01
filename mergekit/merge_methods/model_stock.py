@@ -97,6 +97,9 @@ class ModelStockMergeTask(Task[torch.Tensor]):
         ws = all_weights[1:]
         return w_0, ws
 
+    def group_label(self) -> str | None:
+        return self.gather_tensors.group_label()
+
 
 class ModelStockMerge(MergeMethod):
     def parameters(self) -> List[ConfigParameterDef]:

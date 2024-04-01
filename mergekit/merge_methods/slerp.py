@@ -62,6 +62,9 @@ class SlerpTask(Task[torch.Tensor]):
             .to(prepped_tensors[0].device)
         )
 
+    def group_label(self) -> str | None:
+        return self.gather_tensors.group_label()
+
 
 class SlerpMerge(MergeMethod):
     def parameters(self) -> List[ConfigParameterDef]:

@@ -63,6 +63,9 @@ class LinearMergeTask(Task[torch.Tensor]):
 
         return res
 
+    def group_label(self) -> str | None:
+        return self.gather_tensors.group_label()
+
 
 class LinearMerge(MergeMethod):
     def parameters(self) -> List[ConfigParameterDef]:

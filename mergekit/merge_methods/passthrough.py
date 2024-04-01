@@ -41,6 +41,9 @@ class PassthroughMergeTask(Task[torch.Tensor]):
 
         return tensor
 
+    def group_label(self) -> str | None:
+        return self.gather_tensors.group_label()
+
 
 class PassthroughMerge(MergeMethod):
     def tensor_parameters(self) -> List[ConfigParameterDef]:

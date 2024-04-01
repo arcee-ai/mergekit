@@ -141,6 +141,9 @@ class GTATask(Task[torch.Tensor]):
 
         return (base + mixed_delta).to(base.dtype)
 
+    def group_label(self) -> str | None:
+        return self.tensors.group_label()
+
 
 def get_task_vectors(
     parameter_name: str,
