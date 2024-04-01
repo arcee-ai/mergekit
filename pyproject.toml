@@ -23,6 +23,9 @@ dependencies = [
     "typing-extensions",
     "sentencepiece",
     "protobuf",
+    "ray",
+    "cma",
+    "lm_eval",
 ]
 
 [project.optional-dependencies]
