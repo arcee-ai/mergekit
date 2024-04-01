@@ -79,8 +79,8 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
             return None
 
         x = loader.get_tensor(name, device=self.device or "cpu")
-        if self.dtype:
-            x = x.to(dtype=dtype_from_name(self.dtype))
+        if self.dtype and (dtype := dtype_from_name(self.dtype)) != x.dtype:
+            x = x.to(dtype=dtype)
         return x
 
     def priority(self) -> int:
@@ -89,10 +89,11 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
     def group_label(self) -> Optional[str]:
         loader = LoaderCache().get(self.model)
         name = self._resolve_name(loader)
-        if name:
-            shard_path = loader.index.tensor_paths[name]
-            return _normalized_shard_name(shard_path)
-        return None
+        # if name:
+        #     shard_path = loader.index.tensor_paths[name]
+        #     return _normalized_shard_name(shard_path)
+        # return None
+        return name
 
 
 class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):

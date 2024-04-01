@@ -199,8 +199,8 @@ class MergeEvaluator:
         )
 
         tasks = planner.plan_in_memory()
-        executor = Executor(tasks, math_device="cuda")
-        for tensor_task, value in executor.run(quiet=False):
+        executor = Executor(tasks, math_device="cuda", storage_device="cuda")
+        for tensor_task, value in executor.run(quiet=True):
             assert isinstance(tensor_task, ReturnTensor)
             if self.model.load_state_dict(
                 {tensor_task.weight_info.name: value}, strict=False, assign=False

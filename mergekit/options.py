@@ -39,6 +39,7 @@ class MergeOptions(BaseModel):
     write_model_card: bool = True
     safe_serialization: bool = True
     quiet: bool = False
+    read_to_gpu: bool = False
 
 
 OPTION_HELP = {
@@ -56,6 +57,7 @@ OPTION_HELP = {
     "write_model_card": "Output README.md containing details of the merge",
     "safe_serialization": "Save output in safetensors. Do this, don't poison the world with more pickled models.",
     "quiet": "Suppress progress bars and other non-essential output",
+    "read_to_gpu": "Read model weights directly to GPU",
 }
 
 
