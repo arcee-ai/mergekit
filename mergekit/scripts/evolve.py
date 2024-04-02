@@ -13,9 +13,10 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import os
 import shutil
 import tempfile
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 import click
 import cma
@@ -24,9 +25,8 @@ import lm_eval.models
 import numpy as np
 import ray
 import torch
+import yaml
 from pydantic import BaseModel, model_validator
-from ray.util.placement_group import placement_group
-from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
 from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
@@ -59,7 +59,32 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
         else:
             assert self.base_model is None, "base_model is not used for this method"
 
-    def to_config(self, genotype: torch.Tensor) -> MergeConfiguration:
+        return self
+
+    def initial_genotype(self, num_layers: int, random: bool = False) -> torch.Tensor:
+        """Generate an initial genotype for the given number of layers."""
+        assert (
+            num_layers % self.layer_granularity == 0
+        ), "Number of layers must be a multiple of layer_granularity"
+
+        n_layer_groups = num_layers // self.layer_granularity
+        n_models = len(self.models)
+        n_params = len(METHOD_PARAM_MAPS[self.merge_method])
+
+        if random:
+            return torch.rand(n_layer_groups, n_models, n_params)
+        else:
+            x0_t = torch.zeros(n_layer_groups, n_models, n_params)
+            # weight is always first
+            x0_t[:, :, 0] = 1 / n_models
+            if n_params > 1:
+                # sometimes followed by density
+                x0_t[:, :, 1:] = 1
+            return x0_t
+
+    def to_merge_config(self, genotype: torch.Tensor) -> MergeConfiguration:
+        """Convert a genotype tensor to a mergekit configuration."""
+
         (n_layer_groups, n_models, n_params) = genotype.shape
         assert n_models == len(self.models)
         assert n_params == len(METHOD_PARAM_MAPS[self.merge_method])
@@ -133,83 +158,77 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
         )
 
 
-@ray.remote
-def merge_model(
-    genome: ModelGenomeDefinition, genotype: torch.Tensor, merge_options: MergeOptions
-) -> str:
-    cfg = genome.to_config(genotype)
-    res = tempfile.mkdtemp(prefix="merged")
-    run_merge(cfg, out_path=res, options=merge_options)
-    return res
+class EvolMergeConfiguration(BaseModel, frozen=True):
+    genome: ModelGenomeDefinition
+    task: str
+    limit: Optional[int] = None
+    num_fewshot: Optional[int] = None
+    shuffle: bool = False
+    random_init: bool = False
 
 
-@ray.remote(num_gpus=0.9, num_cpus=0.25)
-def evaluate_model(
-    merged_path: str,
-    task: str,
-    shuffle_eval: bool = False,
-    vllm: bool = False,
-    **kwargs,
-) -> float:
-    if shuffle_eval:
-        monkeypatch_lmeval_shuffle()
+@ray.remote(num_cpus=1, num_gpus=1.0)
+class MergeEvalActor:
+    def __init__(
+        self,
+        config: EvolMergeConfiguration,
+        merge_options: MergeOptions,
+        model_storage_path: Optional[str] = None,
+        vllm: bool = False,
+    ):
+        self.config = config
+        self.merge_options = merge_options
+        self.cache = LoaderCache()
+        self.cache.setup(merge_options)
+        self.model_storage_path = model_storage_path
+        self.vllm = vllm
 
-    model_args = {
-        "pretrained": merged_path,
-        "dtype": "bfloat16",
-    }
-    if vllm:
-        model_args["gpu_memory_utilization"] = 0.8
-        model_args["tensor_parallel_size"] = 1
-        model_args["batch_size"] = "auto"
-    else:
-        model_args["use_cache"] = True
+        if config.shuffle:
+            monkeypatch_lmeval_shuffle()
 
-    results = lm_eval.evaluator.simple_evaluate(
-        model="vllm" if vllm else "hf",
-        model_args=model_args,
-        tasks=[task],
-        log_samples=False,
-        verbosity="WARNING",
-        **kwargs,
-    )
+    async def _merge_model(
+        self,
+        genotype: torch.Tensor,
+    ) -> str:
+        cfg = self.config.genome.to_merge_config(genotype)
+        res = tempfile.mkdtemp(prefix="merged", dir=self.model_storage_path)
+        run_merge(cfg, out_path=res, options=self.merge_options)
+        return res
 
-    shutil.rmtree(merged_path)
+    async def _evaluate_model(
+        self,
+        merged_path: str,
+    ) -> float:
+        model_args = {
+            "pretrained": merged_path,
+            "dtype": "bfloat16",
+        }
+        if self.vllm:
+            model_args["gpu_memory_utilization"] = 0.8
+            model_args["tensor_parallel_size"] = 1
+            model_args["batch_size"] = "auto"
+        else:
+            model_args["use_cache"] = True
 
-    print(results["results"][task])
-    return -results["results"][task]["acc,none"]
+        results = lm_eval.evaluator.simple_evaluate(
+            model="vllm" if self.vllm else "hf",
+            model_args=model_args,
+            tasks=[self.config.task],
+            log_samples=False,
+            verbosity="WARNING",
+        )
 
+        shutil.rmtree(merged_path)
 
-@ray.remote
-def evaluate_genotype(
-    genome: ModelGenomeDefinition,
-    genotype: torch.Tensor,
-    task: str,
-    merge_options: MergeOptions,
-    shuffle_eval: bool = False,
-    vllm: bool = False,
-    **kwargs,
-) -> Tuple[float, ray.ObjectRef]:
-    merge_num_gpus = 0.1 if merge_options.cuda else 0
-    # placement group to ensure merge and eval are on the same physical node
-    pg = placement_group(
-        [{"CPU": 1.0, "GPU": 0.9}],
-        strategy="STRICT_PACK",
-    )
+        print(results["results"][self.config.task])
+        return -results["results"][self.config.task]["acc,none"]
 
-    ray.get(pg.ready())
-
-    strat = PlacementGroupSchedulingStrategy(pg)
-    merged_path = merge_model.options(
-        scheduling_strategy=strat, num_gpus=merge_num_gpus
-    ).remote(genome, genotype, merge_options)
-    eval_task = evaluate_model.options(scheduling_strategy=strat).remote(
-        merged_path, task, shuffle_eval=shuffle_eval, vllm=vllm, **kwargs
-    )
-
-    result = ray.get(eval_task)
-    ray.util.remove_placement_group(pg)
-    return result
+    async def evaluate_genotype(
+        self,
+        genotype: torch.Tensor,
+    ) -> float:
+        merged_path = await self._merge_model(genotype)
+        return await self._evaluate_model(merged_path)
 
 
 def monkeypatch_lmeval_shuffle():
@@ -240,98 +259,74 @@ def monkeypatch_lmeval_shuffle():
 
 
 @click.command("mergekit-evolve")
-@click.option("--task", type=str, required=True)
-@click.option(
-    "--model", "-m", "models", type=ModelReference.model_validate, multiple=True
-)
-@click.option("--base-model", "-b", type=ModelReference.model_validate, default=None)
-@click.option("--merge-method", "-M", type=str, required=True)
-@click.option(
-    "--num-fewshot", type=int, default=None, help="Number of few-shot examples"
-)
-@click.option("--tokenizer-source", type=str, default=None)
-@click.option("--layer-granularity", type=int, default=8)
-@click.option(
-    "--limit", type=int, default=None, help="Maximum number of examples per eval"
-)
-@click.option("--shuffle", is_flag=True, default=False, help="Shuffle eval datasets")
-@click.option(
-    "--random-init",
-    is_flag=True,
-    default=False,
-    help="Randomly initialize a seed genotype",
-)
+@click.argument("genome-config-path", type=str)
 @click.option("--max-fevals", type=int, default=100)
 @click.option("--vllm/--no-vllm", is_flag=True, default=False, help="Use vLLM")
+@click.option(
+    "--model-storage-path",
+    type=str,
+    help="Path to store merged models (should be accessible to all nodes)",
+)
+@click.option("--num-gpus", type=int, help="Number of GPUs to use across all nodes")
 @add_merge_options
 def main(
-    task: str,
-    models: List[ModelReference],
-    merge_method: str,
-    base_model: Optional[ModelReference],
-    num_fewshot: Optional[int],
-    tokenizer_source: Optional[str],
-    layer_granularity: int,
-    limit: Optional[int],
-    shuffle: bool,
-    random_init: bool,
+    genome_config_path: str,
     max_fevals: int,
     vllm: bool,
+    model_storage_path: Optional[str],
+    num_gpus: Optional[int],
     merge_options: MergeOptions,
 ):
-    genome_def = ModelGenomeDefinition(
-        models=models,
-        merge_method=merge_method,
-        base_model=base_model,
-        tokenizer_source=tokenizer_source,
-        layer_granularity=layer_granularity,
+    config = EvolMergeConfiguration.model_validate(
+        yaml.safe_load(open(genome_config_path, "r", encoding="utf-8"))
     )
+    print(config)
 
-    cfg_0 = models[0].config(trust_remote_code=merge_options.trust_remote_code)
+    genome_def = config.genome
+    cfg_0 = genome_def.models[0].config(
+        trust_remote_code=merge_options.trust_remote_code
+    )
     n_layers = cfg_0.num_hidden_layers
-    if n_layers % layer_granularity != 0:
-        raise ValueError(
-            f"Number of layers ({n_layers}) must be a multiple of layer_granularity ({layer_granularity})"
+
+    if model_storage_path:
+        merge_options = merge_options.model_copy(
+            update={
+                "lora_merge_cache": os.path.join(model_storage_path, "lora"),
+                "transformers_cache": os.path.join(model_storage_path, "transformers"),
+            }
         )
-    n_layer_groups = n_layers // layer_granularity
-    genotype_dim = n_layer_groups * len(models) * len(METHOD_PARAM_MAPS[merge_method])
 
     # fetch all models on the main process
     cache = LoaderCache()
     cache.setup(merge_options)
-    for model in models:
+    for model in genome_def.models:
         cache.get(model)
 
-    if random_init:
-        x0 = np.random.uniform(low=0, high=1, size=genotype_dim)
-    else:
-        x0_t = torch.zeros(
-            n_layer_groups, len(models), len(METHOD_PARAM_MAPS[merge_method])
-        )
-        x0_t[:, :, 0] = 1 / len(models)
-        if len(METHOD_PARAM_MAPS[merge_method]) > 1:
-            x0_t[:, :, 1:] = 1
-        x0 = x0_t.view(-1).numpy()
+    x0 = genome_def.initial_genotype(n_layers, random=config.random_init)
+    n_layer_groups, n_models, n_params = x0.shape
+    x0 = x0.view(-1).numpy()
 
     xbest = x0
     xbest_cost = np.inf
 
+    actor_pool = ray.util.ActorPool(
+        [
+            MergeEvalActor.remote(
+                config, merge_options, model_storage_path=model_storage_path, vllm=vllm
+            )
+            for _ in range(num_gpus or torch.cuda.device_count())
+        ]
+    )
+
     def parallel_eval(inputs: List[np.ndarray]) -> List[float]:
         """Evaluate a batch of candidate genotypes. Parallelized with Ray."""
-        return ray.get(
-            [
-                evaluate_genotype.remote(
-                    genome_def,
-                    torch.tensor(x).view(n_layer_groups, len(models), -1),
-                    task,
-                    merge_options,
-                    shuffle,
-                    limit=limit,
-                    num_fewshot=num_fewshot,
-                    vllm=vllm,
-                )
-                for x in inputs
-            ]
+        return list(
+            actor_pool.map(
+                lambda a, x: a.evaluate_genotype.remote(
+                    torch.tensor(x).view(n_layer_groups, n_models, n_params)
+                ),
+                inputs,
+            )
         )
 
     def progress_callback(es: cma.CMAEvolutionStrategy):
@@ -341,8 +336,8 @@ def main(
             xbest_cost = es.result.fbest
             print(f"New best cost: {xbest_cost:.4f}")
             print(
-                genome_def.to_config(
-                    torch.tensor(xbest).view(n_layer_groups, len(models), -1)
+                genome_def.to_merge_config(
+                    torch.tensor(xbest).view(n_layer_groups, n_models, -1)
                 ).to_yaml()
             )
 
@@ -363,8 +358,8 @@ def main(
     print(f"Best cost: {xbest_cost:.4f}")
     print()
 
-    best_config = genome_def.to_config(
-        torch.tensor(xbest).view(n_layer_groups, len(models), -1)
+    best_config = genome_def.to_merge_config(
+        torch.tensor(xbest).view(n_layer_groups, n_models, -1)
     )
     print("Best merge configuration:")
     print(best_config.to_yaml())
