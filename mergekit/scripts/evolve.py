@@ -13,7 +13,9 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import List, Optional
+import shutil
+import tempfile
+from typing import List, Optional, Tuple
 
 import click
 import cma
@@ -22,17 +24,15 @@ import lm_eval.models
 import numpy as np
 import ray
 import torch
-import transformers
 from pydantic import BaseModel, model_validator
+from ray.util.placement_group import placement_group
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
-from mergekit.architecture import get_architecture_info
 from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
-from mergekit.graph import Executor
-from mergekit.io.tasks import LoaderCache, ReturnTensor
-from mergekit.merge import _model_out_config
+from mergekit.io.tasks import LoaderCache
+from mergekit.merge import run_merge
 from mergekit.options import MergeOptions, add_merge_options
-from mergekit.plan import MergePlanner
 
 METHOD_PARAM_MAPS = {
     "linear": ["weight"],
@@ -133,106 +133,91 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
         )
 
 
-class NoInit:
-    def __enter__(self):
-        def noop(*args, **kwargs):
-            pass
-
-        (k, u, n) = (
-            torch.nn.init.kaiming_uniform_,
-            torch.nn.init.uniform_,
-            torch.nn.init.normal_,
-        )
-        torch.nn.init.kaiming_uniform_ = noop
-        torch.nn.init.uniform_ = noop
-        torch.nn.init.normal_ = noop
-
-        transformers.modeling_utils._init_weights = False
-        self.funcs = (k, u, n)
-
-    def __exit__(self, *args):
-        (k, u, n) = self.funcs
-        (
-            torch.nn.init.kaiming_uniform_,
-            torch.nn.init.uniform_,
-            torch.nn.init.normal_,
-        ) = (
-            k,
-            u,
-            n,
-        )
-        transformers.modeling_utils._init_weights = True
+@ray.remote
+def merge_model(
+    genome: ModelGenomeDefinition, genotype: torch.Tensor, merge_options: MergeOptions
+) -> str:
+    cfg = genome.to_config(genotype)
+    res = tempfile.mkdtemp(prefix="merged")
+    run_merge(cfg, out_path=res, options=merge_options)
+    return res
 
 
-@ray.remote(num_gpus=1)
-class MergeEvaluator:
-    def __init__(
-        self,
-        genome_def: ModelGenomeDefinition,
-        options: MergeOptions,
-        exemplar_config: transformers.PretrainedConfig,
-        shuffle_eval: bool = False,
-    ):
-        self.genome_def = genome_def
-        self.options = options
-        self.cache = LoaderCache()
-        self.cache.setup(options)
+@ray.remote(num_gpus=0.9, num_cpus=0.25)
+def evaluate_model(
+    merged_path: str,
+    task: str,
+    shuffle_eval: bool = False,
+    vllm: bool = False,
+    **kwargs,
+) -> float:
+    if shuffle_eval:
+        monkeypatch_lmeval_shuffle()
 
-        self.arch_info = get_architecture_info(exemplar_config)
-        with NoInit():
-            self.model = (
-                transformers.AutoModelForCausalLM.from_config(
-                    exemplar_config,
-                    trust_remote_code=options.trust_remote_code,
-                    attn_implementation="flash_attention_2",
-                    torch_dtype=torch.bfloat16,
-                )
-                .bfloat16()
-                .cuda()
-                .eval()
-                .requires_grad_(False)
-            )
-        print("Model initialized")
+    model_args = {
+        "pretrained": merged_path,
+        "dtype": "bfloat16",
+    }
+    if vllm:
+        model_args["gpu_memory_utilization"] = 0.8
+        model_args["tensor_parallel_size"] = 1
+        model_args["batch_size"] = "auto"
+    else:
+        model_args["use_cache"] = True
 
-        if shuffle_eval:
-            monkeypatch_lmeval_shuffle()
+    results = lm_eval.evaluator.simple_evaluate(
+        model="vllm" if vllm else "hf",
+        model_args=model_args,
+        tasks=[task],
+        log_samples=False,
+        verbosity="WARNING",
+        **kwargs,
+    )
 
-    def evaluate(self, genotype: torch.Tensor, task: str, **kwargs) -> float:
-        config = self.genome_def.to_config(genotype)
-        planner = MergePlanner(
-            config,
-            self.arch_info,
-            self.options,
-            _model_out_config(config, self.arch_info, self.options.trust_remote_code),
-        )
+    shutil.rmtree(merged_path)
 
-        tasks = planner.plan_in_memory()
-        executor = Executor(tasks, math_device="cuda", storage_device="cuda")
-        for tensor_task, value in executor.run(quiet=True):
-            assert isinstance(tensor_task, ReturnTensor)
-            if self.model.load_state_dict(
-                {tensor_task.weight_info.name: value}, strict=False, assign=False
-            ).unexpected_keys:
-                raise RuntimeError(f"Unexpected keys in tensor {tensor_task}")
+    print(results["results"][task])
+    return -results["results"][task]["acc,none"]
 
-            del value
 
-        model = lm_eval.models.huggingface.HFLM(pretrained=self.model)
-        results = lm_eval.evaluator.simple_evaluate(
-            model=model,
-            tasks=[task],
-            log_samples=False,
-            verbosity="WARNING",
-            **kwargs,
-        )
+@ray.remote
+def evaluate_genotype(
+    genome: ModelGenomeDefinition,
+    genotype: torch.Tensor,
+    task: str,
+    merge_options: MergeOptions,
+    shuffle_eval: bool = False,
+    vllm: bool = False,
+    **kwargs,
+) -> Tuple[float, ray.ObjectRef]:
+    merge_num_gpus = 0.1 if merge_options.cuda else 0
+    # placement group to ensure merge and eval are on the same physical node
+    pg = placement_group(
+        [{"CPU": 1.0, "GPU": 0.9}],
+        strategy="STRICT_PACK",
+    )
 
-        print(results["results"][task])
-        return -results["results"][task]["acc,none"]
+    ray.get(pg.ready())
+
+    strat = PlacementGroupSchedulingStrategy(pg)
+    merged_path = merge_model.options(
+        scheduling_strategy=strat, num_gpus=merge_num_gpus
+    ).remote(genome, genotype, merge_options)
+    eval_task = evaluate_model.options(scheduling_strategy=strat).remote(
+        merged_path, task, shuffle_eval=shuffle_eval, vllm=vllm, **kwargs
+    )
+
+    result = ray.get(eval_task)
+    ray.util.remove_placement_group(pg)
+    return result
 
 
 def monkeypatch_lmeval_shuffle():
     """Monkeypatch lm_eval to shuffle the dataset after downloading."""
     import lm_eval.api.task
+
+    if hasattr(lm_eval.api.task.Task, "_monkey_patched"):
+        return
 
     _old_task_dl = lm_eval.api.task.Task.download
 
@@ -249,6 +234,8 @@ def monkeypatch_lmeval_shuffle():
         self.dataset = self.dataset.shuffle()
 
     lm_eval.api.task.ConfigurableTask.download = _ct_dl_shuffled
+
+    lm_eval.api.task.Task._monkey_patched = True
     print("monkey has been patched")
 
 
@@ -275,6 +262,7 @@ def monkeypatch_lmeval_shuffle():
     help="Randomly initialize a seed genotype",
 )
 @click.option("--max-fevals", type=int, default=100)
+@click.option("--vllm/--no-vllm", is_flag=True, default=False, help="Use vLLM")
 @add_merge_options
 def main(
     task: str,
@@ -288,6 +276,7 @@ def main(
     shuffle: bool,
     random_init: bool,
     max_fevals: int,
+    vllm: bool,
     merge_options: MergeOptions,
 ):
     genome_def = ModelGenomeDefinition(
@@ -327,35 +316,23 @@ def main(
     xbest = x0
     xbest_cost = np.inf
 
-    exemplar_config = _model_out_config(
-        genome_def.to_config(torch.tensor(x0).view(n_layer_groups, len(models), -1)),
-        get_architecture_info(cfg_0),
-        merge_options.trust_remote_code,
-    )
-
-    actors = [
-        MergeEvaluator.remote(genome_def, merge_options, exemplar_config, shuffle)
-        for _ in range(torch.cuda.device_count())
-    ]
-    pool = ray.util.ActorPool(actors)
-
     def parallel_eval(inputs: List[np.ndarray]) -> List[float]:
         """Evaluate a batch of candidate genotypes. Parallelized with Ray."""
-        return list(
-            pool.map(
-                lambda a, x: a.evaluate.remote(
+        return ray.get(
+            [
+                evaluate_genotype.remote(
+                    genome_def,
                     torch.tensor(x).view(n_layer_groups, len(models), -1),
                     task,
-                    num_fewshot=num_fewshot,
+                    merge_options,
+                    shuffle,
                     limit=limit,
-                ),
-                inputs,
-            )
+                    num_fewshot=num_fewshot,
+                    vllm=vllm,
+                )
+                for x in inputs
+            ]
         )
-
-    def single_eval(genome: np.ndarray) -> float:
-        """Evaluate a single candidate genotype."""
-        return parallel_eval([genome])[0]
 
     def progress_callback(es: cma.CMAEvolutionStrategy):
         nonlocal xbest, xbest_cost
@@ -371,10 +348,10 @@ def main(
 
     try:
         xbest, es = cma.fmin2(
-            single_eval,
+            None,
+            parallel_objective=parallel_eval,
             x0=x0,
             sigma0=0.5,
-            parallel_objective=parallel_eval,
             options={"maxfevals": max_fevals},
             callback=progress_callback,
         )
