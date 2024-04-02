@@ -1,17 +1,19 @@
-import os
 import json
-import torch
-import click
-from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoConfig
-from mergekit.io import LazyTensorLoader
-from mergekit.common import ModelReference
-from mergekit.options import add_merge_options
-from safetensors.torch import save_file
+import os
+
 import bitsandbytes as bnb
-from transformers import AutoModelForCausalLM, AutoConfig
+import click
+import torch
 from peft.tuners.lora import QuantLinear
-    
+from safetensors.torch import save_file
+from tqdm import tqdm
+from transformers import AutoConfig, AutoModelForCausalLM
+
+from mergekit.common import ModelReference
+from mergekit.io import LazyTensorLoader
+from mergekit.options import add_merge_options
+
+
 def _low_rank_decomposition(weight, reduced_rank=16):
     """
     Decompose a 2D matrix into low-rank matrices A and B using SVD.a
@@ -21,7 +23,9 @@ def _low_rank_decomposition(weight, reduced_rank=16):
     :return: A tuple of tensors (A, B)
     """
     if weight.dim() != 2:
-        raise ValueError(f"Only support 2D matrix, but your input has {weight.dim()} dimensions.")
+        raise ValueError(
+            f"Only support 2D matrix, but your input has {weight.dim()} dimensions."
+        )
 
     # SVD Decomposition
     U, S, Vh = torch.linalg.svd(weight, full_matrices=False)
@@ -32,9 +36,10 @@ def _low_rank_decomposition(weight, reduced_rank=16):
 
     return A, B
 
+
 def decompose_delta_weight(new_weight, base_weight, reduced_rank, device=None):
     if device is None:
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
     new_weight = new_weight.to(device)
     base_weight = base_weight.to(device)
@@ -47,14 +52,17 @@ def decompose_delta_weight(new_weight, base_weight, reduced_rank, device=None):
     :param reduced_rank: The rank for the low-rank decomposition.
     :return: A tuple of tensors (A, B)
     """
-    delta_weight = new_weight - base_weight   
+    delta_weight = new_weight - base_weight
 
     max_rank = min(delta_weight.shape)
-    assert reduced_rank <= max_rank, f"The specified rank ({reduced_rank}) must be smaller than or equal to the rank of the weight matrices ({max_rank})"
+    assert (
+        reduced_rank <= max_rank
+    ), f"The specified rank ({reduced_rank}) must be smaller than or equal to the rank of the weight matrices ({max_rank})"
 
     A, B = _low_rank_decomposition(delta_weight, reduced_rank=reduced_rank)
 
     return A, B
+
 
 def find_all_linear_names(model):
     cls = (bnb.nn.Linear4bit, bnb.nn.Linear8bitLt, torch.nn.Linear, QuantLinear)
@@ -70,10 +78,13 @@ def find_all_linear_names(model):
 
     return names
 
+
 def get_linear_module_names(model_id):
-    model = AutoModelForCausalLM.from_pretrained(model_id, state_dict={}, device_map="meta") #avoid loading weights as we won't need them
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, state_dict={}, device_map="meta"
+    )  # avoid loading weights as we won't need them
     linear_module_names = find_all_linear_names(model)
-    
+
     return linear_module_names
 
 
@@ -100,16 +111,27 @@ def create_peft_config(base_model_name_or_path, rank, alpha, target_modules):
         "revision": None,
         "target_modules": target_modules,
         "task_type": "CAUSAL_LM",
-        "use_rslora": False
+        "use_rslora": False,
     }
-    
+
 
 @click.command("mergekit-extract-lora")
 @click.argument("out_path", type=click.Path())
 @click.option("--base-model", type=str, help="Model ID or path to use as base model")
-@click.option("--finetuned-model", type=str, help="Model ID or path to use as PEFT extraction target model")
-@click.option("--rank", type=int, default=32, help="Rank for the low-rank decomposition")
-@click.option("--device", type=str, default=None, help="PyTorch device to perform SVD computation on")
+@click.option(
+    "--finetuned-model",
+    type=str,
+    help="Model ID or path to use as PEFT extraction target model",
+)
+@click.option(
+    "--rank", type=int, default=32, help="Rank for the low-rank decomposition"
+)
+@click.option(
+    "--device",
+    type=str,
+    default=None,
+    help="PyTorch device to perform SVD computation on",
+)
 def main(out_path: str, base_model: str, finetuned_model: str, rank: int, device: str):
     """
     Decomposes delta weights between a base model and a finetuned model and saves a PEFT model.
@@ -122,36 +144,51 @@ def main(out_path: str, base_model: str, finetuned_model: str, rank: int, device
     base_model_config = AutoConfig.from_pretrained(base_model_ref.model.path)
 
     linear_module_names = get_linear_module_names(base_model_ref.model.path)
-    finetuned_model_linear_module_names = get_linear_module_names(finetuned_model_ref.model.path)
-    
-    assert set(linear_module_names) == set(finetuned_model_linear_module_names), "Model architecture mismatch"
+    finetuned_model_linear_module_names = get_linear_module_names(
+        finetuned_model_ref.model.path
+    )
+
+    assert set(linear_module_names) == set(
+        finetuned_model_linear_module_names
+    ), "Model architecture mismatch"
 
     base_loader = LazyTensorLoader(base_model_ref.tensor_index(), lazy_unpickle=True)
-    finetuned_loader = LazyTensorLoader(finetuned_model_ref.tensor_index(), lazy_unpickle=True)
+    finetuned_loader = LazyTensorLoader(
+        finetuned_model_ref.tensor_index(), lazy_unpickle=True
+    )
 
     lora_weights = {}
     for layer_name in tqdm(linear_module_names):
         base_weight = base_loader.get_tensor(f"{layer_name}.weight")
         finetuned_weight = finetuned_loader.get_tensor(f"{layer_name}.weight")
-        
-        lora_A, lora_B = decompose_delta_weight(finetuned_weight, base_weight, rank, device=device)
-        
-        lora_weights[f"base_model.model.{layer_name}.lora_A.weight"] = lora_A.to('cpu').contiguous()
-        lora_weights[f"base_model.model.{layer_name}.lora_B.weight"] = lora_B.to('cpu').contiguous()
-        
+
+        lora_A, lora_B = decompose_delta_weight(
+            finetuned_weight, base_weight, rank, device=device
+        )
+
+        lora_weights[f"base_model.model.{layer_name}.lora_A.weight"] = lora_A.to(
+            "cpu"
+        ).contiguous()
+        lora_weights[f"base_model.model.{layer_name}.lora_B.weight"] = lora_B.to(
+            "cpu"
+        ).contiguous()
+
     lora_config = create_peft_config(
-            base_model_name_or_path = base_model_ref.model.path,
-            alpha=rank, # Setting the alpha to the reduced rank value (instead of alpha value used) seems to give better performance. Further testing would be needed to understand what is the optimal alpha value to use
-            rank=rank,
-            target_modules=list(set([module_name.split('.')[-1] for module_name in linear_module_names])),
+        base_model_name_or_path=base_model_ref.model.path,
+        alpha=rank,  # Setting the alpha to the reduced rank value (instead of alpha value used) seems to give better performance. Further testing would be needed to understand what is the optimal alpha value to use
+        rank=rank,
+        target_modules=list(
+            set([module_name.split(".")[-1] for module_name in linear_module_names])
+        ),
     )
-        
-    with open(os.path.join(out_path, 'adapter_config.json'), 'w') as f:
+
+    with open(os.path.join(out_path, "adapter_config.json"), "w") as f:
         json.dump(lora_config, f, indent=2)
 
-    save_file(lora_weights, os.path.join(out_path, 'adapter_model.safetensors'))
-    
+    save_file(lora_weights, os.path.join(out_path, "adapter_model.safetensors"))
+
     print(f"PEFT LoRA adapters saved to {out_path}")
+
 
 if __name__ == "__main__":
     main()
