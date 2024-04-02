@@ -1,32 +1,13 @@
-# Copyright (C) 2024 Arcee + Charles O. Goddard ?
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
-
 import logging
 import os
-from typing import DefaultDict, Dict, List, Optional, Set
-
 import click
+from typing import Optional, List
 import datasets
 import numpy as np
 import torch
 from safetensors.torch import save_file
 from torch.utils.data import DataLoader
-from transformers import  AutoModel, AutoTokenizer
-
-from mergekit.architecture import ProceduralSpaceInfo, WeightInfo, get_architecture_info
-from mergekit.common import ModelReference, dtype_from_name
+from transformers import AutoModel, AutoTokenizer
 
 logging.basicConfig(level=logging.INFO)
 
@@ -38,200 +19,79 @@ def parse_items(ctx, param, value):
     if value is not None:
         return [item.strip() for item in value.split(",")]
 
-
-# taken from DALM
-def mean_hidden_state(hidden_state, mask):
-    a2 = torch.sum(hidden_state * mask.unsqueeze(-1), 1)
-    return a2 / torch.clamp(mask.sum(-1, keepdim=True), min=1e-9)
-
-
 @click.command("mergekit-activations-dump")
-# take in single model path or list of model paths
-
-
 @click.argument("model-path", type=str)
-@click.option(
-    "--dataset", "-d", required=True, type=str, help="Dataset to use for activations"
-)
+@click.option("--dataset", "-d", required=True, type=str, help="Dataset to use for activations")
 @click.option("--out-path", "-o", required=True, type=str, help="Output model path")
 @click.option("--batch-size", "-b", type=int, default=2, help="Batch size")
-@click.option(
-    "--dataset-size",
-    "-s",
-    type=int,
-    default=None,
-    help="Dataset size. If None, use full dataset",
-)
-@click.option(
-    "--dataset-column", "-c", type=str, default="text", help="Dataset column to use"
-)
-@click.option(
-    "--dataset-subset", "-u", type=str, default="eval", help="Dataset subset to use"
-)
+@click.option("--dataset-size", "-s", type=int, default=None, help="Dataset size. If None, use full dataset")
+@click.option("--dataset-column", "-c", type=str, default="text", help="Dataset column to use")
+@click.option("--dataset-subset", "-u", type=str, default="eval", help="Dataset subset to use")
 @click.option("--max-length", "-l", type=int, default=512, help="Max length")
-@click.option(
-    "--dump-type",
-    type=click.Choice(["hidden-state", "activation"], case_sensitive=False),
-    default="hidden-state",
-    help="Choose between hidden-state or activation",
-)
-@click.option(
-    "--hook-modules",
-    callback=parse_items,
-    help="Specify modules to hook into separated by commas (e.g., --hook-layers a,b,c)",
-    default=None,
-)
-@click.option(
-    "--dtype",
-    type=str,
-    default=None,
-    help="Data type to convert weights to",
-)
-@click.option(
-    "--device",
-    type=str,
-    default=None,
-    help="device to compute the activations",
-)
-def main(
-    model_path: str,
-    dataset: str,
-    dataset_column: str,
-    out_path: str,
-    batch_size: int,
-    max_length: int,
-    dump_type: str,
-    dataset_size: Optional[int],
-    dataset_subset: Optional[str],
-    hook_modules: Optional[List[str]],
-    dtype: Optional[str],
-    device: Optional[str],
-):
-    # NOTES: it seems somewhat doable that you can hook onto activations
+@click.option("--dtype", type=str, default=None, help="Data type to convert weights to")
+@click.option("--device", type=str, default=None, help="device to compute the activations")
 
-    if dump_type == "activation" and hook_modules is None:
-        raise ValueError("hook-layers must be specified for activation dump type")
-
-    _ = ModelReference.model_validate(model_path)
-
-    dataset = datasets.load_dataset(dataset)[dataset_subset]
-
-    model = AutoModel.from_pretrained(model_path, output_attentions=True)
+def main(model_path: str, dataset: str, dataset_column: str, out_path: str, batch_size: int, max_length: int, dataset_size: Optional[int], dataset_subset: Optional[str], dtype: Optional[str], device: Optional[str]):
+    model = AutoModel.from_pretrained(model_path, output_attentions=True, attn_implementation="eager")
     tokenizer = AutoTokenizer.from_pretrained(model_path)
 
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
-      
+
     model.eval()
     model.to(device)
 
+    dataset = datasets.load_dataset(dataset)[dataset_subset]
+
     if dataset_size is not None:
         logging.info("Using dataset size %s", dataset_size)
-        dataset = dataset[:dataset_size]
+        dataset = dataset.select(range(dataset_size))
     dataset = dataset[dataset_column]
 
-    datasets_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    datasets_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
-    def get_features(model, layer_names, feature_type='activations'):
-        """
-        Extracts 'activations' or 'hidden-states' from specified layers of a model.
+    feature_storage = {}  # Initialize storage for features and attention masks
 
-        Parameters:
-        - model (torch.nn.Module): Model for feature extraction.
-        - layer_names (list): Target layers for 'activations' mode.
-        - feature_type (str): 'activations' (default) or 'hidden-states'.
-        
-        Returns:
-        - features (dict): Captured features, empty for 'hidden-states'.
-        - hooks (list): Handles for 'activations' hooks, empty for 'hidden-states'.
-        """
-        features = {}
-        hooks = []
-
-        if feature_type == 'activation':
-            def hook_fn(module, input, output):
-                for name, mod in model.named_modules():
-                    if mod == module:
-                        features[name] = output.detach()
-                        break
-
-            for name, module in model.named_modules():
-                if any(layer_name in name for layer_name in layer_names):
-                    hooks.append(module.register_forward_hook(hook_fn))
-        
-        return features, hooks
-    
-    # Example usage for capturing activations]
-    features, hooks = get_features(model, hook_modules, feature_type=dump_type)
-
-    # Define a dictionary for storing features with identifiers
-    feature_storage = {}
     for batch in datasets_dataloader:
-        # Wrap the model call in torch.no_grad() to avoid computing gradients
         with torch.no_grad():
-
-            inputs = tokenizer(
-                batch,
-                return_tensors="pt",
-                padding="max_length",
-                truncation=True,
-                max_length=max_length,
-            )
+            inputs = tokenizer(batch, return_tensors="pt", padding="longest", max_length=max_length, truncation=True)
             inputs = {k: v.to(device) for k, v in inputs.items()}
+            outputs = model(**inputs, output_hidden_states=True, output_attentions=True)
+            
+            hidden_states = outputs.hidden_states
+            attention_states = outputs.attentions
 
-            # outputs = model(**inputs,  output_hidden_states=(dump_type =='hidden-state'))
-            outputs = model(inputs["input_ids"], attention_mask=inputs["attention_mask"], output_hidden_states=(dump_type =='hidden-state'), 
-                            output_attentions=(dump_type =='hidden-state'))
-   
-            if features:  # Activations were requested
-                for name, feature in features.items():
-                    identifier = f"{name}_activation"
-                    if identifier not in feature_storage:
-                        feature_storage[identifier] = []
+            # Store hidden states
+            for i, hidden_state in enumerate(hidden_states):
+                identifier_hs = f"layer_{i}_hidden_state"
+                if identifier_hs not in feature_storage:
+                    feature_storage[identifier_hs] = []
+                feature_storage[identifier_hs].extend(hidden_state.cpu().detach())
 
-                    feature_data = feature.cpu().detach()
+            # Store attention outputs
+            for i, attention_state in enumerate(attention_states):
+                identifier_attn = f"layer_{i}_attention"
+                if identifier_attn not in feature_storage:
+                    feature_storage[identifier_attn] = []
+                feature_storage[identifier_attn].extend(attention_state.cpu().detach())
 
-                    # Split the tensor along the batch dimension and extend the list
-                    for single_feature_data in feature_data.cpu().detach():
-                        feature_storage[identifier].append(single_feature_data)
+            # Store attention masks
+            attention_mask = inputs['attention_mask']
+            if 'attention_mask' not in feature_storage:
+                feature_storage['attention_mask'] = []
+            feature_storage['attention_mask'].extend(attention_mask.cpu().detach())
 
-            # Process hidden states and attention outputs if requested
-            if dump_type == 'hidden-state':
-                hidden_states = outputs.hidden_states
-                attention_states = outputs.attentions
-
-                for i, hidden_state in enumerate(hidden_states):
-                    identifier_hs = f"layer_{i}_hidden_state"
-                    if identifier_hs not in feature_storage:
-                        feature_storage[identifier_hs] = []
-                    feature_storage[identifier_hs].extend(hidden_state.cpu().detach().numpy())
-
-                for i, attention_state in enumerate(attention_states):
-                    identifier_attn = f"layer_{i}_attention"
-                    if identifier_attn not in feature_storage:
-                        feature_storage[identifier_attn] = []
-                    feature_storage[identifier_attn].extend(attention_state.cpu().detach().numpy())
-
-    
-    # After processing the entire dataset, remove the hooks
-    for hook in hooks:
-        hook.remove()
-
-    # After processing all batches, you may want to convert lists to numpy arrays for convenience
-    for identifier in feature_storage.keys():
+    # Stack all tensors in feature storage
+    for identifier in feature_storage:
         feature_storage[identifier] = torch.stack(feature_storage[identifier], dim=0)
 
     if "/" in model_path:
-        # Replace "/" with "_"
         model_path = model_path.replace("/", "_")
 
-    # Save the features to disk
-    save_file(feature_storage,  f"{model_path}_features_{dump_type}.bin")
-
-    # TO DO: save the attention mask
+    save_file(feature_storage, f"{out_path}/{model_path}_features.bin")
 
 if __name__ == "__main__":
     main()
 
-
-# python dump_out_activations.py  TinyLlama/TinyLlama-1.1B-Chat-v1.0 -o dump_output --dump-type activation -d arcee-ai/pmc-test-perplexity  -s 8  -c text  -u test  --device cpu --hook-modules mlp.act,attn.c_proj
+#  python dump_out_features.py TinyLlama/TinyLlama-1.1B-Chat-v1.0 -o ./dump_output  -d arcee-ai/pmc-test-perplexity  -s 2  -c text  -u test  --device cpu
+#  python dump_out_features.py TinyLlama/TinyLlama-1.1B-Chat-v0.6 -o ./dump_output  -d arcee-ai/pmc-test-perplexity  -s 2  -c text  -u test  --device cpu
