@@ -44,6 +44,7 @@ mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
 bakllama = "mergekit.scripts.bakllama:main"
 mergekit-moe = "mergekit.scripts.mixtral_moe:main"
 mergekit-tokensurgeon = "mergekit.scripts.tokensurgeon:main"
+mergekit-evolve = "mergekit.scripts.evolve:main"
 
 [tool.setuptools]
 packages = [
@@ -51,6 +52,7 @@ packages = [
     "mergekit.io",
     "mergekit.merge_methods",
     "mergekit.scripts",
+    "mergekit.evo",
     "mergekit._data",
     "mergekit._data.architectures",
 ]
