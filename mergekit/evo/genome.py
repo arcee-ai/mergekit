@@ -41,7 +41,8 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
 
     @model_validator(mode="after")
     def validate(self):
-        assert self.merge_method in METHOD_PARAM_MAPS
+        assert self.merge_method in METHOD_PARAM_MAPS, "Invalid merge method"
+        assert self.layer_granularity > 0, "layer_granularity must be positive"
 
         if self.merge_method in ["ties", "dare_ties", "task_arithmetic"]:
             assert self.base_model is not None, "base_model is required for this method"
