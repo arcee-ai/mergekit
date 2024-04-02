@@ -227,7 +227,9 @@ def build_tokenizer(
 
     logging.info("Building permutations")
     permutations = {}
-    for model in tqdm.tqdm(referenced_models):
+    for model in (
+        pbar := tqdm.tqdm(referenced_models, desc="Building tokenizer permutations")
+    ):
         if model in tokenizers:
             model_vocab = tokenizers[model].get_vocab()
         else:
@@ -254,6 +256,8 @@ def build_tokenizer(
             p[new_idx] = orig_idx
 
         permutations[model] = p
+
+    del pbar
 
     return tokenizer_out, permutations
 

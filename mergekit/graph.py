@@ -163,8 +163,12 @@ class Executor:
                 last_use_index[task] = idx
 
         values: Dict[Task, Any] = {}
-        for idx, task in tqdm.tqdm(
-            enumerate(self.schedule), total=len(self.schedule), disable=quiet
+        for idx, task in (
+            pbar := tqdm.tqdm(
+                list(enumerate(self.schedule)),
+                disable=quiet,
+                desc="Executing graph",
+            )
         ):
             use_math_device = task.uses_accelerator()
 
@@ -210,6 +214,9 @@ class Executor:
 
             for key in expired:
                 del values[key]
+
+        del values
+        del pbar
 
     def execute(self) -> None:
         """

@@ -28,7 +28,11 @@ import transformers
 from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_info
 from mergekit.config import MergeConfiguration
 from mergekit.evo.genome import EvolMergeConfiguration, ModelGenome
-from mergekit.evo.monkeypatch import NoInit, monkeypatch_lmeval_shuffle
+from mergekit.evo.monkeypatch import (
+    NoInit,
+    monkeypatch_lmeval_shuffle,
+    monkeypatch_tqdm,
+)
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache, ReturnTensor
 from mergekit.merge import _model_out_config, run_merge
@@ -55,6 +59,7 @@ def evaluate_model(
     else:
         model_args["use_cache"] = True
 
+    monkeypatch_tqdm()
     results = lm_eval.evaluator.simple_evaluate(
         model="vllm" if vllm else "hf",
         model_args=model_args,
@@ -71,7 +76,7 @@ def evaluate_model(
     return -results["results"][task]["acc,none"]
 
 
-@ray.remote(num_cpus=1, num_gpus=0.1)
+@ray.remote(num_cpus=1, num_gpus=0.1, max_retries=3, retry_exceptions=[ConnectionError])
 def merge_model(
     genotype: torch.Tensor,
     genome: ModelGenome,
@@ -80,6 +85,7 @@ def merge_model(
 ) -> str:
     cfg = genome.genotype_merge_config(genotype)
     res = tempfile.mkdtemp(prefix="merged", dir=model_storage_path)
+    monkeypatch_tqdm()
     run_merge(cfg, out_path=res, options=merge_options)
     return res
 
@@ -135,6 +141,8 @@ class OnDiskMergeEvaluator:
 
 @ray.remote(num_cpus=1, num_gpus=1)
 class InMemoryMergeEvaluator:
+    model: Optional[lm_eval.models.huggingface.HFLM] = None
+
     def __init__(
         self,
         config: EvolMergeConfiguration,
@@ -163,11 +171,32 @@ class InMemoryMergeEvaluator:
             ai,
             trust_remote_code=self.merge_options.trust_remote_code,
         )
-        if self.arch_info is not None and self.arch_info.config == cfg_out:
-            return
+        cfg_out.use_cache = True
+        cfg_out.torch_dtype = torch.bfloat16
+
+        if self.arch_info is not None:
+            different = False
+            for key in cfg_out.to_diff_dict():
+                if key in ["architectures", "model_type"]:
+                    # to get to here we must have --allow-crimes set, so let it ride
+                    continue
+                elif key in ["use_cache", "torch_dtype"]:
+                    continue
+                elif key.endswith("_token_id"):
+                    # update our config but don't fail if it's different
+                    setattr(self.arch_info.config, key, getattr(cfg_out, key, None))
+                    continue
+
+                if getattr(cfg_out, key) != getattr(self.arch_info.config, key, None):
+                    print(f"Config key {key} changed, reinitializing model")
+                    different = True
+                    break
+
+            if not different:
+                return
 
         with NoInit():
-            self.model = (
+            inner_model = (
                 transformers.AutoModelForCausalLM.from_config(
                     cfg_out,
                     trust_remote_code=self.merge_options.trust_remote_code,
@@ -180,6 +209,7 @@ class InMemoryMergeEvaluator:
                 .requires_grad_(False)
             )
 
+        self.model = lm_eval.models.huggingface.HFLM(pretrained=inner_model)
         self.arch_info = ConfiguredArchitectureInfo(info=ai, config=cfg_out)
         print("Model initialized")
 
@@ -198,16 +228,16 @@ class InMemoryMergeEvaluator:
         executor = Executor(tasks, math_device="cuda", storage_device="cuda")
         for tensor_task, value in executor.run(quiet=True):
             assert isinstance(tensor_task, ReturnTensor)
-            if self.model.load_state_dict(
+            if self.model.model.load_state_dict(
                 {tensor_task.weight_info.name: value}, strict=False, assign=False
             ).unexpected_keys:
                 raise RuntimeError(f"Unexpected keys in tensor {tensor_task}")
 
             del value
 
-        model = lm_eval.models.huggingface.HFLM(pretrained=self.model)
+        monkeypatch_tqdm()
         results = lm_eval.evaluator.simple_evaluate(
-            model=model,
+            model=self.model,
             tasks=[self.config.task],
             log_samples=False,
             verbosity="WARNING",
@@ -298,6 +328,11 @@ class BufferedRayEvaluationStrategy(EvaluationStrategy):
         # i spent like five hours trying to get ray to do this kind of thing
         # in a way that didn't involve a lot of polling and it just doesn't
         # seem to be possible. so here we are!
+
+        # TODO: allow scheduling merges N ahead of evaluations to trade off
+        # disk space for GPU utilization
+
+        # TODO: persistent actors for evaluation to avoid startup overhead?
 
         merging: Dict[ray.ObjectRef, int] = {}
         merged: List[Tuple[int, ray.ObjectRef]] = []

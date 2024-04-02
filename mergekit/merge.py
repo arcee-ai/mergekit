@@ -48,7 +48,6 @@ def run_merge(
     ]
     if not options.allow_crimes:
         if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
-            print([mai.name() for mai in model_arch_info])
             raise RuntimeError(
                 "Must specify --allow-crimes to attempt to mix different architectures"
             )
@@ -64,12 +63,15 @@ def run_merge(
     )
 
     # warm up loader cache
-    for model in tqdm.tqdm(
-        merge_config.referenced_models(),
-        desc="Warmup loader cache",
-        disable=options.quiet,
+    for model in (
+        pbar := tqdm.tqdm(
+            merge_config.referenced_models(),
+            desc="Warmup loader cache",
+            disable=options.quiet,
+        )
     ):
         loader_cache.get(model)
+    del pbar
 
     logging.info("Planning operations")
     targets = MergePlanner(
