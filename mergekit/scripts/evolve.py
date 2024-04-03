@@ -25,7 +25,8 @@ from mergekit.evo.actors import (
     ActorPoolEvaluationStrategy,
     BufferedRayEvaluationStrategy,
 )
-from mergekit.evo.genome import EvolMergeConfiguration, ModelGenome
+from mergekit.evo.config import EvolMergeConfiguration
+from mergekit.evo.genome import ModelGenome
 from mergekit.io.tasks import LoaderCache
 from mergekit.options import MergeOptions, add_merge_options
 

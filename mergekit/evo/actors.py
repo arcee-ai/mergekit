@@ -31,7 +31,8 @@ import transformers
 
 from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_info
 from mergekit.config import MergeConfiguration
-from mergekit.evo.genome import EvolMergeConfiguration, ModelGenome
+from mergekit.evo.config import EvolMergeConfiguration, TaskConfiguration
+from mergekit.evo.genome import ModelGenome
 from mergekit.evo.monkeypatch import (
     NoInit,
     monkeypatch_lmeval_shuffle,
@@ -72,26 +73,29 @@ class EvaluationStrategyBase(ABC):
 
 def _eval_model(
     model: Union[str, lm_eval.api.model.LM],
-    task: str,
+    tasks: List[TaskConfiguration],
     model_args: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> float:
     results = lm_eval.evaluator.simple_evaluate(
         model=model,
         model_args=model_args,
-        tasks=[task],
+        tasks=[task.name for task in tasks],
         log_samples=False,
         verbosity="WARNING",
         **kwargs,
     )
 
-    logging.info(results["results"][task])
-    return results["results"][task]["acc,none"]
+    logging.info(results["results"])
+    res = 0
+    for task in tasks:
+        res += results["results"][task.name][task.metric] * task.weight
+    return res
 
 
 def evaluate_model(
     merged_path: str,
-    task: str,
+    tasks: List[TaskConfiguration],
     num_fewshot: Optional[int],
     limit: Optional[int],
     vllm: bool,
@@ -108,10 +112,11 @@ def evaluate_model(
             model_args["batch_size"] = "auto"
         else:
             model_args["use_cache"] = True
+            model_args["batch_size"] = 32
 
         res = _eval_model(
             "vllm" if vllm else "huggingface",
-            task,
+            tasks,
             model_args,
             num_fewshot=num_fewshot,
             limit=limit,
@@ -187,7 +192,7 @@ class OnDiskMergeEvaluator(MergeActorBase):
     ) -> float:
         return evaluate_model(
             merged_path,
-            self.config.task,
+            self.config.tasks,
             self.config.num_fewshot,
             self.config.limit,
             self.vllm,
@@ -288,7 +293,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
 
         return _eval_model(
             self.model,
-            self.config.task,
+            self.config.tasks,
             num_fewshot=self.config.num_fewshot,
             limit=self.config.limit,
         )
@@ -390,7 +395,7 @@ class BufferedRayEvaluationStrategyActor:
                     evaluating[
                         evaluate_model_ray.remote(
                             merged_path,
-                            self.config.task,
+                            self.config.tasks,
                             self.config.num_fewshot,
                             self.config.limit,
                             self.vllm,

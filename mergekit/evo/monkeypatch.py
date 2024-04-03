@@ -55,7 +55,7 @@ def monkeypatch_tqdm(lm_eval: bool = True, mergekit: bool = True):
             if iterable is not None:
                 return iterable
             return lambda x: x
-        res = tqdm_ray(iterable=iterable, **kwargs, flush_interval_s=10.0)
+        res = tqdm_ray(iterable=iterable, **kwargs, flush_interval_s=1.0)
         res.refresh()
         return res
 

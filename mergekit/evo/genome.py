@@ -53,15 +53,6 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
         return self
 
 
-class EvolMergeConfiguration(BaseModel, frozen=True):
-    genome: ModelGenomeDefinition
-    task: str
-    limit: Optional[int] = None
-    num_fewshot: Optional[int] = None
-    shuffle: bool = False
-    random_init: bool = False
-
-
 class ModelGenome:
     definiton: ModelGenomeDefinition
     num_layers: int
