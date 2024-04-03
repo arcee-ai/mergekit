@@ -13,15 +13,19 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import asyncio
+import logging
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import lm_eval
+import lm_eval.api.model
 import lm_eval.models.huggingface
 import numpy as np
 import ray
+import ray.util.queue
 import torch
 import transformers
 
@@ -40,6 +44,50 @@ from mergekit.options import MergeOptions
 from mergekit.plan import MergePlanner
 
 
+class EvaluationStrategyBase(ABC):
+    def __init__(
+        self,
+        config: EvolMergeConfiguration,
+        genome: ModelGenome,
+        merge_options: MergeOptions,
+        num_gpus: Optional[int] = None,
+        merge_kwargs: Optional[Dict[str, Any]] = None,
+        eval_kwargs: Optional[Dict[str, Any]] = None,
+    ):
+        self.config = config
+        self.genome = genome
+        self.merge_options = merge_options
+        self.num_gpus = num_gpus or torch.cuda.device_count()
+        self.merge_kwargs = merge_kwargs
+        self.eval_kwargs = eval_kwargs
+
+    @abstractmethod
+    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
+        pass
+
+    @abstractmethod
+    def evaluate_genotype(self, genotype: np.ndarray) -> float:
+        pass
+
+
+def _eval_model(
+    model: Union[str, lm_eval.api.model.LM],
+    task: str,
+    model_args: Optional[Dict[str, Any]] = None,
+    **kwargs,
+) -> float:
+    results = lm_eval.evaluator.simple_evaluate(
+        model=model,
+        tasks=[task],
+        log_samples=False,
+        verbosity="WARNING",
+        **kwargs,
+    )
+
+    logging.info(results["results"][task])
+    return results["results"][task]["acc,none"]
+
+
 @ray.remote(num_cpus=1, num_gpus=0.9)
 def evaluate_model(
     merged_path: str,
@@ -48,32 +96,29 @@ def evaluate_model(
     limit: Optional[int],
     vllm: bool,
 ) -> float:
-    model_args = {
-        "pretrained": merged_path,
-        "dtype": "bfloat16",
-    }
-    if vllm:
-        model_args["gpu_memory_utilization"] = 0.8
-        model_args["tensor_parallel_size"] = 1
-        model_args["batch_size"] = "auto"
-    else:
-        model_args["use_cache"] = True
-
     monkeypatch_tqdm()
-    results = lm_eval.evaluator.simple_evaluate(
-        model="vllm" if vllm else "hf",
-        model_args=model_args,
-        tasks=[task],
-        log_samples=False,
-        verbosity="WARNING",
-        num_fewshot=num_fewshot,
-        limit=limit,
-    )
+    try:
+        model_args = {
+            "pretrained": merged_path,
+            "dtype": "bfloat16",
+        }
+        if vllm:
+            model_args["gpu_memory_utilization"] = 0.8
+            model_args["tensor_parallel_size"] = 1
+            model_args["batch_size"] = "auto"
+        else:
+            model_args["use_cache"] = True
 
-    shutil.rmtree(merged_path)
-
-    print(results["results"][task])
-    return -results["results"][task]["acc,none"]
+        res = _eval_model(
+            "vllm" if vllm else "huggingface",
+            task,
+            model_args,
+            num_fewshot=num_fewshot,
+            limit=limit,
+        )
+        return res
+    finally:
+        shutil.rmtree(merged_path)
 
 
 @ray.remote(num_cpus=1, num_gpus=0.1, max_retries=3, retry_exceptions=[ConnectionError])
@@ -83,15 +128,14 @@ def merge_model(
     model_storage_path: str,
     merge_options: MergeOptions,
 ) -> str:
+    monkeypatch_tqdm()
     cfg = genome.genotype_merge_config(genotype)
     res = tempfile.mkdtemp(prefix="merged", dir=model_storage_path)
-    monkeypatch_tqdm()
     run_merge(cfg, out_path=res, options=merge_options)
     return res
 
 
-@ray.remote(num_cpus=1, num_gpus=1.0)
-class OnDiskMergeEvaluator:
+class MergeActorBase:
     def __init__(
         self,
         config: EvolMergeConfiguration,
@@ -110,6 +154,14 @@ class OnDiskMergeEvaluator:
 
         if config.shuffle:
             monkeypatch_lmeval_shuffle()
+
+        monkeypatch_tqdm()
+
+
+@ray.remote(num_cpus=1, num_gpus=1.0)
+class OnDiskMergeEvaluator(MergeActorBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     async def _merge_model(
         self,
@@ -140,29 +192,17 @@ class OnDiskMergeEvaluator:
 
 
 @ray.remote(num_cpus=1, num_gpus=1)
-class InMemoryMergeEvaluator:
+class InMemoryMergeEvaluator(MergeActorBase):
     model: Optional[lm_eval.models.huggingface.HFLM] = None
 
     def __init__(
         self,
-        config: EvolMergeConfiguration,
-        genome: ModelGenome,
-        merge_options: MergeOptions,
-        model_storage_path: Optional[str] = None,
+        *args,
         vllm: bool = False,
+        **kwargs,
     ):
-        self.config = config
-        self.genome = genome
-        self.merge_options = merge_options
-        self.cache = LoaderCache()
-        self.cache.setup(merge_options)
-        self.model_storage_path = model_storage_path
-
         assert not vllm, "VLLM is not supported for in-memory merging"
-
-        self.arch_info = None
-        if config.shuffle:
-            monkeypatch_lmeval_shuffle()
+        super().__init__(*args, vllm=False, **kwargs)
 
     def _maybe_init_model(self, config: MergeConfiguration):
         ai = get_architecture_info(self.genome._input_config_example)
@@ -188,7 +228,7 @@ class InMemoryMergeEvaluator:
                     continue
 
                 if getattr(cfg_out, key) != getattr(self.arch_info.config, key, None):
-                    print(f"Config key {key} changed, reinitializing model")
+                    logging.warn(f"Config key {key} changed, reinitializing model")
                     different = True
                     break
 
@@ -211,7 +251,7 @@ class InMemoryMergeEvaluator:
 
         self.model = lm_eval.models.huggingface.HFLM(pretrained=inner_model)
         self.arch_info = ConfiguredArchitectureInfo(info=ai, config=cfg_out)
-        print("Model initialized")
+        logging.info("Model initialized")
 
     def evaluate(self, genotype: torch.Tensor) -> float:
         config = self.genome.genotype_merge_config(genotype)
@@ -235,18 +275,12 @@ class InMemoryMergeEvaluator:
 
             del value
 
-        monkeypatch_tqdm()
-        results = lm_eval.evaluator.simple_evaluate(
-            model=self.model,
-            tasks=[self.config.task],
-            log_samples=False,
-            verbosity="WARNING",
+        return _eval_model(
+            self.model,
+            self.config.task,
             num_fewshot=self.config.num_fewshot,
             limit=self.config.limit,
         )
-
-        print(results["results"][self.config.task])
-        return -results["results"][self.config.task]["acc,none"]
 
     async def evaluate_genotype(
         self,
@@ -255,31 +289,16 @@ class InMemoryMergeEvaluator:
         return self.evaluate(genotype)
 
 
-class EvaluationStrategy(ABC):
-    @abstractmethod
-    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
-        pass
-
-
-class ActorEvaluationStrategy(EvaluationStrategy):
+class ActorEvaluationStrategy(EvaluationStrategyBase):
     def __init__(
         self,
-        config: EvolMergeConfiguration,
-        genome: ModelGenome,
-        merge_options: MergeOptions,
+        *args,
+        in_memory: bool = False,
         model_storage_path: Optional[str] = None,
         vllm: bool = False,
-        in_memory: bool = False,
-        num_gpus: Optional[int] = None,
+        **kwargs,
     ):
-        self.config = config
-        self.genome = genome
-        self.merge_options = merge_options
-        self.model_storage_path = model_storage_path
-        self.vllm = vllm
-        self.in_memory = in_memory
-        self.num_gpus = num_gpus or torch.cuda.device_count()
-
+        super().__init__(*args, **kwargs)
         if in_memory:
             self.actor_cls = InMemoryMergeEvaluator
         else:
@@ -288,9 +307,9 @@ class ActorEvaluationStrategy(EvaluationStrategy):
         self.actor_pool = ray.util.ActorPool(
             [
                 self.actor_cls.remote(
-                    config,
-                    genome,
-                    merge_options,
+                    self.config,
+                    self.genome,
+                    self.merge_options,
                     model_storage_path=model_storage_path,
                     vllm=vllm,
                 )
@@ -307,7 +326,8 @@ class ActorEvaluationStrategy(EvaluationStrategy):
         )
 
 
-class BufferedRayEvaluationStrategy(EvaluationStrategy):
+@ray.remote
+class BufferedRayEvaluationStrategyActor:
     def __init__(
         self,
         config: EvolMergeConfiguration,
@@ -323,69 +343,101 @@ class BufferedRayEvaluationStrategy(EvaluationStrategy):
         self.model_storage_path = model_storage_path
         self.vllm = vllm
         self.num_gpus = num_gpus or torch.cuda.device_count()
+        self.input_queue = []
+        self.processing_task = None
 
-    def _eval(self, genotypes: List[np.ndarray]):
-        # i spent like five hours trying to get ray to do this kind of thing
-        # in a way that didn't involve a lot of polling and it just doesn't
-        # seem to be possible. so here we are!
+    async def evaluate_genotype(self, genotype: np.ndarray):
+        # if task failed we want to raise the exception here
+        if self.processing_task is not None:
+            self.processing_task.result()
 
-        # TODO: allow scheduling merges N ahead of evaluations to trade off
-        # disk space for GPU utilization
+        future_result = asyncio.Future()
+        self.input_queue.append((genotype, future_result))
 
-        # TODO: persistent actors for evaluation to avoid startup overhead?
+        if self.processing_task is None or self.processing_task.done():
+            self.processing_task = asyncio.create_task(self._process_queue())
 
-        merging: Dict[ray.ObjectRef, int] = {}
-        merged: List[Tuple[int, ray.ObjectRef]] = []
-        evaluating: Dict[ray.ObjectRef, int] = {}
-        results: Dict[int, ray.ObjectRef] = {}
+        return await future_result
 
-        genotypes = list(enumerate(map(torch.from_numpy, genotypes)))
+    async def _process_queue(self):
+        merging: Dict[ray.ObjectRef, asyncio.Future] = {}
+        merged: List[Tuple[asyncio.Future, ray.ObjectRef]] = []
+        evaluating: Dict[ray.ObjectRef, asyncio.Future] = {}
 
-        while True:
-            # try to keep num_gpus merges ready to evaluate or in progress
-            while genotypes and len(merging) + len(merged) < self.num_gpus:
-                idx, genotype = genotypes.pop()
-                merging[
-                    merge_model.remote(
-                        genotype,
-                        self.genome,
-                        self.model_storage_path,
-                        self.merge_options,
-                    )
-                ] = idx
+        logging.info("Starting processing loop")
 
-            # queue evaluations for any completed merges
-            while merged and len(evaluating) < self.num_gpus:
-                idx, merged_path = merged.pop()
-                evaluating[
-                    evaluate_model.remote(
-                        merged_path,
-                        self.config.task,
-                        self.config.num_fewshot,
-                        self.config.limit,
-                        self.vllm,
-                    )
-                ] = idx
+        try:
+            while True:
+                while self.input_queue and (len(merging) + len(merged) < self.num_gpus):
+                    genotype, future_result = self.input_queue.pop(0)
+                    merging[
+                        merge_model.remote(
+                            genotype,
+                            self.genome,
+                            self.model_storage_path,
+                            self.merge_options,
+                        )
+                    ] = future_result
 
-            # poll for any finished merges or evaluations
-            ready, _ = ray.wait(
-                list(merging.keys()) + list(evaluating.keys()),
-                num_returns=1,
-                fetch_local=False,
-                timeout=1,
-            )
-            for r in ready:
-                if r in merging:
-                    idx = merging.pop(r)
-                    merged.append((idx, r))
-                elif r in evaluating:
-                    idx = evaluating.pop(r)
-                    results[idx] = r
+                while merged and len(evaluating) < self.num_gpus:
+                    future_result, merged_path = merged.pop()
+                    evaluating[
+                        evaluate_model.remote(
+                            merged_path,
+                            self.config.task,
+                            self.config.num_fewshot,
+                            self.config.limit,
+                            self.vllm,
+                        )
+                    ] = future_result
 
-            if (not genotypes) and (not merging) and (not merged) and (not evaluating):
-                break
+                ready, _ = ray.wait(
+                    list(merging.keys()) + list(evaluating.keys()),
+                    num_returns=1,
+                    fetch_local=False,
+                    timeout=1,
+                )
+                for r in ready:
+                    if r in merging:
+                        future_result = merging.pop(r)
+                        merged.append((future_result, r))
+                    elif r in evaluating:
+                        future_result = evaluating.pop(r)
+                        future_result.set_result(ray.get(r))
 
-        return [ray.get(results[i]) for i in range(len(results))]
+                if (
+                    not self.input_queue
+                    and not merging
+                    and not merged
+                    and not evaluating
+                ):
+                    logging.info("Queue empty, exiting processing loop")
+                    break
+        except Exception as e:
+            logging.error("Error in processing loop", exc_info=e)
+            raise
+
+
+class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
+    def __init__(
+        self,
+        *args,
+        model_storage_path: Optional[str] = None,
+        vllm: bool = False,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.actor = BufferedRayEvaluationStrategyActor.remote(
+            self.config,
+            self.genome,
+            self.merge_options,
+            model_storage_path=model_storage_path,
+            vllm=vllm,
+            num_gpus=self.num_gpus,
+        )
 
     def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
-        return self._eval(genotypes)
+        return ray.get([self.actor.evaluate_genotype.remote(x) for x in genotypes])
+
+    def evaluate_genotype(self, genotype: np.ndarray) -> float:
+        return ray.get(self.actor.evaluate_genotype.remote(genotype))
