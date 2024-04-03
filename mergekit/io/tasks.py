@@ -32,7 +32,9 @@ class LoaderCache:
             merged = model.merged(
                 cache_dir=self.lora_cache_dir, trust_remote_code=self.trust_remote_code
             )
-            self.loaders[model] = merged.lazy_loader(cache_dir=self.hf_cache_dir)
+            self.loaders[model] = merged.lazy_loader(
+                cache_dir=self.hf_cache_dir, lazy_unpickle=self.lazy_unpickle
+            )
         return self.loaders[model]
 
     def flush_all(self):
@@ -97,10 +99,11 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
     def group_label(self) -> Optional[str]:
         loader = LoaderCache().get(self.model)
         name = self._resolve_name(loader)
-        if name:
-            shard_path = loader.index.tensor_paths[name]
-            return _normalized_shard_name(shard_path)
-        return None
+        # if name:
+        #     shard_path = loader.index.tensor_paths[name]
+        #     return _normalized_shard_name(shard_path)
+        # return None
+        return name
 
 
 class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):

@@ -13,12 +13,8 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Optional
 
-import numpy as np
-import optuna
-import torch
-import transformers
 from pydantic import BaseModel, model_validator
 
 from mergekit.evo.genome import ModelGenomeDefinition

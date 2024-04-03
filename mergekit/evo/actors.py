@@ -15,6 +15,7 @@
 
 import asyncio
 import logging
+import os
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
@@ -52,15 +53,13 @@ class EvaluationStrategyBase(ABC):
         genome: ModelGenome,
         merge_options: MergeOptions,
         num_gpus: Optional[int] = None,
-        merge_kwargs: Optional[Dict[str, Any]] = None,
-        eval_kwargs: Optional[Dict[str, Any]] = None,
+        batch_size: Optional[int] = None,
     ):
         self.config = config
         self.genome = genome
         self.merge_options = merge_options
         self.num_gpus = num_gpus or torch.cuda.device_count()
-        self.merge_kwargs = merge_kwargs
-        self.eval_kwargs = eval_kwargs
+        self.batch_size = batch_size
 
     @abstractmethod
     def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
@@ -99,6 +98,7 @@ def evaluate_model(
     num_fewshot: Optional[int],
     limit: Optional[int],
     vllm: bool,
+    batch_size: Optional[int] = None,
 ) -> float:
     monkeypatch_tqdm()
     try:
@@ -110,9 +110,12 @@ def evaluate_model(
             model_args["gpu_memory_utilization"] = 0.8
             model_args["tensor_parallel_size"] = 1
             model_args["batch_size"] = "auto"
+            model_args["max_model_len"] = 4096
         else:
             model_args["use_cache"] = True
-            model_args["batch_size"] = 32
+
+        if batch_size is not None:
+            model_args["batch_size"] = batch_size
 
         res = _eval_model(
             "vllm" if vllm else "huggingface",
@@ -137,6 +140,7 @@ def merge_model(
 ) -> str:
     monkeypatch_tqdm()
     cfg = genome.genotype_merge_config(genotype)
+    os.makedirs(model_storage_path, exist_ok=True)
     res = tempfile.mkdtemp(prefix="merged", dir=model_storage_path)
     run_merge(cfg, out_path=res, options=merge_options)
     return res
@@ -158,6 +162,7 @@ class MergeActorBase:
         merge_options: MergeOptions,
         model_storage_path: Optional[str] = None,
         vllm: bool = False,
+        batch_size: Optional[int] = None,
     ):
         self.config = config
         self.genome = genome
@@ -166,6 +171,7 @@ class MergeActorBase:
         self.cache.setup(merge_options)
         self.model_storage_path = model_storage_path
         self.vllm = vllm
+        self.batch_size = batch_size
 
         if config.shuffle:
             monkeypatch_lmeval_shuffle()
@@ -178,32 +184,23 @@ class OnDiskMergeEvaluator(MergeActorBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    async def _merge_model(
+    def evaluate_genotype(
         self,
         genotype: torch.Tensor,
-    ) -> str:
-        return merge_model(
+    ) -> float:
+        logging.info("Merging model")
+        merged_path = merge_model(
             genotype, self.genome, self.model_storage_path, self.merge_options
         )
-
-    async def _evaluate_model(
-        self,
-        merged_path: str,
-    ) -> float:
+        logging.info(f"Model merged to {merged_path}")
         return evaluate_model(
             merged_path,
             self.config.tasks,
-            self.config.num_fewshot,
-            self.config.limit,
-            self.vllm,
+            num_fewshot=self.config.num_fewshot,
+            limit=self.config.limit,
+            vllm=self.vllm,
+            batch_size=self.batch_size,
         )
-
-    async def evaluate_genotype(
-        self,
-        genotype: torch.Tensor,
-    ) -> float:
-        merged_path = await self._merge_model(genotype)
-        return await self._evaluate_model(merged_path)
 
 
 @ray.remote(num_cpus=1, num_gpus=1)
@@ -298,7 +295,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
             limit=self.config.limit,
         )
 
-    async def evaluate_genotype(
+    def evaluate_genotype(
         self,
         genotype: torch.Tensor,
     ) -> float:
@@ -355,6 +352,7 @@ class BufferedRayEvaluationStrategyActor:
         model_storage_path: Optional[str] = None,
         vllm: bool = False,
         num_gpus: Optional[int] = None,
+        batch_size: Optional[int] = None,
     ):
         self.config = config
         self.genome = genome
@@ -363,7 +361,8 @@ class BufferedRayEvaluationStrategyActor:
         self.vllm = vllm
         self.num_gpus = num_gpus or torch.cuda.device_count()
         self.input_queue = []
-        self.shutdown = False
+        self.batch_size = batch_size
+        self._shutdown = False
 
     async def evaluate_genotype(self, genotype: np.ndarray):
         future_result = asyncio.Future()
@@ -378,7 +377,7 @@ class BufferedRayEvaluationStrategyActor:
         logging.info("Starting processing loop")
 
         try:
-            while not self.shutdown:
+            while not self._shutdown:
                 while self.input_queue and (len(merging) + len(merged) < self.num_gpus):
                     genotype, future_result = self.input_queue.pop(0)
                     merging[
@@ -396,9 +395,10 @@ class BufferedRayEvaluationStrategyActor:
                         evaluate_model_ray.remote(
                             merged_path,
                             self.config.tasks,
-                            self.config.num_fewshot,
-                            self.config.limit,
-                            self.vllm,
+                            num_fewshot=self.config.num_fewshot,
+                            limit=self.config.limit,
+                            vllm=self.vllm,
+                            batch_size=self.batch_size,
                         )
                     ] = future_result
 
@@ -428,7 +428,7 @@ class BufferedRayEvaluationStrategyActor:
             raise
 
     async def shutdown(self):
-        self.shutdown = True
+        self._shutdown = True
 
 
 class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
@@ -437,8 +437,12 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
         *args,
         model_storage_path: Optional[str] = None,
         vllm: bool = False,
+        in_memory: bool = False,
         **kwargs,
     ):
+        if in_memory:
+            raise ValueError("In-memory evaluation is not supported for buffered mode")
+
         super().__init__(*args, **kwargs)
         self.actor = BufferedRayEvaluationStrategyActor.options(
             max_concurrency=1000
