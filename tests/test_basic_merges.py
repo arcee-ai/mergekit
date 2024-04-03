@@ -11,7 +11,7 @@ from mergekit.config import (
     OutputSliceDefinition,
     ParameterSetting,
 )
-from mergekit.io import LazyTensorLoader, ShardedTensorIndex
+from mergekit.io import LazyTensorLoader
 
 
 @pytest.fixture(scope="session")
@@ -73,7 +73,7 @@ class TestBasicMerges:
         )
 
         def _check_o_proj(p: str):
-            loader = LazyTensorLoader(index=ShardedTensorIndex.from_disk(p))
+            loader = LazyTensorLoader.from_disk(p)
             saw_any = False
             for name in loader.index.tensor_paths:
                 if "o_proj" in name:
@@ -122,6 +122,22 @@ class TestBasicMerges:
             merge_method="dare_ties",
             base_model=model_c,
             params={"density": 0.66},
+        )
+        run_and_check_merge(config)
+
+    def test_model_stock_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_b, model_c, merge_method="model_stock", base_model=model_a
+        )
+        run_and_check_merge(config)
+
+    def test_model_stock_filterwise_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_b,
+            model_c,
+            merge_method="model_stock",
+            base_model=model_a,
+            params={"filter_wise": True},
         )
         run_and_check_merge(config)
 

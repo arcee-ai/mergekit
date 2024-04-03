@@ -61,7 +61,7 @@ class TensorWriter:
             tensor = tensor.clone()
 
         self.current_shard[name] = tensor
-        self.total_size += tensor.nbytes
+        self.total_size += tensor.numel() * tensor.element_size()
         self.current_shard_size += tensor_size
 
     def flush_current_shard(self):
@@ -117,7 +117,7 @@ class TensorWriter:
             json.dump(
                 {
                     "metadata": {
-                        "mergekit_version": "0.0.4.1",
+                        "mergekit_version": "0.0.4.2",
                         "total_size": self.total_size,
                     },
                     "weight_map": self.weight_map,
