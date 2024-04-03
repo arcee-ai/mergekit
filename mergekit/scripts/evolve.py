@@ -21,7 +21,10 @@ import cma
 import numpy as np
 import yaml
 
-from mergekit.evo.actors import ActorEvaluationStrategy, BufferedRayEvaluationStrategy
+from mergekit.evo.actors import (
+    ActorPoolEvaluationStrategy,
+    BufferedRayEvaluationStrategy,
+)
 from mergekit.evo.genome import EvolMergeConfiguration, ModelGenome
 from mergekit.io.tasks import LoaderCache
 from mergekit.options import MergeOptions, add_merge_options
@@ -77,7 +80,7 @@ def main(
         cache.get(model)
 
     if schedule_strategy == "actor":
-        strat = ActorEvaluationStrategy(
+        strat = ActorPoolEvaluationStrategy(
             config=config,
             genome=genome,
             merge_options=merge_options,
@@ -114,9 +117,9 @@ def main(
             print(genome.genotype_merge_config(xbest).to_yaml())
 
     def parallel_evaluate(x: List[np.ndarray]) -> List[float]:
+        print(f"Received {len(x)} genotypes")
         res = strat.evaluate_genotypes(x)
-        print(repr(res))
-        return res
+        return [-x for x in res]  # maximize
 
     try:
         xbest, es = cma.fmin2(

@@ -78,6 +78,7 @@ def _eval_model(
 ) -> float:
     results = lm_eval.evaluator.simple_evaluate(
         model=model,
+        model_args=model_args,
         tasks=[task],
         log_samples=False,
         verbosity="WARNING",
@@ -88,7 +89,6 @@ def _eval_model(
     return results["results"][task]["acc,none"]
 
 
-@ray.remote(num_cpus=1, num_gpus=0.9)
 def evaluate_model(
     merged_path: str,
     task: str,
@@ -121,7 +121,9 @@ def evaluate_model(
         shutil.rmtree(merged_path)
 
 
-@ray.remote(num_cpus=1, num_gpus=0.1, max_retries=3, retry_exceptions=[ConnectionError])
+evaluate_model_ray = ray.remote(num_cpus=1, num_gpus=0.9)(evaluate_model)
+
+
 def merge_model(
     genotype: torch.Tensor,
     genome: ModelGenome,
@@ -133,6 +135,14 @@ def merge_model(
     res = tempfile.mkdtemp(prefix="merged", dir=model_storage_path)
     run_merge(cfg, out_path=res, options=merge_options)
     return res
+
+
+merge_model_ray = ray.remote(
+    num_cpus=1,
+    num_gpus=0.1,
+    max_retries=3,
+    retry_exceptions=[ConnectionError],
+)(merge_model)
 
 
 class MergeActorBase:
@@ -194,6 +204,7 @@ class OnDiskMergeEvaluator(MergeActorBase):
 @ray.remote(num_cpus=1, num_gpus=1)
 class InMemoryMergeEvaluator(MergeActorBase):
     model: Optional[lm_eval.models.huggingface.HFLM] = None
+    arch_info: Optional[ConfiguredArchitectureInfo] = None
 
     def __init__(
         self,
@@ -289,7 +300,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
         return self.evaluate(genotype)
 
 
-class ActorEvaluationStrategy(EvaluationStrategyBase):
+class ActorPoolEvaluationStrategy(EvaluationStrategyBase):
     def __init__(
         self,
         *args,
@@ -325,6 +336,9 @@ class ActorEvaluationStrategy(EvaluationStrategyBase):
             )
         )
 
+    def evaluate_genotype(self, genotype: np.ndarray) -> float:
+        return self.evaluate_genotypes([genotype])[0]
+
 
 @ray.remote
 class BufferedRayEvaluationStrategyActor:
@@ -344,22 +358,14 @@ class BufferedRayEvaluationStrategyActor:
         self.vllm = vllm
         self.num_gpus = num_gpus or torch.cuda.device_count()
         self.input_queue = []
-        self.processing_task = None
+        self.shutdown = False
 
     async def evaluate_genotype(self, genotype: np.ndarray):
-        # if task failed we want to raise the exception here
-        if self.processing_task is not None:
-            self.processing_task.result()
-
         future_result = asyncio.Future()
         self.input_queue.append((genotype, future_result))
-
-        if self.processing_task is None or self.processing_task.done():
-            self.processing_task = asyncio.create_task(self._process_queue())
-
         return await future_result
 
-    async def _process_queue(self):
+    async def process_queue(self):
         merging: Dict[ray.ObjectRef, asyncio.Future] = {}
         merged: List[Tuple[asyncio.Future, ray.ObjectRef]] = []
         evaluating: Dict[ray.ObjectRef, asyncio.Future] = {}
@@ -367,11 +373,11 @@ class BufferedRayEvaluationStrategyActor:
         logging.info("Starting processing loop")
 
         try:
-            while True:
+            while not self.shutdown:
                 while self.input_queue and (len(merging) + len(merged) < self.num_gpus):
                     genotype, future_result = self.input_queue.pop(0)
                     merging[
-                        merge_model.remote(
+                        merge_model_ray.remote(
                             genotype,
                             self.genome,
                             self.model_storage_path,
@@ -382,7 +388,7 @@ class BufferedRayEvaluationStrategyActor:
                 while merged and len(evaluating) < self.num_gpus:
                     future_result, merged_path = merged.pop()
                     evaluating[
-                        evaluate_model.remote(
+                        evaluate_model_ray.remote(
                             merged_path,
                             self.config.task,
                             self.config.num_fewshot,
@@ -403,7 +409,7 @@ class BufferedRayEvaluationStrategyActor:
                         merged.append((future_result, r))
                     elif r in evaluating:
                         future_result = evaluating.pop(r)
-                        future_result.set_result(ray.get(r))
+                        future_result.set_result(await r)
 
                 if (
                     not self.input_queue
@@ -411,11 +417,13 @@ class BufferedRayEvaluationStrategyActor:
                     and not merged
                     and not evaluating
                 ):
-                    logging.info("Queue empty, exiting processing loop")
-                    break
+                    await asyncio.sleep(1)
         except Exception as e:
             logging.error("Error in processing loop", exc_info=e)
             raise
+
+    async def shutdown(self):
+        self.shutdown = True
 
 
 class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
@@ -427,7 +435,9 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.actor = BufferedRayEvaluationStrategyActor.remote(
+        self.actor = BufferedRayEvaluationStrategyActor.options(
+            max_concurrency=1000
+        ).remote(
             self.config,
             self.genome,
             self.merge_options,
@@ -435,6 +445,7 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
             vllm=vllm,
             num_gpus=self.num_gpus,
         )
+        self.actor.process_queue.remote()
 
     def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
         return ray.get([self.actor.evaluate_genotype.remote(x) for x in genotypes])
