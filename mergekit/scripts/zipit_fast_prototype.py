@@ -159,5 +159,5 @@ def main(
     model_out_config.save_pretrained(out_path)
 
 
-#  python mergekit/scripts/zip_fast_prototype.py TinyLlama/TinyLlama-1.1B-Chat-v1.0 TinyLlama/TinyLlama-1.1B-Chat-v0.6  m_v_out -o new_model
+# python mergekit/scripts/zipit_fast_prototype.py TinyLlama/TinyLlama-1.1B-Chat-v1.0 TinyLlama/TinyLlama-1.1B-Chat-v0.6  m_v_out -o new_model
 main()
