@@ -135,7 +135,7 @@ def run_merge(
 def _copy_tokenizer(
     merge_config: MergeConfiguration, out_path: str, trust_remote_code: bool = False
 ):
-    donor_model = merge_config.referenced_models()[0]
+    donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
 
     if os.path.exists(
         os.path.join(donor_model.model.path, "tokenizer_config.json")
