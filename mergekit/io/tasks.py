@@ -143,7 +143,6 @@ class TensorWriterTask(Task[TensorWriter]):
     out_path: str
     max_shard_size: int
     safe_serialization: bool = True
-    tensorizer: bool = False
 
     def arguments(self) -> Dict[str, Task]:
         return {}
@@ -153,7 +152,6 @@ class TensorWriterTask(Task[TensorWriter]):
             self.out_path,
             max_shard_size=self.max_shard_size,
             safe_serialization=self.safe_serialization,
-            tensorizer=self.tensorizer,
         )
 
 

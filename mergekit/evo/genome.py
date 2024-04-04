@@ -16,7 +16,6 @@
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
-import optuna
 import torch
 import transformers
 from pydantic import BaseModel, model_validator
@@ -196,24 +195,4 @@ class ModelGenome:
                 for k in range(len(METHOD_PARAM_MAPS[self.definition.merge_method])):
                     param_name = METHOD_PARAM_MAPS[self.definition.merge_method][k]
                     res[(i, j, k)] = f"lg{i}_m{j}_{param_name}"
-        return res
-
-    def suggest_params(self, trial: optuna.Trial) -> torch.Tensor:
-        """Suggest parameters for the given trial."""
-        res = torch.empty(
-            self.num_layers // self.definition.layer_granularity,
-            len(self.definition.models),
-            len(METHOD_PARAM_MAPS[self.definition.merge_method]),
-        )
-
-        names = self.gene_names()
-        for i in range(res.shape[0]):
-            for j in range(res.shape[1]):
-                for k in range(res.shape[2]):
-                    param_range = [0, 1]
-                    name = names[(i, j, k)]
-                    if name.endswith("weight"):
-                        param_range = [-1, 1]
-                    res[i, j, k] = trial.suggest_float(name, *param_range)
-
         return res

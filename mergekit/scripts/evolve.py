@@ -97,7 +97,6 @@ def main(
         quiet=True,
         read_to_gpu=merge_cuda and not in_memory,
         copy_tokenizer=True,
-        tensorizer=False,
         safe_serialization=True,
     )
 

@@ -32,7 +32,6 @@ evolve = [
     "ray",
     "cma",
     "lm_eval[vllm]",
-    "optuna",
     "tensorizer==2.9.0a0",
     "vllm==0.3.2",
     "flash-attn",

@@ -174,7 +174,6 @@ def main(
         out_path,
         max_shard_size=merge_options.out_shard_size,
         safe_serialization=merge_options.safe_serialization,
-        tensorizer=merge_options.tensorizer,
     )
     for weight_info in tqdm.tqdm(arch_info.all_weights(), desc="Saving weights"):
         if weight_info.name == embed_info.name:

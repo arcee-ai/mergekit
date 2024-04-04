@@ -281,7 +281,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     pretrained=tempdir,
                     batch_size=self.batch_size or "auto",
                     max_model_len=4096,
-                    gpu_memory_utilization=0.7,
+                    gpu_memory_utilization=0.7,  # can't do 0.9 because the merge will OOM
                     dtype="bfloat16",
                     device="cuda",
                     trust_remote_code=self.merge_options.trust_remote_code,

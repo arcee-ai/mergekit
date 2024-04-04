@@ -19,7 +19,6 @@ import os
 from typing import Dict
 
 import safetensors
-import tensorizer
 import torch
 
 
@@ -32,25 +31,18 @@ class TensorWriter:
     current_shard_size: int
     total_size: int
     safe_serialization: bool
-    tensorizer: bool
 
     def __init__(
         self,
         out_path: str,
         max_shard_size: int = 1000 * 1000 * 1000 * 5,
         safe_serialization: bool = True,
-        tensorizer: bool = False,
     ) -> None:
         os.makedirs(out_path, exist_ok=True)
-
-        if tensorizer:
-            # we want to always write a single shard for tensorizer
-            max_shard_size = torch.inf
 
         self.out_path = out_path
         self.max_shard_size = max_shard_size
         self.safe_serialization = safe_serialization
-        self.tensorizer = tensorizer
         self.shards_written = 0
         self.weight_map = {}
         self.current_shard = {}
@@ -81,29 +73,11 @@ class TensorWriter:
         prefix, extension = self._get_name_components()
         shard_name = f"{prefix}-{self.shards_written+1}.{extension}"
 
-        if self.tensorizer:
-            shard_name = f"{prefix}.{extension}"
-
         for key in self.current_shard:
             self.weight_map[key] = shard_name
 
         shard_path = os.path.join(self.out_path, shard_name)
-        if self.tensorizer:
-            serializer = tensorizer.TensorSerializer(shard_path)
-            serializer._bulk_write(
-                [
-                    tensorizer.TensorSerializer._WriteSpec(
-                        idx=idx,
-                        path=name,
-                        tensor_type=tensorizer.TensorType.PARAM,
-                        tensor=param,
-                        callback=None,
-                    )
-                    for idx, (name, param) in enumerate(self.current_shard.items())
-                ]
-            )
-            serializer.close()
-        elif self.safe_serialization:
+        if self.safe_serialization:
             self._save_st(shard_path)
         else:
             torch.save(self.current_shard, shard_path)
@@ -114,10 +88,6 @@ class TensorWriter:
 
     def finalize(self):
         self.flush_current_shard()
-
-        if self.tensorizer:
-            assert self.shards_written == 1, "Tensorizer should only write one shard"
-            return
 
         logging.info("Finalizing shard names")
 
@@ -157,8 +127,6 @@ class TensorWriter:
             )
 
     def _get_name_components(self):
-        if self.tensorizer:
-            return "model", "tensors"
         if self.safe_serialization:
             return "model", "safetensors"
         return "pytorch_model", "bin"

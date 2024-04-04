@@ -250,7 +250,6 @@ class MergePlanner:
             out_path=out_path,
             max_shard_size=self.options.out_shard_size,
             safe_serialization=self.options.safe_serialization,
-            tensorizer=self.options.tensorizer,
         )
         save_tasks = []
         for weight, tensor_task in self._tensors:

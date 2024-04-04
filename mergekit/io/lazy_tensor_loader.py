@@ -22,7 +22,6 @@ from typing import Dict, List, Optional
 
 import safetensors
 import safetensors.torch
-import tensorizer
 import torch
 from torch import Tensor
 
@@ -39,7 +38,6 @@ class ShardInfo:
 class ShardedTensorIndex:
     base_path: str
     is_safetensors: bool
-    is_tensorizer: bool
     tensor_paths: Dict[str, str]
     shards: List[ShardInfo]
 
@@ -47,7 +45,6 @@ class ShardedTensorIndex:
     def from_disk(cls, base_path: str) -> "ShardedTensorIndex":
         model_path = None
         for model_file_name in [
-            "model.tensors",
             "model.safetensors",
             "pytorch_model.bin",
         ]:
@@ -61,7 +58,6 @@ class ShardedTensorIndex:
         if not model_path:
             raise RuntimeError(f"Unable to find model files at {base_path}")
 
-        is_tensorizer = model_path.endswith(".tensors")
         is_safetensors = model_path.endswith(".safetensors")
         tensor_paths = None
         shards = []
@@ -87,11 +83,6 @@ class ShardedTensorIndex:
             if model_path.lower().endswith(".safetensors"):
                 with safetensors.safe_open(model_path, framework="pt") as st:
                     tensor_paths = {key: shard_name for key in st.keys()}
-            elif model_path.lower().endswith(".tensors"):
-                deserializer = tensorizer.TensorDeserializer(
-                    model_path, device=None, lazy_load=True
-                )
-                tensor_paths = {key: shard_name for key in deserializer.keys()}
             else:
                 # this is ugly but not much else can be done
                 shard = torch.load(model_path, map_location="meta")
@@ -107,7 +98,6 @@ class ShardedTensorIndex:
         return ShardedTensorIndex(
             base_path=base_path,
             is_safetensors=is_safetensors,
-            is_tensorizer=is_tensorizer,
             tensor_paths=tensor_paths,
             shards=shards,
         )
