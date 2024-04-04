@@ -4,9 +4,10 @@ from typing import DefaultDict, Dict, List, Optional, Set, Tuple
 
 import click
 import numpy as np
-import safetensors
+import safetensors.torch
 import torch
 import tqdm
+from transformers import AutoTokenizer
 
 from mergekit.architecture import ProceduralSpaceInfo, WeightInfo, get_architecture_info
 from mergekit.common import ModelReference, dtype_from_name
@@ -23,7 +24,7 @@ from mergekit.options import MergeOptions, add_merge_options
 @click.option(
     "--dtype",
     type=str,
-    default="fp16",
+    default="float16",
     help="Data type to convert weights to",
 )
 @add_merge_options
@@ -37,6 +38,8 @@ def main(
 ):
     model = ModelReference.model_validate(model_path)
     secondary_model = ModelReference.model_validate(secondary_model_path)
+
+    dtype = dtype_from_name(dtype) if dtype else None
 
     cache = LoaderCache()
     cache.lazy_unpickle = merge_options.lazy_unpickle
@@ -67,13 +70,16 @@ def main(
     filtered = ["running_residual"]
     merge_unmerge_dictionary = {}
     for i in filtered:
-        m = safetensors.torch.load(
+        m = safetensors.torch.load_file(
             os.path.join(merge_unmerge_directory, f"{i}_merge.safetensor")
         )
-        u = safetensors.torch.load(
+        u = safetensors.torch.load_file(
             os.path.join(merge_unmerge_directory, f"{i}_unmerge.safetensor")
         )
-        merge_unmerge_dictionary[i] = (m["running_residual"], u["running_residual"])
+        merge_unmerge_dictionary[i] = (
+            m["running_residual"].to("cuda", dtype=dtype),
+            u["running_residual"].to("cuda", dtype=dtype),
+        )
 
     # TODO: deal with the embedding matrix on both ends
 
@@ -94,9 +100,18 @@ def main(
 
         original_w = loader_1.get_tensor(weight_info.name, device="cuda")
         original_w2 = loader_2.get_tensor(weight_info.name, device="cuda")
+        print(dtype)
         if dtype is not None:
-            w = original_w.to(dtype=dtype)
-            w2 = original_w2.to(dtype=dtype)
+            original_w = original_w.to(dtype=dtype)
+            original_w2 = original_w2.to(dtype=dtype)
+
+        w = torch.clone(original_w)
+        w2 = torch.clone(original_w2)
+
+        if not merge_matrix and not unmerge_matrix:
+            logging.warning(
+                f"❌ Weight {weight_info.name} for model 1 and model 2 has no merge or unmerge matrix"
+            )
 
         if merge_matrix is not None:
             if weight_info.is_embed:
@@ -113,17 +128,35 @@ def main(
         # check if weights have not mutated, if yes then  shoot warning
         if torch.allclose(original_w, w):
             logging.warning(
-                f"Weight {weight_info.name} for model 1 has NOT mutated during merge"
+                f"❌ Weight {weight_info.name} for model 1 has NOT mutated during merge"
+            )
+        else:
+            logging.warning(
+                f"✅ Weight {weight_info.name} for model 1 has mutated during merge"
             )
 
         if torch.allclose(original_w2, w2):
             logging.warning(
-                f"Weight {weight_info.name} has model 2 has NOT mutated during merge"
+                f"❌ Weight {weight_info.name} has model 2 has NOT mutated during merge"
+            )
+        else:
+            logging.warning(
+                f"✅ Weight {weight_info.name} for model 2 has mutated during merge"
             )
 
         # average weights and save them
         w = (w + w2) / 2
-        writer.write_tensor(weight_info.name, w)
+        writer.save_tensor(weight_info.name, w)
+    writer.finalize()
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer.save_pretrained(out_path, safe_serialization=True)
+
+    # write config
+    model_out_config = model.config(trust_remote_code=merge_options.trust_remote_code)
+    if dtype:
+        model_out_config.torch_dtype = dtype
+    model_out_config.save_pretrained(out_path)
 
 
 #  python mergekit/scripts/zip_fast_prototype.py TinyLlama/TinyLlama-1.1B-Chat-v1.0 TinyLlama/TinyLlama-1.1B-Chat-v0.6  m_v_out -o new_model
