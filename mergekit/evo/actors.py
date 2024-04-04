@@ -14,6 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import asyncio
+import gc
 import logging
 import os
 import shutil
@@ -76,7 +77,7 @@ def _eval_model(
     results = lm_eval.evaluator.simple_evaluate(
         model=model,
         model_args=model_args,
-        tasks=[task.name for task in tasks],
+        tasks=list(set([task.name for task in tasks])),
         log_samples=False,
         verbosity="WARNING",
         **kwargs,
@@ -111,15 +112,13 @@ def evaluate_model(
         else:
             model_args["use_cache"] = True
 
-        if batch_size is not None:
-            model_args["batch_size"] = batch_size
-
         res = _eval_model(
             "vllm" if vllm else "huggingface",
             tasks,
             model_args,
             num_fewshot=num_fewshot,
             limit=limit,
+            batch_size=batch_size,
         )
         return res
     finally:
@@ -185,6 +184,8 @@ class OnDiskMergeEvaluator(MergeActorBase):
         self,
         genotype: torch.Tensor,
     ) -> float:
+        gc.collect()
+        torch.cuda.empty_cache()
         logging.info("Merging model")
         merged_path = merge_model(
             genotype, self.genome, self.model_storage_path, self.merge_options
@@ -202,7 +203,9 @@ class OnDiskMergeEvaluator(MergeActorBase):
 
 @ray.remote(num_cpus=1, num_gpus=1)
 class InMemoryMergeEvaluator(MergeActorBase):
-    model: Optional[lm_eval.models.huggingface.HFLM] = None
+    model: Union[
+        lm_eval.models.huggingface.HFLM, lm_eval.models.vllm_causallms.VLLM, None
+    ] = None
     arch_info: Optional[ConfiguredArchitectureInfo] = None
 
     def __init__(
@@ -211,8 +214,8 @@ class InMemoryMergeEvaluator(MergeActorBase):
         vllm: bool = False,
         **kwargs,
     ):
-        assert not vllm, "VLLM is not supported for in-memory merging"
-        super().__init__(*args, vllm=False, **kwargs)
+        # assert not vllm, "VLLM is not supported for in-memory merging"
+        super().__init__(*args, vllm=vllm, **kwargs)
 
     def _maybe_init_model(self, config: MergeConfiguration):
         ai = get_architecture_info(self.genome._input_config_example)
@@ -259,7 +262,14 @@ class InMemoryMergeEvaluator(MergeActorBase):
                 .requires_grad_(False)
             )
 
-        self.model = lm_eval.models.huggingface.HFLM(pretrained=inner_model)
+        if self.vllm:
+            self.model = lm_eval.models.vllm_causallms.VLLM(
+                pretrained=inner_model,
+                batch_size=self.batch_size or "auto",
+                max_model_len=4096,
+            )
+        else:
+            self.model = lm_eval.models.huggingface.HFLM(pretrained=inner_model)
         self.arch_info = ConfiguredArchitectureInfo(info=ai, config=cfg_out)
         logging.info("Model initialized")
 
@@ -275,13 +285,37 @@ class InMemoryMergeEvaluator(MergeActorBase):
         )
 
         tasks = planner.plan_in_memory()
+
+        param_dict = dict(self.model.model.named_parameters())
+
+        stacked_mapping = {
+            ".q_proj.": (".qkv_proj.", 0),
+            ".k_proj.": (".qkv_proj.", 1),
+            ".v_proj.": (".qkv_proj.", 2),
+            ".gate_proj.": (".gate_up_proj.", 0),
+            ".up_proj.": (".gate_up_proj.", 1),
+        }
+
         executor = Executor(tasks, math_device="cuda", storage_device="cuda")
         for tensor_task, value in executor.run(quiet=True):
             assert isinstance(tensor_task, ReturnTensor)
-            if self.model.model.load_state_dict(
-                {tensor_task.weight_info.name: value}, strict=False, assign=False
-            ).unexpected_keys:
-                raise RuntimeError(f"Unexpected keys in tensor {tensor_task}")
+            name = tensor_task.weight_info.name
+
+            if name in param_dict:
+                param_dict[name].data.copy_(value, non_blocking=True)
+            else:
+                stacked = False
+                for needle, (replacement, idx) in stacked_mapping.items():
+                    if needle in name:
+                        target = name.replace(needle, replacement)
+                        param_dict[target].data[
+                            idx * value.shape[0] : (idx + 1) * value.shape[0]
+                        ] = value
+                        stacked = True
+                        break
+
+                if not stacked:
+                    raise ValueError(f"Unknown parameter {name}")
 
             del value
 
@@ -460,6 +494,37 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
         return ray.get(self.actor.evaluate_genotype.remote(genotype))
 
 
+@ray.remote
+def evaluate_genotype_serial(
+    genotype: np.ndarray,
+    config: EvolMergeConfiguration,
+    genome: ModelGenome,
+    merge_options: MergeOptions,
+    model_storage_path: Optional[str] = None,
+    vllm: bool = False,
+    batch_size: Optional[int] = None,
+):
+    pg = ray.util.placement_group([{"CPU": 1, "GPU": 1}], strategy="STRICT_PACK")
+    strat = ray.util.scheduling_strategies.PlacementGroupSchedulingStrategy(
+        placement_group=pg
+    )
+    merged_path = merge_model_ray.options(scheduling_strategy=strat).remote(
+        genotype, genome, model_storage_path, merge_options
+    )
+    res = ray.get(
+        evaluate_model_ray.options(scheduling_strategy=strat).remote(
+            merged_path,
+            config.tasks,
+            num_fewshot=config.num_fewshot,
+            limit=config.limit,
+            vllm=vllm,
+            batch_size=batch_size,
+        )
+    )
+    ray.util.remove_placement_group(pg)
+    return res
+
+
 class SerialEvaluationStrategy(EvaluationStrategyBase):
     def __init__(
         self,
@@ -475,25 +540,21 @@ class SerialEvaluationStrategy(EvaluationStrategyBase):
             raise ValueError("In-memory evaluation is not supported for serial mode")
         super().__init__(*args, **kwargs)
 
-    def _eval_one(self, genotype: np.ndarray) -> float:
-        pg = ray.util.placement_group([{"CPU": 1, "GPU": 1}], strategy="STRICT_PACK")
-        strat = ray.util.scheduling_strategies.PlacementGroupSchedulingStrategy(
-            placement_group=pg
-        )
-        merged_path = merge_model_ray.options(scheduling_strategy=strat).remote(
-            genotype, self.genome, self.model_storage_path, self.merge_options
-        )
-        return evaluate_model_ray.options(scheduling_strategy=strat).remote(
-            merged_path,
-            self.config.tasks,
-            num_fewshot=self.config.num_fewshot,
-            limit=self.config.limit,
-            vllm=self.vllm,
-            batch_size=self.batch_size,
-        )
-
     def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
-        return ray.get(list(map(self._eval_one, genotypes)))
+        return ray.get(
+            [
+                evaluate_genotype_serial.remote(
+                    x,
+                    self.config,
+                    self.genome,
+                    self.merge_options,
+                    model_storage_path=self.model_storage_path,
+                    vllm=self.vllm,
+                    batch_size=self.batch_size,
+                )
+                for x in genotypes
+            ]
+        )
 
     def evaluate_genotype(self, genotype: np.ndarray) -> float:
         return self.evaluate_genotypes([genotype])[0]

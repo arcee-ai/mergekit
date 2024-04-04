@@ -44,7 +44,7 @@ from mergekit.options import MergeOptions
     "--strategy",
     "-s",
     type=click.Choice(["pool", "buffered", "serial"]),
-    default="pool",
+    default="buffered",
     help="Evaluation scheduling strategy",
 )
 @click.option(
@@ -95,7 +95,7 @@ def main(
         allow_crimes=allow_crimes,
         random_seed=random_seed,
         quiet=True,
-        read_to_gpu=merge_cuda,
+        read_to_gpu=merge_cuda and not in_memory,
         copy_tokenizer=True,
         tensorizer=False,
         safe_serialization=True,
