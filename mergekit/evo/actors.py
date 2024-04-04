@@ -31,6 +31,7 @@ import ray.util.queue
 import ray.util.scheduling_strategies
 import torch
 import transformers
+import vllm
 
 from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_info
 from mergekit.config import MergeConfiguration
@@ -263,11 +264,28 @@ class InMemoryMergeEvaluator(MergeActorBase):
             )
 
         if self.vllm:
-            self.model = lm_eval.models.vllm_causallms.VLLM(
-                pretrained=inner_model,
-                batch_size=self.batch_size or "auto",
-                max_model_len=4096,
-            )
+            # oh i hate this
+            with tempfile.TemporaryDirectory(
+                dir=self.model_storage_path, prefix="vllm"
+            ) as tempdir:
+                inner_model.save_pretrained(
+                    tempdir, safe_serialization=True, out_shard_size=1_000_000_000_000
+                )
+                del inner_model
+                tok = transformers.AutoTokenizer.from_pretrained(
+                    self.genome.definition.base_model.model.path, use_fast=True
+                )
+                tok.save_pretrained(tempdir)
+
+                self.model = lm_eval.models.vllm_causallms.VLLM(
+                    pretrained=tempdir,
+                    batch_size=self.batch_size or "auto",
+                    max_model_len=4096,
+                    gpu_memory_utilization=0.7,
+                    dtype="bfloat16",
+                    device="cuda",
+                    trust_remote_code=self.merge_options.trust_remote_code,
+                )
         else:
             self.model = lm_eval.models.huggingface.HFLM(pretrained=inner_model)
         self.arch_info = ConfiguredArchitectureInfo(info=ai, config=cfg_out)
@@ -286,12 +304,19 @@ class InMemoryMergeEvaluator(MergeActorBase):
 
         tasks = planner.plan_in_memory()
 
-        param_dict = dict(self.model.model.named_parameters())
+        model = self.model.model
+        if isinstance(model, vllm.LLM):
+            assert (
+                model.llm_engine.parallel_config.world_size == 1
+            ), "Must be single GPU"
+            worker = model.llm_engine.driver_worker
+            model = worker.model_runner.model
+        param_dict = dict(model.named_parameters())
 
         stacked_mapping = {
-            ".q_proj.": (".qkv_proj.", 0),
-            ".k_proj.": (".qkv_proj.", 1),
-            ".v_proj.": (".qkv_proj.", 2),
+            ".q_proj.": (".qkv_proj.", "q"),
+            ".k_proj.": (".qkv_proj.", "k"),
+            ".v_proj.": (".qkv_proj.", "v"),
             ".gate_proj.": (".gate_up_proj.", 0),
             ".up_proj.": (".gate_up_proj.", 1),
         }
@@ -305,12 +330,12 @@ class InMemoryMergeEvaluator(MergeActorBase):
                 param_dict[name].data.copy_(value, non_blocking=True)
             else:
                 stacked = False
-                for needle, (replacement, idx) in stacked_mapping.items():
+                for needle, (replacement, shard_id) in stacked_mapping.items():
                     if needle in name:
                         target = name.replace(needle, replacement)
-                        param_dict[target].data[
-                            idx * value.shape[0] : (idx + 1) * value.shape[0]
-                        ] = value
+                        param = param_dict[target]
+                        weight_loader = param.weight_loader
+                        weight_loader(param, value, shard_id)
                         stacked = True
                         break
 

@@ -89,7 +89,7 @@ def main(
         transformers_cache=os.path.join(storage_path, "transformers_cache"),
         lora_merge_cache=os.path.join(storage_path, "lora_merge_cache"),
         cuda=merge_cuda,
-        low_cpu_memory=merge_cuda,
+        low_cpu_memory=merge_cuda and not in_memory,
         out_shard_size=1_000_000_000_000,  # one trillion bytes!
         trust_remote_code=trust_remote_code,
         allow_crimes=allow_crimes,
