@@ -8,6 +8,7 @@ from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
 from mergekit.graph import Task
 from mergekit.io.lazy_tensor_loader import LazyTensorLoader
 from mergekit.io.tensor_writer import TensorWriter
+from mergekit.options import MergeOptions
 
 
 class LoaderCache:
@@ -30,15 +31,18 @@ class LoaderCache:
             merged = model.merged(
                 cache_dir=self.lora_cache_dir, trust_remote_code=self.trust_remote_code
             )
-            self.loaders[model] = LazyTensorLoader(
-                merged.tensor_index(cache_dir=self.hf_cache_dir),
-                lazy_unpickle=self.lazy_unpickle,
-            )
+            self.loaders[model] = merged.lazy_loader(cache_dir=self.hf_cache_dir)
         return self.loaders[model]
 
     def flush_all(self):
         for loader in self.loaders.values():
             loader.flush()
+
+    def setup(self, options: MergeOptions):
+        self.lora_cache_dir = options.lora_merge_cache
+        self.hf_cache_dir = options.transformers_cache
+        self.lazy_unpickle = options.lazy_unpickle
+        self.trust_remote_code = options.trust_remote_code
 
 
 def _normalized_shard_name(path: str) -> int:
@@ -145,6 +149,7 @@ class SaveTensor(Task[None]):
     tensor_task: Task
     writer_task: TensorWriterTask
     clone: bool
+    optional: bool = False
 
     def arguments(self) -> Dict[str, Task]:
         return {"writer": self.writer_task, "tensor": self.tensor_task}
@@ -155,7 +160,11 @@ class SaveTensor(Task[None]):
     def group_label(self) -> Optional[str]:
         return self.tensor_task.group_label()
 
-    def execute(self, writer: TensorWriter, tensor: torch.Tensor) -> None:
+    def execute(self, writer: TensorWriter, tensor: Optional[torch.Tensor]) -> None:
+        if tensor is None:
+            if not self.optional:
+                raise RuntimeError(f"No value for required tensor {self.tensor_name}")
+            return
         writer.save_tensor(name=self.tensor_name, tensor=tensor, clone=self.clone)
 
 
