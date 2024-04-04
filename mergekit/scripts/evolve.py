@@ -20,7 +20,6 @@ from typing import List, Optional
 import click
 import cma
 import numpy as np
-import tensorizer
 import torch
 import tqdm
 import transformers
@@ -35,8 +34,6 @@ from mergekit.evo.actors import (
 from mergekit.evo.config import EvolMergeConfiguration, ModelGenomeDefinition
 from mergekit.evo.genome import ModelGenome
 from mergekit.options import MergeOptions
-
-# TODO: pre-convert input models to safetensors or tensorizer format
 
 
 @click.command("mergekit-evolve")
@@ -100,7 +97,7 @@ def main(
         quiet=True,
         read_to_gpu=merge_cuda,
         copy_tokenizer=True,
-        tensorizer=vllm,
+        tensorizer=False,
         safe_serialization=True,
     )
 
@@ -154,6 +151,7 @@ def main(
         vllm=vllm,
         in_memory=in_memory,
         model_storage_path=os.path.join(storage_path, "merged"),
+        batch_size=batch_size,
     )
 
     x0 = genome.initial_genotype(random=config.random_init).view(-1).numpy()
@@ -166,7 +164,10 @@ def main(
             xbest = es.result.xbest
             xbest_cost = es.result.fbest
             print(f"New best cost: {xbest_cost:.4f}")
-            print(genome.genotype_merge_config(xbest).to_yaml())
+            best_yaml = genome.genotype_merge_config(xbest).to_yaml()
+            with open(os.path.join(storage_path, "best_config.yaml"), "w") as f:
+                f.write(best_yaml)
+            print(f"Merge configuration:\n{best_yaml}")
 
     def parallel_evaluate(x: List[np.ndarray]) -> List[float]:
         print(f"Received {len(x)} genotypes")
@@ -222,12 +223,9 @@ def _reshard_model(
         trust_remote_code=trust_remote_code,
         torch_dtype=torch.bfloat16,
     )
-    model_hf.config.save_pretrained(out_path)
-    serializer = tensorizer.TensorSerializer(os.path.join(out_path, "model.tensors"))
-    serializer.write_module(
-        model_hf, remove_tensors=True, include_non_persistent_buffers=False
+    model_hf.save_pretrained(
+        out_path, safe_serialization=True, out_shard_size=1_000_000_000_000
     )
-    serializer.close()
     try:
         tokenizer = transformers.AutoTokenizer.from_pretrained(
             model.model.path,

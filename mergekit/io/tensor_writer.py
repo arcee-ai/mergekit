@@ -94,7 +94,7 @@ class TensorWriter:
                 [
                     tensorizer.TensorSerializer._WriteSpec(
                         idx=idx,
-                        name=name,
+                        path=name,
                         tensor_type=tensorizer.TensorType.PARAM,
                         tensor=param,
                         callback=None,

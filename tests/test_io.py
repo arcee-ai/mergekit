@@ -25,6 +25,15 @@ class TestTensorWriter:
             assert os.path.exists(os.path.join(d, "pytorch_model-00001-of-00001.bin"))
             assert os.path.exists(os.path.join(d, "pytorch_model.bin.index.json"))
 
+    def test_tensorizer(self):
+        with tempfile.TemporaryDirectory() as d:
+            writer = TensorWriter(d, safe_serialization=False, tensorizer=True)
+            writer.save_tensor("jim", torch.randn(4))
+            writer.finalize()
+
+            assert os.path.exists(os.path.join(d, "model.tensors"))
+            assert not os.path.exists(os.path.join(d, "model.tensors.index.json"))
+
     def test_duplicate_tensor(self):
         with tempfile.TemporaryDirectory() as d:
             writer = TensorWriter(d, safe_serialization=True)

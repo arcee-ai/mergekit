@@ -27,6 +27,7 @@ import lm_eval.models.huggingface
 import numpy as np
 import ray
 import ray.util.queue
+import ray.util.scheduling_strategies
 import torch
 import transformers
 
@@ -474,25 +475,25 @@ class SerialEvaluationStrategy(EvaluationStrategyBase):
             raise ValueError("In-memory evaluation is not supported for serial mode")
         super().__init__(*args, **kwargs)
 
-    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
-        return ray.get(
-            [
-                evaluate_model_ray.remote(
-                    merge_model_ray.remote(
-                        genotype,
-                        self.genome,
-                        self.model_storage_path,
-                        self.merge_options,
-                    ),
-                    self.config.tasks,
-                    num_fewshot=self.config.num_fewshot,
-                    limit=self.config.limit,
-                    vllm=self.vllm,
-                    batch_size=self.batch_size,
-                )
-                for genotype in genotypes
-            ]
+    def _eval_one(self, genotype: np.ndarray) -> float:
+        pg = ray.util.placement_group([{"CPU": 1, "GPU": 1}], strategy="STRICT_PACK")
+        strat = ray.util.scheduling_strategies.PlacementGroupSchedulingStrategy(
+            placement_group=pg
         )
+        merged_path = merge_model_ray.options(scheduling_strategy=strat).remote(
+            genotype, self.genome, self.model_storage_path, self.merge_options
+        )
+        return evaluate_model_ray.options(scheduling_strategy=strat).remote(
+            merged_path,
+            self.config.tasks,
+            num_fewshot=self.config.num_fewshot,
+            limit=self.config.limit,
+            vllm=self.vllm,
+            batch_size=self.batch_size,
+        )
+
+    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
+        return ray.get(list(map(self._eval_one, genotypes)))
 
     def evaluate_genotype(self, genotype: np.ndarray) -> float:
         return self.evaluate_genotypes([genotype])[0]
