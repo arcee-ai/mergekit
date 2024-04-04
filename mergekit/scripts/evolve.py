@@ -29,6 +29,7 @@ from mergekit.common import ModelReference
 from mergekit.evo.actors import (
     ActorPoolEvaluationStrategy,
     BufferedRayEvaluationStrategy,
+    SerialEvaluationStrategy,
 )
 from mergekit.evo.config import EvolMergeConfiguration, ModelGenomeDefinition
 from mergekit.evo.genome import ModelGenome
@@ -44,7 +45,7 @@ from mergekit.options import MergeOptions
 @click.option(
     "--strategy",
     "-s",
-    type=click.Choice(["pool", "buffered"]),
+    type=click.Choice(["pool", "buffered", "serial"]),
     default="pool",
     help="Evaluation scheduling strategy",
 )
@@ -66,6 +67,7 @@ from mergekit.options import MergeOptions
 @click.option("--allow-crimes/--no-allow-crimes", is_flag=True, default=False)
 @click.option("--random-seed", type=int, default=0)
 @click.option("--batch-size", type=int, default=None, help="Batch size for evaluation")
+@click.option("--sigma0", type=float, default=1 / 6, help="Initial sigma for CMA-ES")
 def main(
     genome_config_path: str,
     max_fevals: int,
@@ -79,6 +81,7 @@ def main(
     allow_crimes: bool,
     random_seed: int,
     batch_size: Optional[int],
+    sigma0: float,
 ):
     config = EvolMergeConfiguration.model_validate(
         yaml.safe_load(open(genome_config_path, "r", encoding="utf-8"))
@@ -100,16 +103,33 @@ def main(
 
     # convert models to single-shard safetensors
     resharded_models = []
+    resharded_base = None
     for model in tqdm.tqdm(config.genome.models, desc="Resharding models"):
         resharded_models.append(
             _reshard_model(
                 model, storage_path, merge_options.lora_merge_cache, trust_remote_code
             )
         )
+    if config.genome.base_model is not None:
+        resharded_base = _reshard_model(
+            config.genome.base_model,
+            storage_path,
+            merge_options.lora_merge_cache,
+            trust_remote_code,
+        )
 
     genome = ModelGenome(
         ModelGenomeDefinition.model_validate(
-            {**config.genome.model_dump(exclude=["models"]), "models": resharded_models}
+            {
+                **config.genome.model_dump(
+                    exclude=[
+                        "models",
+                        "base_model",
+                    ]
+                ),
+                "models": resharded_models,
+                "base_model": resharded_base,
+            }
         ),
         trust_remote_code=trust_remote_code,
     )
@@ -118,6 +138,8 @@ def main(
         strat_cls = ActorPoolEvaluationStrategy
     elif strategy == "buffered":
         strat_cls = BufferedRayEvaluationStrategy
+    elif strategy == "serial":
+        strat_cls = SerialEvaluationStrategy
     else:
         raise ValueError(f"Unknown strategy {strategy}")
 
@@ -153,7 +175,7 @@ def main(
             None,
             parallel_objective=parallel_evaluate,
             x0=x0,
-            sigma0=0.5,
+            sigma0=sigma0,
             options={"maxfevals": max_fevals},
             callback=progress_callback,
         )

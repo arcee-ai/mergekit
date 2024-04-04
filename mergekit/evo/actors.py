@@ -100,7 +100,7 @@ def evaluate_model(
     vllm: bool,
     batch_size: Optional[int] = None,
 ) -> float:
-    monkeypatch_tqdm()
+    # monkeypatch_tqdm()
     try:
         model_args = {
             "pretrained": merged_path,
@@ -129,7 +129,7 @@ def evaluate_model(
         shutil.rmtree(merged_path)
 
 
-evaluate_model_ray = ray.remote(num_cpus=1, num_gpus=0.9)(evaluate_model)
+evaluate_model_ray = ray.remote(num_cpus=1, num_gpus=1.0)(evaluate_model)
 
 
 def merge_model(
@@ -138,7 +138,7 @@ def merge_model(
     model_storage_path: str,
     merge_options: MergeOptions,
 ) -> str:
-    monkeypatch_tqdm()
+    # monkeypatch_tqdm()
     cfg = genome.genotype_merge_config(genotype)
     os.makedirs(model_storage_path, exist_ok=True)
     res = tempfile.mkdtemp(prefix="merged", dir=model_storage_path)
@@ -148,7 +148,7 @@ def merge_model(
 
 merge_model_ray = ray.remote(
     num_cpus=1,
-    num_gpus=0.1,
+    num_gpus=1,
     max_retries=3,
     retry_exceptions=[ConnectionError],
 )(merge_model)
@@ -176,7 +176,7 @@ class MergeActorBase:
         if config.shuffle:
             monkeypatch_lmeval_shuffle()
 
-        monkeypatch_tqdm()
+        # monkeypatch_tqdm()
 
 
 @ray.remote(num_cpus=1, num_gpus=1.0)
@@ -461,3 +461,42 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
 
     def evaluate_genotype(self, genotype: np.ndarray) -> float:
         return ray.get(self.actor.evaluate_genotype.remote(genotype))
+
+
+class SerialEvaluationStrategy(EvaluationStrategyBase):
+    def __init__(
+        self,
+        *args,
+        model_storage_path: Optional[str] = None,
+        vllm: bool = False,
+        in_memory: bool = False,
+        **kwargs,
+    ):
+        self.model_storage_path = model_storage_path
+        self.vllm = vllm
+        if in_memory:
+            raise ValueError("In-memory evaluation is not supported for serial mode")
+        super().__init__(*args, **kwargs)
+
+    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
+        return ray.get(
+            [
+                evaluate_model_ray.remote(
+                    merge_model_ray.remote(
+                        genotype,
+                        self.genome,
+                        self.model_storage_path,
+                        self.merge_options,
+                    ),
+                    self.config.tasks,
+                    num_fewshot=self.config.num_fewshot,
+                    limit=self.config.limit,
+                    vllm=self.vllm,
+                    batch_size=self.batch_size,
+                )
+                for genotype in genotypes
+            ]
+        )
+
+    def evaluate_genotype(self, genotype: np.ndarray) -> float:
+        return self.evaluate_genotypes([genotype])[0]
