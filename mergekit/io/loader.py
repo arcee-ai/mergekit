@@ -17,6 +17,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Optional, Sequence
 
 import safetensors
+import tensorizer
 import torch
 
 from mergekit.io.lazy_unpickle import DeferredLoad, TorchArchiveReader, torch_lazy_load
@@ -45,6 +46,8 @@ class TensorLoader(ABC):
             return safetensors.safe_open(
                 shard_path, framework="pt", device=device or "cpu"
             )
+        elif shard_path.lower().endswith(".tensors"):
+            return TensorizerLoader(shard_path, device=device)
         elif use_lazy_unpickle:
             return LazyPickleLoader(shard_path, device=device)
         return DumbPytorchLoader(shard_path, device=device)
@@ -78,7 +81,7 @@ class DumbPytorchLoader(TensorLoader):
 
     tensors: Dict[str, torch.Tensor]
 
-    def __init__(self, path: str, device: str):
+    def __init__(self, path: str, device: Optional[str] = None):
         self.tensors = torch.load(path, map_location=device, weights_only=True)
 
     def get_tensor(self, key: str) -> torch.Tensor:
@@ -86,3 +89,20 @@ class DumbPytorchLoader(TensorLoader):
 
     def keys(self) -> Sequence[str]:
         return self.tensors.keys()
+
+
+class TensorizerLoader(TensorLoader):
+    """Loader for tensorizer files."""
+
+    deserializer: tensorizer.TensorDeserializer
+
+    def __init__(self, path: str, device: Optional[str] = None):
+        self.deserializer = tensorizer.TensorDeserializer(
+            path, device=device, plaid_mode=True, lazy_load=True
+        )
+
+    def get_tensor(self, key: str) -> torch.Tensor:
+        return self.deserializer[key].data
+
+    def keys(self) -> Sequence[str]:
+        return self.deserializer.keys()

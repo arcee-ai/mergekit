@@ -18,10 +18,11 @@ import logging
 import os
 import os.path
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import safetensors
 import safetensors.torch
+import tensorizer
 import torch
 from torch import Tensor
 
@@ -38,29 +39,18 @@ class ShardInfo:
 class ShardedTensorIndex:
     base_path: str
     is_safetensors: bool
+    is_tensorizer: bool
     tensor_paths: Dict[str, str]
     shards: List[ShardInfo]
-
-    def load_shard(
-        self, shard: Union[ShardInfo, str], device: str = "cpu"
-    ) -> Dict[str, torch.Tensor]:
-        if isinstance(shard, ShardInfo):
-            shard = shard.filename
-
-        shard_path = os.path.join(self.base_path, shard)
-        res = {}
-        if self.is_safetensors or shard_path.lower().endswith(".safetensors"):
-            res = safetensors.torch.load_file(shard_path, device=device)
-        else:
-            res = torch.load(shard_path, map_location=device, weights_only=True)
-            if "state_dict" in res:
-                res = res["state_dict"]
-        return res
 
     @classmethod
     def from_disk(cls, base_path: str) -> "ShardedTensorIndex":
         model_path = None
-        for model_file_name in ["model.safetensors", "pytorch_model.bin"]:
+        for model_file_name in [
+            "model.tensors",
+            "model.safetensors",
+            "pytorch_model.bin",
+        ]:
             candidate_path = os.path.join(base_path, model_file_name)
             if os.path.exists(candidate_path) or os.path.exists(
                 candidate_path + ".index.json"
@@ -71,6 +61,7 @@ class ShardedTensorIndex:
         if not model_path:
             raise RuntimeError(f"Unable to find model files at {base_path}")
 
+        is_tensorizer = model_path.endswith(".tensors")
         is_safetensors = model_path.endswith(".safetensors")
         tensor_paths = None
         shards = []
@@ -96,6 +87,11 @@ class ShardedTensorIndex:
             if model_path.lower().endswith(".safetensors"):
                 with safetensors.safe_open(model_path, framework="pt") as st:
                     tensor_paths = {key: shard_name for key in st.keys()}
+            elif model_path.lower().endswith(".tensors"):
+                deserializer = tensorizer.TensorDeserializer(
+                    model_path, device=None, lazy_load=True
+                )
+                tensor_paths = {key: shard_name for key in deserializer.keys()}
             else:
                 # this is ugly but not much else can be done
                 shard = torch.load(model_path, map_location="meta")
@@ -108,7 +104,13 @@ class ShardedTensorIndex:
                 ShardInfo(os.path.basename(model_path), list(tensor_paths.keys()))
             )
 
-        return ShardedTensorIndex(base_path, is_safetensors, tensor_paths, shards)
+        return ShardedTensorIndex(
+            base_path=base_path,
+            is_safetensors=is_safetensors,
+            is_tensorizer=is_tensorizer,
+            tensor_paths=tensor_paths,
+            shards=shards,
+        )
 
 
 class LazyTensorLoader:

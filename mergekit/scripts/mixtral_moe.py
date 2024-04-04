@@ -309,6 +309,7 @@ def build(
         out_path=out_path,
         max_shard_size=merge_options.out_shard_size,
         safe_serialization=merge_options.safe_serialization,
+        tensorizer=merge_options.tensorizer,
     )
 
     if config.dtype:

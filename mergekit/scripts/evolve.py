@@ -20,6 +20,7 @@ from typing import List, Optional
 import click
 import cma
 import numpy as np
+import tensorizer
 import torch
 import tqdm
 import transformers
@@ -99,6 +100,8 @@ def main(
         quiet=True,
         read_to_gpu=merge_cuda,
         copy_tokenizer=True,
+        tensorizer=vllm,
+        safe_serialization=True,
     )
 
     # convert models to single-shard safetensors
@@ -219,7 +222,12 @@ def _reshard_model(
         trust_remote_code=trust_remote_code,
         torch_dtype=torch.bfloat16,
     )
-    model_hf.save_pretrained(out_path, safe_serialization=True, max_shard_size="9999GB")
+    model_hf.config.save_pretrained(out_path)
+    serializer = tensorizer.TensorSerializer(os.path.join(out_path, "model.tensors"))
+    serializer.write_module(
+        model_hf, remove_tensors=True, include_non_persistent_buffers=False
+    )
+    serializer.close()
     try:
         tokenizer = transformers.AutoTokenizer.from_pretrained(
             model.model.path,

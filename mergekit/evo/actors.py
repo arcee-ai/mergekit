@@ -34,11 +34,7 @@ from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_i
 from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration, TaskConfiguration
 from mergekit.evo.genome import ModelGenome
-from mergekit.evo.monkeypatch import (
-    NoInit,
-    monkeypatch_lmeval_shuffle,
-    monkeypatch_tqdm,
-)
+from mergekit.evo.monkeypatch import NoInit, monkeypatch_lmeval_shuffle
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache, ReturnTensor
 from mergekit.merge import _model_out_config, run_merge
