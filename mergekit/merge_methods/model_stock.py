@@ -78,7 +78,8 @@ class ModelStockMergeTask(Task[torch.Tensor]):
                 cos_thetas.append(cos_theta)
 
         cos_theta = torch.stack(cos_thetas).mean(dim=0).unsqueeze(-1)
-        t = (2 * cos_theta) / (1 + cos_theta)
+        N = len(ws)
+        t = (N * cos_theta) / (1 + (N - 1) * cos_theta)
 
         w_avg = sum(ws) / len(ws)
         w_h = t * w_avg + (1 - t) * w_0
