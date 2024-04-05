@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import os
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -93,14 +94,7 @@ class ModelGenome:
     ) -> MergeConfiguration:
         """Convert a genotype tensor to a mergekit configuration."""
 
-        if not isinstance(genotype, torch.Tensor):
-            genotype = torch.tensor(genotype)
-        if len(genotype.shape) == 1:
-            genotype = genotype.view(
-                self.num_layers // self.definition.layer_granularity,
-                len(self.definition.models),
-                -1,
-            )
+        genotype = self._to_torch(genotype)
 
         (n_layer_groups, n_models, n_params) = genotype.shape
         assert n_layer_groups * self.definition.layer_granularity == self.num_layers
@@ -187,6 +181,18 @@ class ModelGenome:
             }
         )
 
+    def _to_torch(self, genotype: Union[torch.Tensor, np.ndarray]) -> torch.Tensor:
+        if not isinstance(genotype, torch.Tensor):
+            genotype = torch.tensor(genotype)
+        if len(genotype.shape) == 1:
+            genotype = genotype.view(
+                self.num_layers // self.definition.layer_granularity,
+                len(self.definition.models),
+                -1,
+            )
+
+        return genotype
+
     def gene_names(self) -> Dict[Tuple[int, int, int], str]:
         """Return a mapping from genotype indices to names."""
         res = {}
@@ -195,4 +201,20 @@ class ModelGenome:
                 for k in range(len(METHOD_PARAM_MAPS[self.definition.merge_method])):
                     param_name = METHOD_PARAM_MAPS[self.definition.merge_method][k]
                     res[(i, j, k)] = f"lg{i}_m{j}_{param_name}"
+        return res
+
+    def genotype_to_param_arrays(
+        self, genotype: Union[torch.Tensor, np.ndarray]
+    ) -> Dict[str, torch.Tensor]:
+        """Convert a genotype tensor to a dictionary of numpy arrays."""
+        genotype = self._to_torch(genotype)
+
+        res = {}
+        for idx, param_name in enumerate(
+            METHOD_PARAM_MAPS[self.definition.merge_method]
+        ):
+            for model_idx, model in enumerate(self.definition.models):
+                model_name = os.path.basename(model.model.path)
+                res[f"{model_name}_{param_name}"] = genotype[:, model_idx, idx]
+
         return res

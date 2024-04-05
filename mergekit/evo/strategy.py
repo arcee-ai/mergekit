@@ -56,6 +56,10 @@ class EvaluationStrategyBase(ABC):
 
 
 class ActorPoolEvaluationStrategy(EvaluationStrategyBase):
+    """
+    Uses a fixed-size pool of actors to evaluate genotypes in parallel.
+    """
+
     def __init__(
         self,
         *args,

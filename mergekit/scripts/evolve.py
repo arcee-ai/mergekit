@@ -20,19 +20,26 @@ from typing import List, Optional
 import click
 import cma
 import numpy as np
+import pandas
 import torch
 import tqdm
 import transformers
 import yaml
 
+try:
+    import wandb
+except ImportError:
+    wandb = None
+
+
 from mergekit.common import ModelReference
-from mergekit.evo.actors import (
+from mergekit.evo.config import EvolMergeConfiguration, ModelGenomeDefinition
+from mergekit.evo.genome import ModelGenome
+from mergekit.evo.strategy import (
     ActorPoolEvaluationStrategy,
     BufferedRayEvaluationStrategy,
     SerialEvaluationStrategy,
 )
-from mergekit.evo.config import EvolMergeConfiguration, ModelGenomeDefinition
-from mergekit.evo.genome import ModelGenome
 from mergekit.options import MergeOptions
 
 
@@ -66,6 +73,9 @@ from mergekit.options import MergeOptions
 @click.option("--random-seed", type=int, default=0)
 @click.option("--batch-size", type=int, default=None, help="Batch size for evaluation")
 @click.option("--sigma0", type=float, default=1 / 6, help="Initial sigma for CMA-ES")
+@click.option("use_wandb", "--wandb/--no-wandb", is_flag=True, default=False)
+@click.option("--wandb-project", type=str, help="Wandb project name")
+@click.option("--wandb-entity", type=str, help="Wandb entity name")
 def main(
     genome_config_path: str,
     max_fevals: int,
@@ -80,10 +90,24 @@ def main(
     random_seed: int,
     batch_size: Optional[int],
     sigma0: float,
+    use_wandb: bool,
+    wandb_project: Optional[str],
+    wandb_entity: Optional[str],
 ):
     config = EvolMergeConfiguration.model_validate(
         yaml.safe_load(open(genome_config_path, "r", encoding="utf-8"))
     )
+
+    if use_wandb:
+        if not wandb:
+            raise RuntimeError("wandb is not installed")
+        run = wandb.init(
+            project=wandb_project or "mergekit-evolve",
+            entity=wandb_entity,
+            config=config.model_dump(mode="json"),
+        )
+    else:
+        run = None
 
     merge_options = MergeOptions(
         transformers_cache=os.path.join(storage_path, "transformers_cache"),
@@ -159,18 +183,52 @@ def main(
 
     def progress_callback(es: cma.CMAEvolutionStrategy):
         nonlocal xbest, xbest_cost
-        if es.result.fbest < xbest_cost:
-            xbest = es.result.xbest
-            xbest_cost = es.result.fbest
-            print(f"New best cost: {xbest_cost:.4f}")
+
+        res = es.result
+        if use_wandb:
+            best_params = genome.genotype_to_param_arrays(res.xbest)
+            mean_params = genome.genotype_to_param_arrays(res.xfavorite)
+            run.log(
+                {
+                    "best_score": -res.fbest,
+                    "best_genome": wandb.Table(data=pandas.DataFrame(best_params)),
+                    "mean_genome": wandb.Table(data=pandas.DataFrame(mean_params)),
+                    "mean_std": genome.genotype_to_param_arrays(res.stds),
+                    "evaluations": res.evaluations,
+                },
+                commit=True,
+                step=res.evaluations,
+            )
+
+        if res.fbest < xbest_cost:
+            xbest = res.xbest
+            xbest_cost = res.fbest
+            print(f"New best score: {-xbest_cost:.4f}")
             best_yaml = genome.genotype_merge_config(xbest).to_yaml()
             with open(os.path.join(storage_path, "best_config.yaml"), "w") as f:
                 f.write(best_yaml)
             print(f"Merge configuration:\n{best_yaml}")
 
+            if wandb:
+                art = wandb.Artifact("best_config", type="merge_config")
+                art.add_file(os.path.join(storage_path, "best_config.yaml"))
+                run.log_artifact(art)
+
     def parallel_evaluate(x: List[np.ndarray]) -> List[float]:
         print(f"Received {len(x)} genotypes")
         res = strat.evaluate_genotypes(x)
+
+        if wandb:
+            score_mean = np.mean(res)
+            score_std = np.std(res)
+            run.log(
+                {
+                    "population_score_mean": score_mean,
+                    "population_score_std": score_std,
+                },
+                commit=False,
+            )
+
         return [-x for x in res]  # maximize
 
     try:
