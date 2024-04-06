@@ -31,7 +31,9 @@ class LoaderCache:
             merged = model.merged(
                 cache_dir=self.lora_cache_dir, trust_remote_code=self.trust_remote_code
             )
-            self.loaders[model] = merged.lazy_loader(cache_dir=self.hf_cache_dir)
+            self.loaders[model] = merged.lazy_loader(
+                cache_dir=self.hf_cache_dir, lazy_unpickle=self.lazy_unpickle
+            )
         return self.loaders[model]
 
     def flush_all(self):
