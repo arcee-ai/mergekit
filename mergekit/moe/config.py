@@ -28,8 +28,17 @@ from mergekit.common import ModelReference
 class Expert(BaseModel):
     source_model: str
 
-    positive_prompts: List[str]
+    positive_prompts: Optional[List[str]] = None
     negative_prompts: Optional[List[str]] = None
+    noise_scale: Optional[float] = None
+
+    @property
+    def model_ref(self):
+        return ModelReference.parse(self.source_model)
+
+
+class SharedExpert(BaseModel):
+    source_model: str
     noise_scale: Optional[float] = None
 
     @property
@@ -46,15 +55,25 @@ class MoEMergeConfig(BaseModel):
     # "random" is random
     dtype: Optional[str] = None
     experts_per_token: int = 2
+    shared_experts: Optional[List[SharedExpert]] = None
 
 
 def is_bad_config(config: MoEMergeConfig, allow_all_same: bool = False) -> bool:
-    if len(config.experts) < 2:
-        logging.error("Must include at least two experts.")
+    if config.experts_per_token < 1:
+        logging.error("Experts per token must be >= 1")
+        return True
+
+    if len(config.experts) < config.experts_per_token:
+        logging.error("Must include at least as many experts as experts_per_token.")
         return True
 
     if config.gate_mode == "random":
         return False  # eh we're good
+
+    for expert_idx, expert in enumerate(config.experts):
+        if not expert.positive_prompts:
+            logging.error(f"Expert {expert_idx} has no positive prompts.")
+            return True
 
     def prompt_tup(e: Expert):
         return (tuple(e.positive_prompts), tuple(e.negative_prompts or []))

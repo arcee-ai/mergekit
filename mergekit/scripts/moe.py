@@ -16,17 +16,13 @@
 import logging
 import os
 import sys
-from typing import Dict
 
 import click
-import torch
-import tqdm
 import transformers
 import yaml
 
 from mergekit.architecture import get_architecture_info
-from mergekit.common import ModelReference, dtype_from_name
-from mergekit.io import LazyTensorLoader, TensorWriter
+from mergekit.common import ModelReference
 from mergekit.merge import MergeOptions
 from mergekit.moe.arch import ALL_OUTPUT_ARCHITECTURES, MoEOutputArchitecture
 from mergekit.moe.config import MoEMergeConfig, is_bad_config
@@ -46,72 +42,9 @@ def build(
     if is_bad_config(config, allow_all_same=allow_all_same):
         sys.exit(1)
 
-    if config.experts_per_token < 1:
-        logging.error("Experts per token must be >= 1")
-        sys.exit(1)
-    if config.experts_per_token > len(config.experts):
-        logging.error("Experts per token must be <= number of experts")
-        sys.exit(1)
-
     base_model = ModelReference.parse(config.base_model)
     base_cfg = base_model.config(trust_remote_code=merge_options.trust_remote_code)
     out_arch = select_output_arch(config, merge_options, base_cfg)
-
-    out_cfg = out_arch.generate_config(
-        base_cfg,
-        num_experts=len(config.experts),
-        experts_per_token=config.experts_per_token,
-    )
-    out_cfg.save_pretrained(out_path)
-
-    loaders: Dict[ModelReference, LazyTensorLoader] = {}
-    for model in tqdm.tqdm(
-        [base_model] + [e.model_ref for e in config.experts], desc="Warm up loaders"
-    ):
-        loaders[model] = model.lazy_loader(
-            cache_dir=merge_options.transformers_cache,
-            lazy_unpickle=merge_options.lazy_unpickle,
-        )
-
-    base_loader = loaders.get(base_model)
-    writer = TensorWriter(
-        out_path=out_path,
-        max_shard_size=merge_options.out_shard_size,
-        safe_serialization=merge_options.safe_serialization,
-    )
-
-    if config.dtype:
-        out_dtype = dtype_from_name(config.dtype)
-    elif base_cfg.torch_dtype:
-        out_dtype = base_cfg.torch_dtype
-        if isinstance(out_dtype, str):
-            out_dtype = dtype_from_name(out_dtype)
-    else:
-        out_dtype = None
-
-    logging.info("Copying parameters...")
-    base_arch_info = get_architecture_info(base_cfg)
-    for weight_info in tqdm.tqdm(
-        base_arch_info.all_weights(base_cfg), desc="Copying weights"
-    ):
-        tensor_name = out_arch.remap_weight_name(weight_info)
-        if "{expert_idx}" in tensor_name:
-            for moe_index, expert in enumerate(config.experts):
-                expert_name = tensor_name.replace("{expert_idx}", str(moe_index))
-                expert_loader = loaders.get(expert.model_ref)
-                tensor = expert_loader.get_tensor(
-                    weight_info.name, aliases=weight_info.aliases
-                )
-                if expert.noise_scale:
-                    tensor += torch.randn_like(tensor) * expert.noise_scale
-                writer.save_tensor(expert_name, tensor.to(dtype=out_dtype), clone=True)
-        else:
-            tensor = base_loader.get_tensor(tensor_name, aliases=weight_info.aliases)
-            writer.save_tensor(
-                tensor_name,
-                tensor.to(dtype=out_dtype),
-                clone=merge_options.clone_tensors,
-            )
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         base_model.model.path, revision=base_model.model.revision
@@ -134,16 +67,9 @@ def build(
         device=device,
     )
     # gate_vecs: (num_layers, num_experts, hidden_size)
-
     warn_degenerate_gates(gate_vecs)
 
-    for layer_idx in range(base_cfg.num_hidden_layers):
-        gate_name = out_arch.router_weight_name(layer_idx)
-        writer.save_tensor(
-            gate_name,
-            gate_vecs[layer_idx, :, :].contiguous().to(dtype=out_dtype),
-        )
-    writer.finalize()
+    out_arch.write_model(out_path, config, merge_options, out_dtype=gate_vecs.dtype)
 
     if merge_options.copy_tokenizer:
         logging.info("Saving tokenizer...")
@@ -232,6 +158,7 @@ def main(
     verbose: bool,
     i_understand_this_is_not_useful_without_training: bool,
 ):
+    """Create a Mixture of Experts model by combining the pretrained weights of multiple models."""
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
     if merge_options.cuda:
