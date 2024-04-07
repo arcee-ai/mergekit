@@ -38,24 +38,28 @@ def get(method: str) -> MergeMethod:
             consensus_method=None,
             sparsification_method=None,
             default_normalize=False,
+            default_rescale=False,
         )
     elif method == "ties":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=ConsensusMethod.sum,
             sparsification_method=SparsificationMethod.magnitude,
             default_normalize=True,
+            default_rescale=False,
         )
     elif method == "dare_ties":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=ConsensusMethod.sum,
-            sparsification_method=SparsificationMethod.rescaled_random,
+            sparsification_method=SparsificationMethod.random,
             default_normalize=False,
+            default_rescale=True,
         )
     elif method == "dare_linear":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=None,
-            sparsification_method=SparsificationMethod.rescaled_random,
+            sparsification_method=SparsificationMethod.random,
             default_normalize=False,
+            default_rescale=True,
         )
     elif method == "model_stock":
         return ModelStockMerge()
