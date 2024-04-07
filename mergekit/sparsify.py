@@ -23,6 +23,8 @@ class SparsificationMethod(str, Enum):
     random = "random"
     rescaled_random = "rescaled_random"
 
+def sample():
+    pass
 
 def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
     """Masks out the smallest values, retaining a proportion of `density`."""
