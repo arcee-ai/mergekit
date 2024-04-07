@@ -23,8 +23,28 @@ class SparsificationMethod(str, Enum):
     random = "random"
     rescaled_random = "rescaled_random"
 
-def sample():
-    pass
+def sample(tensor: torch.Tensor, density: float) -> torch.Tensor:
+    """Samples the tensor as it's own mask, then shifts mean to fit density."""
+    if density >= 1 or tensor.abs().max() == 0:
+        return tensor
+
+    if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
+        # torch.bernoulli not implemented for float16 on CPU, upcast to float32
+        origin_type = tensor.dtype
+        tensor = tensor.to(torch.float32)
+
+    avg = tensor.abs().mean() / tensor.abs().max()
+
+    power = 1.0
+    while abs(avg - density) > 1e-5:
+        power += avg - density
+        intermediate = tensor.abs()**power
+        avg = (intermediate.mean() / intermediate.max())
+
+    mask = torch.bernoulli(intermediate / intermediate.max())
+    
+    tensor *= mask
+    return tensor.to(origin_type)
 
 def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
     """Masks out the smallest values, retaining a proportion of `density`."""
