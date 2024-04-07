@@ -82,46 +82,32 @@ def sample(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
     if density >= 1 or tensor.abs().max() == 0.0:
         return tensor
 
-    if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
-        # torch.bernoulli not implemented for float16 on CPU, upcast to float32
-        flag = True
-        origin_type = tensor.dtype
-        tensor = tensor.to(torch.float32)
-
-    intermediate = tensor.abs()
-    avg = intermediate.mean() / intermediate.max()
-
     # Handle if the tensor is already sparser than the density (In line with trimming).
-    if ((intermediate**0.0).mean() / (intermediate**0.0).max()) <= density:
-        if flag:
-            return tensor.to(origin_type)
+    if ((tensor.abs()**0.0).mean() / (tensor.abs()**0.0).max()) <= density:
         return tensor
+
+    if (tensor.device.type != "cpu") or tensor.dtype == torch.bfloat16:
+        work_dtype = tensor.dtype
+    else:
+        # torch.bernoulli not implemented for float16 on CPU, upcast to float32
+        work_dtype = torch.float32
 
     # Find the power that makes the distribution fit the density
     i = 0; power = 1.0
     while i < 15:
-        # print("Average: ", avg)
-        # print("Density: ", density)
-        # print("Diff: ", avg - density)
-        power += avg - density
-        # print("Power: ", power)
-        if power < 0:
-            power = 0
         intermediate = tensor.abs()**power
-        # print("Intermediate: ", intermediat)
         avg = intermediate.mean() / intermediate.max()
+        power += avg - density
+        if power < 0: power = 0
         i += 1
 
-    mask = torch.bernoulli(intermediate / intermediate.max())
-    
+    mask = torch.bernoulli((intermediate / intermediate.max()).to(work_dtype))
+
     if rescale:
         res = rescale_sum(tensor, mask)
     else:
         res = tensor * mask
-
-    if flag:
-        return res.to(origin_type)
-    return res
+    return res.to(tensor.dtype)
 
 def sparsify(
     tensor: torch.Tensor,

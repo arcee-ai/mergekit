@@ -68,6 +68,7 @@ def get(method: str) -> MergeMethod:
             consensus_method=ConsensusMethod.sum,
             sparsification_method=SparsificationMethod.sample,
             default_normalize=False,
+            default_rescale=True,
         )
     raise RuntimeError(f"Unimplemented merge method {method}")
 
