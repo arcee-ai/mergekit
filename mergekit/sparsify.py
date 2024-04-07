@@ -22,21 +22,21 @@ class SparsificationMethod(str, Enum):
     magnitude = "magnitude"
     random = "random"
 
-def rescaling(tensor: torch.Tensor, mask: torch.Tensor):
+
+def rescale_sum(tensor: torch.Tensor, mask: torch.Tensor):
     """Rescales the values to match the original tensor sum."""
     org_sum = tensor.abs().sum()
     new_sum = (tensor * mask).abs().sum()
-    
-    if(org_sum >= 1e-8):
-        tensor *= (org_sum / new_sum)
+
+    if org_sum >= 1e-8:
+        tensor *= org_sum / new_sum
     else:
         pass
 
     return tensor * mask
 
-def magnitude(
-    tensor: torch.Tensor, density: float, rescale: bool
-    ) -> torch.Tensor:
+
+def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
     """Masks out the smallest values, retaining a proportion of `density`."""
     if density >= 1:
         return tensor
@@ -52,16 +52,14 @@ def magnitude(
     mask.view(-1)[topk.indices] = 1
 
     if rescale:
-        res = rescaling(tensor, mask)
+        res = rescale_sum(tensor, mask)
     else:
         res = tensor * mask
 
     return res
 
 
-def bernoulli(
-    tensor: torch.Tensor, density: float, rescale: bool
-) -> torch.Tensor:
+def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
     if density >= 1:
         return tensor
 
@@ -81,7 +79,10 @@ def bernoulli(
 
 
 def sparsify(
-    tensor: torch.Tensor, density: float, method: SparsificationMethod, rescale: bool
+    tensor: torch.Tensor,
+    density: float,
+    method: SparsificationMethod,
+    rescale: bool = False,
 ) -> torch.Tensor:
     if method == SparsificationMethod.magnitude:
         return magnitude(tensor, density=density, rescale=rescale)
