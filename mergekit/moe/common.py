@@ -30,10 +30,10 @@ def initialize_io(
     out_path: str,
     merge_options: MergeOptions,
 ) -> tuple[Dict[ModelReference, LazyTensorLoader], LazyTensorLoader, TensorWriter]:
-    base_model = ModelReference.model_validate(config.base_model)
+    base_model = config.base_model
     loaders: Dict[ModelReference, LazyTensorLoader] = {}
     for model in tqdm.tqdm(
-        [base_model] + [e.model_ref for e in config.experts], desc="Warm up loaders"
+        [base_model] + [e.source_model for e in config.experts], desc="Warm up loaders"
     ):
         loaders[model] = model.lazy_loader(
             cache_dir=merge_options.transformers_cache,
@@ -53,12 +53,12 @@ def initialize_io(
 def select_dtype(
     config: MoEMergeConfig, base_cfg: transformers.PretrainedConfig
 ) -> Optional[torch.dtype]:
+    out_dtype = None
     if config.dtype:
         out_dtype = dtype_from_name(config.dtype)
-    elif base_cfg.torch_dtype:
+
+    if out_dtype is None and base_cfg.torch_dtype:
         out_dtype = base_cfg.torch_dtype
         if isinstance(out_dtype, str):
             out_dtype = dtype_from_name(out_dtype)
-    else:
-        out_dtype = None
     return out_dtype

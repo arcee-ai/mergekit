@@ -16,15 +16,14 @@
 import logging
 import os
 import sys
+from typing import Optional
 
 import click
 import transformers
 import yaml
 
-from mergekit.architecture import get_architecture_info
-from mergekit.common import ModelReference
 from mergekit.merge import MergeOptions
-from mergekit.moe.arch import ALL_OUTPUT_ARCHITECTURES, MoEOutputArchitecture
+from mergekit.moe import ALL_OUTPUT_ARCHITECTURES, MoEOutputArchitecture
 from mergekit.moe.config import MoEMergeConfig, is_bad_config
 from mergekit.moe.router import get_gate_params, warn_degenerate_gates
 from mergekit.options import add_merge_options
@@ -38,13 +37,13 @@ def build(
     load_in_8bit: bool = False,
     device: str = "auto",
     allow_all_same: bool = False,
+    verbose: bool = False,
 ):
     if is_bad_config(config, allow_all_same=allow_all_same):
         sys.exit(1)
 
-    base_model = ModelReference.parse(config.base_model)
-    base_cfg = base_model.config(trust_remote_code=merge_options.trust_remote_code)
-    out_arch = select_output_arch(config, merge_options, base_cfg)
+    base_model = config.base_model
+    out_arch = select_output_arch(config, merge_options, verbose=verbose)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         base_model.model.path, revision=base_model.model.revision
@@ -69,7 +68,12 @@ def build(
     # gate_vecs: (num_layers, num_experts, hidden_size)
     warn_degenerate_gates(gate_vecs)
 
-    out_arch.write_model(out_path, config, merge_options, out_dtype=gate_vecs.dtype)
+    out_arch.write_model(
+        out_path,
+        config,
+        merge_options,
+        router_weights=[gate_vecs[i, ...] for i in range(gate_vecs.shape[0])],
+    )
 
     if merge_options.copy_tokenizer:
         logging.info("Saving tokenizer...")
@@ -81,36 +85,49 @@ def build(
 def select_output_arch(
     config: MoEMergeConfig,
     merge_options: MergeOptions,
-    base_cfg: transformers.PretrainedConfig,
+    verbose: bool = False,
 ) -> MoEOutputArchitecture:
-    expert_cfgs = [
-        ModelReference.parse(e.model_ref).config(
-            trust_remote_code=merge_options.trust_remote_code
-        )
-        for e in config.experts
-    ]
-
-    out_arch = None
-    for arch in ALL_OUTPUT_ARCHITECTURES:
-        if arch.arch_is_compatible(get_architecture_info(base_cfg)) and all(
-            arch.arch_is_compatible(get_architecture_info(e)) for e in expert_cfgs
-        ):
-            out_arch = arch
-            break
-    if out_arch is None:
+    candidates_in = ALL_OUTPUT_ARCHITECTURES
+    if config.architecture:
+        candidates_in = [
+            a
+            for a in candidates_in
+            if a.name().lower().startswith(config.architecture.lower())
+        ]
+    if not candidates_in:
         logging.error(
-            "No output architecture found that is compatible with the given models."
+            f"No output architecture found that matches the given architecture: {config.architecture}"
         )
-        logging.error(f"Base architecture: {base_cfg.model_type}")
-        logging.error(
-            f"Expert donor architectures: {', '.join(e.model_type for e in expert_cfgs)}"
-        )
-
-        logging.error("Supported output architectures:")
+        logging.error("All supported output architectures:")
         for arch in ALL_OUTPUT_ARCHITECTURES:
             logging.error(f"  * {arch.name()}")
         sys.exit(1)
-    return out_arch
+
+    candidates = []
+    for arch in candidates_in:
+        if arch.supports_config(
+            config, explain=verbose, trust_remote_code=merge_options.trust_remote_code
+        ):
+            candidates.append(arch)
+
+    if not candidates:
+        logging.error(
+            "No output architecture found that is compatible with the given models."
+        )
+
+        logging.error("All supported output architectures:")
+        for arch in ALL_OUTPUT_ARCHITECTURES:
+            logging.error(f"  * {arch.name()}")
+        sys.exit(1)
+
+    if len(candidates) > 1:
+        logging.warning(
+            "Multiple output architectures found that are compatible with the given models."
+        )
+        logging.warning(f"Defaulting to {candidates[0].name()}")
+    else:
+        logging.info(f"Selected output architecture: {candidates[0].name()}")
+    return candidates[0]
 
 
 @click.command("mergekit-moe")
@@ -178,6 +195,7 @@ def main(
         load_in_8bit=load_in_8bit,
         device=device,
         allow_all_same=i_understand_this_is_not_useful_without_training,
+        verbose=verbose,
     )
 
     if merge_options.write_model_card:

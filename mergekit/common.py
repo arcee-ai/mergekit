@@ -180,7 +180,10 @@ class ModelReference(BaseModel, frozen=True):
         return str(self.model)
 
 
-def dtype_from_name(name: Optional[str]) -> torch.dtype:
+def dtype_from_name(name: Optional[str]) -> Optional[torch.dtype]:
+    if not name:
+        return None
+
     if name.startswith("torch."):
         name = name[len("torch.") :]
 

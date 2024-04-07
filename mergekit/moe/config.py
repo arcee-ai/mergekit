@@ -26,28 +26,21 @@ from mergekit.common import ModelReference
 
 
 class Expert(BaseModel):
-    source_model: str
+    source_model: ModelReference
 
     positive_prompts: Optional[List[str]] = None
     negative_prompts: Optional[List[str]] = None
     noise_scale: Optional[float] = None
 
-    @property
-    def model_ref(self):
-        return ModelReference.parse(self.source_model)
-
 
 class SharedExpert(BaseModel):
-    source_model: str
+    source_model: ModelReference
     noise_scale: Optional[float] = None
-
-    @property
-    def model_ref(self):
-        return ModelReference.parse(self.source_model)
+    weight: Optional[float] = None
 
 
 class MoEMergeConfig(BaseModel):
-    base_model: str
+    base_model: ModelReference
     experts: List[Expert]
     gate_mode: str = "hidden"  # possible values: "hidden", "cheap_embed", "random"
     # "hidden" uses hidden state vectors for the given prompts for each layer
@@ -56,6 +49,7 @@ class MoEMergeConfig(BaseModel):
     dtype: Optional[str] = None
     experts_per_token: int = 2
     shared_experts: Optional[List[SharedExpert]] = None
+    architecture: Optional[str] = None
 
 
 def is_bad_config(config: MoEMergeConfig, allow_all_same: bool = False) -> bool:

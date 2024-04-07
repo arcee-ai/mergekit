@@ -13,23 +13,25 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import json
 import logging
+import os
 from typing import List, Optional
 
 import torch
 import tqdm
 import transformers
 
-from mergekit.architecture import WeightInfo, get_architecture_info
+from mergekit.architecture import get_architecture_info
 from mergekit.moe.arch import MoEOutputArchitecture
 from mergekit.moe.common import initialize_io, select_dtype
 from mergekit.moe.config import MoEMergeConfig
 from mergekit.options import MergeOptions
 
 
-class MixtralMoE(MoEOutputArchitecture):
+class DeepseekMoE(MoEOutputArchitecture):
     def name(self) -> str:
-        return "Mixtral"
+        return "DeepSeek MoE"
 
     def supports_config(
         self,
@@ -37,19 +39,26 @@ class MixtralMoE(MoEOutputArchitecture):
         explain: bool = False,
         trust_remote_code: bool = False,
     ) -> bool:
-        if config.shared_experts:
+        if config.shared_experts and len(config.shared_experts) > 1:
             if explain:
-                logging.warning("Mixtral does not support shared experts")
+                logging.warning(
+                    "DeepSeek MoE merge does not support more than one shared expert"
+                )
             return False
 
-        for model_ref in [config.base_model] + [e.source_model for e in config.experts]:
+        for model_ref in (
+            [config.base_model]
+            + [e.source_model for e in config.experts]
+            + [e.source_model for e in (config.shared_experts or [])]
+        ):
             model_cfg = model_ref.config(trust_remote_code=trust_remote_code)
             if model_cfg.model_type not in ("llama", "mistral"):
                 if explain:
                     logging.warning(
-                        f"Model {model_ref} is not a Mistral or Llama model"
+                        f"Model {model_ref} is not a Llama or Mistral model"
                     )
                 return False
+
         return True
 
     def _generate_config(
@@ -59,46 +68,28 @@ class MixtralMoE(MoEOutputArchitecture):
         shared_experts: Optional[int] = None,
         experts_per_token: Optional[int] = None,
     ) -> transformers.PretrainedConfig:
-        if shared_experts:
-            raise NotImplementedError("Shared experts not supported for Mixtral output")
-
-        if not isinstance(base_config, transformers.MistralConfig):
-            base_cfg_mistral = transformers.MistralConfig(**base_config.to_dict())
-            base_cfg_mistral.sliding_window = None
-            base_cfg_mistral.max_position_embeddings = (
-                base_config.max_position_embeddings
+        if shared_experts and shared_experts > 1:
+            raise NotImplementedError(
+                "Shared experts must be 0 or 1 for DeepSeek output"
             )
-            base_config = base_cfg_mistral
 
-        out_cfg = transformers.MixtralConfig(**base_config.to_dict())
-        out_cfg.architectures = ["MixtralForCausalLM"]
-        out_cfg.num_local_experts = num_experts
-        out_cfg.num_experts_per_tok = experts_per_token or 2
-        out_cfg.sliding_window = None
-
-        if (out_cfg.num_local_experts & (out_cfg.num_local_experts - 1)) != 0:
-            logging.warning(
-                f"Your model has {out_cfg.num_local_experts} experts, which is "
-                "not a power of two. The model will not be usable in llama.cpp."
-            )
-        return out_cfg
-
-    def _remap_weight_name(self, weight: WeightInfo) -> str:
-        if ".mlp." not in weight.name:
-            # Everything but MLP is identical to base Mistral
-            return weight.name
-
-        res = weight.name
-        for needle, replacement in [
-            (".mlp.gate_proj", ".block_sparse_moe.experts.{expert_idx}.w1"),
-            (".mlp.down_proj", ".block_sparse_moe.experts.{expert_idx}.w2"),
-            (".mlp.up_proj", ".block_sparse_moe.experts.{expert_idx}.w3"),
-        ]:
-            res = res.replace(needle, replacement)
+        res = base_config.to_dict()
+        res["architectures"] = ["DeepseekForCausalLM"]
+        res["model_type"] = "deepseek"
+        res["n_routed_experts"] = num_experts
+        res["n_shared_experts"] = shared_experts or 0
+        res["num_experts_per_tok"] = experts_per_token or (1 if shared_experts else 2)
+        res["first_k_dense_replace"] = 0
+        res["moe_layer_freq"] = 1
+        res["scoring_func"] = "softmax"
+        res["norm_topk_prob"] = True
+        res["moe_intermediate_size"] = res["intermediate_size"]
+        res["auto_map"] = {
+            "AutoConfig": "deepseek-ai/deepseek-moe-16b-base--configuration_deepseek.DeepseekConfig",
+            "AutoModel": "deepseek-ai/deepseek-moe-16b-base--modeling_deepseek.DeepseekModel",
+            "AutoModelForCausalLM": "deepseek-ai/deepseek-moe-16b-base--modeling_deepseek.DeepseekForCausalLM",
+        }
         return res
-
-    def _router_weight_name(self, layer_idx: int) -> str:
-        return f"block_sparse_moe.router.{layer_idx}.gate.weight"
 
     def write_model(
         self,
@@ -110,11 +101,6 @@ class MixtralMoE(MoEOutputArchitecture):
         base_model = config.base_model
         base_cfg = base_model.config(trust_remote_code=merge_options.trust_remote_code)
 
-        assert len(router_weights) == base_cfg.num_hidden_layers, (
-            f"Expected {base_cfg.num_hidden_layers} router weights, "
-            f"got {len(router_weights)}"
-        )
-
         out_dtype = select_dtype(config, base_cfg)
         out_cfg = self._generate_config(
             base_cfg,
@@ -122,18 +108,25 @@ class MixtralMoE(MoEOutputArchitecture):
             len(config.shared_experts or []),
             config.experts_per_token,
         )
-        out_cfg.torch_dtype = out_dtype
-        out_cfg.save_pretrained(out_path)
+        if out_dtype is not None:
+            out_cfg["torch_dtype"] = str(out_dtype).removeprefix("torch.")
+        with open(os.path.join(out_path, "config.json"), "w", encoding="utf-8") as f:
+            json.dump(out_cfg, f, indent=4)
+
+        shared_def = config.shared_experts[0] if config.shared_experts else None
 
         loaders, base_loader, writer = initialize_io(config, out_path, merge_options)
+        shared_loader = loaders.get(shared_def.source_model) if shared_def else None
         for weight_info in tqdm.tqdm(
             get_architecture_info(base_cfg).all_weights(base_cfg),
             desc="Weights",
         ):
-            tensor_name = self._remap_weight_name(weight_info)
-            if "{expert_idx}" in tensor_name:
-                for expert_index, expert in enumerate(config.experts):
-                    expert_name = tensor_name.replace("{expert_idx}", str(expert_index))
+            tensor_name = weight_info.name
+            if ".mlp." in tensor_name:
+                for expert_idx, expert in enumerate(config.experts):
+                    expert_name = tensor_name.replace(
+                        ".mlp.", f".mlp.experts.{expert_idx}."
+                    )
                     expert_loader = loaders.get(expert.source_model)
                     tensor = expert_loader.get_tensor(
                         weight_info.name, aliases=weight_info.aliases
@@ -143,6 +136,23 @@ class MixtralMoE(MoEOutputArchitecture):
                     writer.save_tensor(
                         expert_name,
                         tensor.to(dtype=out_dtype),
+                        clone=merge_options.clone_tensors,
+                    )
+
+                if shared_def is not None:
+                    shared_tensor = shared_loader.get_tensor(
+                        weight_info.name, aliases=weight_info.aliases
+                    )
+                    if shared_def.noise_scale:
+                        shared_tensor += (
+                            torch.randn_like(shared_tensor) * shared_def.noise_scale
+                        )
+                    if shared_def.weight is not None and "down_proj" in tensor_name:
+                        shared_tensor = shared_tensor * shared_def.weight
+
+                    writer.save_tensor(
+                        tensor_name.replace(".mlp.", ".mlp.shared_experts."),
+                        shared_tensor.to(dtype=out_dtype),
                         clone=merge_options.clone_tensors,
                     )
             else:
@@ -159,8 +169,8 @@ class MixtralMoE(MoEOutputArchitecture):
             tqdm.tqdm(router_weights, desc="Router weights")
         ):
             writer.save_tensor(
-                self._router_weight_name(layer_idx),
-                weight.to(dtype=out_dtype),
+                f"model.layers.{layer_idx}.mlp.gate.weight",
+                weight.to(dtype=out_dtype).contiguous(),
                 clone=merge_options.clone_tensors,
             )
 
