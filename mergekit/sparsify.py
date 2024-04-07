@@ -66,34 +66,35 @@ def sample(tensor: torch.Tensor, density: float) -> torch.Tensor:
     """Samples the tensor as it's own mask, then shifts mean to fit density."""
     if density >= 1 or tensor.abs().max() == 0.0:
         return tensor
-    # print("Original tensor: ", tensor)
+
     if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
         # torch.bernoulli not implemented for float16 on CPU, upcast to float32
         origin_type = tensor.dtype
         tensor = tensor.to(torch.float32)
 
-    intermediate = tensor.abs()[tensor.nonzero(as_tuple=True)]
-    avg = (intermediate.mean() / intermediate.max()).item()
+    intermediate = tensor.abs()
+    avg = intermediate.mean() / intermediate.max()
 
-    i = 0
-    power = 1.0
-    while abs(avg - density) > 2e-4 and i < 15:
-        if torch.numel(intermediate) < 5:
-            break
-        print("Average: ", avg)
-        print("Density: ", density)
-        print("Diff: ", avg - density)
+    # Handle if the tensor is already sparser than the density (In line with trimming).
+    if ((intermediate**0.0).mean() / (intermediate**0.0).max()) <= density:
+        if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
+            return tensor.to(origin_type)
+        return tensor
+
+    # Find the power that makes the distribution fit the density
+    i = 0; power = 1.0
+    while i < 15:
+        # print("Average: ", avg)
+        # print("Density: ", density)
+        # print("Diff: ", avg - density)
         power += avg - density
-        print("Power: ", power)
-        intermediate = tensor.abs()[tensor.nonzero(as_tuple=True)]**power
-        print("Intermediate tensor: ", intermediate)
-        avg = (intermediate.mean() / intermediate.max()).item()
-        i += 1
+        # print("Power: ", power)
         if power < 0:
             power = 0
-            break
-    
-    intermediate = tensor.abs()**power
+        intermediate = tensor.abs()**power
+        # print("Intermediate: ", intermediat)
+        avg = intermediate.mean() / intermediate.max()
+        i += 1
 
     mask = torch.bernoulli(intermediate / intermediate.max())
     
