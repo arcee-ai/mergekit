@@ -59,6 +59,12 @@ def get(method: str) -> MergeMethod:
         )
     elif method == "model_stock":
         return ModelStockMerge()
+    elif method == "sample_ties":
+        return GeneralizedTaskArithmeticMerge(
+            consensus_method=ConsensusMethod.sum,
+            sparsification_method=SparsificationMethod.sample,
+            default_normalize=False,
+        )
     raise RuntimeError(f"Unimplemented merge method {method}")
 
 

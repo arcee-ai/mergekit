@@ -1,22 +1,16 @@
 models:
-  - model: psmathur/orca_mini_v3_13b
+  - model: abacaj/phi-2-super # Best
     parameters:
-      density: [1, 0.7, 0.1] # density gradient
-      weight: 1.0
-  - model: garage-bAInd/Platypus2-13B
+      density: [0.8, 0.3, 0.1]
+      weight: [1.0, 0.8, 0.5]
+  - model: rhysjones/phi-2-orange-v2 #Middle
     parameters:
-      density: 0.5
-      weight: [0, 0.3, 0.7, 1] # weight gradient
-  - model: WizardLM/WizardMath-13B-V1.0
+      density: [0.1, 0.4, 0.1]
+      weight: [0.2, 0.8, 0.1]
+  - model: mobiuslabsgmbh/aanaphi2-v0.1 # 2nd End
     parameters:
-      density: 0.33
-      weight:
-        - filter: mlp
-          value: 0.5
-        - value: 0
-merge_method: ties
-base_model: TheBloke/Llama-2-13B-fp16
-parameters:
-  normalize: true
-  int8_mask: true
-dtype: float16
+      density: [0.1, 0.2, 0.6]
+      weight: [0.5, 0.8, 1.0]
+merge_method: sample_ties
+base_model: microsoft/phi-2
+dtype: bfloat16

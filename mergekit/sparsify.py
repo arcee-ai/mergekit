@@ -22,29 +22,7 @@ class SparsificationMethod(str, Enum):
     magnitude = "magnitude"
     random = "random"
     rescaled_random = "rescaled_random"
-
-def sample(tensor: torch.Tensor, density: float) -> torch.Tensor:
-    """Samples the tensor as it's own mask, then shifts mean to fit density."""
-    if density >= 1 or tensor.abs().max() == 0:
-        return tensor
-
-    if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
-        # torch.bernoulli not implemented for float16 on CPU, upcast to float32
-        origin_type = tensor.dtype
-        tensor = tensor.to(torch.float32)
-
-    avg = tensor.abs().mean() / tensor.abs().max()
-
-    power = 1.0
-    while abs(avg - density) > 1e-5:
-        power += avg - density
-        intermediate = tensor.abs()**power
-        avg = (intermediate.mean() / intermediate.max())
-
-    mask = torch.bernoulli(intermediate / intermediate.max())
-    
-    tensor *= mask
-    return tensor.to(origin_type)
+    sample = "sample"
 
 def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
     """Masks out the smallest values, retaining a proportion of `density`."""
@@ -84,6 +62,42 @@ def bernoulli(
         res /= density
     return res.to(tensor.dtype)
 
+def sample(tensor: torch.Tensor, density: float) -> torch.Tensor:
+    """Samples the tensor as it's own mask, then shifts mean to fit density."""
+    if density >= 1 or tensor.abs().max() == 0.0:
+        return tensor
+    # print("Original tensor: ", tensor)
+    if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
+        # torch.bernoulli not implemented for float16 on CPU, upcast to float32
+        origin_type = tensor.dtype
+        tensor = tensor.to(torch.float32)
+
+    intermediate = tensor.abs()[tensor.nonzero(as_tuple=True)]
+    avg = (intermediate.mean() / intermediate.max()).item()
+
+    i = 0
+    power = 1.0
+    while abs(avg - density) > 2e-4 and i < 15:
+        if torch.numel(intermediate) < 5:
+            break
+        # print("Average: ", avg)
+        # print("Density: ", density)
+        # print("Diff: ", avg - density)
+        power += avg - density
+        # print("Power: ", power)
+        intermediate = tensor.abs()[tensor.nonzero(as_tuple=True)]**power
+        # print("Intermediate tensor: ", intermediate)
+        avg = (intermediate.mean() / intermediate.max()).item()
+        i += 1
+    
+    intermediate = tensor.abs()**power
+    mask = torch.bernoulli(intermediate / intermediate.max())
+    # print("Mask: ", mask)
+    
+    tensor *= mask
+    if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
+        return tensor.to(origin_type)
+    return tensor
 
 def sparsify(
     tensor: torch.Tensor, density: float, method: SparsificationMethod
@@ -94,5 +108,7 @@ def sparsify(
         return bernoulli(tensor, density=density, rescale=False)
     elif method == SparsificationMethod.rescaled_random:
         return bernoulli(tensor, density=density, rescale=True)
+    elif method == SparsificationMethod.sample:
+        return sample(tensor, density=density)
     else:
         raise NotImplementedError(method)
