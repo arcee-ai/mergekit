@@ -77,13 +77,14 @@ def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
         res /= density
     return res.to(tensor.dtype)
 
-def sample(tensor: torch.Tensor, density: float) -> torch.Tensor:
+def sample(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
     """Samples the tensor as it's own mask, then shifts mean to fit density."""
     if density >= 1 or tensor.abs().max() == 0.0:
         return tensor
 
     if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
         # torch.bernoulli not implemented for float16 on CPU, upcast to float32
+        flag = True
         origin_type = tensor.dtype
         tensor = tensor.to(torch.float32)
 
@@ -92,7 +93,7 @@ def sample(tensor: torch.Tensor, density: float) -> torch.Tensor:
 
     # Handle if the tensor is already sparser than the density (In line with trimming).
     if ((intermediate**0.0).mean() / (intermediate**0.0).max()) <= density:
-        if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
+        if flag:
             return tensor.to(origin_type)
         return tensor
 
@@ -113,10 +114,14 @@ def sample(tensor: torch.Tensor, density: float) -> torch.Tensor:
 
     mask = torch.bernoulli(intermediate / intermediate.max())
     
-    tensor *= mask
-    if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
-        return tensor.to(origin_type)
-    return tensor
+    if rescale:
+        res = rescale_sum(tensor, mask)
+    else:
+        res = tensor * mask
+
+    if flag:
+        return res.to(origin_type)
+    return res
 
 def sparsify(
     tensor: torch.Tensor,
