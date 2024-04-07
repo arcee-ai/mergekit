@@ -13,25 +13,27 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-import json
 import logging
-import os
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import torch
 import tqdm
 import transformers
 
-from mergekit.architecture import get_architecture_info
+# explicitly import the config class so that we can catch errors upstream
+# if the transformers version installed is too old
+from transformers.models.qwen2_moe import Qwen2MoeConfig
+
+from mergekit.architecture import QWEN2_INFO
 from mergekit.moe.arch import MoEOutputArchitecture
 from mergekit.moe.common import initialize_io, noise_and_scale, select_dtype
 from mergekit.moe.config import MoEMergeConfig
 from mergekit.options import MergeOptions
 
 
-class DeepseekMoE(MoEOutputArchitecture):
+class QwenMoE(MoEOutputArchitecture):
     def name(self) -> str:
-        return "DeepSeek MoE"
+        return "Qwen MoE"
 
     def supports_config(
         self,
@@ -39,23 +41,18 @@ class DeepseekMoE(MoEOutputArchitecture):
         explain: bool = False,
         trust_remote_code: bool = False,
     ) -> bool:
-        if config.shared_experts:
-            if len(config.shared_experts) > 1:
-                if explain:
-                    logging.warning(
-                        "DeepSeek MoE merge does not support more than one shared expert"
-                    )
-                return False
+        if len(config.shared_experts or []) != 1:
+            if explain:
+                logging.warning("Qwen MoE merge requires exactly one shared expert")
+            return False
 
-            if (
-                config.shared_experts[0].positive_prompts
-                or config.shared_experts[0].negative_prompts
-            ):
-                if explain:
-                    logging.warning(
-                        "DeepSeek MoE merge does not support gating shared experts"
-                    )
-                return False
+        if (
+            config.gate_mode != "random"
+            and not config.shared_experts[0].positive_prompts
+        ):
+            if explain:
+                logging.warning("Qwen MoE requires the shared expert to have prompts")
+            return False
 
         model_types = []
         for model_ref in (
@@ -69,13 +66,13 @@ class DeepseekMoE(MoEOutputArchitecture):
         if len(set(model_types)) != 1:
             if explain:
                 logging.warning(
-                    "Deepseek MoE requires all input models to have the same architecture"
+                    "Qwen MoE requires all input models to have the same architecture"
                 )
             return False
-        if model_types[0] not in ("llama", "mistral"):
+        if model_types[0] not in ("llama", "mistral", "qwen"):
             if explain:
                 logging.warning(
-                    "Deepseek MoE requires all input models to be Llama or Mistral models"
+                    "Qwen MoE requires all input models to be Llama or Mistral models"
                 )
             return False
         return True
@@ -84,31 +81,25 @@ class DeepseekMoE(MoEOutputArchitecture):
         self,
         base_config: transformers.PretrainedConfig,
         num_experts: int,
-        shared_experts: Optional[int] = None,
         experts_per_token: Optional[int] = None,
-    ) -> Dict:
-        if shared_experts and shared_experts > 1:
-            raise NotImplementedError(
-                "Shared experts must be 0 or 1 for DeepSeek output"
-            )
+    ) -> Qwen2MoeConfig:
+        out_cfg = Qwen2MoeConfig(**base_config.to_dict())
+        out_cfg.architectures = ["Qwen2MoeForCausalLM"]
+        out_cfg.num_experts = num_experts
+        out_cfg.num_experts_per_tok = experts_per_token or 2
+        out_cfg.decoder_sparse_step = 1
+        out_cfg.norm_topk_prob = True
+        out_cfg.sliding_window = None
+        out_cfg.use_sliding_window = False
+        out_cfg.shared_expert_intermediate_size = out_cfg.intermediate_size
+        out_cfg.moe_intermediate_size = out_cfg.intermediate_size
 
-        res = base_config.to_dict()
-        res["architectures"] = ["DeepseekForCausalLM"]
-        res["model_type"] = "deepseek"
-        res["n_routed_experts"] = num_experts
-        res["n_shared_experts"] = shared_experts or None
-        res["num_experts_per_tok"] = experts_per_token or (1 if shared_experts else 2)
-        res["first_k_dense_replace"] = 0
-        res["moe_layer_freq"] = 1
-        res["scoring_func"] = "softmax"
-        res["norm_topk_prob"] = True
-        res["moe_intermediate_size"] = res["intermediate_size"]
-        res["auto_map"] = {
-            "AutoConfig": "deepseek-ai/deepseek-moe-16b-base--configuration_deepseek.DeepseekConfig",
-            "AutoModel": "deepseek-ai/deepseek-moe-16b-base--modeling_deepseek.DeepseekModel",
-            "AutoModelForCausalLM": "deepseek-ai/deepseek-moe-16b-base--modeling_deepseek.DeepseekForCausalLM",
-        }
-        return res
+        if (out_cfg.num_experts & (out_cfg.num_experts - 1)) != 0:
+            logging.warning(
+                f"Your model has {out_cfg.num_experts} experts, which is "
+                "not a power of two. The model will not be usable in llama.cpp."
+            )
+        return out_cfg
 
     def write_model(
         self,
@@ -125,20 +116,18 @@ class DeepseekMoE(MoEOutputArchitecture):
         out_cfg = self._generate_config(
             base_cfg,
             len(config.experts),
-            len(config.shared_experts or []),
             config.experts_per_token,
         )
         if out_dtype is not None:
-            out_cfg["torch_dtype"] = str(out_dtype).removeprefix("torch.")
-        with open(os.path.join(out_path, "config.json"), "w", encoding="utf-8") as f:
-            json.dump(out_cfg, f, indent=4)
+            out_cfg.torch_dtype = out_dtype
+        out_cfg.save_pretrained(out_path)
 
-        shared_def = config.shared_experts[0] if config.shared_experts else None
+        shared_def = config.shared_experts[0]
 
         loaders, base_loader, writer = initialize_io(config, out_path, merge_options)
         shared_loader = loaders.get(shared_def.source_model) if shared_def else None
         for weight_info in tqdm.tqdm(
-            get_architecture_info(base_cfg).all_weights(base_cfg),
+            QWEN2_INFO.all_weights(base_cfg),
             desc="Weights",
         ):
             tensor_name = weight_info.name
@@ -160,24 +149,40 @@ class DeepseekMoE(MoEOutputArchitecture):
                         clone=merge_options.clone_tensors,
                     )
 
-                if shared_def is not None:
-                    shared_tensor = shared_loader.get_tensor(
-                        weight_info.name, aliases=weight_info.aliases
-                    )
-                    shared_tensor = noise_and_scale(
-                        shared_tensor,
-                        shared_def,
-                        is_residual="down_proj" in tensor_name,
-                    )
-                    writer.save_tensor(
-                        tensor_name.replace(".mlp.", ".mlp.shared_experts."),
-                        shared_tensor.to(dtype=out_dtype),
-                        clone=merge_options.clone_tensors,
-                    )
-            else:
-                tensor = base_loader.get_tensor(
-                    tensor_name, aliases=weight_info.aliases
+                shared_tensor = shared_loader.get_tensor(
+                    weight_info.name, aliases=weight_info.aliases
                 )
+                shared_tensor = noise_and_scale(
+                    shared_tensor,
+                    shared_def,
+                    is_residual="down_proj" in tensor_name,
+                )
+                writer.save_tensor(
+                    tensor_name.replace(".mlp.", ".mlp.shared_expert."),
+                    shared_tensor.to(dtype=out_dtype),
+                    clone=merge_options.clone_tensors,
+                )
+            else:
+                try:
+                    tensor = base_loader.get_tensor(
+                        tensor_name, aliases=weight_info.aliases
+                    )
+                except KeyError:
+                    if tensor_name.endswith("_proj.bias"):
+                        # qwen 2 moe wants attention bias, give it zeros
+                        head_dim = out_cfg.hidden_size // out_cfg.num_attention_heads
+                        num_heads = (
+                            out_cfg.num_key_value_heads
+                            if (
+                                tensor_name.endswith("k_proj.bias")
+                                or tensor_name.endswith("v_proj.bias")
+                            )
+                            else out_cfg.num_attention_heads
+                        )
+                        tensor = torch.zeros(num_heads * head_dim, dtype=out_dtype)
+                    else:
+                        raise
+
                 writer.save_tensor(
                     tensor_name,
                     tensor.to(dtype=out_dtype),
@@ -190,6 +195,11 @@ class DeepseekMoE(MoEOutputArchitecture):
             writer.save_tensor(
                 f"model.layers.{layer_idx}.mlp.gate.weight",
                 weight.to(dtype=out_dtype).contiguous(),
+                clone=merge_options.clone_tensors,
+            )
+            writer.save_tensor(
+                f"model.layers.{layer_idx}.mlp.shared_expert_gate.weight",
+                shared_router_weights[layer_idx].to(dtype=out_dtype).contiguous(),
                 clone=merge_options.clone_tensors,
             )
 

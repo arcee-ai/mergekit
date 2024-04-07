@@ -22,7 +22,7 @@ import transformers
 from mergekit.common import ModelReference, dtype_from_name
 from mergekit.io import LazyTensorLoader, TensorWriter
 from mergekit.merge import MergeOptions
-from mergekit.moe.config import MoEMergeConfig
+from mergekit.moe.config import Expert, MoEMergeConfig
 
 
 def initialize_io(
@@ -62,3 +62,14 @@ def select_dtype(
         if isinstance(out_dtype, str):
             out_dtype = dtype_from_name(out_dtype)
     return out_dtype
+
+
+def noise_and_scale(
+    tensor: torch.Tensor, expert: Expert, is_residual: bool = False
+) -> torch.Tensor:
+    if expert.noise_scale is not None:
+        noise = torch.randn_like(tensor) * expert.noise_scale
+        tensor = tensor + noise
+    if is_residual and expert.residual_scale is not None:
+        tensor = tensor * expert.residual_scale
+    return tensor

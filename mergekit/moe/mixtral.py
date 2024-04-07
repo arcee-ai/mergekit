@@ -20,9 +20,9 @@ import torch
 import tqdm
 import transformers
 
-from mergekit.architecture import WeightInfo, get_architecture_info
+from mergekit.architecture import MISTRAL_INFO, WeightInfo
 from mergekit.moe.arch import MoEOutputArchitecture
-from mergekit.moe.common import initialize_io, select_dtype
+from mergekit.moe.common import initialize_io, noise_and_scale, select_dtype
 from mergekit.moe.config import MoEMergeConfig
 from mergekit.options import MergeOptions
 
@@ -42,14 +42,23 @@ class MixtralMoE(MoEOutputArchitecture):
                 logging.warning("Mixtral does not support shared experts")
             return False
 
+        model_types = []
         for model_ref in [config.base_model] + [e.source_model for e in config.experts]:
             model_cfg = model_ref.config(trust_remote_code=trust_remote_code)
-            if model_cfg.model_type not in ("llama", "mistral"):
-                if explain:
-                    logging.warning(
-                        f"Model {model_ref} is not a Mistral or Llama model"
-                    )
-                return False
+            model_types.append(model_cfg.model_type)
+
+        if len(set(model_types)) != 1:
+            if explain:
+                logging.warning(
+                    "Mixtral requires all input models to have the same architecture"
+                )
+            return False
+        if model_types[0] not in ("llama", "mistral"):
+            if explain:
+                logging.warning(
+                    "Mixtral requires all input models to be Llama or Mistral models"
+                )
+            return False
         return True
 
     def _generate_config(
@@ -98,7 +107,7 @@ class MixtralMoE(MoEOutputArchitecture):
         return res
 
     def _router_weight_name(self, layer_idx: int) -> str:
-        return f"block_sparse_moe.router.{layer_idx}.gate.weight"
+        return f"model.layers.{layer_idx}.block_sparse_moe.gate.weight"
 
     def write_model(
         self,
@@ -106,6 +115,7 @@ class MixtralMoE(MoEOutputArchitecture):
         config: MoEMergeConfig,
         merge_options: MergeOptions,
         router_weights: List[torch.Tensor],
+        shared_router_weights: Optional[List[torch.Tensor]] = None,
     ):
         base_model = config.base_model
         base_cfg = base_model.config(trust_remote_code=merge_options.trust_remote_code)
@@ -127,7 +137,7 @@ class MixtralMoE(MoEOutputArchitecture):
 
         loaders, base_loader, writer = initialize_io(config, out_path, merge_options)
         for weight_info in tqdm.tqdm(
-            get_architecture_info(base_cfg).all_weights(base_cfg),
+            MISTRAL_INFO.all_weights(base_cfg),
             desc="Weights",
         ):
             tensor_name = self._remap_weight_name(weight_info)
@@ -138,8 +148,9 @@ class MixtralMoE(MoEOutputArchitecture):
                     tensor = expert_loader.get_tensor(
                         weight_info.name, aliases=weight_info.aliases
                     )
-                    if expert.noise_scale:
-                        tensor += torch.randn_like(tensor) * expert.noise_scale
+                    tensor = noise_and_scale(
+                        tensor, expert, is_residual="down_proj" in tensor_name
+                    )
                     writer.save_tensor(
                         expert_name,
                         tensor.to(dtype=out_dtype),
@@ -160,7 +171,7 @@ class MixtralMoE(MoEOutputArchitecture):
         ):
             writer.save_tensor(
                 self._router_weight_name(layer_idx),
-                weight.to(dtype=out_dtype),
+                weight.to(dtype=out_dtype).contiguous(),
                 clone=merge_options.clone_tensors,
             )
 

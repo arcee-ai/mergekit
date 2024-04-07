@@ -31,12 +31,7 @@ class Expert(BaseModel):
     positive_prompts: Optional[List[str]] = None
     negative_prompts: Optional[List[str]] = None
     noise_scale: Optional[float] = None
-
-
-class SharedExpert(BaseModel):
-    source_model: ModelReference
-    noise_scale: Optional[float] = None
-    weight: Optional[float] = None
+    residual_scale: Optional[float] = None
 
 
 class MoEMergeConfig(BaseModel):
@@ -48,7 +43,7 @@ class MoEMergeConfig(BaseModel):
     # "random" is random
     dtype: Optional[str] = None
     experts_per_token: int = 2
-    shared_experts: Optional[List[SharedExpert]] = None
+    shared_experts: Optional[List[Expert]] = None
     architecture: Optional[str] = None
 
 

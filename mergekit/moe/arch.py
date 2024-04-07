@@ -47,6 +47,7 @@ class MoEOutputArchitecture(ABC):
         config: MoEMergeConfig,
         merge_options: MergeOptions,
         router_weights: List[torch.Tensor],
+        shared_router_weights: Optional[List[torch.Tensor]] = None,
     ):
         """Write the config and tensors for the output MoE to the given path."""
         pass

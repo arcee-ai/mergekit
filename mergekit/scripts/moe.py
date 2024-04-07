@@ -16,7 +16,6 @@
 import logging
 import os
 import sys
-from typing import Optional
 
 import click
 import transformers
@@ -54,10 +53,19 @@ def build(
         tokenizer.pad_token = tokenizer.eos_token
 
     logging.info("Getting gate parameters...")
+    need_gates = list(config.experts)
+    if config.shared_experts:
+        has_prompts = any(e.positive_prompts for e in config.shared_experts)
+        assert all(
+            bool(e.positive_prompts) == has_prompts for e in config.shared_experts
+        ), "Must specify prompts for all shared experts or none, not a mix"
+        if has_prompts:
+            need_gates.extend(config.shared_experts)
+
     gate_vecs = get_gate_params(
         base_model,
         tokenizer,
-        config.experts,
+        need_gates,
         mode=config.gate_mode,
         load_in_4bit=load_in_4bit,
         load_in_8bit=load_in_8bit,
@@ -66,13 +74,18 @@ def build(
         device=device,
     )
     # gate_vecs: (num_layers, num_experts, hidden_size)
+    router_weights = gate_vecs[:, : len(config.experts), :]
+    shared_router_weights = gate_vecs[:, len(config.experts) :, :]
     warn_degenerate_gates(gate_vecs)
 
     out_arch.write_model(
         out_path,
         config,
         merge_options,
-        router_weights=[gate_vecs[i, ...] for i in range(gate_vecs.shape[0])],
+        router_weights=[router_weights[i, ...] for i in range(router_weights.shape[0])],
+        shared_router_weights=[
+            shared_router_weights[i, ...] for i in range(router_weights.shape[0])
+        ],
     )
 
     if merge_options.copy_tokenizer:
@@ -109,6 +122,8 @@ def select_output_arch(
             config, explain=verbose, trust_remote_code=merge_options.trust_remote_code
         ):
             candidates.append(arch)
+        else:
+            logging.info(f"Output architecture {arch.name()} does not support config.")
 
     if not candidates:
         logging.error(
