@@ -37,7 +37,10 @@ class TestBernoulli:
         avg_abs_sum = torch.zeros_like(ref_abs_sum)
         for _ in range(TestBernoulli.NUM_ITERATIONS):
             rescaled = sparsify(
-                sample_tensor, density=0.5, method=SparsificationMethod.rescaled_random
+                sample_tensor,
+                density=0.5,
+                method=SparsificationMethod.random,
+                rescale=True,
             )
             avg_abs_sum += rescaled.abs().sum()
         avg_abs_sum /= TestBernoulli.NUM_ITERATIONS
@@ -46,7 +49,10 @@ class TestBernoulli:
 
     def test_bernoulli_without_rescale(self, sample_tensor):
         result = sparsify(
-            sample_tensor, density=0.5, method=SparsificationMethod.random
+            sample_tensor,
+            density=0.5,
+            method=SparsificationMethod.random,
+            rescale=False,
         )
         assert 0 < torch.count_nonzero(result) <= sample_tensor.view(-1).shape[0]
 
@@ -55,5 +61,6 @@ class TestBernoulli:
             sparsify(
                 tensor=sample_tensor.to(dtype=dt).cpu(),
                 density=0.5,
-                method=SparsificationMethod.rescaled_random,
+                method=SparsificationMethod.random,
+                rescale=True,
             )
