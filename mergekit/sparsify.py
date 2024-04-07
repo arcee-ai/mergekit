@@ -67,31 +67,28 @@ def sample(tensor: torch.Tensor, density: float) -> torch.Tensor:
     if density >= 1 or tensor.abs().max() == 0.0:
         return tensor
     # print("Original tensor: ", tensor)
+    origin_type = tensor.dtype
     if (tensor.device.type == "cpu") or tensor.dtype != torch.bfloat16:
         # torch.bernoulli not implemented for float16 on CPU, upcast to float32
-        origin_type = tensor.dtype
         tensor = tensor.to(torch.float32)
 
-    intermediate = tensor.abs()[tensor.nonzero(as_tuple=True)]
+    intermediate = tensor.abs()
     avg = (intermediate.mean() / intermediate.max()).item()
 
     i = 0
     power = 1.0
     while abs(avg - density) > 2e-4 and i < 15:
-        if torch.numel(intermediate) < 5:
-            break
-        print("Average: ", avg)
-        print("Density: ", density)
-        print("Diff: ", avg - density)
+        # print("Average: ", avg)
+        # print("Density: ", density)
+        # print("Diff: ", avg - density)
         power += avg - density
-        print("Power: ", power)
-        intermediate = tensor.abs()[tensor.nonzero(as_tuple=True)]**power
-        print("Intermediate tensor: ", intermediate)
+        # print("Power: ", power)
+        intermediate = tensor.abs()**power
+        # print("Intermediate tensor: ", intermediate)
         avg = (intermediate.mean() / intermediate.max()).item()
         i += 1
         if power < 0:
-            power = 0
-            break
+            return tensor.to(origin_type)
     
     intermediate = tensor.abs()**power
 
