@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Any, Dict, List, Optional, Tuple
 
 import bitsandbytes as bnb
 import click
@@ -7,14 +8,16 @@ import torch
 from peft.tuners.lora import QuantLinear
 from safetensors.torch import save_file
 from tqdm import tqdm
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, PretrainedModel
 
 from mergekit.common import ModelReference
 from mergekit.io import LazyTensorLoader
 from mergekit.options import add_merge_options
 
 
-def _low_rank_decomposition(weight, reduced_rank=16):
+def _low_rank_decomposition(
+    weight: torch.Tensor, reduced_rank: int = 16
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Decompose a 2D matrix into low-rank matrices A and B using SVD.a
 
@@ -37,7 +40,12 @@ def _low_rank_decomposition(weight, reduced_rank=16):
     return A, B
 
 
-def decompose_delta_weight(new_weight, base_weight, reduced_rank, device=None):
+def decompose_delta_weight(
+    new_weight: torch.Tensor,
+    base_weight: torch.Tensor,
+    reduced_rank: int,
+    device: Optional[str] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -50,6 +58,7 @@ def decompose_delta_weight(new_weight, base_weight, reduced_rank, device=None):
     :param new_weight: The updated weight matrix after applying LoRA.
     :param base_weight: The original weight matrix before LoRA.
     :param reduced_rank: The rank for the low-rank decomposition.
+    :param device: The device to perform computation on.
     :return: A tuple of tensors (A, B)
     """
     delta_weight = new_weight - base_weight
@@ -64,7 +73,7 @@ def decompose_delta_weight(new_weight, base_weight, reduced_rank, device=None):
     return A, B
 
 
-def find_all_linear_names(model):
+def find_all_linear_names(model: PretrainedModel) -> List[str]:
     cls = (bnb.nn.Linear4bit, bnb.nn.Linear8bitLt, torch.nn.Linear, QuantLinear)
 
     names = []
@@ -79,7 +88,7 @@ def find_all_linear_names(model):
     return names
 
 
-def get_linear_module_names(model_id):
+def get_linear_module_names(model_id: str) -> List[str]:
     model = AutoModelForCausalLM.from_pretrained(
         model_id, state_dict={}, device_map="meta"
     )  # avoid loading weights as we won't need them
@@ -88,7 +97,9 @@ def get_linear_module_names(model_id):
     return linear_module_names
 
 
-def create_peft_config(base_model_name_or_path, rank, alpha, target_modules):
+def create_peft_config(
+    base_model_name_or_path: str, rank: int, alpha: int, target_modules: List[str]
+) -> Dict[str, Any]:
     return {
         "alpha_pattern": {},
         "auto_mapping": None,
@@ -132,7 +143,9 @@ def create_peft_config(base_model_name_or_path, rank, alpha, target_modules):
     default=None,
     help="PyTorch device to perform SVD computation on",
 )
-def main(out_path: str, base_model: str, finetuned_model: str, rank: int, device: str):
+def main(
+    out_path: str, base_model: str, finetuned_model: str, rank: int, device: str
+) -> None:
     """
     Decomposes delta weights between a base model and a finetuned model and saves a PEFT model.
     """
