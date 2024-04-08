@@ -80,7 +80,7 @@ def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
 
 def sample(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
     """Samples the tensor as it's own mask, then shifts mean to fit density."""
-    if density >= 1 or tensor.abs().max() == 0.0 or tensor.abs().max() == float('inf'):
+    if density >= 1 or tensor.abs().max() == 0.0 or tensor.abs().max() == float("inf"):
         return tensor
 
     # Handle if the tensor is already sparser than the density (In line with trimming).
@@ -105,7 +105,7 @@ def sample(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
             power = 0
         i += 1
 
-    intermediate = tensor.abs()**power
+    intermediate = tensor.abs() ** power
     mask = torch.bernoulli((intermediate / intermediate.max()).to(work_dtype))
 
     if rescale:
