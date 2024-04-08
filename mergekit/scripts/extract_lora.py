@@ -139,13 +139,24 @@ def create_peft_config(
     "--rank", type=int, default=32, help="Rank for the low-rank decomposition"
 )
 @click.option(
+    "--no-lazy-unpickle",
+    type=bool,
+    default=False,
+    help="Disable lazy unpickler (more stable, higher memory usage)",
+)
+@click.option(
     "--device",
     type=str,
     default=None,
     help="PyTorch device to perform SVD computation on",
 )
 def main(
-    out_path: str, base_model: str, finetuned_model: str, rank: int, device: str
+    out_path: str,
+    base_model: str,
+    finetuned_model: str,
+    rank: int,
+    no_lazy_unpickle: bool,
+    device: str,
 ) -> None:
     """
     Decomposes delta weights between a base model and a finetuned model and saves a PEFT model.
@@ -166,9 +177,11 @@ def main(
         finetuned_model_linear_module_names
     ), "Model architecture mismatch"
 
-    base_loader = LazyTensorLoader(base_model_ref.tensor_index(), lazy_unpickle=True)
+    base_loader = LazyTensorLoader(
+        base_model_ref.tensor_index(), lazy_unpickle=(not no_lazy_unpickle)
+    )
     finetuned_loader = LazyTensorLoader(
-        finetuned_model_ref.tensor_index(), lazy_unpickle=True
+        finetuned_model_ref.tensor_index(), lazy_unpickle=(not no_lazy_unpickle)
     )
 
     lora_weights = {}
@@ -189,7 +202,7 @@ def main(
 
     lora_config = create_peft_config(
         base_model_name_or_path=base_model_ref.model.path,
-        alpha=rank,  # Setting the alpha to the reduced rank value (instead of alpha value used) seems to give better performance. Further testing would be needed to understand what is the optimal alpha value to use
+        alpha=rank,  # Setting the alpha to the reduced rank value as `peft` will scale the LoRA weights by alpha/r when applying the adapter
         rank=rank,
         target_modules=list(
             set([module_name.split(".")[-1] for module_name in linear_module_names])
