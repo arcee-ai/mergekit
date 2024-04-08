@@ -13,6 +13,8 @@ Features:
 
 🔊 Call to Evolve - to solve evolutionary merge methods as a community - please see https://github.com/arcee-ai/mergekit/issues/207.
 
+🌐 GUI Launch Alert 🤗 - We are excited to announce the launch of a graphical user interface for mergekit in Hugging Face Spaces! This GUI simplifies the merging process, making it more accessible to a broader audience. Check it out and contribute at [Hugging Face Spaces - mergekit-community](https://huggingface.co/mergekit-community).
+
 ## Installation
 
 ```sh
