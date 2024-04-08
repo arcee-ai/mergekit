@@ -8,7 +8,8 @@ import torch
 from peft.tuners.lora import QuantLinear
 from safetensors.torch import save_file
 from tqdm import tqdm
-from transformers import AutoConfig, AutoModelForCausalLM, PretrainedModel
+from transformers import AutoConfig, AutoModelForCausalLM
+from transformers.modeling_utils import PreTrainedModel
 
 from mergekit.common import ModelReference
 from mergekit.io import LazyTensorLoader
@@ -73,7 +74,7 @@ def decompose_delta_weight(
     return A, B
 
 
-def find_all_linear_names(model: PretrainedModel) -> List[str]:
+def find_all_linear_names(model: PreTrainedModel) -> List[str]:
     cls = (bnb.nn.Linear4bit, bnb.nn.Linear8bitLt, torch.nn.Linear, QuantLinear)
 
     names = []
