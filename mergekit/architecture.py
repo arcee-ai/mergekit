@@ -68,6 +68,11 @@ class ProceduralSpaceInfo(BaseModel, frozen=True):
 
 class ArchitectureInfo(ABC):
     @abstractmethod
+    def name(self) -> str:
+        """Return the name of the architecture."""
+        ...
+
+    @abstractmethod
     def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         """Return a list of all weights preceding the first layer."""
         ...
@@ -124,6 +129,9 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
     info: ArchitectureInfo
     config: PretrainedConfig
 
+    def name(self) -> str:
+        return self.info.name()
+
     def num_layers(self) -> int:
         return self.info.num_layers(self.config)
 
@@ -162,6 +170,30 @@ class TemplateWithArithmetic(string.Template):
     idpattern = r"(?a:[_a-z][_a-z0-9]*([+-]1)?)"
 
 
+def _template_substitution(
+    template: str, num_layers: int, layer_idx: Optional[int] = None
+) -> str:
+    if "{" not in template:
+        return template
+
+    substitutions = {
+        "num_layers": num_layers,
+        "num_layers+1": num_layers + 1,
+        "num_layers-1": num_layers - 1,
+    }
+
+    if layer_idx is not None:
+        substitutions.update(
+            {
+                "layer_index": layer_idx,
+                "layer_index+1": layer_idx + 1,
+                "layer_index-1": layer_idx - 1,
+            }
+        )
+
+    return TemplateWithArithmetic(template).substitute(substitutions)
+
+
 class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
     definition: JSONArchitectureDefinition
 
@@ -172,27 +204,26 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
         layer_idx: Optional[int] = None,
     ) -> Union[WeightInfo, ProceduralSpaceInfo]:
         num_layers = self.num_layers(config)
-        substitutions = {
-            "num_layers": num_layers,
-            "num_layers+1": num_layers + 1,
-            "num_layers-1": num_layers - 1,
-        }
-        if layer_idx is not None:
-            substitutions.update(
-                {
-                    "layer_index": layer_idx,
-                    "layer_index+1": layer_idx + 1,
-                    "layer_index-1": layer_idx - 1,
-                }
-            )
 
         obj_dict = item.model_dump(mode="json", exclude_unset=True)
         for key in obj_dict:
-            if isinstance(obj_dict[key], str) and "{" in obj_dict[key]:
-                obj_dict[key] = TemplateWithArithmetic(obj_dict[key]).substitute(
-                    substitutions
+            if isinstance(obj_dict[key], str):
+                obj_dict[key] = _template_substitution(
+                    obj_dict[key], num_layers, layer_idx
                 )
+            elif isinstance(obj_dict[key], list):
+                obj_dict[key] = [
+                    (
+                        _template_substitution(s, num_layers, layer_idx)
+                        if isinstance(s, str)
+                        else s
+                    )
+                    for s in obj_dict[key]
+                ]
         return type(item).model_validate(obj_dict)
+
+    def name(self) -> str:
+        return self.definition.expected_model_type
 
     def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         return [
@@ -246,6 +277,9 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
 class MixtralTensorNames(ArchitectureInfo, BaseModel):
     ARCHITECTURE_NAME: ClassVar[str] = "MixtralForCausalLM"
     num_local_experts: int
+
+    def name(self) -> str:
+        return "mixtral"
 
     @classmethod
     def from_config(cls, config: PretrainedConfig):

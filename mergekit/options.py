@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import functools
 import typing
 from typing import Any, Callable, Optional, Union
 
@@ -66,6 +67,7 @@ class ShardSizeParamType(click.ParamType):
 
 
 def add_merge_options(f: Callable) -> Callable:
+    @functools.wraps(f)
     def wrapper(*args, **kwargs):
         arg_dict = {}
         for field_name in MergeOptions.model_fields:

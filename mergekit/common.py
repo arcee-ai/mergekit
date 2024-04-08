@@ -41,7 +41,7 @@ from pydantic_core import core_schema
 from transformers import AutoConfig, PretrainedConfig
 from typing_extensions import TypeVar
 
-from mergekit.io import ShardedTensorIndex
+from mergekit.io import LazyTensorLoader, ShardedTensorIndex
 
 
 class ModelPath(BaseModel, frozen=True):
@@ -149,6 +149,14 @@ class ModelReference(BaseModel, frozen=True):
             )
 
         return ShardedTensorIndex.from_disk(path)
+
+    def lazy_loader(
+        self, cache_dir: Optional[str] = None, lazy_unpickle: bool = True
+    ) -> LazyTensorLoader:
+        return LazyTensorLoader(
+            self.tensor_index(cache_dir),
+            lazy_unpickle=lazy_unpickle,
+        )
 
     @model_validator(mode="before")
     def validate_string(cls, value):

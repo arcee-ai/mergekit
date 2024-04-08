@@ -121,7 +121,15 @@ class LazyTensorLoader:
         self.current_shard = None
         self.lazy_unpickle = lazy_unpickle
 
-    def get_tensor(self, key: str, device: str = "cpu") -> Optional[Tensor]:
+    def get_tensor(
+        self, key: str, device: str = "cpu", aliases: Optional[List[str]] = None
+    ) -> Optional[Tensor]:
+        if aliases and key not in self.index.tensor_paths:
+            for alias in aliases:
+                if alias in self.index.tensor_paths:
+                    key = alias
+                    break
+
         if self.current_shard is None or key not in self.current_shard.keys():
             if key not in self.index.tensor_paths:
                 raise KeyError(key)
@@ -131,7 +139,7 @@ class LazyTensorLoader:
 
             shard_file = self.index.tensor_paths[key]
             shard_full_path = os.path.join(self.index.base_path, shard_file)
-            logging.info(f"Opening shard {shard_full_path}")
+            logging.debug(f"Opening shard {shard_full_path}")
             self.current_shard = TensorLoader.get(
                 shard_full_path, use_lazy_unpickle=self.lazy_unpickle, device=device
             )
@@ -141,3 +149,9 @@ class LazyTensorLoader:
     def flush(self):
         self.current_shard = None
         self.current_keys = None
+
+    @classmethod
+    def from_disk(
+        cls, base_path: str, lazy_unpickle: bool = True
+    ) -> "LazyTensorLoader":
+        return LazyTensorLoader(ShardedTensorIndex.from_disk(base_path), lazy_unpickle)

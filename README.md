@@ -1,6 +1,3 @@
-> [!NOTE]
-> [Charles Goddard](https://github.com/cg123), author of `mergekit` (and person writing this note), has joined [arcee.ai](https://www.arcee.ai/). I will be continuing to develop `mergekit` with their backing and it will continue to be open source under the same license. For more words about this, see the blog post [here](https://blog.arcee.ai/arcee-and-mergekit-unite/).
-
 # mergekit
 
 `mergekit` is a toolkit for merging pre-trained language models. `mergekit` uses an out-of-core approach to perform unreasonably elaborate merges in resource-constrained situations. Merges can be run entirely on CPU or accelerated with as little as 8 GB of VRAM. Many merging algorithms are supported, with more coming as they catch my attention.
@@ -13,6 +10,8 @@ Features:
 - Lazy loading of tensors for low memory use
 - Interpolated gradients for parameter values (inspired by Gryphe's [BlockMerge_Gradient](https://github.com/Gryphe/BlockMerge_Gradient) script)
 - Piecewise assembly of language models from layers ("Frankenmerging")
+
+🔊 Call to Evolve - to solve evolutionary merge methods as a community - please see https://github.com/arcee-ai/mergekit/issues/207.
 
 ## Installation
 
@@ -123,6 +122,7 @@ A quick overview of the currently supported merge methods:
 | [DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)            | `dare_ties`          | ✅          | ✅              |
 | [DARE](https://arxiv.org/abs/2311.03099) [Task Arithmetic](https://arxiv.org/abs/2212.04089) | `dare_linear`        | ✅          | ✅              |
 | Passthrough                                                                                  | `passthrough`        | ❌          | ❌              |
+| [Model Stock](https://arxiv.org/abs/2403.19522)                                              | `model_stock`        | ✅          | ✅              |
 
 ### Linear
 
@@ -165,6 +165,14 @@ Parameters: same as [TIES](#ties) for `dare_ties`, or [Linear](#linear) for `dar
 
 `passthrough` is a no-op that simply passes input tensors through unmodified. It is meant to be used for layer-stacking type merges where you have only one input model. Useful for frankenmerging.
 
+### [Model Stock](https://arxiv.org/abs/2403.19522)
+
+Uses some neat geometric properties of fine tuned models to compute good weights for linear interpolation. Requires at least three models, including a base model.
+
+Parameters:
+
+- `filter_wise`: if true, weight calculation will be per-row rather than per-tensor. Not recommended.
+
 ## LoRA extraction
 
 Mergekit allows extracting PEFT-compatible low-rank approximations of finetuned models.
@@ -186,3 +194,4 @@ We now have a [paper](https://arxiv.org/abs/2403.13257) you can cite for the Mer
   journal={arXiv preprint arXiv:2403.13257},
   year={2024}
 }
+```

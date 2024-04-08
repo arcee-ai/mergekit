@@ -20,6 +20,7 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
     SparsificationMethod,
 )
 from mergekit.merge_methods.linear import LinearMerge
+from mergekit.merge_methods.model_stock import ModelStockMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.slerp import SlerpMerge
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
@@ -37,25 +38,31 @@ def get(method: str) -> MergeMethod:
             consensus_method=None,
             sparsification_method=None,
             default_normalize=False,
+            default_rescale=False,
         )
     elif method == "ties":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=ConsensusMethod.sum,
             sparsification_method=SparsificationMethod.magnitude,
             default_normalize=True,
+            default_rescale=False,
         )
     elif method == "dare_ties":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=ConsensusMethod.sum,
-            sparsification_method=SparsificationMethod.rescaled_random,
+            sparsification_method=SparsificationMethod.random,
             default_normalize=False,
+            default_rescale=True,
         )
     elif method == "dare_linear":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=None,
-            sparsification_method=SparsificationMethod.rescaled_random,
+            sparsification_method=SparsificationMethod.random,
             default_normalize=False,
+            default_rescale=True,
         )
+    elif method == "model_stock":
+        return ModelStockMerge()
     raise RuntimeError(f"Unimplemented merge method {method}")
 
 
