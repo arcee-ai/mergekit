@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -11,6 +12,7 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.modeling_utils import PreTrainedModel
 
+from mergekit.card import generate_card_lora
 from mergekit.common import ModelReference
 from mergekit.io import LazyTensorLoader
 from mergekit.options import add_merge_options
@@ -127,22 +129,53 @@ def create_peft_config(
     }
 
 
+def reconstruct_invocation(args):
+    """
+    Reconstructs the command-line invocation string based on the given arguments stored in a dictionary.
+
+    Parameters:
+    - args: A dictionary containing the command arguments with keys matching the parameter names.
+      Expected keys are 'base_model', 'finetuned_model', 'out_path', 'no_lazy_unpickle', 'desired_rank', 'model_name' and 'device'.
+
+    Returns:
+    - The reconstructed command-line invocation string.
+    """
+    # Provide a default value for out_path if it's not in the dictionary
+    out_path = args.get("out_path", "OUTPUT_PATH")
+
+    invocation = f"mergekit-extract-lora {args['base_model']} {args['finetuned_model']} {out_path}"
+    if args.get("no_lazy_unpickle"):
+        invocation += " --no-lazy-unpickle"
+    invocation += f" --rank={args['desired_rank']}"
+    if args.get("model_name"):
+        invocation += f" --model_name={args['model_name']}"
+    if args.get("device"):
+        invocation += f" --device={args['device']}"
+
+    return invocation
+
+
 @click.command("mergekit-extract-lora")
+@click.argument("finetuned_model", type=str)
+@click.argument("base_model", type=str)
 @click.argument("out_path", type=click.Path())
-@click.option("--base-model", type=str, help="Model ID or path to use as base model")
-@click.option(
-    "--finetuned-model",
-    type=str,
-    help="Model ID or path to use as PEFT extraction target model",
-)
-@click.option(
-    "--rank", type=int, default=32, help="Rank for the low-rank decomposition"
-)
 @click.option(
     "--no-lazy-unpickle",
-    type=bool,
-    default=False,
+    is_flag=True,
     help="Disable lazy unpickler (more stable, higher memory usage)",
+)
+@click.option(
+    "--rank",
+    "desired_rank",
+    type=int,
+    default=32,
+    help="Rank for the low-rank decomposition",
+)
+@click.option(
+    "--model_name",
+    type=str,
+    default=None,
+    help="Name of the resulting model (shown in the model card)",
 )
 @click.option(
     "--device",
@@ -151,16 +184,34 @@ def create_peft_config(
     help="PyTorch device to perform SVD computation on",
 )
 def main(
-    out_path: str,
     base_model: str,
     finetuned_model: str,
-    rank: int,
+    out_path: str,
     no_lazy_unpickle: bool,
+    desired_rank: int,
+    model_name: str,
     device: str,
 ) -> None:
     """
-    Decomposes delta weights between a base model and a finetuned model and saves a PEFT model.
+    Decomposes delta weights between a base model and a finetuned model, saving a PEFT model to the specified output path.
+
+    \b
+    Arguments:
+    FINETUNED_MODEL - the model ID or path to use as the PEFT extraction target model.
+    BASE_MODEL - the model ID or path to use as the base model.
+    OUT_PATH - the output path where the PEFT model will be saved.
     """
+
+    invocation_args = {
+        "base_model": base_model,
+        "finetuned_model": finetuned_model,
+        "desired_rank": desired_rank,
+        "device": device,
+        "out_path": out_path,
+        "model_name": model_name,
+        "no_lazy_unpickle": no_lazy_unpickle,
+    }
+
     os.makedirs(out_path, exist_ok=True)
 
     base_model_ref = ModelReference.parse(base_model)
@@ -190,7 +241,7 @@ def main(
         finetuned_weight = finetuned_loader.get_tensor(f"{layer_name}.weight")
 
         lora_A, lora_B = decompose_delta_weight(
-            finetuned_weight, base_weight, rank, device=device
+            finetuned_weight, base_weight, desired_rank, device=device
         )
 
         lora_weights[f"base_model.model.{layer_name}.lora_A.weight"] = lora_A.to(
@@ -202,8 +253,8 @@ def main(
 
     lora_config = create_peft_config(
         base_model_name_or_path=base_model_ref.model.path,
-        alpha=rank,  # Setting the alpha to the reduced rank value as `peft` will scale the LoRA weights by alpha/r when applying the adapter
-        rank=rank,
+        alpha=desired_rank,  # Setting the alpha to the reduced rank value as `peft` will scale the LoRA weights by alpha/r when applying the adapter
+        rank=desired_rank,
         target_modules=list(
             set([module_name.split(".")[-1] for module_name in linear_module_names])
         ),
@@ -214,7 +265,20 @@ def main(
 
     save_file(lora_weights, os.path.join(out_path, "adapter_model.safetensors"))
 
-    print(f"PEFT LoRA adapters saved to {out_path}")
+    invocation_args.pop("out_path")  # don't include out_path for privacy
+    invocation = reconstruct_invocation(invocation_args)
+
+    card_md = generate_card_lora(
+        base_model_ref=base_model_ref,
+        finetuned_model_ref=finetuned_model_ref,
+        invocation=invocation,
+        name=model_name,
+    )
+
+    with open(os.path.join(out_path, "README.md"), "w", encoding="utf-8") as fp:
+        fp.write(card_md)
+
+    logging.info(f"PEFT LoRA adapters saved to {out_path}")
 
 
 if __name__ == "__main__":
