@@ -184,8 +184,8 @@ def reconstruct_invocation(args):
     help="PyTorch device to perform SVD computation on",
 )
 def main(
-    base_model: str,
     finetuned_model: str,
+    base_model: str,
     out_path: str,
     no_lazy_unpickle: bool,
     desired_rank: int,
