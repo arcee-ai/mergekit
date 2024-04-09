@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import logging
 import os
 from typing import Generator, List, Optional
 
@@ -46,6 +47,26 @@ The following YAML configuration was used to produce this model:
 
 ```yaml
 {config_yaml}
+```
+"""
+
+CARD_TEMPLATE_LORA = """---
+{metadata}
+---
+# {name}
+
+This is a LoRA extracted from a language model. It was extracted using [mergekit](https://github.com/arcee-ai/mergekit).
+
+## LoRA Details
+
+{details}
+
+### Parameters
+
+The following command was used to extract this LoRA adapter:
+
+```sh
+{invocation}
 ```
 """
 
@@ -174,4 +195,45 @@ def generate_card(
         merge_method=method_md(config.merge_method),
         name=name,
         config_yaml=config_yaml,
+    )
+
+
+def generate_card_lora(
+    base_model_ref: ModelReference,
+    finetuned_model_ref: ModelReference,
+    invocation: str,
+    name: str,
+) -> str:
+    """
+    Generates a markdown card for a merged model configuration.
+
+    Args:
+        config: A MergeConfiguration object.
+        config_yaml: YAML source text of the config.
+        name: An optional name for the model.
+    """
+    if not name:
+        name = "Untitled LoRA Model (1)"
+
+    hf_bases = list(extract_hf_paths([base_model_ref, finetuned_model_ref]))
+    tags = ["mergekit", "peft"]
+
+    details = f"This LoRA adapter was extracted from {modelref_md(finetuned_model_ref)} and uses {modelref_md(base_model_ref)} as a base."
+
+    if os.path.isdir(base_model_ref.model.path) or os.path.isdir(
+        finetuned_model_ref.model.path
+    ):
+        logging.warning(
+            "Some model identifiers you provided are directory paths and will appear as such in the model card, you may want to edit it."
+        )
+
+    return CARD_TEMPLATE_LORA.format(
+        metadata=yaml.dump(
+            {"base_model": hf_bases, "tags": tags, "library_name": "transformers"}
+        ),
+        name=name,
+        details=details,
+        base_model=base_model_ref.model.path,
+        finetuned_model=finetuned_model_ref.model.path,
+        invocation=invocation,
     )

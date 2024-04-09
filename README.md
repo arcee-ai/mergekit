@@ -175,6 +175,16 @@ Parameters:
 
 - `filter_wise`: if true, weight calculation will be per-row rather than per-tensor. Not recommended.
 
+## LoRA extraction
+
+Mergekit allows extracting PEFT-compatible low-rank approximations of finetuned models.
+
+### Usage:
+
+```sh
+mergekit-extract-lora finetuned_model_id_or_path base_model_id_or_path output_path [--no-lazy-unpickle] --rank=desired_rank
+```
+
 # Citation
 
 We now have a [paper](https://arxiv.org/abs/2403.13257) you can cite for the MergeKit library:
