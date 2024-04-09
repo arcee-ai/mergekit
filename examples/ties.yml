@@ -11,6 +11,7 @@ models:
     parameters:
       density: [0.1, 0.2, 0.6]
       weight: [0.5, 0.8, 1.0]
-merge_method: sample_ties
+merge_method: ranked_ties
 base_model: microsoft/phi-2
+parameters:
 dtype: bfloat16

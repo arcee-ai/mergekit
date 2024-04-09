@@ -22,6 +22,7 @@ class SparsificationMethod(str, Enum):
     magnitude = "magnitude"
     random = "random"
     sample = "sample"
+    ranked = "ranked"
 
 
 def rescale_sum(tensor: torch.Tensor, mask: torch.Tensor):
@@ -49,8 +50,8 @@ def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     w = tensor.abs().view(-1)
     if w.device.type == "cpu":
         w = w.float()
-    topk = torch.topk(w, k=k, largest=True)
-    mask.view(-1)[topk.indices] = 1
+    topk = torch.argsort(w, descending=True)[:k]
+    mask.view(-1)[topk] = 1
 
     if rescale:
         res = rescale_sum(tensor, mask)
@@ -77,6 +78,37 @@ def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     if rescale:
         res /= density
     return res.to(tensor.dtype)
+
+
+def ranked(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
+    print("triggered")
+    if density >= 1:
+        return tensor
+    
+    # Handle if the tensor is already sparser than the density (In line with trimming).
+    if ((tensor.abs() ** 0.0).mean() / (tensor.abs() ** 0.0).max()) <= density:
+        return tensor
+
+    work_dtype = tensor.dtype
+    size = int(tensor.view(-1).shape[0])
+
+    rank = torch.zeros_like(tensor)
+    w = tensor.abs().view(-1)
+    if w.device.type == "cpu":
+        w = w.float()
+    sort = torch.argsort(w, descending=True)
+    rank.view(-1)[sort] = torch.linspace(1, 0, steps=size, device=w.device.type, dtype=work_dtype)
+
+    mask = torch.bernoulli(rank)
+
+    print(mask)
+    
+    if rescale:
+        res = rescale_sum(tensor, mask)
+    else:
+        res = tensor * mask
+
+    return res
 
 
 def sample(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
@@ -128,5 +160,7 @@ def sparsify(
         return bernoulli(tensor, density=density, rescale=rescale)
     elif method == SparsificationMethod.sample:
         return sample(tensor, density=density, rescale=rescale)
+    elif method == SparsificationMethod.ranked:
+        return ranked(tensor, density=density, rescale=rescale)
     else:
         raise NotImplementedError(method)

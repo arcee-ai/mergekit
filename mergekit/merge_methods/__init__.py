@@ -70,6 +70,13 @@ def get(method: str) -> MergeMethod:
             default_normalize=False,
             default_rescale=True,
         )
+    elif method == "ranked_ties":
+        return GeneralizedTaskArithmeticMerge(
+            consensus_method=ConsensusMethod.sum,
+            sparsification_method=SparsificationMethod.ranked,
+            default_normalize=False,
+            default_rescale=True,
+        )
     raise RuntimeError(f"Unimplemented merge method {method}")
 
 
