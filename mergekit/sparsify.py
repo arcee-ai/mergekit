@@ -81,7 +81,6 @@ def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
 
 
 def ranked(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
-    print("triggered")
     if density >= 1:
         return tensor
     
@@ -97,11 +96,9 @@ def ranked(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
     if w.device.type == "cpu":
         w = w.float()
     sort = torch.argsort(w, descending=True)
-    rank.view(-1)[sort] = torch.linspace(1, 0, steps=size, device=w.device.type, dtype=work_dtype)
-
+    
+    rank.view(-1)[sort] = torch.linspace(1, 0, steps=size, device=w.device.type, dtype=work_dtype).pow((1 / density) - 1)
     mask = torch.bernoulli(rank)
-
-    print(mask)
     
     if rescale:
         res = rescale_sum(tensor, mask)
