@@ -20,12 +20,12 @@ from pydantic import BaseModel
 
 from mergekit.common import ModelReference
 
-# Create a Mixtral MoE from a set of equally-sized Mistral (or Llama) models.
-# Takes the path to a yml config and an output path.
-# Config schema is the two classes below.
-
 
 class Expert(BaseModel):
+    """
+    Defines a model to be used as a set of layerwise experts in a MoE model.
+    """
+
     source_model: ModelReference
 
     positive_prompts: Optional[List[str]] = None
@@ -35,6 +35,10 @@ class Expert(BaseModel):
 
 
 class MoEMergeConfig(BaseModel):
+    """
+    Configuration for merging a set of "expert" models into a MoE model.
+    """
+
     base_model: ModelReference
     experts: List[Expert]
     gate_mode: str = "hidden"  # possible values: "hidden", "cheap_embed", "random"
