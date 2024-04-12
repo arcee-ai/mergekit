@@ -16,6 +16,7 @@
 import logging
 import os
 import sys
+from typing import List
 
 import click
 import transformers
@@ -116,7 +117,7 @@ def select_output_arch(
             logging.error(f"  * {arch.name()}")
         sys.exit(1)
 
-    candidates = []
+    candidates: List[MoEOutputArchitecture] = []
     for arch in candidates_in:
         if arch.supports_config(
             config, explain=verbose, trust_remote_code=merge_options.trust_remote_code
@@ -134,6 +135,11 @@ def select_output_arch(
         for arch in ALL_OUTPUT_ARCHITECTURES:
             logging.error(f"  * {arch.name()}")
         sys.exit(1)
+
+    # for compatibility with older configs, default to Mixtral if available
+    for arch in candidates:
+        if arch.name() == "Mixtral":
+            return arch
 
     if len(candidates) > 1:
         logging.warning(
