@@ -82,7 +82,7 @@ def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
 
 def ranked(
     tensor: torch.Tensor, density: float, rescale: bool, smooth: bool
-    ) -> torch.Tensor:
+) -> torch.Tensor:
     if density >= 1:
         return tensor
 
