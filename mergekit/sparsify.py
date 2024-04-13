@@ -80,10 +80,12 @@ def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     return res.to(tensor.dtype)
 
 
-def ranked(tensor: torch.Tensor, density: float, rescale: bool, smooth: bool) -> torch.Tensor:
+def ranked(
+    tensor: torch.Tensor, density: float, rescale: bool, smooth: bool
+    ) -> torch.Tensor:
     if density >= 1:
         return tensor
-    
+
     # Handle if the tensor is already sparser than the density (In line with trimming).
     if ((tensor.abs() ** 0.0).mean() / (tensor.abs() ** 0.0).max()) <= density:
         return tensor
@@ -96,11 +98,13 @@ def ranked(tensor: torch.Tensor, density: float, rescale: bool, smooth: bool) ->
     if w.device.type == "cpu":
         w = w.float()
     sort = torch.argsort(w, descending=True)
-    
-    mask.view(-1)[sort] = torch.linspace(1, 0, steps=size, device=w.device.type, dtype=work_dtype).pow((1 / density) - 1)
+
+    mask.view(-1)[sort] = torch.linspace(
+        1, 0, steps=size, device=w.device.type, dtype=work_dtype
+        ).pow((1 / density) - 1)
     if smooth:
         mask = torch.bernoulli(mask)
-    
+
     if not rescale:
         res = rescale_sum(tensor, mask)
     else:
@@ -109,7 +113,9 @@ def ranked(tensor: torch.Tensor, density: float, rescale: bool, smooth: bool) ->
     return res
 
 
-def sample(tensor: torch.Tensor, density: float, rescale: bool, smooth: bool) -> torch.Tensor:
+def sample(
+    tensor: torch.Tensor, density: float, rescale: bool, smooth: bool
+    ) -> torch.Tensor:
     """Samples the tensor as it's own mask, then shifts mean to fit density."""
     if density >= 1 or tensor.abs().max() == 0.0 or tensor.abs().max() == float("inf"):
         return tensor
