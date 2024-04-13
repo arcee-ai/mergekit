@@ -80,7 +80,7 @@ def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     return res.to(tensor.dtype)
 
 
-def ranked(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
+def ranked(tensor: torch.Tensor, density: float, rescale: bool, smooth: bool) -> torch.Tensor:
     if density >= 1:
         return tensor
     
@@ -98,9 +98,10 @@ def ranked(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
     sort = torch.argsort(w, descending=True)
     
     mask.view(-1)[sort] = torch.linspace(1, 0, steps=size, device=w.device.type, dtype=work_dtype).pow((1 / density) - 1)
-    mask = torch.bernoulli(mask)
+    if smooth:
+        mask = torch.bernoulli(mask)
     
-    if rescale:
+    if not rescale:
         res = rescale_sum(tensor, mask)
     else:
         res = tensor * mask
@@ -108,7 +109,7 @@ def ranked(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
     return res
 
 
-def sample(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
+def sample(tensor: torch.Tensor, density: float, rescale: bool, smooth: bool) -> torch.Tensor:
     """Samples the tensor as it's own mask, then shifts mean to fit density."""
     if density >= 1 or tensor.abs().max() == 0.0 or tensor.abs().max() == float("inf"):
         return tensor
@@ -136,7 +137,9 @@ def sample(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
         i += 1
 
     intermediate = tensor.abs() ** power
-    mask = torch.bernoulli((intermediate / intermediate.max()).to(work_dtype))
+    mask = (intermediate / intermediate.max()).to(work_dtype)
+    if not smooth:
+        mask = torch.bernoulli(mask)
 
     if rescale:
         res = rescale_sum(tensor, mask)
@@ -149,15 +152,16 @@ def sparsify(
     tensor: torch.Tensor,
     density: float,
     method: SparsificationMethod,
-    rescale: bool = False,
+    rescale: bool,
+    smooth: bool,
 ) -> torch.Tensor:
     if method == SparsificationMethod.magnitude:
         return magnitude(tensor, density=density, rescale=rescale)
     elif method == SparsificationMethod.random:
         return bernoulli(tensor, density=density, rescale=rescale)
     elif method == SparsificationMethod.sample:
-        return sample(tensor, density=density, rescale=rescale)
+        return sample(tensor, density=density, rescale=rescale, smooth=smooth)
     elif method == SparsificationMethod.ranked:
-        return ranked(tensor, density=density, rescale=rescale)
+        return ranked(tensor, density=density, rescale=rescale, smooth=smooth)
     else:
         raise NotImplementedError(method)

@@ -39,6 +39,7 @@ def get(method: str) -> MergeMethod:
             sparsification_method=None,
             default_normalize=False,
             default_rescale=False,
+            default_smooth=False,
         )
     elif method == "ties":
         return GeneralizedTaskArithmeticMerge(
@@ -46,6 +47,7 @@ def get(method: str) -> MergeMethod:
             sparsification_method=SparsificationMethod.magnitude,
             default_normalize=True,
             default_rescale=False,
+            default_smooth=False,
         )
     elif method == "dare_ties":
         return GeneralizedTaskArithmeticMerge(
@@ -53,6 +55,7 @@ def get(method: str) -> MergeMethod:
             sparsification_method=SparsificationMethod.random,
             default_normalize=False,
             default_rescale=True,
+            default_smooth=False,
         )
     elif method == "dare_linear":
         return GeneralizedTaskArithmeticMerge(
@@ -60,6 +63,7 @@ def get(method: str) -> MergeMethod:
             sparsification_method=SparsificationMethod.random,
             default_normalize=False,
             default_rescale=True,
+            default_smooth=False,
         )
     elif method == "model_stock":
         return ModelStockMerge()
@@ -69,6 +73,7 @@ def get(method: str) -> MergeMethod:
             sparsification_method=SparsificationMethod.sample,
             default_normalize=False,
             default_rescale=True,
+            default_smooth=False,
         )
     elif method == "ranked_ties":
         return GeneralizedTaskArithmeticMerge(
@@ -76,6 +81,7 @@ def get(method: str) -> MergeMethod:
             sparsification_method=SparsificationMethod.ranked,
             default_normalize=False,
             default_rescale=True,
+            default_smooth=False,
         )
     raise RuntimeError(f"Unimplemented merge method {method}")
 

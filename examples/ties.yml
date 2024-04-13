@@ -1,16 +1,20 @@
 models:
-  - model: abacaj/phi-2-super # Best
+  - model: mistralai/Mistral-7B-v0.1
+    # no parameters necessary for base model
+  - model: Undi95/Toppy-M-7B #175
     parameters:
-      density: [0.8, 0.3, 0.1]
-      weight: [1.0, 0.8, 0.5]
-  - model: rhysjones/phi-2-orange-v2 #Middle
+      weight: 0.54
+      density: 0.81
+  - model: PistachioAlt/Noromaid-Bagel-7B-Slerp #75
     parameters:
-      density: [0.1, 0.4, 0.1]
-      weight: [0.2, 0.8, 0.1]
-  - model: mobiuslabsgmbh/aanaphi2-v0.1 # 2nd End
+      weight: 0.23
+      density: 0.61
+  - model: OpenPipe/mistral-ft-optimized-1227 #100
     parameters:
-      density: [0.1, 0.2, 0.6]
-      weight: [0.5, 0.8, 1.0]
-merge_method: ranked_ties
-base_model: microsoft/phi-2
+      weight: 0.31
+      density: 0.68
+merge_method: dare_ties
+base_model: mistralai/Mistral-7B-v0.1
+parameters:
+  int8_mask: true
 dtype: bfloat16

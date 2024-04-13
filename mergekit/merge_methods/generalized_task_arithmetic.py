@@ -39,6 +39,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
     sparsification_method: Optional[SparsificationMethod]
     default_normalize: bool
     default_rescale: bool
+    default_smooth: bool
 
     def parameters(self) -> List[ConfigParameterDef]:
         return [
@@ -48,6 +49,9 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             ),
             ConfigParameterDef(
                 name="rescale", required=False, default_value=self.default_rescale
+            ),
+            ConfigParameterDef(
+                name="smooth", required=False, default_value=self.default_smooth
             ),
         ]
 
@@ -73,6 +77,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             int8_mask=parameters["int8_mask"],
             normalize=parameters["normalize"],
             rescale=parameters["rescale"],
+            smooth=parameters["smooth"],
             out_tensor_name=output_weight.name,
         )
 
@@ -86,6 +91,7 @@ class GTATask(Task[torch.Tensor]):
     int8_mask: bool
     normalize: bool
     rescale: bool
+    smooth: bool
 
     def uses_accelerator(self) -> bool:
         return True
@@ -116,6 +122,7 @@ class GTATask(Task[torch.Tensor]):
                     density=tv_info["density"],
                     method=self.method.sparsification_method,
                     rescale=self.rescale,
+                    smooth=self.smooth,
                 )
 
         deltas = torch.stack([tv["delta"] for tv in tvs], dim=0)
