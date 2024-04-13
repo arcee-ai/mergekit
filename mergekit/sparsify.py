@@ -36,8 +36,8 @@ def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
     w = tensor.abs().view(-1)
     if w.device.type == "cpu":
         w = w.float()
-    topk = torch.topk(w, k=k, largest=True)
-    mask.view(-1)[topk.indices] = 1
+    topk = torch.argsort(w, descending=True)[:k]
+    mask.view(-1)[topk] = 1
 
     return tensor * mask
 
