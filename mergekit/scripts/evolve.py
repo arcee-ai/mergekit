@@ -33,7 +33,11 @@ except ImportError:
 
 
 from mergekit.common import ModelReference
-from mergekit.evo.config import EvolMergeConfiguration, ModelGenomeDefinition
+from mergekit.evo.config import (
+    EvolMergeConfiguration,
+    ModelGenomeDefinition,
+    check_for_naughty_config,
+)
 from mergekit.evo.genome import ModelGenome
 from mergekit.evo.strategy import (
     ActorPoolEvaluationStrategy,
@@ -76,6 +80,13 @@ from mergekit.options import MergeOptions
 @click.option("use_wandb", "--wandb/--no-wandb", is_flag=True, default=False)
 @click.option("--wandb-project", type=str, help="Wandb project name")
 @click.option("--wandb-entity", type=str, help="Wandb entity name")
+@click.option(
+    "--i-understand-the-depths-of-the-evils-i-am-unleashing",
+    "allow_benchmark_tasks",
+    is_flag=True,
+    default=False,
+    help="Allow benchmark tasks as objectives",
+)
 def main(
     genome_config_path: str,
     max_fevals: int,
@@ -93,10 +104,13 @@ def main(
     use_wandb: bool,
     wandb_project: Optional[str],
     wandb_entity: Optional[str],
+    allow_benchmark_tasks: bool,
 ):
     config = EvolMergeConfiguration.model_validate(
         yaml.safe_load(open(genome_config_path, "r", encoding="utf-8"))
     )
+
+    check_for_naughty_config(config, allow=allow_benchmark_tasks)
 
     if use_wandb:
         if not wandb:

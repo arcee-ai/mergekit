@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+import logging
 from typing import List, Optional
 
 from pydantic import BaseModel, model_validator
@@ -39,3 +40,51 @@ class EvolMergeConfiguration(BaseModel, frozen=True):
     num_fewshot: Optional[int] = None
     shuffle: bool = False
     random_init: bool = False
+
+
+NAUGHTY_PREFIXES = [
+    "mmlu",
+    "hendrycks",
+    "agieval",
+    "gsm8k",
+    "hellaswag",
+    "winogrande",
+    "arc_",
+    "ai2_arc",
+    "truthfulqa",
+    "bigbench",
+    "piqa",
+    "openbookqa",
+]
+
+
+def check_for_naughty_config(config: EvolMergeConfiguration, allow: bool = False):
+    """
+    Check if the given configuration is naughty and should be disallowed.
+
+    mergekit-evolve is perfectly set up to directly optimize against the test set
+    of common benchmarks, which just makes the world a worse place. There are
+    cases where this is useful but it deserves a giant honking warning.
+    """
+    for task in config.tasks:
+        for prefix in NAUGHTY_PREFIXES:
+            if task.name.startswith(prefix):
+                if task.name.endswith("_train"):
+                    # there aren't any tasks that match this pattern in base
+                    # lm-eval, but it'd be a sane thing to do to add tasks for
+                    # the training sets of these benchmarks. don't warn about
+                    # them
+                    continue
+
+                message = (
+                    f"Task {task.name} is a common benchmark task. "
+                    "Optimizing against this task directly is unsporting at best "
+                    "and outright malicious at worst. Using mergekit-evolve to "
+                    "game benchmarks will be a black mark on your name for a "
+                    "thousand generations. To proceed, set the "
+                    "--i-understand-the-depths-of-the-evils-i-am-unleashing flag."
+                )
+                if not allow:
+                    raise ValueError(message)
+                else:
+                    logging.warning(message)
