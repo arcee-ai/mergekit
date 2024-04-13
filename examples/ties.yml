@@ -1,20 +1,22 @@
 models:
-  - model: mistralai/Mistral-7B-v0.1
-    # no parameters necessary for base model
-  - model: Undi95/Toppy-M-7B #175
+  - model: psmathur/orca_mini_v3_13b
     parameters:
-      weight: 0.54
-      density: 0.81
-  - model: PistachioAlt/Noromaid-Bagel-7B-Slerp #75
+      density: [1, 0.7, 0.1] # density gradient
+      weight: 1.0
+  - model: garage-bAInd/Platypus2-13B
     parameters:
-      weight: 0.23
-      density: 0.61
-  - model: OpenPipe/mistral-ft-optimized-1227 #100
+      density: 0.5
+      weight: [0, 0.3, 0.7, 1] # weight gradient
+  - model: WizardLM/WizardMath-13B-V1.0
     parameters:
-      weight: 0.31
-      density: 0.68
-merge_method: dare_ties
-base_model: mistralai/Mistral-7B-v0.1
+      density: 0.33
+      weight:
+        - filter: mlp
+          value: 0.5
+        - value: 0
+merge_method: ties
+base_model: TheBloke/Llama-2-13B-fp16
 parameters:
+  normalize: true
   int8_mask: true
-dtype: bfloat16
+dtype: float16
