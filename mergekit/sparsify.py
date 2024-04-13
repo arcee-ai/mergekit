@@ -101,7 +101,7 @@ def ranked(
 
     mask.view(-1)[sort] = torch.linspace(
         1, 0, steps=size, device=w.device.type, dtype=work_dtype
-        ).pow((1 / density) - 1)
+    ).pow((1 / density) - 1)
     if smooth:
         mask = torch.bernoulli(mask)
 
@@ -115,7 +115,7 @@ def ranked(
 
 def sample(
     tensor: torch.Tensor, density: float, rescale: bool, smooth: bool
-    ) -> torch.Tensor:
+) -> torch.Tensor:
     """Samples the tensor as it's own mask, then shifts mean to fit density."""
     if density >= 1 or tensor.abs().max() == 0.0 or tensor.abs().max() == float("inf"):
         return tensor
