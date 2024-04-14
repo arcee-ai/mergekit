@@ -66,12 +66,14 @@ def get(method: str) -> MergeMethod:
             consensus_method=None,
             sparsification_method=SparsificationMethod.magnitude_outliers,
             default_normalize=False,
+            default_rescale=False,
         )
     elif method == "breadcrumbs_ties":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=ConsensusMethod.sum,
             sparsification_method=SparsificationMethod.magnitude_outliers,
             default_normalize=False,
+            default_rescale=False,
         )
     elif method == "model_stock":
         return ModelStockMerge()
