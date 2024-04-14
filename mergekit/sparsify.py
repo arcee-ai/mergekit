@@ -48,8 +48,8 @@ def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     w = tensor.abs().view(-1)
     if w.device.type == "cpu":
         w = w.float()
-    topk = torch.topk(w, k=k, largest=True)
-    mask.view(-1)[topk.indices] = 1
+    topk = torch.argsort(w, descending=True)[:k]
+    mask.view(-1)[topk] = 1
 
     if rescale:
         res = rescale_sum(tensor, mask)
