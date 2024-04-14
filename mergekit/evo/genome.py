@@ -39,6 +39,7 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
     base_model: Optional[ModelReference] = None
     tokenizer_source: Optional[str] = None
     layer_granularity: int = 1
+    normalize: Optional[bool] = None
 
     @model_validator(mode="after")
     def validate(self):
@@ -167,12 +168,15 @@ class ModelGenome:
 
             slices.append(s)
 
+        normalize = self.definition.normalize
+        if normalize is None:
+            normalize = self.definition.merge_method in ["ties", "dare_ties", "linear"]
         return MergeConfiguration.model_validate(
             {
                 "merge_method": self.definition.merge_method,
                 "slices": slices,
                 "parameters": {
-                    "normalize": False,
+                    "normalize": normalize,
                     "int8_mask": True,
                 },
                 "dtype": "bfloat16",
