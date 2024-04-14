@@ -15,7 +15,6 @@ from transformers.modeling_utils import PreTrainedModel
 from mergekit.card import generate_card_lora
 from mergekit.common import ModelReference
 from mergekit.io import LazyTensorLoader
-from mergekit.options import add_merge_options
 
 
 def _low_rank_decomposition(

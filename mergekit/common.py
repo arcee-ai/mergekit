@@ -190,6 +190,8 @@ def dtype_from_name(name: Optional[str]) -> torch.dtype:
         return torch.float16
     elif name == "float32":
         return torch.float32
+    elif name == "int64":
+        return torch.int64
     raise RuntimeError(f'Unimplemented dtype "{name}"')
 
 
