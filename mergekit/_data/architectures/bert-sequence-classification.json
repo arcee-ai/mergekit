@@ -1,7 +1,9 @@
 {
     "model_type": "bert",
     "architectures": [
-        "BertForSequenceClassification"
+        "BertForSequenceClassification",
+        "BertForMultipleChoice",
+        "BertForTokenClassification"
     ],
     "pre_weights": [
         {
@@ -34,10 +36,12 @@
     ],
     "post_weights": [
         {
-            "name": "bert.pooler.dense.weight"
+            "name": "bert.pooler.dense.weight",
+            "optional": true
         },
         {
-            "name": "bert.pooler.dense.bias"
+            "name": "bert.pooler.dense.bias",
+            "optional": true
         },
         {
             "name": "classifier.bias"
