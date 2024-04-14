@@ -55,15 +55,18 @@ def run_merge(
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
-    loader_cache.lazy_unpickle = options.lazy_unpickle
-    loader_cache.lora_cache_dir = options.lora_merge_cache
-    loader_cache.hf_cache_dir = options.transformers_cache
-    loader_cache.trust_remote_code = options.trust_remote_code
+    loader_cache.setup(options=options)
 
     # create config for output model
     cfg_out = _model_out_config(
         merge_config, arch_info, trust_remote_code=options.trust_remote_code
     )
+
+    # warm up loader cache
+    for model in tqdm.tqdm(
+        merge_config.referenced_models(), desc="Warmup loader cache"
+    ):
+        loader_cache.get(model)
 
     logging.info("Planning operations")
     targets = MergePlanner(
@@ -73,12 +76,6 @@ def run_merge(
         options=options,
         out_model_config=cfg_out,
     ).plan()
-
-    # warm up loader cache
-    for model in tqdm.tqdm(
-        merge_config.referenced_models(), desc="Warmup loader cache"
-    ):
-        loader_cache.get(model)
 
     exec = Executor(
         tasks=targets,
