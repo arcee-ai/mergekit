@@ -40,6 +40,7 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
     tokenizer_source: Optional[str] = None
     layer_granularity: int = 1
     normalize: Optional[bool] = None
+    allow_negative_weights: bool = False
 
     @model_validator(mode="after")
     def validate(self):
@@ -151,6 +152,11 @@ class ModelGenome:
                         if param == "density":
                             # ensure density is in [0, 1]
                             params[param] = torch.abs(params[param]).clamp(0, 1).item()
+                        if not self.definition.allow_negative_weights and param in [
+                            "weight",
+                            "t",
+                        ]:
+                            params[param] = torch.abs(params[param]).item()
                     s["sources"][model_idx]["parameters"] = params
 
             if self.definition.base_model and (
