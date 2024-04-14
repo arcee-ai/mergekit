@@ -60,7 +60,9 @@ def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     return res
 
 
-def magnitude_outliers(tensor: torch.Tensor, density: float, gamma: float = 0.01):
+def magnitude_outliers(
+    tensor: torch.Tensor, density: float, rescale: bool, gamma: float = 0.01
+):
     """Masks out smallest values in addition to large outliers.
 
     The `gamma` proportion of the largest weights are first removed, then the
@@ -131,6 +133,6 @@ def sparsify(
     elif method == SparsificationMethod.random:
         return bernoulli(tensor, density=density, rescale=rescale)
     elif method == SparsificationMethod.magnitude_outliers:
-        return magnitude_outliers(tensor, density=density, gamma=gamma)
+        return magnitude_outliers(tensor, density=density, rescale=rescale, gamma=gamma)
     else:
         raise NotImplementedError(method)
