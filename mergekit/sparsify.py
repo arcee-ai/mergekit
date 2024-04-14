@@ -59,6 +59,7 @@ def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
 
     return res
 
+
 def magnitude_outliers(tensor: torch.Tensor, density: float, gamma: float = 0.01):
     """Masks out smallest values in addition to large outliers.
 
