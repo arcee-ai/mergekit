@@ -1,0 +1,81 @@
+{
+    "model_type": "distilbert",
+    "architectures": [
+        "DistilBertModel"
+    ],
+    "pre_weights": [
+        {
+            "name": "distilbert.embeddings.position_embeddings.weight"
+        },
+        {
+            "name": "distilbert.embeddings.word_embeddings.weight",
+            "is_embed": true
+        },
+        {
+            "name": "distilbert.embeddings.LayerNorm.bias",
+            "aliases": [
+                "distilbert.embeddings.LayerNorm.beta"
+            ]
+        },
+        {
+            "name": "distilbert.embeddings.LayerNorm.weight",
+            "aliases": [
+                "distilbert.embeddings.LayerNorm.gamma"
+            ]
+        }
+    ],
+    "post_weights": [],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.attention.k_lin.weight"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.attention.k_lin.bias"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.attention.q_lin.weight"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.attention.q_lin.bias"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.attention.v_lin.weight"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.attention.v_lin.bias"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.attention.out_lin.weight"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.attention.out_lin.bias"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.sa_layer_norm.bias"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.sa_layer_norm.weight"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.ffn.lin1.weight"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.ffn.lin1.bias"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.ffn.lin2.weight"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.ffn.lin2.bias"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.output_layer_norm.bias"
+            },
+            {
+                "name": "distilbert.transformer.layer.${layer_index}.output_layer_norm.weight"
+            }
+        ]
+    }
+}

@@ -59,7 +59,7 @@ class LinearMergeTask(Task[torch.Tensor]):
 
         res = (weights * tensors).sum(dim=0)
         if self.normalize:
-            res /= weights.sum(dim=0)
+            res = res / weights.sum(dim=0)
 
         return res
 

@@ -1,0 +1,118 @@
+{
+    "model_type": "bert",
+    "architectures": [
+        "BertForSequenceClassification",
+        "BertForMultipleChoice",
+        "BertForTokenClassification"
+    ],
+    "pre_weights": [
+        {
+            "name": "bert.embeddings.position_embeddings.weight"
+        },
+        {
+            "name": "bert.embeddings.token_type_embeddings.weight"
+        },
+        {
+            "name": "bert.embeddings.word_embeddings.weight",
+            "is_embed": true
+        },
+        {
+            "name": "bert.embeddings.LayerNorm.bias",
+            "aliases": [
+                "bert.embeddings.LayerNorm.beta"
+            ]
+        },
+        {
+            "name": "bert.embeddings.LayerNorm.weight",
+            "aliases": [
+                "bert.embeddings.LayerNorm.gamma"
+            ]
+        },
+        {
+            "name": "bert.embeddings.position_ids",
+            "optional": true,
+            "force_dtype": "int64"
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "bert.pooler.dense.weight",
+            "optional": true
+        },
+        {
+            "name": "bert.pooler.dense.bias",
+            "optional": true
+        },
+        {
+            "name": "classifier.bias"
+        },
+        {
+            "name": "classifier.weight"
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "bert.encoder.layer.${layer_index}.attention.self.query.weight"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.attention.self.query.bias"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.attention.self.key.weight"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.attention.self.key.bias"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.attention.self.value.weight"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.attention.self.value.bias"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.attention.output.dense.weight"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.attention.output.dense.bias"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.attention.output.LayerNorm.bias",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.attention.output.LayerNorm.beta"
+                ]
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.attention.output.LayerNorm.weight",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.attention.output.LayerNorm.gamma"
+                ]
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.intermediate.dense.weight"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.intermediate.dense.bias"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.output.dense.weight"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.output.dense.bias"
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.output.LayerNorm.bias",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.output.LayerNorm.beta"
+                ]
+            },
+            {
+                "name": "bert.encoder.layer.${layer_index}.output.LayerNorm.weight",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.output.LayerNorm.gamma"
+                ]
+            }
+        ]
+    }
+}

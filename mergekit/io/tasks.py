@@ -107,7 +107,7 @@ class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
             f"{str(model)}:{wi.name}": LoadTensor(
                 model=model,
                 tensor=wi.name,
-                dtype=self.dtype,
+                dtype=wi.force_dtype or self.dtype,
                 device=self.device,
                 optional=wi.optional,
                 aliases=wi.aliases,
@@ -152,6 +152,7 @@ class SaveTensor(Task[None]):
     writer_task: TensorWriterTask
     clone: bool
     optional: bool = False
+    dtype: Optional[str] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {"writer": self.writer_task, "tensor": self.tensor_task}
@@ -167,6 +168,8 @@ class SaveTensor(Task[None]):
             if not self.optional:
                 raise RuntimeError(f"No value for required tensor {self.tensor_name}")
             return
+        if self.dtype:
+            tensor = tensor.to(dtype=dtype_from_name(self.dtype))
         writer.save_tensor(name=self.tensor_name, tensor=tensor, clone=self.clone)
 
 
