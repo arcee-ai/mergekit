@@ -99,8 +99,12 @@ class ModelReference(BaseModel, frozen=True):
 
         if not os.path.exists(out_path):
             os.makedirs(out_path, exist_ok=True)
+
+            config = self.config(trust_remote_code)
+            auto_cls = _get_auto_cls(config.architectures[0])
+
             logging.info(f"Loading {self.model} for merge...")
-            model = transformers.AutoModelForCausalLM.from_pretrained(
+            model = auto_cls.from_pretrained(
                 self.model.path,
                 revision=self.model.revision,
                 torch_dtype=torch.float16,
@@ -193,6 +197,8 @@ def dtype_from_name(name: Optional[str]) -> Optional[torch.dtype]:
         return torch.float16
     elif name == "float32":
         return torch.float32
+    elif name == "int64":
+        return torch.int64
     raise RuntimeError(f'Unimplemented dtype "{name}"')
 
 
@@ -282,3 +288,20 @@ class ImmutableMap(Generic[T_K, T_V]):
 
     def values(self) -> Iterator[T_V]:
         return self.data.values()
+
+
+def _get_auto_cls(arch_name: str):
+    """Get the AutoModel class for a given architecture name."""
+    if arch_name.endswith("ForMaskedLM"):
+        auto_cls = transformers.AutoModelForMaskedLM
+    elif arch_name.endswith("ForSequenceClassification"):
+        auto_cls = transformers.AutoModelForSequenceClassification
+    elif arch_name.endswith("ForTokenClassification"):
+        auto_cls = transformers.AutoModelForTokenClassification
+    else:
+        if not arch_name.endswith("ForCausalLM") or arch_name.endswith("LMHeadModel"):
+            logging.warning(
+                f"Unknown model type {arch_name} - assuming AutoModelForCausalLM"
+            )
+        auto_cls = transformers.AutoModelForCausalLM
+    return auto_cls

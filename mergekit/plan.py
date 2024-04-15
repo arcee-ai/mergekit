@@ -196,6 +196,7 @@ class MergePlanner:
             writer_task=self._writer_task,
             clone=self.options.clone_tensors,
             optional=weight.optional,
+            dtype=weight.force_dtype,
         )
         self._tasks.append(save_task)
 

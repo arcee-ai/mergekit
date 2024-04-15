@@ -1,0 +1,104 @@
+{
+    "model_type": "roberta",
+    "architectures": [
+        "RobertaForMaskedLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "roberta.embeddings.position_embeddings.weight"
+        },
+        {
+            "name": "roberta.embeddings.word_embeddings.weight"
+        },
+        {
+            "name": "roberta.embeddings.token_type_embeddings.weight"
+        },
+        {
+            "name": "roberta.embeddings.LayerNorm.weight"
+        },
+        {
+            "name": "roberta.embeddings.LayerNorm.bias"
+        },
+        {
+            "name": "roberta.embeddings.position_ids",
+            "optional": true,
+            "force_dtype": "int64"
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "lm_head.bias"
+        },
+        {
+            "name": "lm_head.dense.weight"
+        },
+        {
+            "name": "lm_head.dense.bias"
+        },
+        {
+            "name": "lm_head.layer_norm.weight"
+        },
+        {
+            "name": "lm_head.layer_norm.bias"
+        },
+        {
+            "name": "lm_head.decoder.weight",
+            "aliases": [
+                "roberta.embeddings.word_embeddings.weight"
+            ]
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "roberta.encoder.layer.${layer_index}.attention.output.dense.weight"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.attention.output.dense.bias"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.attention.output.LayerNorm.weight"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.attention.output.LayerNorm.bias"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.attention.self.query.weight"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.attention.self.query.bias"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.attention.self.key.weight"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.attention.self.key.bias"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.attention.self.value.weight"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.attention.self.value.bias"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.intermediate.dense.weight"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.intermediate.dense.bias"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.output.dense.weight"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.output.dense.bias"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.output.LayerNorm.weight"
+            },
+            {
+                "name": "roberta.encoder.layer.${layer_index}.output.LayerNorm.bias"
+            }
+        ]
+    }
+}
