@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Union
 import lm_eval
 import lm_eval.api.model
 import lm_eval.models.huggingface
+import lm_eval.tasks
 import ray
 import ray.util.queue
 import ray.util.scheduling_strategies
@@ -37,14 +38,16 @@ def _eval_model(
     model: Union[str, lm_eval.api.model.LM],
     tasks: List[TaskConfiguration],
     model_args: Optional[Dict[str, Any]] = None,
+    task_manager: Optional[lm_eval.tasks.TaskManager] = None,
     **kwargs,
-) -> float:
+) -> Dict[str, Any]:
     results = lm_eval.evaluator.simple_evaluate(
         model=model,
         model_args=model_args,
         tasks=list(set([task.name for task in tasks])),
         log_samples=False,
         verbosity="WARNING",
+        task_manager=task_manager,
         **kwargs,
     )
 
@@ -52,7 +55,7 @@ def _eval_model(
     res = 0
     for task in tasks:
         res += results["results"][task.name][task.metric] * task.weight
-    return res
+    return {"score": res, "results": results["results"]}
 
 
 def evaluate_model(
@@ -62,6 +65,7 @@ def evaluate_model(
     limit: Optional[int],
     vllm: bool,
     batch_size: Optional[int] = None,
+    task_manager: Optional[lm_eval.tasks.TaskManager] = None,
 ) -> float:
     # monkeypatch_tqdm()
     try:
@@ -84,6 +88,7 @@ def evaluate_model(
             num_fewshot=num_fewshot,
             limit=limit,
             batch_size=batch_size,
+            task_manager=task_manager,
         )
         return res
     finally:

@@ -21,6 +21,7 @@ from typing import Optional, Union
 import lm_eval
 import lm_eval.api.model
 import lm_eval.models.huggingface
+import lm_eval.tasks
 import ray
 import ray.util.queue
 import ray.util.scheduling_strategies
@@ -50,6 +51,7 @@ class MergeActorBase:
         model_storage_path: Optional[str] = None,
         vllm: bool = False,
         batch_size: Optional[int] = None,
+        task_manager: Optional[lm_eval.tasks.TaskManager] = None,
     ):
         self.config = config
         self.genome = genome
@@ -59,6 +61,7 @@ class MergeActorBase:
         self.model_storage_path = model_storage_path
         self.vllm = vllm
         self.batch_size = batch_size
+        self.task_manager = task_manager
 
         if config.shuffle:
             monkeypatch_lmeval_shuffle()
@@ -95,6 +98,7 @@ class OnDiskMergeEvaluator(MergeActorBase):
             limit=self.config.limit,
             vllm=self.vllm,
             batch_size=self.batch_size,
+            task_manager=self.task_manager,
         )
 
 
@@ -208,7 +212,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
         self.arch_info = ConfiguredArchitectureInfo(info=ai, config=cfg_out)
         logging.info("Model initialized")
 
-    def evaluate(self, genotype: torch.Tensor) -> float:
+    def evaluate(self, genotype: torch.Tensor) -> dict:
         config = self.genome.genotype_merge_config(genotype)
         self._maybe_init_model(config)
 
@@ -269,6 +273,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
             self.config.tasks,
             num_fewshot=self.config.num_fewshot,
             limit=self.config.limit,
+            task_manager=self.task_manager,
         )
 
     def evaluate_genotype(

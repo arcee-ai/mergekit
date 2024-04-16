@@ -16,8 +16,9 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
+import lm_eval.tasks
 import numpy as np
 import ray
 import ray.util.queue
@@ -39,12 +40,14 @@ class EvaluationStrategyBase(ABC):
         merge_options: MergeOptions,
         num_gpus: Optional[int] = None,
         batch_size: Optional[int] = None,
+        task_search_path: Union[str, List[str], None] = None,
     ):
         self.config = config
         self.genome = genome
         self.merge_options = merge_options
         self.num_gpus = num_gpus or torch.cuda.device_count()
         self.batch_size = batch_size
+        self.task_manager = lm_eval.tasks.TaskManager(include_path=task_search_path)
 
     @abstractmethod
     def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
@@ -82,6 +85,7 @@ class ActorPoolEvaluationStrategy(EvaluationStrategyBase):
                     self.merge_options,
                     model_storage_path=model_storage_path,
                     vllm=vllm,
+                    task_manager=self.task_manager,
                 )
                 for _ in range(self.num_gpus)
             ]
@@ -110,6 +114,7 @@ class BufferedRayEvaluationStrategyActor:
         vllm: bool = False,
         num_gpus: Optional[int] = None,
         batch_size: Optional[int] = None,
+        task_manager: Optional[lm_eval.tasks.TaskManager] = None,
     ):
         self.config = config
         self.genome = genome
@@ -119,6 +124,7 @@ class BufferedRayEvaluationStrategyActor:
         self.num_gpus = num_gpus or torch.cuda.device_count()
         self.input_queue = []
         self.batch_size = batch_size
+        self.task_manager = task_manager
         self._shutdown = False
 
     async def evaluate_genotype(self, genotype: np.ndarray):
@@ -156,6 +162,7 @@ class BufferedRayEvaluationStrategyActor:
                             limit=self.config.limit,
                             vllm=self.vllm,
                             batch_size=self.batch_size,
+                            task_manager=self.task_manager,
                         )
                     ] = future_result
 
@@ -210,13 +217,14 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
             model_storage_path=model_storage_path,
             vllm=vllm,
             num_gpus=self.num_gpus,
+            task_manager=self.task_manager,
         )
         self.actor.process_queue.remote()
 
-    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
+    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[dict]:
         return ray.get([self.actor.evaluate_genotype.remote(x) for x in genotypes])
 
-    def evaluate_genotype(self, genotype: np.ndarray) -> float:
+    def evaluate_genotype(self, genotype: np.ndarray) -> dict:
         return ray.get(self.actor.evaluate_genotype.remote(genotype))
 
 
@@ -229,6 +237,7 @@ def evaluate_genotype_serial(
     model_storage_path: Optional[str] = None,
     vllm: bool = False,
     batch_size: Optional[int] = None,
+    task_manager: Optional[lm_eval.tasks.TaskManager] = None,
 ):
     pg = ray.util.placement_group([{"CPU": 1, "GPU": 1}], strategy="STRICT_PACK")
     strat = ray.util.scheduling_strategies.PlacementGroupSchedulingStrategy(
@@ -245,6 +254,7 @@ def evaluate_genotype_serial(
             limit=config.limit,
             vllm=vllm,
             batch_size=batch_size,
+            task_manager=task_manager,
         )
     )
     ray.util.remove_placement_group(pg)
@@ -277,6 +287,7 @@ class SerialEvaluationStrategy(EvaluationStrategyBase):
                     model_storage_path=self.model_storage_path,
                     vllm=self.vllm,
                     batch_size=self.batch_size,
+                    task_manager=self.task_manager,
                 )
                 for x in genotypes
             ]

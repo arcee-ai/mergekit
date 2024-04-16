@@ -81,6 +81,12 @@ from mergekit.options import MergeOptions
 @click.option("--wandb-project", type=str, help="Wandb project name")
 @click.option("--wandb-entity", type=str, help="Wandb entity name")
 @click.option(
+    "--task-search-path",
+    type=str,
+    multiple=True,
+    help="Path to search for lmeval tasks",
+)
+@click.option(
     "--i-understand-the-depths-of-the-evils-i-am-unleashing",
     "allow_benchmark_tasks",
     is_flag=True,
@@ -104,6 +110,7 @@ def main(
     use_wandb: bool,
     wandb_project: Optional[str],
     wandb_entity: Optional[str],
+    task_search_path: List[str],
     allow_benchmark_tasks: bool,
 ):
     config = EvolMergeConfiguration.model_validate(
@@ -189,6 +196,7 @@ def main(
         in_memory=in_memory,
         model_storage_path=os.path.join(storage_path, "merged"),
         batch_size=batch_size,
+        task_search_path=task_search_path,
     )
 
     x0 = genome.initial_genotype(random=config.random_init).view(-1).numpy()
@@ -233,17 +241,42 @@ def main(
         res = strat.evaluate_genotypes(x)
 
         if wandb:
-            score_mean = np.mean(res)
-            score_std = np.std(res)
+            res = list(res)
+            score_mean = np.mean([r["score"] for r in res])
+            score_std = np.std([r["score"] for r in res])
             run.log(
                 {
-                    "population_score_mean": score_mean,
-                    "population_score_std": score_std,
+                    "population/score_mean": score_mean,
+                    "population/score_std": score_std,
                 },
                 commit=False,
             )
+            for task in res[0]["results"]:
+                for metric in res[0]["results"][task]:
+                    values = [r["results"][task][metric] for r in res]
+                    values = [v for v in values if v is not None]
+                    if not values or all(isinstance(v, str) for v in values):
+                        continue
 
-        return [-x for x in res]  # maximize
+                    mean = np.mean(values)
+                    max_val = max(values)
+                    min_val = min(values)
+
+                    metric_pretty = metric.replace(",none", "")
+                    if metric_pretty.endswith("_stderr"):
+                        # don't log stats for stderr that's just silly
+                        continue
+
+                    run.log(
+                        {
+                            f"population/{task}_{metric_pretty}_mean": mean,
+                            f"population/{task}_{metric_pretty}_max": max_val,
+                            f"population/{task}_{metric_pretty}_min": min_val,
+                        },
+                        commit=False,
+                    )
+
+        return [-x["score"] for x in res]  # maximize
 
     try:
         xbest, es = cma.fmin2(

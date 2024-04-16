@@ -66,6 +66,12 @@ def check_for_naughty_config(config: EvolMergeConfiguration, allow: bool = False
     of common benchmarks, which just makes the world a worse place. There are
     cases where this is useful but it deserves a giant honking warning.
     """
+    suffix = ""
+    if not allow:
+        suffix = (
+            " To proceed, set the "
+            "--i-understand-the-depths-of-the-evils-i-am-unleashing flag."
+        )
     for task in config.tasks:
         for prefix in NAUGHTY_PREFIXES:
             if task.name.startswith(prefix):
@@ -81,8 +87,7 @@ def check_for_naughty_config(config: EvolMergeConfiguration, allow: bool = False
                     "Optimizing against this task directly is unsporting at best "
                     "and outright malicious at worst. Using mergekit-evolve to "
                     "game benchmarks will be a black mark on your name for a "
-                    "thousand generations. To proceed, set the "
-                    "--i-understand-the-depths-of-the-evils-i-am-unleashing flag."
+                    f"thousand generations.{suffix}"
                 )
                 if not allow:
                     raise ValueError(message)
