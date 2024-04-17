@@ -2,6 +2,7 @@ import itertools
 import logging
 import os
 import sys
+from collections import defaultdict
 from typing import List, Optional
 
 import click
@@ -29,6 +30,10 @@ logging.basicConfig(level=logging.INFO)
 # set seed
 torch.manual_seed(42)
 np.random.seed(42)
+
+
+def clean_name(name):
+    return name.replace(".weight", "").replace("model.", "")
 
 
 def parse_items(ctx, param, value):
@@ -107,38 +112,51 @@ def main(
 
     _json = model_arch_info.definition
 
-    # TODO: revisit this heuristic
     residual_space = None
-    for layer_template in _json.layer_templates.weights:
-        if "layer_index" not in layer_template:
-            residual_space = layer_template
-            break
+    shared_kq_space = None
 
+    weights = []
+    for weight in _json.layer_templates.weights:
+        if weight.is_kq:
+            residual_space = weight.input_space
+            shared_kq_space = weight.output_space
+            continue
+        weights.append(weight)
+
+    # TODO: revisit this
     if residual_space is None:
-        raise ValueError("No residual space found in the architecture definition")
+        raise ValueError("No residual space found")
 
-    ignore_spaces = ignore_spaces + [residual_space]
+    # just a list of connected components
+    input_space_to_weights = defaultdict(list)
+    output_space_to_weights = defaultdict(list)
 
-    input_space_to_weight = {}
-    for layer_template in _json.layer_templates.weights:
-        if layer_template.input_space in ignore_spaces:
+    for layer_template in weights:
+        if (
+            not layer_template.input_space
+            or layer_template.input_space in ignore_spaces
+        ):
             continue
-        if layer_template.input_space not in input_space_to_weight:
-            input_space_to_weight[layer_template.input_space] = []
-        input_space_to_weight[layer_template.input_space].append(layer_template.name)
+        input_space_to_weights[layer_template.input_space].append(layer_template.name)
 
-    output_space_to_weight = {}
-    for layer_template in _json.layer_templates.weights:
-        if layer_template.output_space in ignore_spaces:
+    for layer_template in weights:
+        if (
+            not layer_template.output_space
+            or layer_template.output_space in ignore_spaces
+        ):
             continue
-        if layer_template.output_space not in output_space_to_weight:
-            output_space_to_weight[layer_template.output_space] = []
-        output_space_to_weight[layer_template.output_space].append(layer_template.name)
+        output_space_to_weights[layer_template.output_space].append(layer_template.name)
 
-    # raison d'etre: we want to avoid duplication of effort (in terms of hook)
+    # remove the residual space from the input and output
+    input_space_to_weights.pop(residual_space, None)
+    output_space_to_weights.pop(residual_space, None)
 
-    input_counts = {k: len(v) for k, v in input_space_to_weight.items()}
-    output_count = {k: len(v) for k, v in output_space_to_weight.items()}
+    # NOTE: if the the input space and output space are the same
+    # and they go in from one weight and into another weight
+    # we can remove the space from the output
+    # as the hook need only be applied to capture input from the input weight
+    input_counts = {k: len(v) for k, v in input_space_to_weights.items()}
+    output_count = {k: len(v) for k, v in output_space_to_weights.items()}
     to_remove = []
 
     for k, v in input_counts.items():
@@ -147,32 +165,31 @@ def main(
                 to_remove.append(k)
 
     # remove keys from output
-    output_space_to_weight = {
-        k: v for k, v in output_space_to_weight.items() if k not in to_remove
+    output_space_to_weights = {
+        k: v for k, v in output_space_to_weights.items() if k not in to_remove
     }
+    # -----------------------------------------------------------------
 
     num_layers = model_arch_info.num_layers(model_config)
 
     # TODO expand the space_names (i.e fill in the index names)
 
     i = {}
-    for k, v in input_space_to_weight.items():
+    for k, v in input_space_to_weights.items():
+        print(k)
         for j in range(num_layers):
-            f = lambda x: _template_substitution(
-                x, num_layers=num_layers, layer_index=j
-            )
+            f = lambda x: _template_substitution(x, num_layers=num_layers, layer_idx=j)
             i[f(k)] = [f(_v) for _v in v]
 
     o = {}
-    for k, v in output_space_to_weight.items():
+    for k, v in output_space_to_weights.items():
+        print(k)
         for j in range(num_layers):
-            f = lambda x: _template_substitution(
-                x, num_layers=num_layers, layer_index=j
-            )
+            f = lambda x: _template_substitution(x, num_layers=num_layers, layer_idx=j)
             o[f(k)] = [f(_v) for _v in v]
 
-    input_space_to_weight = i
-    output_space_to_weight = o
+    input_space_to_weights = i
+    output_space_to_weights = o
 
     model = AutoModel.from_pretrained(
         model_path, output_attentions=True, attn_implementation="eager"
@@ -206,20 +223,25 @@ def main(
         def hook(module, input, output):
             # output is a tuple, where the first element is the attention output
             if capture_input:
-                storage_dict[space_name] = input.detach()
+                o = input[0].detach()
             else:
-                storage_dict[space_name] = output[0].detach()
+                o = output[0].detach()
+
+            storage_dict[space_name] = o
 
         return hook
 
-    for k, v in input_space_to_weight.items():
+    for k, v in input_space_to_weights.items():
         for i in v:
-            model.get_layer(i).register_forward_hook(
+            i = clean_name(i)
+            model.get_submodule(i).register_forward_hook(
                 get_attention_output_hook(feature_storage, k, capture_input=True)
             )
-    for k, v in output_space_to_weight.items():
+    for k, v in output_space_to_weights.items():
         for i in v:
-            model.get_layer(i).register_forward_hook(
+            i = clean_name(i)
+            print(i)
+            model.get_submodule(i).register_forward_hook(
                 get_attention_output_hook(feature_storage, k, capture_input=False)
             )
 
@@ -234,6 +256,8 @@ def main(
             )
             inputs = {k: v.to(device) for k, v in inputs.items()}
             outputs = model(**inputs, output_hidden_states=True, output_attentions=True)
+
+            # NOTE: https://huggingface.co/docs/transformers/en/main_classes/output#transformers.modeling_outputs.BaseModelOutput
 
             # Store attention masks
             attention_mask = inputs["attention_mask"]
@@ -258,6 +282,16 @@ def main(
             else:
                 feature_storage[residual_space] = torch.cat(
                     (feature_storage[residual_space], hidden_states), dim=0
+                )
+
+            attention_patterns = torch.stack(outputs.attentions, dim=1)
+
+            # stack them
+            if feature_storage[shared_kq_space] is None:
+                feature_storage[shared_kq_space] = attention_patterns
+            else:
+                feature_storage[shared_kq_space] = torch.cat(
+                    (feature_storage[shared_kq_space], attention_patterns), dim=0
                 )
 
             for space_name, v in storage_dict.items():
@@ -289,3 +323,14 @@ if __name__ == "__main__":
 
 #  python dump_out_features.py TinyLlama/TinyLlama-1.1B-Chat-v1.0 -o ./dump_output  -d arcee-ai/pmc-test-perplexity  -s 2  -c text  -u test  --device cpu
 #  python dump_out_features.py TinyLlama/TinyLlama-1.1B-Chat-v0.6 -o ./dump_output  -d arcee-ai/pmc-test-perplexity  -s 2  -c text  -u test  --device cpu
+#
+#  examine the output
+#  python
+# import torch
+# import safetensors
+# from safetensors.torch import load_file
+# features = load_file("./dump_output/TinyLlama_TinyLlama-1.1B-Chat-v1.0_features.bin")
+# features.keys()
+# features['running_residual'].shape
+# features['attention_mask'].shape
+# features['up_0'].shape
