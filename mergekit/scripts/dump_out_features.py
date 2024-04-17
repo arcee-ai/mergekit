@@ -211,8 +211,7 @@ def main(
 
     datasets_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
-    feature_storage = {"running_residual": None, "attention_mask": None}
-
+    feature_storage = {}
     storage_dict = {}
 
     def get_attention_output_hook(storage_dict, space_name, capture_input=True):
@@ -261,7 +260,7 @@ def main(
 
             # Store attention masks
             attention_mask = inputs["attention_mask"]
-            if feature_storage["attention_mask"] is None:
+            if "attention_mask" not in feature_storage:
                 print(attention_mask.shape)
                 feature_storage["attention_mask"] = attention_mask.cpu().detach()
             else:
@@ -277,20 +276,20 @@ def main(
             hidden_states = torch.stack(outputs.hidden_states, dim=1)
 
             # stack them
-            if feature_storage[residual_space] is None:
+            if residual_space not in feature_storage:
                 feature_storage[residual_space] = hidden_states
             else:
                 feature_storage[residual_space] = torch.cat(
                     (feature_storage[residual_space], hidden_states), dim=0
                 )
 
-            attention_patterns = torch.stack(outputs.attentions, dim=1)
+            attention_patterns = outputs.attentions
 
             for i in range(num_layers):
                 kq_space = _template_substitution(
                     shared_kq_space, num_layers=num_layers, layer_idx=i
                 )
-                if feature_storage[kq_space] is None:
+                if kq_space not in feature_storage:
                     feature_storage[kq_space] = attention_patterns[i]
                 else:
                     feature_storage[kq_space] = torch.cat(
@@ -298,7 +297,7 @@ def main(
                     )
 
             for space_name, v in storage_dict.items():
-                if feature_storage[space_name] is None:
+                if space_name not in feature_storage:
                     feature_storage[space_name] = v
                 else:
                     feature_storage[space_name] = torch.cat(
