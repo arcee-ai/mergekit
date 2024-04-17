@@ -286,13 +286,16 @@ def main(
 
             attention_patterns = torch.stack(outputs.attentions, dim=1)
 
-            # stack them
-            if feature_storage[shared_kq_space] is None:
-                feature_storage[shared_kq_space] = attention_patterns
-            else:
-                feature_storage[shared_kq_space] = torch.cat(
-                    (feature_storage[shared_kq_space], attention_patterns), dim=0
+            for i in range(num_layers):
+                kq_space = _template_substitution(
+                    shared_kq_space, num_layers=num_layers, layer_idx=i
                 )
+                if feature_storage[kq_space] is None:
+                    feature_storage[kq_space] = attention_patterns[i]
+                else:
+                    feature_storage[kq_space] = torch.cat(
+                        (feature_storage[kq_space], attention_patterns[i]), dim=0
+                    )
 
             for space_name, v in storage_dict.items():
                 if feature_storage[space_name] is None:
