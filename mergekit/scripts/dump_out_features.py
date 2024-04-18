@@ -49,9 +49,9 @@ def repeat_kv(hidden_states: torch.Tensor, init_split: int, n_rep: int) -> torch
         return hidden_states
 
     slen, head_dim = hidden_states.shape
-    hidden_states = hidden_states.view(init_split, slen, head_dim)
-
-    return torch.repeat_interleave(hidden_states, n_rep, dim=0)
+    hidden_states = hidden_states.view(init_split, slen, head_dim // init_split)
+    hidden_states = torch.repeat_interleave(hidden_states, n_rep, dim=0)
+    return hidden_states.view(slen, -1)
 
 
 """
@@ -237,30 +237,26 @@ def main(
                 o = output[0].detach()
 
             if space_name not in storage_dict:
-                storage_dict[space_name] = o
+                storage_dict[space_name] = [o]
             else:
                 # check last dimension, if different, expand
-                if storage_dict[space_name].shape[-1] != o.shape[-1]:
-                    dim_1 = storage_dict[space_name].shape[-1]
+                if storage_dict[space_name][-1].shape[-1] != o.shape[-1]:
+                    dim_1 = storage_dict[space_name][-1].shape[-1]
                     dim_2 = o.shape[-1]
                     if dim_1 > dim_2:
                         repeat = dim_1 // dim_2
-                        o = repeat_kv(o, repeat)
-                        storage_dict[space_name] = torch.cat(
-                            storage_dict[space_name], o, dim=-1
-                        )
+                        o = repeat_kv(o, model_config.num_key_value_heads, repeat)
+                        storage_dict[space_name].append(o)
                     else:
                         repeat = dim_2 // dim_1
-                        storage_dict[space_name] = repeat_kv(
-                            storage_dict[space_name], repeat
+                        popped = storage_dict[space_name].pop()
+                        popped = repeat_kv(
+                            popped, model_config.num_key_value_heads, repeat
                         )
-                        storage_dict[space_name] = torch.cat(
-                            storage_dict[space_name], o, dim=-1
-                        )
+                        storage_dict[space_name].append(popped)
+                        storage_dict[space_name].append(o)
                 else:
-                    storage_dict[space_name] = torch.cat(
-                        storage_dict[space_name], o, dim=-1
-                    )
+                    storage_dict[space_name].append(o)
 
         return hook
 
