@@ -48,10 +48,10 @@ def repeat_kv(hidden_states: torch.Tensor, init_split: int, n_rep: int) -> torch
     if n_rep == 1:
         return hidden_states
 
-    slen, head_dim = hidden_states.shape
-    hidden_states = hidden_states.view(init_split, slen, head_dim // init_split)
-    hidden_states = torch.repeat_interleave(hidden_states, n_rep, dim=0)
-    return hidden_states.view(slen, -1)
+    bsz, slen, head_dim = hidden_states.shape
+    hidden_states = hidden_states.view(bsz, init_split, slen, head_dim // init_split)
+    hidden_states = torch.repeat_interleave(hidden_states, n_rep, dim=1)
+    return hidden_states.view(bsz, slen, -1)
 
 
 """
@@ -231,32 +231,42 @@ def main(
 
         def hook(module, input, output):
             # output is a tuple, where the first element is the attention output
+            print(
+                f"length of input is {len(input)}, {type(input)} and length of output is {len(output)}"
+            )
+            print(
+                f"Shape of 1st elem input is {input[0].shape} and shape of 1st elem output is {output[0].shape}, {output.shape}"
+            )
+
+            # NOTE: shape of input is [batch, seq_len, dim] and output is Tuple[(seq_len, dim),...]
             if capture_input:
                 o = input[0].detach()
             else:
-                o = output[0].detach()
+                o = output.detach()
 
             if space_name not in storage_dict:
-                storage_dict[space_name] = [o]
+                storage_dict[space_name] = o
             else:
                 # check last dimension, if different, expand
-                if storage_dict[space_name][-1].shape[-1] != o.shape[-1]:
-                    dim_1 = storage_dict[space_name][-1].shape[-1]
+                if storage_dict[space_name].shape[-1] != o.shape[-1]:
+                    dim_1 = storage_dict[space_name].shape[-1]
                     dim_2 = o.shape[-1]
                     if dim_1 > dim_2:
                         repeat = dim_1 // dim_2
                         o = repeat_kv(o, model_config.num_key_value_heads, repeat)
-                        storage_dict[space_name].append(o)
+                        storage_dict[space_name] = torch.cat(
+                            (storage_dict[space_name], o), dim=0
+                        )  # maybe a direct cat
                     else:
                         repeat = dim_2 // dim_1
-                        popped = storage_dict[space_name].pop()
                         popped = repeat_kv(
                             popped, model_config.num_key_value_heads, repeat
                         )
-                        storage_dict[space_name].append(popped)
-                        storage_dict[space_name].append(o)
+                        storage_dict[space_name] = torch.cat((popped, o), dim=0)
                 else:
-                    storage_dict[space_name].append(o)
+                    storage_dict[space_name] = torch.cat(
+                        (storage_dict[space_name], o), dim=0
+                    )
 
         return hook
 
