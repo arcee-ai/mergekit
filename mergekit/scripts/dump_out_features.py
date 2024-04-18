@@ -41,19 +41,17 @@ def parse_items(ctx, param, value):
         return [item.strip() for item in value.split(",")]
 
 
-# TODO: check if
-def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
-    """
-    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
-    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim)
-    """
-    batch, num_key_value_heads, slen, head_dim = hidden_states.shape
+# NOTE: intends to replicate sizing up the key tensor in gqa to match the query tensor
+# TODO: is this really generalizable?
+# TODO: unit test this
+def repeat_kv(hidden_states: torch.Tensor, init_split: int, n_rep: int) -> torch.Tensor:
     if n_rep == 1:
         return hidden_states
-    hidden_states = hidden_states[:, :, None, :, :].expand(
-        batch, num_key_value_heads, n_rep, slen, head_dim
-    )
-    return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
+    slen, head_dim = hidden_states.shape
+    hidden_states = hidden_states.view(init_split, slen, head_dim)
+
+    return torch.repeat_interleave(hidden_states, n_rep, dim=0)
 
 
 """
