@@ -41,6 +41,21 @@ def parse_items(ctx, param, value):
         return [item.strip() for item in value.split(",")]
 
 
+# TODO: check if
+def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
+    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim)
+    """
+    batch, num_key_value_heads, slen, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, None, :, :].expand(
+        batch, num_key_value_heads, n_rep, slen, head_dim
+    )
+    return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
+
 """
 
 What this script does:
@@ -113,14 +128,11 @@ def main(
     _json = model_arch_info.definition
 
     residual_space = None
-    shared_kq_space = None
 
     weights = []
     for weight in _json.layer_templates.weights:
         if weight.is_kq:
             residual_space = weight.input_space
-            shared_kq_space = weight.output_space
-            continue
         weights.append(weight)
 
     # TODO: revisit this
@@ -226,7 +238,31 @@ def main(
             else:
                 o = output[0].detach()
 
-            storage_dict[space_name] = o
+            if space_name not in storage_dict:
+                storage_dict[space_name] = o
+            else:
+                # check last dimension, if different, expand
+                if storage_dict[space_name].shape[-1] != o.shape[-1]:
+                    dim_1 = storage_dict[space_name].shape[-1]
+                    dim_2 = o.shape[-1]
+                    if dim_1 > dim_2:
+                        repeat = dim_1 // dim_2
+                        o = repeat_kv(o, repeat)
+                        storage_dict[space_name] = torch.cat(
+                            storage_dict[space_name], o, dim=-1
+                        )
+                    else:
+                        repeat = dim_2 // dim_1
+                        storage_dict[space_name] = repeat_kv(
+                            storage_dict[space_name], repeat
+                        )
+                        storage_dict[space_name] = torch.cat(
+                            storage_dict[space_name], o, dim=-1
+                        )
+                else:
+                    storage_dict[space_name] = torch.cat(
+                        storage_dict[space_name], o, dim=-1
+                    )
 
         return hook
 
@@ -254,7 +290,9 @@ def main(
                 truncation=True,
             )
             inputs = {k: v.to(device) for k, v in inputs.items()}
-            outputs = model(**inputs, output_hidden_states=True, output_attentions=True)
+            outputs = model(
+                **inputs, output_hidden_states=True, output_attentions=False
+            )
 
             # NOTE: https://huggingface.co/docs/transformers/en/main_classes/output#transformers.modeling_outputs.BaseModelOutput
 
@@ -283,18 +321,20 @@ def main(
                     (feature_storage[residual_space], hidden_states), dim=0
                 )
 
-            attention_patterns = outputs.attentions
+            # NOTE:  consider putting this back for completeness' sake
 
-            for i in range(num_layers):
-                kq_space = _template_substitution(
-                    shared_kq_space, num_layers=num_layers, layer_idx=i
-                )
-                if kq_space not in feature_storage:
-                    feature_storage[kq_space] = attention_patterns[i]
-                else:
-                    feature_storage[kq_space] = torch.cat(
-                        (feature_storage[kq_space], attention_patterns[i]), dim=0
-                    )
+            # attention_patterns = outputs.attentions
+
+            # for i in range(num_layers):
+            #    kq_space = _template_substitution(
+            #        shared_kq_space, num_layers=num_layers, layer_idx=i
+            #    )
+            #    if kq_space not in feature_storage:
+            #        feature_storage[kq_space] = attention_patterns[i]
+            #    else:
+            #        feature_storage[kq_space] = torch.cat(
+            #            (feature_storage[kq_space], attention_patterns[i]), dim=0
+            #        )
 
             for space_name, v in storage_dict.items():
                 if space_name not in feature_storage:
