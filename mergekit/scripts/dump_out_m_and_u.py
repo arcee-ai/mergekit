@@ -1,5 +1,7 @@
 import os
 import pdb
+import sys
+from collections import defaultdict
 from typing import List, Optional
 
 import click
@@ -8,7 +10,21 @@ import safetensors.torch
 import scipy
 import torch
 
+from mergekit.architecture import (
+    ProceduralSpaceInfo,
+    WeightInfo,
+    _template_substitution,
+    get_architecture_info,
+)
+from mergekit.common import ModelReference, dtype_from_name
 from mergekit.scripts.zipit_utils import CovarianceMetric, remove_pads
+
+"""
+All this needs to is calculate the merge/unmerge tensors for the given space
+
+but the attention module needs to be handled differently
+
+"""
 
 
 def match_tensors_permute(
@@ -72,9 +88,173 @@ def match_tensors_permute(
     return merge.T, unmerge, None, cost / merge.shape[0]
 
 
+# TODO: rewrite
+def match_tensors_permute_MHA(
+    n_heads,
+    permute_heads=False,
+    head_assignments=[],
+    r=0.5,
+    get_merge_value=False,
+    print_costs=False,
+    no_absval=False,
+    correlation_matrix=None,
+):
+    """
+    Handles different head permutations in attention
+    """
+    correlation = correlation_matrix
+
+    O = correlation.shape[0]
+
+    N = int(1 / (1 - r) + 0.5)  # num models
+    Om = O // N  # matrix dimension
+    device = correlation.device
+    query_size = Om // n_heads
+
+    mats = [torch.eye(Om, device=device)]
+    head_perms = []
+
+    # compute head perms in order
+    if permute_heads == False:
+        cost = 0
+        for i in range(1, N):  # just once if 2 models]
+            for j in range(n_heads):
+                try:
+                    # by head
+                    corr_submatrix = (
+                        correlation[
+                            query_size * j : query_size * (j + 1),
+                            Om * i + query_size * j : Om * i + query_size * (j + 1),
+                        ]
+                        .cpu()
+                        .numpy()
+                    )
+                    if no_absval == False:
+                        corr_submatrix = np.absolute(corr_submatrix)
+                    row_ind, col_ind = scipy.optimize.linear_sum_assignment(
+                        corr_submatrix, maximize=True
+                    )
+
+                    head_perms.append(torch.tensor(col_ind + j * query_size))
+                    cost += corr_submatrix[row_ind, col_ind].sum()
+
+                    # for whole model correlation subset is is [0:4096, 4096:8192]
+                    # correlation between the first graph's and second graph's features
+                except:
+                    pdb.set_trace()
+        outer_col_ind = np.arange(n_heads)
+    # compute head perms out of order according to predefined ordering or find our own
+    elif permute_heads == True:
+        cost = 0
+        col_inds_storage = defaultdict(lambda: defaultdict(int))
+        if head_assignments != []:
+            outer_row_ind = np.arange(n_heads)
+            outer_col_ind = head_assignments
+            for i in range(n_heads):
+                head1_idx = [
+                    query_size * outer_row_ind[i],
+                    query_size * (outer_row_ind[i] + 1),
+                ]
+                head2_idx = [
+                    Om + query_size * outer_col_ind[i],
+                    Om + query_size * (outer_col_ind[i] + 1),
+                ]
+                # take abs value of submatrix of correlations
+                corr_submatrix = (
+                    correlation[
+                        head1_idx[0] : head1_idx[1], head2_idx[0] : head2_idx[1]
+                    ]
+                    .cpu()
+                    .numpy()
+                )
+                if no_absval == False:
+                    corr_submatrix = np.absolute(corr_submatrix)
+                # compute perm for head j & head k
+                row_ind, col_ind = scipy.optimize.linear_sum_assignment(
+                    corr_submatrix, maximize=True
+                )
+
+                cost += corr_submatrix[row_ind, col_ind].sum()
+                col_inds_storage[outer_row_ind[i]][outer_col_ind[i]] = col_ind
+
+        else:
+            costs = (
+                np.ones((n_heads, n_heads)) * -sys.maxsize
+            )  # cost matrix for hungarian algo steps
+            for i in range(1, N):  # just once if 2 models
+                for j in range(n_heads):  # outer loop through all heads
+                    for k in range(
+                        n_heads
+                    ):  # inner loop through heads >= current head j
+                        head1_idx = [query_size * j, query_size * (j + 1)]
+                        head2_idx = [
+                            Om * i + query_size * k,
+                            Om * i + query_size * (k + 1),
+                        ]
+
+                        # take abs value of submatrix of correlations
+                        corr_submatrix = (
+                            correlation[
+                                head1_idx[0] : head1_idx[1], head2_idx[0] : head2_idx[1]
+                            ]
+                            .cpu()
+                            .numpy()
+                        )
+                        if no_absval == False:
+                            corr_submatrix = np.absolute(corr_submatrix)
+
+                        # compute perm for head j & head k
+                        row_ind, col_ind = scipy.optimize.linear_sum_assignment(
+                            corr_submatrix, maximize=True
+                        )
+
+                        # store cost (cost is maximized here)
+                        costs[j, k] = corr_submatrix[row_ind, col_ind].sum()
+                        # costs[k,j] = costs[j,k] # make symmetric
+
+                        # store perm so we don't have to recompute it later
+                        col_inds_storage[j][k] = col_ind
+
+            outer_row_ind, outer_col_ind = scipy.optimize.linear_sum_assignment(
+                costs, maximize=True
+            )  # get assignment with lowest cost
+            cost += costs[outer_row_ind, outer_col_ind].sum()
+
+        for j in range(n_heads):
+            head_1 = outer_row_ind[j]  # these are in order, outer_row_ind[j] = j
+            head_2 = outer_col_ind[j]
+
+            head_perm = col_inds_storage[head_1][head_2]
+            head_perms.append(torch.tensor(head_perm + query_size * head_2))
+
+    new_mat = torch.eye(Om, device=device)[
+        torch.tensor(torch.cat(head_perms)).long().to(device)
+    ]
+    mats.append(new_mat.T)
+
+    unmerge_mats = mats
+
+    unmerge = torch.cat(unmerge_mats, dim=0)
+    merge = torch.cat(mats, dim=0)
+    merge = merge / (merge.sum(dim=0, keepdim=True) + 1e-5)
+    if print_costs:
+        cost = cost / merge.shape[0]
+        print(f"cost: {cost}")
+    if get_merge_value:
+        merge_value = (
+            correlation[:Om, Om * i : Om * (i + 1)]
+            .cpu()
+            .numpy()[row_ind, col_ind]
+            .mean()
+        )
+        return merge.T, unmerge, merge_value
+    return merge.T, unmerge, outer_col_ind, cost / merge.shape[0]
+
+
 @click.command()
 @click.argument("model1-ft", type=str, required=True)
 @click.argument("model2-ft", type=str, required=True)
+@click.argument("--model_path", type=str, required=True, help="Model information")
 @click.option(
     "--out_path", required=True, type=str, help="Output path for metric tensors"
 )
@@ -92,7 +272,39 @@ def match_tensors_permute(
     default="cpu",
     help="Device to compute on (default: cpu)",
 )
-def main(model1_ft, model2_ft, out_path, metric, device):
+def main(model1_ft, model2_ft, model_path, out_path, metric, device):
+    model = ModelReference.model_validate(model_path)
+
+    model_config = model.config()
+    model_arch_info = get_architecture_info(model_config)
+
+    # things to do: find the residual space
+    # rest difference the ignore_spaces
+    # residual space is the one to for hidden states
+    # the rest we will attach hooks based on the module name
+
+    _json = model_arch_info.definition
+
+    residual_space = None  # probably don't need this
+    kv_space = None  # We do need this
+    v_space = None
+
+    # extract the residual, attention related spaces
+    for weight in _json.layer_templates.weights:
+        if weight.get("is_kv", False):
+            kv_space = weight["output_space"]
+            residual_space = weight["input_space"]
+            continue
+
+        # assuming order is observed
+        if (
+            not weight.get("is_kv", False)
+            and weight.get("head_split", False)
+            and (weight.input_space != residual_space)
+        ):
+            v_space = weight.output_space
+            continue
+
     metric_classes = {"covariance": CovarianceMetric()}
     if metric not in metric_classes:
         raise ValueError(f"Unsupported metric: {metric}")
@@ -106,7 +318,7 @@ def main(model1_ft, model2_ft, out_path, metric, device):
     merges = {}
     unmerges = {}
 
-    for layer_name in model1_features.keys():
+    for feature_space in model1_features.keys():
         # model1_feature = model1_features[layer_name].float().to(device)
         # model2_feature = model2_features[layer_name].float().to(device)
 
@@ -116,10 +328,10 @@ def main(model1_ft, model2_ft, out_path, metric, device):
         # print(model2_filtered_feature.shape)
         # exit()
 
-        print(f"Layer: {layer_name}")
+        print(f"Feature: {feature_space}")
 
         concatenated_feature = torch.cat(
-            (model1_features[layer_name], model2_features[layer_name]), dim=-1
+            (model1_features[feature_space], model2_features[feature_space]), dim=-1
         )
 
         print(f" -> {concatenated_feature.shape}")
@@ -130,23 +342,30 @@ def main(model1_ft, model2_ft, out_path, metric, device):
         # else:
         #    print(layer_name)
 
-        concatenated_layer = concatenated_feature
         # TODO: one wonder about flattening the first two dims :thinking-face:
 
-        print(f" -> {concatenated_layer.shape}")
+        print(f" -> {concatenated_feature.shape}")
 
         metric_instance = metric_classes[metric]
 
-        final_metric = metric_instance.calculate(concatenated_layer)
+        final_metric = metric_instance.calculate(concatenated_feature)
         print(f" final_metric -> {final_metric.shape}")
-        merge, unmerge, _, _ = match_tensors_permute(correlation_matrix=final_metric)
+
+        if feature_space in [kv_space, v_space]:
+            f = match_tensors_permute_MHA
+        else:
+            f = match_tensors_permute
+        merge, unmerge, _, _ = f(correlation_matrix=final_metric)
         # print merge, unmerge shape
         print(f" merge -> {merge.shape}")
         print(f" unmerge -> {unmerge.shape}")
-        merges[layer_name] = merge
-        unmerges[layer_name] = unmerge
+        merges[feature_space] = merge
+        unmerges[feature_space] = unmerge
 
     os.makedirs(out_path, exist_ok=True)
+
+    # NOTE: making sure the attention space merge/unmerge is shared
+    merges[v_space], unmerges[v_space] = merges[kv_space], unmerges[kv_space]
 
     # Saving the metrics results as SafeTensors
     for identifier, tensor in merges.items():
@@ -164,4 +383,4 @@ def main(model1_ft, model2_ft, out_path, metric, device):
 if __name__ == "__main__":
     main()
 
-# python scripts/dump_m_and_u.py ./dump_output/TinyLlama_TinyLlama-1.1B-Chat-v0.6_features.bin ./dump_output/TinyLlama_TinyLlama-1.1B-Chat-v1.0_features.bin --out_path ./m_v_out
+# python scripts/dump_m_and_u.py ./dump_output/TinyLlama_TinyLlama-1.1B-Chat-v0.6_features.bin ./dump_output/TinyLlama_TinyLlama-1.1B-Chat-v1.0_features.bin --model_path TinyLlama/TinyLlama-1.1B-Chat-v0.6 --out_path ./m_v_out
