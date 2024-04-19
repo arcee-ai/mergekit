@@ -215,7 +215,6 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
             self.config,
             self.genome,
             self.merge_options,
-            model_storage_path=self.model_storage_path,
             vllm=vllm,
             num_gpus=self.num_gpus,
             task_manager=self.task_manager,
