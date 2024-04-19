@@ -384,9 +384,18 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device):
 
     os.makedirs(out_path, exist_ok=True)
 
+    qkv_spaces = []
+    # TODO: figure out a better way to do this
+    qkv_space = "attn_qkv_${layer_index}"
+    for j in range(num_layers):
+        qkv_spaces.append(
+            _template_substitution(qkv_space, num_layers=num_layers, layer_idx=j)
+        )
+
     # NOTE: making sure the attention space merge/unmerge is shared
-    for v_space, kq_space in zip(v_spaces, kq_spaces):
+    for v_space, kq_space, qkv_space in zip(v_spaces, kq_spaces, qkv_spaces):
         merges[v_space], unmerges[v_space] = merges[kq_space], unmerges[kq_space]
+        merges[qkv_space], unmerges[qkv_space] = merges[kq_space], unmerges[kq_space]
 
     # Saving the metrics results as SafeTensors
     for identifier, tensor in merges.items():
