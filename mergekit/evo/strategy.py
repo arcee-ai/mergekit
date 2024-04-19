@@ -118,6 +118,7 @@ class BufferedRayEvaluationStrategyActor:
         num_gpus: Optional[int] = None,
         batch_size: Optional[int] = None,
         task_manager: Optional[lm_eval.tasks.TaskManager] = None,
+        model_storage_path: str = None
     ):
         self.config = config
         self.genome = genome
@@ -128,6 +129,7 @@ class BufferedRayEvaluationStrategyActor:
         self.batch_size = batch_size
         self.task_manager = task_manager
         self._shutdown = False
+        self.model_storage_path = model_storage_path
 
     async def evaluate_genotype(self, genotype: np.ndarray):
         future_result = asyncio.Future()
@@ -215,6 +217,7 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
             self.config,
             self.genome,
             self.merge_options,
+            model_storage_path=self.model_storage_path,
             vllm=vllm,
             num_gpus=self.num_gpus,
             task_manager=self.task_manager,
