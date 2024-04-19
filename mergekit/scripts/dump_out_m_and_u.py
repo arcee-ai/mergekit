@@ -254,7 +254,7 @@ def match_tensors_permute_MHA(
 @click.command()
 @click.argument("model1-ft", type=str, required=True)
 @click.argument("model2-ft", type=str, required=True)
-@click.argument("--model_path", type=str, required=True, help="Model information")
+@click.option("--model_path", type=str, required=True, help="Model information")
 @click.option(
     "--out_path", required=True, type=str, help="Output path for metric tensors"
 )
@@ -286,24 +286,36 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device):
     _json = model_arch_info.definition
 
     residual_space = None  # probably don't need this
-    kv_space = None  # We do need this
+    kq_space = None  # We do need this
     v_space = None
 
     # extract the residual, attention related spaces
     for weight in _json.layer_templates.weights:
-        if weight.get("is_kv", False):
-            kv_space = weight["output_space"]
-            residual_space = weight["input_space"]
+        if weight.is_kq:
+            kq_space = weight.output_space
+            residual_space = weight.input_space
             continue
 
         # assuming order is observed
         if (
-            not weight.get("is_kv", False)
-            and weight.get("head_split", False)
-            and (weight.input_space != residual_space)
+            not weight.is_kq
+            and weight.head_split
+            and (weight.input_space == residual_space)
         ):
             v_space = weight.output_space
             continue
+
+    num_layers = model_arch_info.num_layers(model_config)
+
+    kq_spaces = []
+    v_spaces = []
+    for j in range(num_layers):
+        kq_spaces.append(
+            _template_substitution(kq_space, num_layers=num_layers, layer_idx=j)
+        )
+        v_spaces.append(
+            _template_substitution(v_space, num_layers=num_layers, layer_idx=j)
+        )
 
     metric_classes = {"covariance": CovarianceMetric()}
     if metric not in metric_classes:
@@ -351,11 +363,19 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device):
         final_metric = metric_instance.calculate(concatenated_feature)
         print(f" final_metric -> {final_metric.shape}")
 
-        if feature_space in [kv_space, v_space]:
-            f = match_tensors_permute_MHA
+        print(f"Checking in {[kq_space, v_space]}")
+
+        if feature_space in (kq_spaces + v_spaces):
+            print("applying match_tensors_permute_MHA")
+            merge, unmerge, _, _ = match_tensors_permute_MHA(
+                correlation_matrix=final_metric,
+                n_heads=model_config.num_attention_heads,
+            )
         else:
-            f = match_tensors_permute
-        merge, unmerge, _, _ = f(correlation_matrix=final_metric)
+            print("applying match_tensors_permute")
+            merge, unmerge, _, _ = match_tensors_permute(
+                correlation_matrix=final_metric
+            )
         # print merge, unmerge shape
         print(f" merge -> {merge.shape}")
         print(f" unmerge -> {unmerge.shape}")
@@ -365,7 +385,8 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device):
     os.makedirs(out_path, exist_ok=True)
 
     # NOTE: making sure the attention space merge/unmerge is shared
-    merges[v_space], unmerges[v_space] = merges[kv_space], unmerges[kv_space]
+    for v_space, kq_space in zip(v_spaces, kq_spaces):
+        merges[v_space], unmerges[v_space] = merges[kq_space], unmerges[kq_space]
 
     # Saving the metrics results as SafeTensors
     for identifier, tensor in merges.items():
@@ -383,4 +404,4 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device):
 if __name__ == "__main__":
     main()
 
-# python scripts/dump_m_and_u.py ./dump_output/TinyLlama_TinyLlama-1.1B-Chat-v0.6_features.bin ./dump_output/TinyLlama_TinyLlama-1.1B-Chat-v1.0_features.bin --model_path TinyLlama/TinyLlama-1.1B-Chat-v0.6 --out_path ./m_v_out
+# python scripts/dump_out_m_and_u.py ./dump_output/TinyLlama_TinyLlama-1.1B-Chat-v0.6_features.bin ./dump_output/TinyLlama_TinyLlama-1.1B-Chat-v1.0_features.bin --model_path TinyLlama/TinyLlama-1.1B-Chat-v0.6 --out_path ./m_v_out
