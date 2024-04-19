@@ -67,9 +67,15 @@ def main(
     # create output directory if doesn't exist
     os.makedirs(out_path, exist_ok=True)
 
-    filtered = ["running_residual"]
     merge_unmerge_dictionary = {}
-    for i in filtered:
+    # load files from merge_unmerge_directory
+    spaces = [
+        f.split("_unmerge")[0]
+        for f in os.listdir(merge_unmerge_directory)
+        if "_unmerge" in f
+    ]
+    for i in spaces:
+        print(i)
         m = safetensors.torch.load_file(
             os.path.join(merge_unmerge_directory, f"{i}_merge.safetensor")
         )
@@ -77,8 +83,8 @@ def main(
             os.path.join(merge_unmerge_directory, f"{i}_unmerge.safetensor")
         )
         merge_unmerge_dictionary[i] = (
-            m["running_residual"].to("cuda", dtype=dtype),
-            u["running_residual"].to("cuda", dtype=dtype),
+            m[i].to("cuda", dtype=dtype),
+            u[i].to("cuda", dtype=dtype),
         )
 
     # TODO: deal with the embedding matrix on both ends
