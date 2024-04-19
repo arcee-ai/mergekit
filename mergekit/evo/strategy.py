@@ -15,6 +15,7 @@
 
 import asyncio
 import logging
+import os
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -41,6 +42,7 @@ class EvaluationStrategyBase(ABC):
         num_gpus: Optional[int] = None,
         batch_size: Optional[int] = None,
         task_search_path: Union[str, List[str], None] = None,
+        model_storage_path: Optional[str] = None,
     ):
         self.config = config
         self.genome = genome
@@ -48,6 +50,9 @@ class EvaluationStrategyBase(ABC):
         self.num_gpus = num_gpus or torch.cuda.device_count()
         self.batch_size = batch_size
         self.task_manager = lm_eval.tasks.TaskManager(include_path=task_search_path)
+        self.model_storage_path = model_storage_path
+        if self.model_storage_path:
+            os.makedirs(self.model_storage_path, exist_ok=True)
 
     @abstractmethod
     def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
@@ -67,7 +72,6 @@ class ActorPoolEvaluationStrategy(EvaluationStrategyBase):
         self,
         *args,
         in_memory: bool = False,
-        model_storage_path: Optional[str] = None,
         vllm: bool = False,
         **kwargs,
     ):
@@ -83,7 +87,7 @@ class ActorPoolEvaluationStrategy(EvaluationStrategyBase):
                     self.config,
                     self.genome,
                     self.merge_options,
-                    model_storage_path=model_storage_path,
+                    model_storage_path=self.model_storage_path,
                     vllm=vllm,
                     task_manager=self.task_manager,
                 )
@@ -110,7 +114,6 @@ class BufferedRayEvaluationStrategyActor:
         config: EvolMergeConfiguration,
         genome: ModelGenome,
         merge_options: MergeOptions,
-        model_storage_path: Optional[str] = None,
         vllm: bool = False,
         num_gpus: Optional[int] = None,
         batch_size: Optional[int] = None,
@@ -119,7 +122,6 @@ class BufferedRayEvaluationStrategyActor:
         self.config = config
         self.genome = genome
         self.merge_options = merge_options
-        self.model_storage_path = model_storage_path
         self.vllm = vllm
         self.num_gpus = num_gpus or torch.cuda.device_count()
         self.input_queue = []
@@ -199,7 +201,6 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
     def __init__(
         self,
         *args,
-        model_storage_path: Optional[str] = None,
         vllm: bool = False,
         in_memory: bool = False,
         **kwargs,
@@ -214,7 +215,7 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
             self.config,
             self.genome,
             self.merge_options,
-            model_storage_path=model_storage_path,
+            model_storage_path=self.model_storage_path,
             vllm=vllm,
             num_gpus=self.num_gpus,
             task_manager=self.task_manager,
@@ -265,12 +266,10 @@ class SerialEvaluationStrategy(EvaluationStrategyBase):
     def __init__(
         self,
         *args,
-        model_storage_path: Optional[str] = None,
         vllm: bool = False,
         in_memory: bool = False,
         **kwargs,
     ):
-        self.model_storage_path = model_storage_path
         self.vllm = vllm
         if in_memory:
             raise ValueError("In-memory evaluation is not supported for serial mode")
