@@ -51,6 +51,7 @@ def repeat_kv(hidden_states: torch.Tensor, init_split: int, n_rep: int) -> torch
     bsz, slen, head_dim = hidden_states.shape
     hidden_states = hidden_states.view(bsz, init_split, slen, head_dim // init_split)
     hidden_states = torch.repeat_interleave(hidden_states, n_rep, dim=1)
+    hidden_states = hidden_states.transpose(1, 2)
     return hidden_states.view(bsz, slen, -1)
 
 
