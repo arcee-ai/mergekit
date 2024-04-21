@@ -27,7 +27,12 @@ import ray.util.queue
 import ray.util.scheduling_strategies
 import torch
 import transformers
-import vllm
+
+try:
+    import vllm
+except ImportError:
+    vllm = None
+
 
 from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_info
 from mergekit.config import MergeConfiguration
@@ -226,7 +231,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
         tasks = planner.plan_in_memory()
 
         model = self.model.model
-        if isinstance(model, vllm.LLM):
+        if vllm is not None and isinstance(model, vllm.LLM):
             assert (
                 model.llm_engine.parallel_config.world_size == 1
             ), "Must be single GPU"

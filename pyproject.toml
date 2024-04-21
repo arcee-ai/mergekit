@@ -7,7 +7,7 @@ name = "mergekit"
 description = "Tools for merging pre-trained large language models"
 readme = "README.md"
 license = { text = "LGPL-3.0-or-later" }
-version = "0.0.4.2"
+version = "0.0.4.3"
 authors = [{ name = "Charles Goddard", email = "chargoddard@gmail.com" }]
 dependencies = [
     "torch>=2.0.0",
@@ -28,7 +28,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["black~=24.2.0", "isort~=5.13.2", "pre-commit~=3.6.2"]
 test = ["pytest~=8.0.1"]
-evolve = ["ray", "cma", "lm_eval[vllm]", "vllm==0.3.2", "flash-attn", "wandb"]
+evolve = ["ray", "cma", "lm_eval", "flash-attn", "wandb"]
+vllm = ["vllm==0.3.2", "lm_eval[vllm]"]
 
 [project.urls]
 repository = "https://github.com/cg123/mergekit"

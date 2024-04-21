@@ -55,7 +55,7 @@ from mergekit.options import MergeOptions
     "--strategy",
     "-s",
     type=click.Choice(["pool", "buffered", "serial"]),
-    default="buffered",
+    default="pool",
     help="Evaluation scheduling strategy",
 )
 @click.option(
