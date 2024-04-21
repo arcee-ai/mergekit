@@ -118,6 +118,7 @@ class BufferedRayEvaluationStrategyActor:
         num_gpus: Optional[int] = None,
         batch_size: Optional[int] = None,
         task_manager: Optional[lm_eval.tasks.TaskManager] = None,
+        model_storage_path: Optional[str] = None,
     ):
         self.config = config
         self.genome = genome
@@ -127,6 +128,7 @@ class BufferedRayEvaluationStrategyActor:
         self.input_queue = []
         self.batch_size = batch_size
         self.task_manager = task_manager
+        self.model_storage_path = model_storage_path
         self._shutdown = False
 
     async def evaluate_genotype(self, genotype: np.ndarray):

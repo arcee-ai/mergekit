@@ -300,10 +300,6 @@ def main(
     print(best_config.to_yaml())
 
 
-if __name__ == "__main__":
-    main()
-
-
 def _reshard_model(
     model: ModelReference, storage_path: str, merge_cache: str, trust_remote_code: bool
 ) -> ModelReference:
@@ -342,3 +338,7 @@ def _reshard_model(
         logging.warning(f"Could not save tokenizer for {model.model}", exc_info=e)
 
     return ModelReference(model=out_path)
+
+
+if __name__ == "__main__":
+    main()
