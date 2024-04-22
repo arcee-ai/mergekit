@@ -260,6 +260,7 @@ class MergePlanner:
                     writer_task=writer_task,
                     clone=self.options.clone_tensors,
                     optional=weight.optional,
+                    dtype=weight.force_dtype,
                 )
             )
         finalize = FinalizeModel(

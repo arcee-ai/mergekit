@@ -41,6 +41,8 @@ class WeightInfo(BaseModel, frozen=True):
             Indicates whether the weight can be omitted from a model.
         aliases (Optional[List[str]]):
             List of alternative names for the weight, if applicable.
+        force_dtype (Optional[str]):
+            Mandatory dtype for the weight, if applicable.
     """
 
     name: str
@@ -49,6 +51,7 @@ class WeightInfo(BaseModel, frozen=True):
     output_space: Optional[str] = None
     optional: bool = False
     aliases: Optional[List[str]] = None
+    force_dtype: Optional[str] = None
 
 
 class ProceduralSpaceInfo(BaseModel, frozen=True):
@@ -347,6 +350,7 @@ def _load_all_architectures() -> (
 
 JSON_ARCHITECTURES, NAME_TO_ARCH = _load_all_architectures()
 MISTRAL_INFO = _load_json_arch("mistral.json")
+QWEN2_INFO = _load_json_arch("qwen2.json")
 
 
 def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:

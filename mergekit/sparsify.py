@@ -21,10 +21,22 @@ import torch
 class SparsificationMethod(str, Enum):
     magnitude = "magnitude"
     random = "random"
-    rescaled_random = "rescaled_random"
 
 
-def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
+def rescale_sum(tensor: torch.Tensor, mask: torch.Tensor):
+    """Rescales the values to match the original tensor sum."""
+    org_sum = tensor.abs().sum()
+    new_sum = (tensor * mask).abs().sum()
+
+    if org_sum >= 1e-8:
+        tensor *= org_sum / new_sum
+    else:
+        pass
+
+    return tensor * mask
+
+
+def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
     """Masks out the smallest values, retaining a proportion of `density`."""
     if density >= 1:
         return tensor
@@ -36,15 +48,18 @@ def magnitude(tensor: torch.Tensor, density: float) -> torch.Tensor:
     w = tensor.abs().view(-1)
     if w.device.type == "cpu":
         w = w.float()
-    topk = torch.topk(w, k=k, largest=True)
-    mask.view(-1)[topk.indices] = 1
+    topk = torch.argsort(w, descending=True)[:k]
+    mask.view(-1)[topk] = 1
 
-    return tensor * mask
+    if rescale:
+        res = rescale_sum(tensor, mask)
+    else:
+        res = tensor * mask
+
+    return res
 
 
-def bernoulli(
-    tensor: torch.Tensor, density: float, rescale: bool = True
-) -> torch.Tensor:
+def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
     if density >= 1:
         return tensor
 
@@ -64,13 +79,14 @@ def bernoulli(
 
 
 def sparsify(
-    tensor: torch.Tensor, density: float, method: SparsificationMethod
+    tensor: torch.Tensor,
+    density: float,
+    method: SparsificationMethod,
+    rescale: bool = False,
 ) -> torch.Tensor:
     if method == SparsificationMethod.magnitude:
-        return magnitude(tensor, density=density)
+        return magnitude(tensor, density=density, rescale=rescale)
     elif method == SparsificationMethod.random:
-        return bernoulli(tensor, density=density, rescale=False)
-    elif method == SparsificationMethod.rescaled_random:
-        return bernoulli(tensor, density=density, rescale=True)
+        return bernoulli(tensor, density=density, rescale=rescale)
     else:
         raise NotImplementedError(method)

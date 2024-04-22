@@ -10,8 +10,11 @@ Features:
 - Lazy loading of tensors for low memory use
 - Interpolated gradients for parameter values (inspired by Gryphe's [BlockMerge_Gradient](https://github.com/Gryphe/BlockMerge_Gradient) script)
 - Piecewise assembly of language models from layers ("Frankenmerging")
+- [Mixture of Experts merging](#mixture-of-experts-merging)
 
-🔊 Call to Evolve - to solve evolutionary merge methods as a community - please see https://github.com/arcee-ai/mergekit/issues/207.
+🔊 Call to Evolve - to solve evolutionary merge methods as a community - please see <https://github.com/arcee-ai/mergekit/issues/207>.
+
+🌐 GUI Launch Alert 🤗 - We are excited to announce the launch of a graphical user interface for mergekit in Hugging Face Spaces! This GUI simplifies the merging process, making it more accessible to a broader audience. Check it out and contribute at [Hugging Face Spaces - mergekit-community](https://huggingface.co/mergekit-community).
 
 ## Installation
 
@@ -173,7 +176,21 @@ Parameters:
 
 - `filter_wise`: if true, weight calculation will be per-row rather than per-tensor. Not recommended.
 
-# Citation
+## LoRA extraction
+
+Mergekit allows extracting PEFT-compatible low-rank approximations of finetuned models.
+
+### Usage
+
+```sh
+mergekit-extract-lora finetuned_model_id_or_path base_model_id_or_path output_path [--no-lazy-unpickle] --rank=desired_rank
+```
+
+## Mixture of Experts merging
+
+The `mergekit-moe` script supports merging multiple dense models into a mixture of experts, either for direct use or for further training. For more details see the [`mergekit-moe` documentation](docs/moe.md).
+
+## Citation
 
 We now have a [paper](https://arxiv.org/abs/2403.13257) you can cite for the MergeKit library:
 
