@@ -124,7 +124,7 @@ def main(
                 w = (merge_matrix[0] @ w.T).T
                 w2 = (merge_matrix[1] @ w2.T).T
             else:
-                if merge_matrix[0].shape[-1] != w.shape[1]:
+                if merge_matrix[0].shape[-1] != w.shape[0]:
                     # pull alternate merge matrix
                     merge_matrix, _ = merge_unmerge_dictionary[
                         weight_info.output_space + "_alternate"
@@ -135,7 +135,7 @@ def main(
                 w2 = merge_matrix[1] @ w2
 
         if unmerge_matrix is not None:
-            if unmerge_matrix[0].shape[0] != w.shape[0]:
+            if unmerge_matrix[0].shape[0] != w.shape[-1]:
                 # pull alternate unmerge matrix
                 _, unmerge_matrix = merge_unmerge_dictionary[
                     weight_info.input_space + "_alternate"
