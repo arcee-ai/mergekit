@@ -248,7 +248,100 @@ def match_tensors_permute_MHA(
             .mean()
         )
         return merge.T, unmerge, merge_value
-    return merge.T, unmerge, outer_col_ind, cost / merge.shape[0]
+    return merge.T, unmerge, outer_col_ind, head_perms, cost / merge.shape[0]
+
+
+# permute_heads=False for now
+def match_tensors_permute_MHA_GQA(
+    n_heads=32,
+    r=0.5,
+    no_absval=False,
+    correlation_matrix=None,
+    number_of_repeats=8,
+):
+    """
+    Handles different head permutations in attention
+    """
+    correlation = correlation_matrix
+
+    O = correlation.shape[0]
+
+    N = int(1 / (1 - r) + 0.5)  # num models
+    Om = O // N  # matrix dimension
+    device = correlation.device
+    query_size = Om // n_heads
+
+    mats = [torch.eye(Om, device=device)]
+    mats_2 = [torch.eye(Om // number_of_repeats, device=device)]
+    head_perms = []
+    head_perms_2 = []
+
+    # compute head perms in order
+    cost = 0
+    for i in range(1, N):  # just once if 2 models]
+        for j in range(n_heads // number_of_repeats):
+            _corr_submatrix = None
+            try:
+                for k in range(number_of_repeats):
+                    # by head
+                    _j = j * number_of_repeats + k
+                    corr_submatrix = (
+                        correlation[
+                            query_size * _j : query_size * (_j + 1),
+                            Om * i + query_size * _j : Om * i + query_size * (_j + 1),
+                        ]
+                        .cpu()
+                        .numpy()
+                    )
+
+                    if no_absval == False:
+                        corr_submatrix = np.absolute(corr_submatrix)
+
+                    if _corr_submatrix is None:
+                        _corr_submatrix = corr_submatrix
+                    else:
+                        _corr_submatrix += corr_submatrix
+
+                row_ind, col_ind = scipy.optimize.linear_sum_assignment(
+                    _corr_submatrix, maximize=True
+                )
+
+                head_perms_2.append(torch.tensor(col_ind + j * query_size))
+
+                for z in range(j * number_of_repeats, (j + 1) * number_of_repeats):
+                    head_perms.append(torch.tensor(col_ind + z * query_size))
+
+                cost += _corr_submatrix[row_ind, col_ind].sum()
+
+                # for whole model correlation subset is is [0:4096, 4096:8192]
+                # correlation between the first graph's and second graph's features
+            except:
+                pdb.set_trace()
+    outer_col_ind = np.arange(n_heads)
+
+    new_mat = torch.eye(Om, device=device)[
+        torch.tensor(torch.cat(head_perms)).long().to(device)
+    ]
+    mats.append(new_mat.T)
+
+    unmerge_mats = mats
+
+    unmerge = torch.cat(unmerge_mats, dim=0)
+    merge = torch.cat(mats, dim=0)
+    merge = merge / (merge.sum(dim=0, keepdim=True) + 1e-5)
+
+    # -------- smaller version ----------------------
+    new_mat_2 = torch.eye(Om // number_of_repeats, device=device)[
+        torch.tensor(torch.cat(head_perms_2)).long().to(device)
+    ]
+    mats_2.append(new_mat_2.T)
+
+    unmerge_mats_2 = mats_2
+
+    unmerge_2 = torch.cat(unmerge_mats_2, dim=0)
+    merge_2 = torch.cat(mats_2, dim=0)
+    merge_2 = merge_2 / (merge_2.sum(dim=0, keepdim=True) + 1e-5)
+    return merge.T, unmerge, merge_2.T, unmerge_2
 
 
 @click.command()
@@ -340,7 +433,7 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device):
         # print(model2_filtered_feature.shape)
         # exit()
 
-        print(f"Feature: {feature_space}")
+        print(f"Feature: {feature_space} is {model1_features[feature_space].shape}")
 
         concatenated_feature = torch.cat(
             (model1_features[feature_space], model2_features[feature_space]), dim=-1
@@ -367,20 +460,31 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device):
 
         if feature_space in (kq_spaces + v_spaces):
             print("applying match_tensors_permute_MHA")
-            merge, unmerge, _, _ = match_tensors_permute_MHA(
+            merge, unmerge, a_merge, a_unmerge = match_tensors_permute_MHA_GQA(
                 correlation_matrix=final_metric,
                 n_heads=model_config.num_attention_heads,
+                number_of_repeats=8,
             )
+
+            # print merge, unmerge shape
+            print(f" merge -> {merge.shape}")
+            print(f" unmerge -> {unmerge.shape}")
+            print(f" a_merge -> {a_merge.shape}")
+            print(f" a_unmerge -> {a_unmerge.shape}")
+            merges[feature_space] = merge
+            unmerges[feature_space] = unmerge
+            merges[feature_space + "_alternate"] = a_merge
+            unmerges[feature_space + "_alternate"] = a_unmerge
+
         else:
             print("applying match_tensors_permute")
             merge, unmerge, _, _ = match_tensors_permute(
                 correlation_matrix=final_metric
             )
-        # print merge, unmerge shape
-        print(f" merge -> {merge.shape}")
-        print(f" unmerge -> {unmerge.shape}")
-        merges[feature_space] = merge
-        unmerges[feature_space] = unmerge
+            print(f" merge -> {merge.shape}")
+            print(f" unmerge -> {unmerge.shape}")
+            merges[feature_space] = merge
+            unmerges[feature_space] = unmerge
 
     os.makedirs(out_path, exist_ok=True)
 
@@ -396,6 +500,16 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device):
     for v_space, kq_space, qkv_space in zip(v_spaces, kq_spaces, qkv_spaces):
         merges[v_space], unmerges[v_space] = merges[kq_space], unmerges[kq_space]
         merges[qkv_space], unmerges[qkv_space] = merges[kq_space], unmerges[kq_space]
+
+        # store the alternative
+        merges[v_space + "_alternate"], unmerges[v_space + "_alternate"] = (
+            merges[kq_space + "_alternate"],
+            unmerges[kq_space + "_alternate"],
+        )
+        merges[qkv_space + "_alternate"], unmerges[qkv_space + "_alternate"] = (
+            merges[kq_space + "_alternate"],
+            unmerges[kq_space + "_alternate"],
+        )
 
     # Saving the metrics results as SafeTensors
     for identifier, tensor in merges.items():
