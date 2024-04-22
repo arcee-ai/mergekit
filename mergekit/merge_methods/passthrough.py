@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -41,7 +41,7 @@ class PassthroughMergeTask(Task[torch.Tensor]):
 
         return tensor
 
-    def group_label(self) -> str | None:
+    def group_label(self) -> Optional[str]:
         return self.gather_tensors.group_label()
 
 

@@ -148,7 +148,7 @@ class GTATask(Task[torch.Tensor]):
 
         return (base + mixed_delta).to(base.dtype)
 
-    def group_label(self) -> str | None:
+    def group_label(self) -> Optional[str]:
         return self.tensors.group_label()
 
 
