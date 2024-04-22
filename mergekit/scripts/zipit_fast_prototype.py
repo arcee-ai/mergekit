@@ -124,10 +124,23 @@ def main(
                 w = (merge_matrix[0] @ w.T).T
                 w2 = (merge_matrix[1] @ w2.T).T
             else:
+                if merge_matrix[0].shape[-1] != w.shape[1]:
+                    # pull alternate merge matrix
+                    merge_matrix, _ = merge_unmerge_dictionary[
+                        weight_info.output_space + "_alternate"
+                    ]
+                    merge_matrix = merge_matrix.chunk(2, dim=1)
+
                 w = merge_matrix[0] @ w
                 w2 = merge_matrix[1] @ w2
 
         if unmerge_matrix is not None:
+            if unmerge_matrix[0].shape[0] != w.shape[0]:
+                # pull alternate unmerge matrix
+                _, unmerge_matrix = merge_unmerge_dictionary[
+                    weight_info.input_space + "_alternate"
+                ]
+                unmerge_matrix = unmerge_matrix.chunk(2, dim=0)
             w = w @ unmerge_matrix[0]
             w2 = w2 @ unmerge_matrix[1]
 
