@@ -18,7 +18,7 @@ import logging
 import os
 import os.path
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import safetensors
 import safetensors.torch
@@ -41,26 +41,13 @@ class ShardedTensorIndex:
     tensor_paths: Dict[str, str]
     shards: List[ShardInfo]
 
-    def load_shard(
-        self, shard: Union[ShardInfo, str], device: str = "cpu"
-    ) -> Dict[str, torch.Tensor]:
-        if isinstance(shard, ShardInfo):
-            shard = shard.filename
-
-        shard_path = os.path.join(self.base_path, shard)
-        res = {}
-        if self.is_safetensors or shard_path.lower().endswith(".safetensors"):
-            res = safetensors.torch.load_file(shard_path, device=device)
-        else:
-            res = torch.load(shard_path, map_location=device, weights_only=True)
-            if "state_dict" in res:
-                res = res["state_dict"]
-        return res
-
     @classmethod
     def from_disk(cls, base_path: str) -> "ShardedTensorIndex":
         model_path = None
-        for model_file_name in ["model.safetensors", "pytorch_model.bin"]:
+        for model_file_name in [
+            "model.safetensors",
+            "pytorch_model.bin",
+        ]:
             candidate_path = os.path.join(base_path, model_file_name)
             if os.path.exists(candidate_path) or os.path.exists(
                 candidate_path + ".index.json"
@@ -108,7 +95,12 @@ class ShardedTensorIndex:
                 ShardInfo(os.path.basename(model_path), list(tensor_paths.keys()))
             )
 
-        return ShardedTensorIndex(base_path, is_safetensors, tensor_paths, shards)
+        return ShardedTensorIndex(
+            base_path=base_path,
+            is_safetensors=is_safetensors,
+            tensor_paths=tensor_paths,
+            shards=shards,
+        )
 
 
 class LazyTensorLoader:
