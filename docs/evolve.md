@@ -55,7 +55,7 @@ This should be a list of all of the models you want available to be merged. Depe
 
 #### `merge_method`
 
-Merge method to be used. Currently supported values are `linear`, `dare_tires`, `task_arithmetic`, `ties`, and `slerp`.
+Merge method to be used. Currently supported values are `linear`, `dare_ties`, `task_arithmetic`, `ties`, and `slerp`.
 
 #### `base_model`
 
