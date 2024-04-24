@@ -251,7 +251,6 @@ def match_tensors_permute_MHA(
     return merge.T, unmerge, outer_col_ind, head_perms, cost / merge.shape[0]
 
 
-# permute_heads=False for now
 def match_tensors_permute_MHA_GQA(
     n_heads=32,
     r=0.5,
@@ -276,48 +275,88 @@ def match_tensors_permute_MHA_GQA(
     head_perms = []
     head_perms_2 = []
 
-    # compute head perms in order
-    cost = 0
-    for i in range(1, N):  # just once if 2 models]
+    # in this case it is 256 x 256 i.e 2048 / 8 x 2048 / 8
+    _compressed_correlation = torch.zeros(
+        Om // number_of_repeats, Om // number_of_repeats, device=device
+    )
+
+    # compress matrix down
+    for i in range(n_heads // number_of_repeats):
         for j in range(n_heads // number_of_repeats):
-            _corr_submatrix = None
-            try:
-                for k in range(number_of_repeats):
-                    # by head
-                    _j = j * number_of_repeats + k
-                    corr_submatrix = (
-                        correlation[
-                            query_size * _j : query_size * (_j + 1),
-                            Om * i + query_size * _j : Om * i + query_size * (_j + 1),
-                        ]
-                        .cpu()
-                        .numpy()
-                    )
+            _c = torch.zeros(query_size, query_size, device=device)
+            for _i in range(Om // number_of_repeats):
+                for _j in range(Om // number_of_repeats):
+                    _c += correlation[
+                        query_size * number_of_repeats * i
+                        + _i * query_size : query_size * number_of_repeats * i
+                        + (_i + 1) * query_size,
+                        query_size * number_of_repeats * j
+                        + _j * query_size : query_size * number_of_repeats * j
+                        + (_j + 1) * query_size,
+                    ]
+            _compressed_correlation[
+                i * query_size : (i + 1) * query_size,
+                j * query_size : (j + 1) * query_size,
+            ] = _c
 
-                    if no_absval == False:
-                        corr_submatrix = np.absolute(corr_submatrix)
+    costs = (
+        np.ones((n_heads // number_of_repeats, n_heads // number_of_repeats))
+        * -sys.maxsize
+    )
 
-                    if _corr_submatrix is None:
-                        _corr_submatrix = corr_submatrix
-                    else:
-                        _corr_submatrix += corr_submatrix
+    cost = 0
+    col_inds_storage = defaultdict(lambda: defaultdict(int))
 
+    for i in range(1, N):  # just once if 2 models
+        for j in range(n_heads // number_of_repeats):  # outer loop through all heads
+            for k in range(
+                n_heads // number_of_repeats
+            ):  # inner loop through heads >= current head j
+                head1_idx = [query_size * j, query_size * (j + 1)]
+                head2_idx = [
+                    Om * i + query_size * k,
+                    Om * i + query_size * (k + 1),
+                ]
+
+                # take abs value of submatrix of correlations
+                corr_submatrix = (
+                    correlation[
+                        head1_idx[0] : head1_idx[1], head2_idx[0] : head2_idx[1]
+                    ]
+                    .cpu()
+                    .numpy()
+                )
+                if no_absval == False:
+                    corr_submatrix = np.absolute(corr_submatrix)
+
+                # compute perm for head j & head k
                 row_ind, col_ind = scipy.optimize.linear_sum_assignment(
-                    _corr_submatrix, maximize=True
+                    corr_submatrix, maximize=True
                 )
 
-                head_perms_2.append(torch.tensor(col_ind + j * query_size))
+                # store cost (cost is maximized here)
+                costs[j, k] = corr_submatrix[row_ind, col_ind].sum()
+                # costs[k,j] = costs[j,k] # make symmetric
 
-                for z in range(j * number_of_repeats, (j + 1) * number_of_repeats):
-                    head_perms.append(torch.tensor(col_ind + z * query_size))
+                # store perm so we don't have to recompute it later
+                col_inds_storage[j][k] = col_ind
 
-                cost += _corr_submatrix[row_ind, col_ind].sum()
+    outer_row_ind, outer_col_ind = scipy.optimize.linear_sum_assignment(
+        costs, maximize=True
+    )  # get assignment with lowest cost
+    cost += costs[outer_row_ind, outer_col_ind].sum()
 
-                # for whole model correlation subset is is [0:4096, 4096:8192]
-                # correlation between the first graph's and second graph's features
-            except:
-                pdb.set_trace()
-    outer_col_ind = np.arange(n_heads)
+    for j in range(n_heads // number_of_repeats):
+        head_1 = outer_row_ind[j]  # these are in order, outer_row_ind[j] = j
+        head_2 = outer_col_ind[j]
+
+        head_perm = col_inds_storage[head_1][head_2]
+        head_perms_2.append(torch.tensor(head_perm + query_size * head_2))
+
+        for k in range(number_of_repeats):
+            head_perms.append(
+                torch.tensor(head_perm + query_size * head_2 + k * query_size)
+            )
 
     new_mat = torch.eye(Om, device=device)[
         torch.tensor(torch.cat(head_perms)).long().to(device)
