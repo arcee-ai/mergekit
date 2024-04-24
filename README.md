@@ -19,7 +19,7 @@ Features:
 ## Installation
 
 ```sh
-git clone https://github.com/cg123/mergekit.git
+git clone https://github.com/arcee-ai/mergekit.git
 cd mergekit
 
 pip install -e .  # install the package and make scripts available
