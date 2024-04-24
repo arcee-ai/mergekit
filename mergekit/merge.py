@@ -15,6 +15,7 @@
 
 import logging
 import os
+import shutil
 from typing import Optional
 
 import tqdm
@@ -63,19 +64,23 @@ def run_merge(
     )
 
     # warm up loader cache
-    for model in tqdm.tqdm(
-        merge_config.referenced_models(), desc="Warmup loader cache"
+    for model in (
+        pbar := tqdm.tqdm(
+            merge_config.referenced_models(),
+            desc="Warmup loader cache",
+            disable=options.quiet,
+        )
     ):
         loader_cache.get(model)
+    del pbar
 
     logging.info("Planning operations")
     targets = MergePlanner(
         merge_config,
         arch_info,
-        out_path=out_path,
         options=options,
         out_model_config=cfg_out,
-    ).plan()
+    ).plan_to_disk(out_path=out_path)
 
     exec = Executor(
         tasks=targets,
@@ -84,7 +89,7 @@ def run_merge(
     )
 
     tokenizer = None
-    for _task, value in exec.run():
+    for _task, value in exec.run(quiet=options.quiet):
         if isinstance(value, TokenizerInfo):
             tokenizer = value.tokenizer
 
@@ -112,34 +117,56 @@ def run_merge(
             fp.write(config_source)
 
     if tokenizer is None and options.copy_tokenizer:
-        tokenizer = _get_donor_tokenizer(
-            merge_config, trust_remote_code=options.trust_remote_code
-        )
+        try:
+            _copy_tokenizer(
+                merge_config, out_path, trust_remote_code=options.trust_remote_code
+            )
+        except Exception as e:
+            logging.error(
+                "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
+                exc_info=e,
+            )
 
     if tokenizer:
         logging.info("Saving tokenizer")
         tokenizer.save_pretrained(out_path, safe_serialization=True)
 
 
-def _get_donor_tokenizer(
-    merge_config: MergeConfiguration, trust_remote_code: bool = False
+def _copy_tokenizer(
+    merge_config: MergeConfiguration, out_path: str, trust_remote_code: bool = False
 ):
-    try:
-        donor_model = merge_config.base_model
-        if not donor_model:
-            donor_model = merge_config.referenced_models()[0]
+    donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
 
-        return transformers.AutoTokenizer.from_pretrained(
-            donor_model.model.path,
-            revision=donor_model.model.revision,
-            trust_remote_code=trust_remote_code,
-        )
-    except Exception as e:
-        logging.error(
-            "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
-            exc_info=e,
-        )
-        return None
+    if os.path.exists(
+        os.path.join(donor_model.model.path, "tokenizer_config.json")
+    ) and (
+        os.path.exists(os.path.join(donor_model.model.path, "tokenizer.json"))
+        or os.path.exists(os.path.join(donor_model.model.path, "tokenizer.model"))
+    ):
+        logging.info(f"Copying tokenizer from {donor_model}")
+
+        for file_name in [
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "tokenizer.json",
+            "tokenizer.model",
+        ]:
+            if os.path.exists(os.path.join(donor_model.model.path, file_name)):
+                shutil.copy(
+                    os.path.join(donor_model.model.path, file_name),
+                    os.path.join(out_path, file_name),
+                )
+
+        return
+
+    # fallback: try actually loading the tokenizer and saving it
+    logging.info(f"Reserializing tokenizer from {donor_model}")
+    tokenizer = transformers.AutoTokenizer.from_pretrained(
+        donor_model.model.path,
+        revision=donor_model.model.revision,
+        trust_remote_code=trust_remote_code,
+    )
+    tokenizer.save_pretrained(out_path, safe_serialization=True)
 
 
 def _model_out_config(
