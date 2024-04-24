@@ -284,13 +284,15 @@ def match_tensors_permute_MHA_GQA(
     for i in range(n_heads // number_of_repeats):
         for j in range(n_heads // number_of_repeats):
             _c = torch.zeros(query_size, query_size, device=device)
-            for _i in range(Om // number_of_repeats):
-                for _j in range(Om // number_of_repeats):
+            for _i in range(number_of_repeats):
+                for _j in range(number_of_repeats):
                     _c += correlation[
-                        query_size * number_of_repeats * i
+                        Om
+                        + query_size * number_of_repeats * i
                         + _i * query_size : query_size * number_of_repeats * i
                         + (_i + 1) * query_size,
-                        query_size * number_of_repeats * j
+                        Om
+                        + query_size * number_of_repeats * j
                         + _j * query_size : query_size * number_of_repeats * j
                         + (_j + 1) * query_size,
                     ]
