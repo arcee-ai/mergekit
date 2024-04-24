@@ -72,6 +72,7 @@ class TensorWriter:
 
         prefix, extension = self._get_name_components()
         shard_name = f"{prefix}-{self.shards_written+1}.{extension}"
+
         for key in self.current_shard:
             self.weight_map[key] = shard_name
 

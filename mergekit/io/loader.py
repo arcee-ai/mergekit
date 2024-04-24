@@ -78,7 +78,7 @@ class DumbPytorchLoader(TensorLoader):
 
     tensors: Dict[str, torch.Tensor]
 
-    def __init__(self, path: str, device: str):
+    def __init__(self, path: str, device: Optional[str] = None):
         self.tensors = torch.load(path, map_location=device, weights_only=True)
 
     def get_tensor(self, key: str) -> torch.Tensor:
