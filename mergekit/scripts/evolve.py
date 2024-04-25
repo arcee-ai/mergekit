@@ -231,7 +231,7 @@ def main(
                 f.write(best_yaml)
             print(f"Merge configuration:\n{best_yaml}")
 
-            if wandb:
+            if use_wandb:
                 art = wandb.Artifact("best_config", type="merge_config")
                 art.add_file(os.path.join(storage_path, "best_config.yaml"))
                 run.log_artifact(art)
@@ -240,7 +240,7 @@ def main(
         print(f"Received {len(x)} genotypes")
         res = strat.evaluate_genotypes(x)
 
-        if wandb:
+        if use_wandb:
             res = list(res)
             score_mean = np.mean([r["score"] for r in res])
             score_std = np.std([r["score"] for r in res])
