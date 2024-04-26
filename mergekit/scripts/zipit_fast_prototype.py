@@ -164,7 +164,7 @@ def main(
             )
 
         # average weights and save them
-        w = (w + w2) / 2
+        w = w + w2
         writer.save_tensor(weight_info.name, w)
     writer.finalize()
 

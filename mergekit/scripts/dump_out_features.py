@@ -44,6 +44,7 @@ def parse_items(ctx, param, value):
 # NOTE: intends to replicate sizing up the key tensor in gqa to match the query tensor
 # TODO: is this really generalizable?
 # TODO: unit test this
+# grow
 def repeat_kv(hidden_states: torch.Tensor, init_split: int, n_rep: int) -> torch.Tensor:
     if n_rep == 1:
         return hidden_states
@@ -53,6 +54,32 @@ def repeat_kv(hidden_states: torch.Tensor, init_split: int, n_rep: int) -> torch
     hidden_states = torch.repeat_interleave(hidden_states, n_rep, dim=1)
     hidden_states = hidden_states.transpose(1, 2)
     return hidden_states.reshape(bsz, slen, -1)
+
+
+# shrink
+def deconstruct_kv(
+    hidden_states: torch.Tensor, init_split: int, n_rep: int
+) -> torch.Tensor:
+    # TODO: remove this assertion
+    assert init_split > n_rep
+
+    if n_rep == 1:
+        return hidden_states
+
+    bsz, slen, head_dim = hidden_states.shape
+
+    n = init_split // n_rep
+
+    hidden_states = hidden_states.view(bsz, init_split, slen, head_dim // init_split)
+    output = torch.concat(
+        [
+            hidden_states[:, [i, n + i, 2 * n + i, 3 * n + i], :, :]
+            for i in range(n_rep)
+        ],
+        dim=0,
+    )
+
+    return output.transpose(1, 2).reshape(output.shape[0], slen, -1)
 
 
 """
@@ -98,6 +125,12 @@ it denotes any input space that is found across layers as a residual stream
     default="up_${layer_index},attn_v_${layer_index}",
     callback=parse_items,
 )
+@click.option(
+    "--key-growth",
+    type=bool,
+    default=True,
+    help="Whether to grow the key tensor to match the query tensor. Default is True. False mans value matrix is shrunk",
+)
 def main(
     model_path: str,
     dataset: str,
@@ -110,6 +143,7 @@ def main(
     dtype: Optional[str],
     device: Optional[str],
     ignore_spaces: Optional[List[str]],
+    key_growth: bool,
 ):
     # sorting out locations to hook into
     # we do this via the predefined json architecture definitions in mergekit
@@ -254,16 +288,35 @@ def main(
                     dim_2 = o.shape[-1]
                     if dim_1 > dim_2:
                         repeat = dim_1 // dim_2
-                        o = repeat_kv(o, model_config.num_key_value_heads, repeat)
-                        storage_dict[space_name] = torch.cat(
-                            (storage_dict[space_name], o), dim=0
-                        )  # maybe a direct cat
+                        if key_growth:
+                            o = repeat_kv(o, model_config.num_key_value_heads, repeat)
+                            storage_dict[space_name] = torch.cat(
+                                (storage_dict[space_name], o), dim=0
+                            )  # maybe a direct cat
+                        else:
+                            storage_dict[space_name] = deconstruct_kv(
+                                storage_dict[space_name],
+                                model_config.num_key_value_heads,
+                                repeat,
+                            )
                     else:
                         repeat = dim_2 // dim_1
-                        popped = repeat_kv(
-                            popped, model_config.num_key_value_heads, repeat
-                        )
-                        storage_dict[space_name] = torch.cat((popped, o), dim=0)
+                        if key_growth:
+                            storage_dict[space_name] = repeat_kv(
+                                storage_dict[space_name],
+                                model_config.num_key_value_heads,
+                                repeat,
+                            )
+                            storage_dict[space_name] = torch.cat(
+                                (storage_dict[space_name], o), dim=0
+                            )
+                        else:
+                            o = deconstruct_kv(
+                                o, model_config.num_key_value_heads, repeat
+                            )
+                            storage_dict[space_name] = torch.cat(
+                                (storage_dict[space_name], o), dim=0
+                            )
                 else:
                     storage_dict[space_name] = torch.cat(
                         (storage_dict[space_name], o), dim=0
