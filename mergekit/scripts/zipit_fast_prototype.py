@@ -164,7 +164,10 @@ def main(
             )
 
         # average weights and save them
-        w = w + w2
+        if merge_matrix:
+            w = w + w2
+        else:
+            w = (w + w2) / 2
         writer.save_tensor(weight_info.name, w)
     writer.finalize()
 

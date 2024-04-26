@@ -66,6 +66,7 @@ def match_tensors_permute(
     unmerge_mats = mats
 
     unmerge = torch.cat(unmerge_mats, dim=0)
+
     merge = torch.cat(mats, dim=0)
     merge = merge / (merge.sum(dim=0, keepdim=True) + 1e-5)
     if get_merge_value:
@@ -147,10 +148,7 @@ def match_tensors_permute_MHA_GQA(
                 n_heads // number_of_repeats
             ):  # inner loop through heads >= current head j
                 head1_idx = [query_size * j, query_size * (j + 1)]
-                head2_idx = [
-                    Om * i + query_size * k,
-                    Om * i + query_size * (k + 1),
-                ]
+                head2_idx = [query_size * k, query_size * (k + 1)]
 
                 # take abs value of submatrix of correlations
                 corr_submatrix = (
@@ -189,7 +187,9 @@ def match_tensors_permute_MHA_GQA(
 
         for k in range(number_of_repeats):
             head_perms.append(
-                torch.tensor(head_perm + query_size * head_2 + k * query_size)
+                torch.tensor(
+                    head_perm + query_size * head_2 * number_of_repeats + k * query_size
+                )
             )
 
     new_mat = torch.eye(Om, device=device)[
@@ -273,7 +273,6 @@ def match_tensors_permute_MHA_GQA_rev(
                 row_ind, col_ind = scipy.optimize.linear_sum_assignment(
                     corr_submatrix, maximize=True
                 )
-                print("col ind:", col_ind)
 
                 # store cost (cost is maximized here)
                 costs[j, k] = corr_submatrix[row_ind, col_ind].sum()
@@ -293,7 +292,6 @@ def match_tensors_permute_MHA_GQA_rev(
         head_2 = outer_col_ind[j]
 
         head_perm = col_inds_storage[head_1][head_2]
-        print(f"head_perm -> {head_perm}")
         head_perms_2.append(torch.tensor(head_perm + query_size * head_2))
 
         for k in range(number_of_repeats):
@@ -312,9 +310,6 @@ def match_tensors_permute_MHA_GQA_rev(
     mats.append(new_mat.T)
 
     unmerge_mats = mats
-
-    for i in unmerge_mats:
-        print(i.shape)
 
     unmerge = torch.cat(unmerge_mats, dim=0)
     merge = torch.cat(mats, dim=0)
@@ -359,7 +354,7 @@ def match_tensors_permute_MHA_GQA_rev(
     "--key-shrink",
     type=bool,
     default=False,
-    help="Shrink the GQA matrix to obtain key space permutation. Default is True, the opposite is to grow query related permutation matrix",
+    help="Shrink the GQA matrix to obtain key space permutation. Default is False, the opposite is to grow query related permutation matrix",
 )
 def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink):
     model = ModelReference.model_validate(model_path)
@@ -456,7 +451,7 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink)
 
         if feature_space in (kq_spaces + v_spaces):
             print("applying match_tensors_permute_MHA")
-            if key_shrink:
+            if not key_shrink:
                 f = match_tensors_permute_MHA_GQA
             else:
                 f = match_tensors_permute_MHA_GQA_rev
