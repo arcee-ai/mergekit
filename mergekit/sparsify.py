@@ -59,7 +59,7 @@ def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     return res
 
 
-def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
+def bernoulli(tensor: torch.Tensor, density: float, rescale: bool, adjusted: bool) -> torch.Tensor:
     if density >= 1:
         return tensor
 
@@ -68,6 +68,12 @@ def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     else:
         # torch.bernoulli not implemented for float16 on CPU, upcast to float32
         work_dtype = torch.float32
+
+    if adjusted:
+        s = (tensor.count_nonzero() / tensor.numel()).item()
+        if density >= s:
+            return tensor
+        density /= s
 
     mask = torch.bernoulli(
         torch.full_like(input=tensor, fill_value=density, dtype=work_dtype)
@@ -83,10 +89,11 @@ def sparsify(
     density: float,
     method: SparsificationMethod,
     rescale: bool = False,
+    adjusted: bool = False,
 ) -> torch.Tensor:
     if method == SparsificationMethod.magnitude:
         return magnitude(tensor, density=density, rescale=rescale)
     elif method == SparsificationMethod.random:
-        return bernoulli(tensor, density=density, rescale=rescale)
+        return bernoulli(tensor, density=density, rescale=rescale, adjusted=adjusted)
     else:
         raise NotImplementedError(method)
