@@ -296,7 +296,7 @@ def main(
                         else:
                             storage_dict[space_name] = deconstruct_kv(
                                 storage_dict[space_name],
-                                model_config.num_key_value_heads,
+                                model_config.num_attention_heads,
                                 repeat,
                             )
                     else:
@@ -311,8 +311,10 @@ def main(
                                 (storage_dict[space_name], o), dim=0
                             )
                         else:
+                            # TODO: remove this assertion
+                            assert repeat == 8
                             o = deconstruct_kv(
-                                o, model_config.num_key_value_heads, repeat
+                                o, model_config.num_attention_heads, repeat
                             )
                             storage_dict[space_name] = torch.cat(
                                 (storage_dict[space_name], o), dim=0
