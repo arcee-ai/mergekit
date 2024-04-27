@@ -99,10 +99,8 @@ def match_tensors_permute_MHA(
     col_inds_storage = defaultdict(lambda: defaultdict(int))
 
     for i in range(1, N):  # just once if 2 models
-        for j in range(n_heads // number_of_repeats):  # outer loop through all heads
-            for k in range(
-                n_heads // number_of_repeats
-            ):  # inner loop through heads >= current head j
+        for j in range(n_heads):  # outer loop through all heads
+            for k in range(n_heads):  # inner loop through heads >= current head j
                 head1_idx = [query_size * j, query_size * (j + 1)]
                 head2_idx = [query_size * k, query_size * (k + 1)]
 
@@ -134,7 +132,7 @@ def match_tensors_permute_MHA(
     )  # get assignment with lowest cost
     cost += costs[outer_row_ind, outer_col_ind].sum()
 
-    for j in range(n_heads // number_of_repeats):
+    for j in range(n_heads):
         head_1 = outer_row_ind[j]  # these are in order, outer_row_ind[j] = j
         head_2 = outer_col_ind[j]
 
