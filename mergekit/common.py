@@ -80,6 +80,7 @@ class ModelReference(BaseModel, frozen=True):
 
     model: ModelPath
     lora: Optional[ModelPath] = None
+    override_architecture: Optional[str] = None
 
     def merged(
         self, cache_dir: Optional[str] = None, trust_remote_code: bool = False
@@ -121,11 +122,14 @@ class ModelReference(BaseModel, frozen=True):
         return ModelReference(model=out_path)
 
     def config(self, trust_remote_code: bool = False) -> PretrainedConfig:
-        return AutoConfig.from_pretrained(
+        res = AutoConfig.from_pretrained(
             self.model.path,
             revision=self.model.revision,
             trust_remote_code=trust_remote_code,
         )
+        if self.override_architecture:
+            res.architectures = [self.override_architecture]
+        return res
 
     def tensor_index(self, cache_dir: Optional[str] = None) -> ShardedTensorIndex:
         assert self.lora is None
