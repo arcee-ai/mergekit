@@ -15,6 +15,12 @@ from mergekit.common import ModelReference, dtype_from_name
 from mergekit.scripts.zipit_utils import CovarianceMetric, remove_pads
 
 
+def calc_correlation_matrix(feats):
+    feats = feats.view(-1, feats.shape[-1])
+
+    return torch.corrcoef(feats.T)
+
+
 def match_tensors_permute(
     r=0.5,
     no_absval=False,
@@ -455,10 +461,6 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink)
             _template_substitution(v_space, num_layers=num_layers, layer_idx=j)
         )
 
-    metric_classes = {"covariance": CovarianceMetric()}
-    if metric not in metric_classes:
-        raise ValueError(f"Unsupported metric: {metric}")
-
     model1_features = safetensors.torch.load_file(model1_ft)
     model2_features = safetensors.torch.load_file(model2_ft)
 
@@ -479,9 +481,7 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink)
             (model1_features[feature_space], model2_features[feature_space]), dim=-1
         )
 
-        metric_instance = metric_classes[metric]
-
-        final_metric = metric_instance.calculate(concatenated_feature)
+        correlation_matrix = calc_correlation_matrix(concatenated_feature)
 
         if feature_space in (kq_spaces + v_spaces):
             if not has_gqa:
@@ -491,7 +491,7 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink)
             else:
                 f = match_tensors_permute_MHA_GQA_rev
             merge, unmerge, a_merge, a_unmerge = f(
-                correlation_matrix=final_metric,
+                correlation_matrix=correlation_matrix,
                 n_heads=model_config.num_attention_heads,
                 number_of_repeats=8,
             )
@@ -506,7 +506,7 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink)
 
         else:
             merge, unmerge, _, _ = match_tensors_permute(
-                correlation_matrix=final_metric
+                correlation_matrix=correlation_matrix
             )
             merges[feature_space] = merge
             unmerges[feature_space] = unmerge

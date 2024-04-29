@@ -15,7 +15,6 @@ from transformers import AutoModel, AutoTokenizer
 
 from mergekit.architecture import _template_substitution, get_architecture_info
 from mergekit.common import ModelReference
-from mergekit.scripts.zipit_utils import remove_pads
 
 logging.basicConfig(level=logging.INFO)
 
@@ -70,6 +69,30 @@ def deconstruct_kv(
     )
 
     return output.transpose(1, 2).reshape(output.shape[0], slen, -1)
+
+
+def remove_pads(attention_mask, feature_vector):
+    batch_size, seq_length = attention_mask.shape
+    if (
+        len(feature_vector.shape) == 3
+    ):  # Hidden states: (batch_size, seq_length, embedding_dim)
+        # Expand mask to match the feature_vector dimensions and apply it
+        expanded_mask = attention_mask.unsqueeze(-1)
+        filtered_feature_vector = feature_vector * expanded_mask
+    elif (
+        len(feature_vector.shape) == 4
+    ):  # Attention outputs: (batch_size, num_attention_heads, seq_length, seq_length)
+        # Expand mask for application to attention outputs
+        expanded_mask = attention_mask.unsqueeze(1).unsqueeze(-1)
+        # Apply mask to the "keys" dimension of the attention scores
+        filtered_feature_vector = feature_vector * expanded_mask
+        # Apply mask to the "queries" dimension of the attention scores (transpose mask application)
+        expanded_mask_transposed = attention_mask.unsqueeze(1).unsqueeze(2)
+        filtered_feature_vector = filtered_feature_vector * expanded_mask_transposed
+    else:
+        raise ValueError("Unsupported feature vector shape.")
+
+    return filtered_feature_vector
 
 
 """
@@ -255,14 +278,6 @@ def main(
         """
 
         def hook(module, input, output):
-            # output is a tuple, where the first element is the attention output
-            print(
-                f"length of input is {len(input)}, {type(input)} and length of output is {len(output)}"
-            )
-            print(
-                f"Shape of 1st elem input is {input[0].shape} and shape of 1st elem output is {output[0].shape}, {output.shape}"
-            )
-
             # NOTE: shape of input is [batch, seq_len, dim] and output is Tuple[(seq_len, dim),...]
             if capture_input:
                 o = input[0].detach()
