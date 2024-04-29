@@ -62,6 +62,7 @@ class WeightInfo(BaseModel, frozen=True):
     optional: bool = False
     aliases: Optional[List[str]] = None
     head_split: Literal[None, "input", "output"] = None
+    is_kq: Optional[bool] = False
 
 
 class ProceduralSpaceInfo(BaseModel, frozen=True):
@@ -284,7 +285,7 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
             elif isinstance(obj_dict[key], list):
                 obj_dict[key] = [
                     (
-                        TemplateWithArithmetic(s).substitute(substitutions)
+                        _template_substitution(s, num_layers, layer_idx)
                         if isinstance(s, str)
                         else s
                     )
