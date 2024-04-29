@@ -13,17 +13,9 @@ from safetensors.torch import save_file
 from torch.utils.data import DataLoader
 from transformers import AutoModel, AutoTokenizer
 
-from mergekit.architecture import (
-    ProceduralSpaceInfo,
-    WeightInfo,
-    _template_substitution,
-    get_architecture_info,
-)
-from mergekit.common import ModelReference, dtype_from_name
-from mergekit.io.tasks import LoaderCache
-from mergekit.io.tensor_writer import TensorWriter
-from mergekit.options import MergeOptions, add_merge_options
-from mergekit.scripts.zipit_utils import CovarianceMetric, remove_pads
+from mergekit.architecture import _template_substitution, get_architecture_info
+from mergekit.common import ModelReference
+from mergekit.scripts.zipit_utils import remove_pads
 
 logging.basicConfig(level=logging.INFO)
 
@@ -42,9 +34,7 @@ def parse_items(ctx, param, value):
 
 
 # NOTE: intends to replicate sizing up the key tensor in gqa to match the query tensor
-# TODO: is this really generalizable?
 # TODO: unit test this
-# grow
 def repeat_kv(hidden_states: torch.Tensor, init_split: int, n_rep: int) -> torch.Tensor:
     if n_rep == 1:
         return hidden_states
@@ -380,21 +370,6 @@ def main(
                 feature_storage[residual_space] = torch.cat(
                     (feature_storage[residual_space], hidden_states), dim=0
                 )
-
-            # NOTE:  consider putting this back for completeness' sake
-
-            # attention_patterns = outputs.attentions
-
-            # for i in range(num_layers):
-            #    kq_space = _template_substitution(
-            #        shared_kq_space, num_layers=num_layers, layer_idx=i
-            #    )
-            #    if kq_space not in feature_storage:
-            #        feature_storage[kq_space] = attention_patterns[i]
-            #    else:
-            #        feature_storage[kq_space] = torch.cat(
-            #            (feature_storage[kq_space], attention_patterns[i]), dim=0
-            #        )
 
             for space_name, v in storage_dict.items():
                 if space_name not in feature_storage:

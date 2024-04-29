@@ -14,13 +14,6 @@ from mergekit.architecture import _template_substitution, get_architecture_info
 from mergekit.common import ModelReference, dtype_from_name
 from mergekit.scripts.zipit_utils import CovarianceMetric, remove_pads
 
-"""
-All this needs to is calculate the merge/unmerge tensors for the given space
-
-but the attention module needs to be handled differently
-
-"""
-
 
 def match_tensors_permute(
     r=0.5,
@@ -53,7 +46,6 @@ def match_tensors_permute(
             )
             cost = corr_submatrix[row_ind, col_ind].sum()
             # correlation subset is is [0:4096, 4096:8192]
-            # correlation between the first graph's and second graph's features
         except Exception as e:
             print(e)
             pdb.set_trace()
@@ -122,7 +114,6 @@ def match_tensors_permute_MHA(
 
                 # store cost (cost is maximized here)
                 costs[j, k] = corr_submatrix[row_ind, col_ind].sum()
-                # costs[k,j] = costs[j,k] # make symmetric
 
                 # store perm so we don't have to recompute it later
                 col_inds_storage[j][k] = col_ind
@@ -237,7 +228,6 @@ def match_tensors_permute_MHA_GQA(
 
                 # store cost (cost is maximized here)
                 costs[j, k] = corr_submatrix[row_ind, col_ind].sum()
-                # costs[k,j] = costs[j,k] # make symmetric
 
                 # store perm so we don't have to recompute it later
                 col_inds_storage[j][k] = col_ind
@@ -345,8 +335,6 @@ def match_tensors_permute_MHA_GQA_rev(
 
                 # store cost (cost is maximized here)
                 costs[j, k] = corr_submatrix[row_ind, col_ind].sum()
-                print(f"cost is {costs[j,k]}")
-                # costs[k,j] = costs[j,k] # make symmetric
 
                 # store perm so we don't have to recompute it later
                 col_inds_storage[j][k] = col_ind
@@ -370,12 +358,9 @@ def match_tensors_permute_MHA_GQA_rev(
                 )
             )
 
-    # print(head_perms)
-
     new_mat = torch.eye(Om * number_of_repeats, device=device)[
         torch.tensor(torch.cat(head_perms)).long().to(device)
     ]
-    # new_mat = torch.eye(Om * number_of_repeats, device=device)
     mats.append(new_mat.T)
 
     unmerge_mats = mats
@@ -436,11 +421,6 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink)
 
     model_arch_info = get_architecture_info(model_config)
 
-    # things to do: find the residual space
-    # rest difference the ignore_spaces
-    # residual space is the one to for hidden states
-    # the rest we will attach hooks based on the module name
-
     _json = model_arch_info.definition
 
     residual_space = None  # probably don't need this
@@ -495,36 +475,15 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink)
         # model1_filtered_feature = remove_pads(model_1_attention_mask, model1_feature)
         # model2_filtered_feature = remove_pads(model_2_attention_mask, model1_feature)
 
-        # print(model2_filtered_feature.shape)
-        # exit()
-
-        print(f"Feature: {feature_space} is {model1_features[feature_space].shape}")
-
         concatenated_feature = torch.cat(
             (model1_features[feature_space], model2_features[feature_space]), dim=-1
         )
 
-        print(f" -> {concatenated_feature.shape}")
-
-        # if "attention" in layer_name:
-        #    # how to compute the metrics here?
-        #    print(layer_name)
-        # else:
-        #    print(layer_name)
-
-        # TODO: one wonder about flattening the first two dims :thinking-face:
-
-        print(f" -> {concatenated_feature.shape}")
-
         metric_instance = metric_classes[metric]
 
         final_metric = metric_instance.calculate(concatenated_feature)
-        print(f" final_metric -> {final_metric.shape}")
-
-        print(f"Checking in {[kq_space, v_space]}")
 
         if feature_space in (kq_spaces + v_spaces):
-            print("applying match_tensors_permute_MHA")
             if not has_gqa:
                 f = match_tensors_permute_MHA
             elif not key_shrink:
@@ -546,12 +505,9 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink)
                 unmerges[feature_space + "_alternate"] = a_unmerge
 
         else:
-            print("applying match_tensors_permute")
             merge, unmerge, _, _ = match_tensors_permute(
                 correlation_matrix=final_metric
             )
-            print(f" merge -> {merge.shape}")
-            print(f" unmerge -> {unmerge.shape}")
             merges[feature_space] = merge
             unmerges[feature_space] = unmerge
 
@@ -569,7 +525,6 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink)
     for v_space, kq_space, qkv_space in zip(v_spaces, kq_spaces, qkv_spaces):
         merges[v_space], unmerges[v_space] = merges[kq_space], unmerges[kq_space]
 
-        # TODO: think about this
         merges[qkv_space], unmerges[qkv_space] = merges[kq_space], unmerges[kq_space]
 
         if has_gqa:
