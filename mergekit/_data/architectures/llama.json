@@ -22,19 +22,21 @@
             {
                 "name": "model.layers.${layer_index}.self_attn.q_proj.weight",
                 "input_space": "running_residual",
-                "output_space": "attn_qkv_${layer_index}",
-                "head_split": "output"
+                "output_space": "attn_qk_${layer_index}",
+                "head_split": "output",
+                "is_kq": true
             },
             {
                 "name": "model.layers.${layer_index}.self_attn.k_proj.weight",
                 "input_space": "running_residual",
-                "output_space": "attn_qkv_${layer_index}",
-                "head_split": "output"
+                "output_space": "attn_qk_${layer_index}",
+                "head_split": "output",
+                "is_kq": true
             },
             {
                 "name": "model.layers.${layer_index}.self_attn.v_proj.weight",
                 "input_space": "running_residual",
-                "output_space": "attn_qkv_${layer_index}",
+                "output_space": "attn_v_${layer_index}",
                 "head_split": "output"
             },
             {
@@ -77,6 +79,16 @@
             "is_lm_head": true,
             "aliases": [
                 "model.lm_head.weight"
+            ]
+        }
+    ],
+    "procedural_spaces": [
+        {
+            "type": "kv_expand",
+            "name":"attn_qkv_${layer_index}",
+            "inputs": [
+                "attn_qk_${layer_index}",
+                "attn_v_${layer_index}"
             ]
         }
     ]

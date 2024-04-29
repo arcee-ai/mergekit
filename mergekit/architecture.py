@@ -62,6 +62,7 @@ class WeightInfo(BaseModel, frozen=True):
     optional: bool = False
     aliases: Optional[List[str]] = None
     head_split: Literal[None, "input", "output"] = None
+    is_kq: Optional[bool] = False
 
 
 class ProceduralSpaceInfo(BaseModel, frozen=True):

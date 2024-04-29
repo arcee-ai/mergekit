@@ -67,9 +67,15 @@ def main(
     # create output directory if doesn't exist
     os.makedirs(out_path, exist_ok=True)
 
-    filtered = ["running_residual"]
     merge_unmerge_dictionary = {}
-    for i in filtered:
+    # load files from merge_unmerge_directory
+    spaces = [
+        f.split("_unmerge")[0]
+        for f in os.listdir(merge_unmerge_directory)
+        if "_unmerge" in f
+    ]
+    for i in spaces:
+        print(i)
         m = safetensors.torch.load_file(
             os.path.join(merge_unmerge_directory, f"{i}_merge.safetensor")
         )
@@ -77,8 +83,8 @@ def main(
             os.path.join(merge_unmerge_directory, f"{i}_unmerge.safetensor")
         )
         merge_unmerge_dictionary[i] = (
-            m["running_residual"].to("cuda", dtype=dtype),
-            u["running_residual"].to("cuda", dtype=dtype),
+            m[i].to("cuda", dtype=dtype),
+            u[i].to("cuda", dtype=dtype),
         )
 
     # TODO: deal with the embedding matrix on both ends
@@ -118,10 +124,23 @@ def main(
                 w = (merge_matrix[0] @ w.T).T
                 w2 = (merge_matrix[1] @ w2.T).T
             else:
+                if merge_matrix[0].shape[-1] != w.shape[0]:
+                    # pull alternate merge matrix
+                    merge_matrix, _ = merge_unmerge_dictionary[
+                        weight_info.output_space + "_alternate"
+                    ]
+                    merge_matrix = merge_matrix.chunk(2, dim=1)
+
                 w = merge_matrix[0] @ w
                 w2 = merge_matrix[1] @ w2
 
         if unmerge_matrix is not None:
+            if unmerge_matrix[0].shape[0] != w.shape[-1]:
+                # pull alternate unmerge matrix
+                _, unmerge_matrix = merge_unmerge_dictionary[
+                    weight_info.input_space + "_alternate"
+                ]
+                unmerge_matrix = unmerge_matrix.chunk(2, dim=0)
             w = w @ unmerge_matrix[0]
             w2 = w2 @ unmerge_matrix[1]
 
@@ -145,7 +164,10 @@ def main(
             )
 
         # average weights and save them
-        w = (w + w2) / 2
+        if merge_matrix:
+            w = w + w2
+        else:
+            w = (w + w2) / 2
         writer.save_tensor(weight_info.name, w)
     writer.finalize()
 

@@ -13,9 +13,9 @@ pipe = pipeline(
 messages = [
     {
         "role": "system",
-        "content": "You are a friendly chatbot who always responds in the style of a pirate",
+        "content": "You are a helpful chatbot who pretends to be Richard Feynman",
     },
-    {"role": "user", "content": "How many helicopters can a human eat in one sitting?"},
+    {"role": "user", "content": "Could you tell me about the challenger disaster ?"},
 ]
 prompt = pipe.tokenizer.apply_chat_template(
     messages, tokenize=False, add_generation_prompt=True
