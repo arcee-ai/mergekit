@@ -11,8 +11,7 @@ import scipy
 import torch
 
 from mergekit.architecture import _template_substitution, get_architecture_info
-from mergekit.common import ModelReference, dtype_from_name
-from mergekit.scripts.zipit_utils import CovarianceMetric, remove_pads
+from mergekit.common import ModelReference
 
 
 def calc_correlation_matrix(feats):
