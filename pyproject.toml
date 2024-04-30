@@ -28,7 +28,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["black~=24.2.0", "isort~=5.13.2", "pre-commit~=3.6.2"]
 test = ["pytest~=8.0.1"]
-evolve = ["ray", "cma", "lm_eval", "flash-attn", "wandb"]
+evolve = ["ray", "cma", "lm_eval", "wandb"]
 vllm = ["vllm==0.3.2", "lm_eval[vllm]"]
 
 [project.urls]
