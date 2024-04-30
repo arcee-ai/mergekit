@@ -21,6 +21,7 @@ import click
 import cma
 import numpy as np
 import pandas
+import ray
 import torch
 import tqdm
 import transformers
@@ -311,7 +312,7 @@ def main(
         )
         xbest_cost = es.result.fbest
     except KeyboardInterrupt:
-        pass
+        ray.shutdown()
 
     print("!!! OPTIMIZATION COMPLETE !!!")
     print(f"Best cost: {xbest_cost:.4f}")
