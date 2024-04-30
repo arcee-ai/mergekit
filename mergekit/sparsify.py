@@ -21,6 +21,7 @@ import torch
 class SparsificationMethod(str, Enum):
     magnitude = "magnitude"
     random = "random"
+    magnitude_outliers = "magnitude_outliers"
 
 
 def rescale_sum(tensor: torch.Tensor, mask: torch.Tensor):
@@ -41,7 +42,7 @@ def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     if density >= 1:
         return tensor
 
-    k = int(density * tensor.view(-1).shape[0])
+    k = int(density * tensor.numel())
 
     assert k > 0, "not gonna zero out the whole tensor buddy"
     mask = torch.zeros_like(tensor)
@@ -56,6 +57,48 @@ def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     else:
         res = tensor * mask
 
+    return res
+
+
+def magnitude_outliers(
+    tensor: torch.Tensor, density: float, rescale: bool, gamma: float = 0.01
+):
+    """Masks out smallest values in addition to large outliers.
+
+    The `gamma` proportion of the largest weights are first removed, then the
+    smallest weights are removed to achieve the desired density.
+
+    Args:
+        tensor (torch.Tensor): The tensor to sparsify.
+        density (float): The proportion of weights to retain.
+        gamma (float): Percent of largest weights to remove.
+    """
+    if density >= 1:
+        return tensor
+
+    num_elems = tensor.numel()
+    target_n = int(density * num_elems)
+    n_top = int(gamma * num_elems)
+    n_bot = num_elems - target_n - n_top
+
+    if n_bot < 0:
+        # cut down on the number of large weights to remove in
+        # order to hit the target density
+        n_top += n_bot
+        n_bot = 0
+
+    w = tensor.abs().view(-1)
+    if w.device.type == "cpu":
+        w = w.float()
+    indices = torch.sort(w, descending=False).indices
+    mask = torch.zeros_like(tensor)
+
+    mask.view(-1)[indices[n_bot:-n_top]] = 1
+
+    if rescale:
+        res = rescale_sum(tensor, mask)
+    else:
+        res = tensor * mask
     return res
 
 
@@ -82,11 +125,14 @@ def sparsify(
     tensor: torch.Tensor,
     density: float,
     method: SparsificationMethod,
+    gamma: float = 0,
     rescale: bool = False,
 ) -> torch.Tensor:
     if method == SparsificationMethod.magnitude:
         return magnitude(tensor, density=density, rescale=rescale)
     elif method == SparsificationMethod.random:
         return bernoulli(tensor, density=density, rescale=rescale)
+    elif method == SparsificationMethod.magnitude_outliers:
+        return magnitude_outliers(tensor, density=density, rescale=rescale, gamma=gamma)
     else:
         raise NotImplementedError(method)
