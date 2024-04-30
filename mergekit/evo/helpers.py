@@ -27,9 +27,11 @@ import ray
 import ray.util.queue
 import ray.util.scheduling_strategies
 import torch
+import transformers
 
 from mergekit.evo.config import TaskConfiguration
 from mergekit.evo.genome import ModelGenome
+from mergekit.evo.monkeypatch import monkeypatch_lmeval_vllm
 from mergekit.merge import run_merge
 from mergekit.options import MergeOptions
 
@@ -68,6 +70,7 @@ def evaluate_model(
     task_manager: Optional[lm_eval.tasks.TaskManager] = None,
 ) -> float:
     # monkeypatch_tqdm()
+    monkeypatch_lmeval_vllm()
     try:
         model_args = {
             "pretrained": merged_path,

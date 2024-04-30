@@ -28,6 +28,7 @@ import ray.util.scheduling_strategies
 import torch
 import transformers
 from transformers.utils import is_flash_attn_2_available
+from transformers import AutoModelForCausalLM
 
 try:
     import vllm
@@ -40,7 +41,7 @@ from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import ModelGenome
 from mergekit.evo.helpers import _eval_model, evaluate_model, merge_model
-from mergekit.evo.monkeypatch import NoInit, monkeypatch_lmeval_shuffle
+from mergekit.evo.monkeypatch import NoInit, monkeypatch_lmeval_shuffle, monkeypatch_lmeval_vllm
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache, ReturnTensor
 from mergekit.merge import _model_out_config
@@ -73,6 +74,7 @@ class MergeActorBase:
             monkeypatch_lmeval_shuffle()
 
         # monkeypatch_tqdm()
+        monkeypatch_lmeval_vllm()
 
 
 @ray.remote(num_cpus=1, num_gpus=1.0)
