@@ -214,11 +214,14 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     max_model_len = 8192
                     logging.warn(f"Clipping sequence length to {max_model_len}")
 
+                mem_util = (
+                    0.7 if self.merge_options.cuda else 0.9
+                )  # reduce memory usage if we're also using cuda for the merge
                 self.model = lm_eval.models.vllm_causallms.VLLM(
                     pretrained=tempdir,
                     batch_size=self.batch_size or "auto",
                     max_model_len=max_model_len,
-                    gpu_memory_utilization=0.7,  # can't do 0.9 because the merge will OOM
+                    gpu_memory_utilization=mem_util,
                     dtype="bfloat16",
                     device="cuda",
                     trust_remote_code=self.merge_options.trust_remote_code,
