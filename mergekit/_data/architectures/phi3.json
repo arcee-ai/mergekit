@@ -1,0 +1,50 @@
+{
+    "model_type": "phi",
+    "architectures": [
+        "Phi3ForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "model.embed_tokens.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "lm_head.weight",
+            "is_embed": true
+        },
+        {
+            "name": "model.norm.weight"
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "model.layers.${layer_index}.input_layernorm.weight",
+                "is_embed": false
+            },
+            {
+                "name": "model.layers.${layer_index}.post_attention_layernorm.weight",
+                "is_embed": false
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.o_proj.weight",
+                "is_embed": false
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.qkv_proj.weight",
+                "is_embed": false
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.gate_up_proj.weight",
+                "is_embed": false
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.down_proj.weight",
+                "is_embed": false
+            }
+        ]
+    }
+}
