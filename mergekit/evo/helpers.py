@@ -27,7 +27,6 @@ import ray
 import ray.util.queue
 import ray.util.scheduling_strategies
 import torch
-import transformers
 
 from mergekit.evo.config import TaskConfiguration
 from mergekit.evo.genome import ModelGenome
