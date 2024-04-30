@@ -351,6 +351,7 @@ def _reshard_model(
         revision=merged.model.revision,
         trust_remote_code=trust_remote_code,
         torch_dtype=torch.bfloat16,
+        cache_dir=os.path.join(storage_path, "transformers_cache"),
     )
     model_hf.save_pretrained(
         out_path, safe_serialization=True, out_shard_size=1_000_000_000_000
