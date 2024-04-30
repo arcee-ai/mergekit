@@ -165,15 +165,18 @@ class InMemoryMergeEvaluator(MergeActorBase):
             if not different:
                 return
 
+        model_kwargs = {
+            "trust_remote_code": self.merge_options.trust_remote_code,
+            "torch_dtype": torch.bfloat16,
+        }
+        if is_flash_attn_2_available():
+            model_kwargs["attn_implementation"] = "flash_attention_2"
+
         with NoInit():
             inner_model = (
                 transformers.AutoModelForCausalLM.from_config(
                     cfg_out,
-                    trust_remote_code=self.merge_options.trust_remote_code,
-                    attn_implementation="flash_attention_2"
-                    if is_flash_attn_2_available()
-                    else "default",
-                    torch_dtype=torch.bfloat16,
+                    **model_kwargs,
                 )
                 .bfloat16()
                 .cuda()
