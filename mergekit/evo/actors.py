@@ -27,6 +27,7 @@ import ray.util.queue
 import ray.util.scheduling_strategies
 import torch
 import transformers
+from transformers.utils import is_flash_attn_2_available
 
 try:
     import vllm
@@ -39,7 +40,11 @@ from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import ModelGenome
 from mergekit.evo.helpers import _eval_model, evaluate_model, merge_model
-from mergekit.evo.monkeypatch import NoInit, monkeypatch_lmeval_shuffle
+from mergekit.evo.monkeypatch import (
+    NoInit,
+    monkeypatch_lmeval_shuffle,
+    monkeypatch_lmeval_vllm,
+)
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache, ReturnTensor
 from mergekit.merge import _model_out_config
@@ -72,6 +77,7 @@ class MergeActorBase:
             monkeypatch_lmeval_shuffle()
 
         # monkeypatch_tqdm()
+        monkeypatch_lmeval_vllm()
 
 
 @ray.remote(num_cpus=1, num_gpus=1.0)
@@ -164,13 +170,18 @@ class InMemoryMergeEvaluator(MergeActorBase):
             if not different:
                 return
 
+        model_kwargs = {
+            "trust_remote_code": self.merge_options.trust_remote_code,
+            "torch_dtype": torch.bfloat16,
+        }
+        if is_flash_attn_2_available():
+            model_kwargs["attn_implementation"] = "flash_attention_2"
+
         with NoInit():
             inner_model = (
                 transformers.AutoModelForCausalLM.from_config(
                     cfg_out,
-                    trust_remote_code=self.merge_options.trust_remote_code,
-                    attn_implementation="flash_attention_2",
-                    torch_dtype=torch.bfloat16,
+                    **model_kwargs,
                 )
                 .bfloat16()
                 .cuda()
@@ -203,11 +214,14 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     max_model_len = 8192
                     logging.warn(f"Clipping sequence length to {max_model_len}")
 
+                mem_util = (
+                    0.7 if self.merge_options.cuda else 0.9
+                )  # reduce memory usage if we're also using cuda for the merge
                 self.model = lm_eval.models.vllm_causallms.VLLM(
                     pretrained=tempdir,
                     batch_size=self.batch_size or "auto",
                     max_model_len=max_model_len,
-                    gpu_memory_utilization=0.7,  # can't do 0.9 because the merge will OOM
+                    gpu_memory_utilization=mem_util,
                     dtype="bfloat16",
                     device="cuda",
                     trust_remote_code=self.merge_options.trust_remote_code,
@@ -279,6 +293,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
             num_fewshot=self.config.num_fewshot,
             limit=self.config.limit,
             task_manager=self.task_manager,
+            batch_size=self.batch_size,
         )
 
     def evaluate_genotype(

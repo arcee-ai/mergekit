@@ -9,7 +9,7 @@ import torch
 from peft.tuners.lora import QuantLinear
 from safetensors.torch import save_file
 from tqdm import tqdm
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM
 from transformers.modeling_utils import PreTrainedModel
 
 from mergekit.card import generate_card_lora
@@ -215,8 +215,6 @@ def main(
 
     base_model_ref = ModelReference.parse(base_model)
     finetuned_model_ref = ModelReference.parse(finetuned_model)
-
-    base_model_config = AutoConfig.from_pretrained(base_model_ref.model.path)
 
     linear_module_names = get_linear_module_names(base_model_ref.model.path)
     finetuned_model_linear_module_names = get_linear_module_names(

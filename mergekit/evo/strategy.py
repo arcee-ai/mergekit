@@ -89,6 +89,7 @@ class ActorPoolEvaluationStrategy(EvaluationStrategyBase):
                     self.merge_options,
                     model_storage_path=self.model_storage_path,
                     vllm=vllm,
+                    batch_size=self.batch_size,
                     task_manager=self.task_manager,
                 )
                 for _ in range(self.num_gpus)

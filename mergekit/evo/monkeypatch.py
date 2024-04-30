@@ -100,6 +100,15 @@ def monkeypatch_tqdm(lm_eval: bool = True, mergekit: bool = True):
         mergekit.tokenizer.tqdm = fake_module
 
 
+def monkeypatch_lmeval_vllm():
+    # HACK: fix crash on some tasks due to unset AUTO_MODEL_CLASS for vLLM
+    import lm_eval.models.vllm_causallms
+
+    lm_eval.models.vllm_causallms.VLLM.AUTO_MODEL_CLASS = (
+        transformers.AutoModelForCausalLM
+    )
+
+
 class NoInit:
     def __enter__(self):
         def noop(*args, **kwargs):
