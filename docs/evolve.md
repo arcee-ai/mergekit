@@ -55,7 +55,7 @@ This should be a list of all of the models you want available to be merged. Depe
 
 #### `merge_method`
 
-Merge method to be used. Currently supported values are `linear`, `dare_tires`, `task_arithmetic`, `ties`, and `slerp`.
+Merge method to be used. Currently supported values are `linear`, `dare_ties`, `task_arithmetic`, `ties`, and `slerp`.
 
 #### `base_model`
 
@@ -75,7 +75,7 @@ Pretty self explanatory. When this flag is not set, the absolute value of weight
 
 ### Task Definition
 
-To evaluate the produced merges you need to specify a list of tasks supported by the LM evaluation harness. This can be either built in tasks (don't be naughty) or tasks you define yourself (see the [New Task Guide](https://github.com/EleutherAI/lm-evaluation-harness/blob/main/docs/new_task_guide.md) for how). If your task does not use `acc` as the metric then you must specify the correct metric name. Each task can also optionally have a weight associated.
+To evaluate the produced merges you need to specify a list of tasks supported by the EleutherAI LM evaluation harness. This can be either [built in tasks](https://github.com/EleutherAI/lm-evaluation-harness/tree/main/lm_eval/tasks) (don't be naughty) or tasks you define yourself (see the [New Task Guide](https://github.com/EleutherAI/lm-evaluation-harness/blob/main/docs/new_task_guide.md) for how). If your task does not use `acc` as the metric then you must specify the correct metric name. Each task can also optionally have a weight associated.
 
 `mergekit-evolve` aims to maximize the score of the merge, so if you are using any tasks or metrics where a lower score is better (like perplexity) be sure to assign a negative weight to that task.
 
