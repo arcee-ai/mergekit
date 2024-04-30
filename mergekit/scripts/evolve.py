@@ -317,9 +317,9 @@ def main(
     print(f"Best cost: {xbest_cost:.4f}")
     print()
 
-    # save the best merge configuration, using original (unsharded) model references
-    genome_unsharded = ModelGenome(config.genome, trust_remote_code=trust_remote_code)
-    best_config = genome_unsharded.genotype_merge_config(xbest)
+    # save the best merge configuration using original model references
+    genome_pretty = ModelGenome(config.genome, trust_remote_code=trust_remote_code)
+    best_config = genome_pretty.genotype_merge_config(xbest)
     print("Best merge configuration:")
     print(best_config.to_yaml())
 
