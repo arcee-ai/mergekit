@@ -285,6 +285,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
             num_fewshot=self.config.num_fewshot,
             limit=self.config.limit,
             task_manager=self.task_manager,
+            batch_size=self.batch_size,
         )
 
     def evaluate_genotype(
