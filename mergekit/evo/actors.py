@@ -27,6 +27,7 @@ import ray.util.queue
 import ray.util.scheduling_strategies
 import torch
 import transformers
+from transformers.utils import is_flash_attn_2_available
 
 try:
     import vllm
@@ -169,7 +170,9 @@ class InMemoryMergeEvaluator(MergeActorBase):
                 transformers.AutoModelForCausalLM.from_config(
                     cfg_out,
                     trust_remote_code=self.merge_options.trust_remote_code,
-                    attn_implementation="flash_attention_2",
+                    attn_implementation="flash_attention_2"
+                    if is_flash_attn_2_available()
+                    else "default",
                     torch_dtype=torch.bfloat16,
                 )
                 .bfloat16()
