@@ -44,6 +44,7 @@ from mergekit.evo.strategy import (
     BufferedRayEvaluationStrategy,
     SerialEvaluationStrategy,
 )
+from mergekit.merge import run_merge
 from mergekit.options import MergeOptions
 
 
@@ -93,6 +94,18 @@ from mergekit.options import MergeOptions
     default=False,
     help="Allow benchmark tasks as objectives",
 )
+@click.option(
+    "--save-final-model/--no-save-final-model",
+    is_flag=True,
+    default=True,
+    help="Save the final merged model",
+)
+@click.option(
+    "--reshard/--no-reshard",
+    is_flag=True,
+    default=True,
+    help="Convert models to single-shard safetensors for faster merge",
+)
 def main(
     genome_config_path: str,
     max_fevals: int,
@@ -112,6 +125,8 @@ def main(
     wandb_entity: Optional[str],
     task_search_path: List[str],
     allow_benchmark_tasks: bool,
+    save_final_model: bool,
+    reshard: bool,
 ):
     config = EvolMergeConfiguration.model_validate(
         yaml.safe_load(open(genome_config_path, "r", encoding="utf-8"))
@@ -146,21 +161,28 @@ def main(
     )
 
     # convert models to single-shard safetensors
-    resharded_models = []
-    resharded_base = None
-    for model in tqdm.tqdm(config.genome.models, desc="Resharding models"):
-        resharded_models.append(
-            _reshard_model(
-                model, storage_path, merge_options.lora_merge_cache, trust_remote_code
+    if reshard:
+        resharded_models = []
+        resharded_base = None
+        for model in tqdm.tqdm(config.genome.models, desc="Resharding models"):
+            resharded_models.append(
+                _reshard_model(
+                    model,
+                    storage_path,
+                    merge_options.lora_merge_cache,
+                    trust_remote_code,
+                )
             )
-        )
-    if config.genome.base_model is not None:
-        resharded_base = _reshard_model(
-            config.genome.base_model,
-            storage_path,
-            merge_options.lora_merge_cache,
-            trust_remote_code,
-        )
+        if config.genome.base_model is not None:
+            resharded_base = _reshard_model(
+                config.genome.base_model,
+                storage_path,
+                merge_options.lora_merge_cache,
+                trust_remote_code,
+            )
+    else:
+        resharded_models = config.genome.models
+        resharded_base = config.genome.base_model
 
     genome = ModelGenome(
         ModelGenomeDefinition.model_validate(
@@ -295,9 +317,15 @@ def main(
     print(f"Best cost: {xbest_cost:.4f}")
     print()
 
-    best_config = genome.genotype_merge_config(xbest)
+    # save the best merge configuration, using original (unsharded) model references
+    genome_unsharded = ModelGenome(config.genome, trust_remote_code=trust_remote_code)
+    best_config = genome_unsharded.genotype_merge_config(xbest)
     print("Best merge configuration:")
     print(best_config.to_yaml())
+
+    if save_final_model:
+        print("Saving final model...")
+        run_merge(best_config, os.path.join(storage_path, "final_model"), merge_options)
 
 
 def _reshard_model(
