@@ -41,10 +41,13 @@ class MoEMergeConfig(BaseModel):
 
     base_model: ModelReference
     experts: List[Expert]
-    gate_mode: str = "hidden"  # possible values: "hidden", "cheap_embed", "random"
+    gate_mode: str = (
+        "hidden"  # possible values: "hidden", "cheap_embed", "random", "uniform_random"
+    )
     # "hidden" uses hidden state vectors for the given prompts for each layer
     # "cheap_embed" uses the average of token embeddings for the prompts, same for each layer
     # "random" is random
+    # "uniform_random" matches default initialization for torch.nn.Linear
     dtype: Optional[str] = None
     experts_per_token: int = 2
     shared_experts: Optional[List[Expert]] = None

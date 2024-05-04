@@ -14,6 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import logging
+import math
 from typing import Dict, List, Union
 
 import torch
@@ -98,6 +99,17 @@ def get_gate_params(
     if mode == "random":
         return torch.randn(
             (model_cfg.num_hidden_layers, len(experts), model_cfg.hidden_size)
+        )
+    elif mode == "uniform_random":
+        in_features = model_cfg.hidden_size
+        scale = math.sqrt(1.0 / in_features)
+        return (
+            torch.rand(
+                (model_cfg.num_hidden_layers, len(experts), model_cfg.hidden_size)
+            )
+            * 2
+            * scale
+            - scale
         )
     elif mode == "cheap_embed":
         embed = model_ref.lazy_loader(lazy_unpickle=lazy_unpickle).get_tensor(
