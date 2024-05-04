@@ -50,7 +50,7 @@ class WeightInfo(BaseModel, frozen=True):
     input_space: Optional[str] = None
     output_space: Optional[str] = None
     optional: bool = False
-    aliases: Optional[List[str]] = None
+    aliases: Optional[Tuple[str, ...]] = None
     force_dtype: Optional[str] = None
 
 

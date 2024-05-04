@@ -19,17 +19,18 @@ import numpy as np
 import torch
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 class SlerpTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     base_model: ModelReference
     t: float
-    parameter_name: str
+    weight_info: WeightInfo
 
     def uses_accelerator(self) -> bool:
         return True
@@ -50,7 +51,7 @@ class SlerpTask(Task[torch.Tensor]):
             [a, b] = [b, a]
         prepped_tensors = [a[1], b[1]]
 
-        rectify_embed_sizes(self.parameter_name, prepped_tensors)
+        rectify_embed_sizes(self.weight_info, prepped_tensors)
 
         return (
             slerp(
@@ -82,7 +83,7 @@ class SlerpMerge(MergeMethod):
         return SlerpTask(
             gather_tensors=tensors,
             base_model=base_model,
-            parameter_name=output_weight.name,
+            weight_info=output_weight,
             t=parameters["t"],
         )
 
