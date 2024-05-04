@@ -113,3 +113,12 @@ experts:
       - "<|im_start|>user\nWie geht es dir?<|im_end|>"
       - "Das ist ein Satz auf Deutsch."
 ```
+
+## FAQ
+
+### What does the "Your model has duplicated tensors but the --clone-tensors flag is not set" warning mean?
+
+Answer from [Charles O. Goddard (cg123)](https://github.com/cg123)
+(also see [this GitHub issue](https://github.com/arcee-ai/mergekit/issues/279#issuecomment-2081818104)):
+
+> This is completely benign. This happens when a single tensor from a model is used in multiple places, like when doing sparse upcycling with the moe script or doing passthrough merges that repeat layers. Having `--clone-tensors` set can use slightly more memory, but having it unset will slow down saving and introduce small memory usage spikes in cases where this warning occurs. It's honestly a small enough difference that the warning could be removed entirely.
