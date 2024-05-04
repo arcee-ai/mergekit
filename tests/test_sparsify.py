@@ -28,6 +28,21 @@ class TestMagnitude:
         )
         assert torch.count_nonzero(result) == sample_tensor.view(-1).shape[0] // 2
 
+    def test_outliers(self, sample_tensor):
+        for gamma_0 in [0.1, 0.2, 0.5, 1.0]:
+            for density in [0.1, 0.3, 0.5, 0.6, 0.9, 1.0]:
+                sparsity = 1 - density
+                gamma = gamma_0 * sparsity
+                result = sparsify(
+                    sample_tensor,
+                    density=density,
+                    method=SparsificationMethod.magnitude_outliers,
+                    gamma=gamma,
+                )
+                assert torch.count_nonzero(result) == int(
+                    sample_tensor.view(-1).shape[0] * density
+                )
+
 
 class TestBernoulli:
     NUM_ITERATIONS = 1000
