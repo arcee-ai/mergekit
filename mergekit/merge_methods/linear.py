@@ -18,17 +18,18 @@ from typing import Any, Dict, List, Optional
 import torch
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 class LinearMergeTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
     normalize: bool
-    parameter_name: str
+    weight_info: WeightInfo
 
     def uses_accelerator(self) -> bool:
         return True
@@ -44,12 +45,12 @@ class LinearMergeTask(Task[torch.Tensor]):
         tensors = [tensors[key] for key in keys]
         weights = [self.tensor_parameters[key]["weight"] for key in keys]
 
-        rectify_embed_sizes(self.parameter_name, tensors)
+        rectify_embed_sizes(self.weight_info, tensors)
 
         unique_shapes = set(t.shape for t in tensors)
         if len(unique_shapes) != 1:
             raise RuntimeError(
-                f"Tensor size mismatch for {self.parameter_name}, sizes: {list(unique_shapes)}"
+                f"Tensor size mismatch for {self.weight_info.name}, sizes: {list(unique_shapes)}"
             )
 
         tensors = torch.stack(tensors, dim=0)
@@ -89,5 +90,5 @@ class LinearMerge(MergeMethod):
             gather_tensors=tensors,
             tensor_parameters=tensor_parameters,
             normalize=parameters["normalize"],
-            parameter_name=output_weight.name,
+            weight_info=output_weight,
         )
