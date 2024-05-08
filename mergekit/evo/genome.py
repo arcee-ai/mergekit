@@ -330,7 +330,7 @@ class ModelGenome:
             genotype = genotype.view(
                 self.num_layers // self.definition.layer_granularity,
                 len(self.definition.models),
-                3 if self.definition.split_components else 1,
+                len(self.definition.filters or []) + 1,
                 -1,
             )
 
