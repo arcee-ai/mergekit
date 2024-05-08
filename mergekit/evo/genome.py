@@ -358,7 +358,15 @@ class ModelGenome:
         ):
             for model_idx, model in enumerate(self.definition.models):
                 model_name = os.path.basename(model.model.path)
-                res[f"{model_name}_{param_name}"] = genotype[:, model_idx, idx]
+                for set_idx, filter_ in enumerate(
+                    (self.definition.filters or []) + [None]
+                ):
+                    suffix = ""
+                    if filter_ is not None:
+                        suffix = f"_{filter_}"
+                    res[f"{model_name}_{param_name}{suffix}"] = genotype[
+                        :, model_idx, set_idx, idx
+                    ]
 
         return res
 
