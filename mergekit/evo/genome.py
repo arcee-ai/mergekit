@@ -14,7 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import os
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -38,7 +38,7 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
     merge_method: str
     base_model: Optional[ModelReference] = None
     tokenizer_source: Optional[str] = None
-    layer_granularity: int = 1
+    layer_granularity: int = 0
     normalize: Optional[bool] = None
     allow_negative_weights: bool = False
     filters: Optional[List[str]] = None
@@ -47,7 +47,6 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
     @model_validator(mode="after")
     def validate(self):
         assert self.merge_method in METHOD_PARAM_MAPS, "Invalid merge method"
-        assert self.layer_granularity > 0, "layer_granularity must be positive"
 
         if self.merge_method in ["ties", "dare_ties", "task_arithmetic"]:
             assert self.base_model is not None, "base_model is required for this method"
@@ -77,12 +76,16 @@ class ModelGenome:
         self.num_layers = self._input_config_example.num_hidden_layers
 
         assert (
-            self.num_layers % self.definition.layer_granularity == 0
+            self.definition.layer_granularity < 1
+            or self.num_layers % self.definition.layer_granularity == 0
         ), "Number of layers must be a multiple of layer_granularity"
 
     def initial_genotype(self, random: bool = False) -> torch.Tensor:
         """Generate an initial genotype for the given number of layers."""
-        n_layer_groups = self.num_layers // self.definition.layer_granularity
+        if self.definition.layer_granularity > 0:
+            n_layer_groups = self.num_layers // self.definition.layer_granularity
+        else:
+            n_layer_groups = 1
         n_param_sets = len(self.definition.filters or []) + 1
         n_models = len(self.definition.models)
         n_params = len(METHOD_PARAM_MAPS[self.definition.merge_method])
@@ -106,7 +109,8 @@ class ModelGenome:
         genotype = self._to_torch(genotype)
 
         (n_layer_groups, n_models, n_param_sets, n_params) = genotype.shape
-        assert n_layer_groups * self.definition.layer_granularity == self.num_layers
+        if self.definition.layer_granularity > 0:
+            assert n_layer_groups * self.definition.layer_granularity == self.num_layers
         assert n_models == len(self.definition.models)
         assert n_params == len(METHOD_PARAM_MAPS[self.definition.merge_method])
 
@@ -233,11 +237,16 @@ class ModelGenome:
                         value = values[:, model_idx, set_idx]
                         filter_ = (self.definition.filters + [None])[set_idx]
                         params[param].append(
-                            {"filter": filter_, "value": value.tolist()}
+                            {
+                                "filter": filter_,
+                                "value": _unpack_single_element(value.tolist()),
+                            }
                         )
             else:
                 for param, values in param_arrays.items():
-                    params[param] = values[:, model_idx, 0].tolist()
+                    params[param] = _unpack_single_element(
+                        values[:, model_idx, 0].tolist()
+                    )
 
             models.append(
                 {
@@ -352,3 +361,9 @@ class ModelGenome:
                 res[f"{model_name}_{param_name}"] = genotype[:, model_idx, idx]
 
         return res
+
+
+def _unpack_single_element(x: List) -> Any:
+    if len(x) == 1:
+        return x[0]
+    return x
