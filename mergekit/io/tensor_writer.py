@@ -50,6 +50,9 @@ class TensorWriter:
         self.total_size = 0
 
     def save_tensor(self, name: str, tensor: torch.Tensor, clone: bool = False):
+        if not tensor.is_contiguous():
+            tensor = tensor.contiguous()
+
         tensor_size = tensor.numel() * tensor.element_size()
         if (
             self.current_shard
@@ -97,9 +100,9 @@ class TensorWriter:
         total_shards = self.shards_written
         name_remap = {}
         for idx in range(total_shards):
-            name_remap[
-                f"{prefix}-{idx+1}.{extension}"
-            ] = f"{prefix}-{idx+1:05d}-of-{total_shards:05d}.{extension}"
+            name_remap[f"{prefix}-{idx+1}.{extension}"] = (
+                f"{prefix}-{idx+1:05d}-of-{total_shards:05d}.{extension}"
+            )
 
         for old_name, new_name in name_remap.items():
             os.rename(
