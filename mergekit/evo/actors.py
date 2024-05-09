@@ -262,7 +262,11 @@ class InMemoryMergeEvaluator(MergeActorBase):
             ".up_proj.": (".gate_up_proj.", 1),
         }
 
-        executor = Executor(tasks, math_device="cuda", storage_device="cuda")
+        executor = Executor(
+            tasks,
+            math_device="cuda" if self.merge_options.cuda else "cpu",
+            storage_device="cuda" if self.merge_options.cuda else "cpu",
+        )
         for tensor_task, value in executor.run(quiet=True):
             assert isinstance(tensor_task, ReturnTensor)
             name = tensor_task.weight_info.name
