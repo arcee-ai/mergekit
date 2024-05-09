@@ -327,8 +327,13 @@ class ModelGenome:
         if not isinstance(genotype, torch.Tensor):
             genotype = torch.tensor(genotype)
         if len(genotype.shape) == 1:
+            num_layer_groups = (
+                self.num_layers // self.definition.layer_granularity
+                if self.definition.layer_granularity > 0
+                else 1
+            )
             genotype = genotype.view(
-                self.num_layers // self.definition.layer_granularity,
+                num_layer_groups,
                 len(self.definition.models),
                 len(self.definition.filters or []) + 1,
                 -1,
