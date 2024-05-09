@@ -81,7 +81,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             int8_mask=parameters["int8_mask"],
             normalize=parameters["normalize"],
             rescale=parameters["rescale"],
-            out_tensor_name=output_weight.name,
+            weight_info=output_weight,
         )
 
 
@@ -89,7 +89,7 @@ class GTATask(Task[torch.Tensor]):
     method: GeneralizedTaskArithmeticMerge
     tensors: GatherTensors
     base_model: ModelReference
-    out_tensor_name: str
+    weight_info: WeightInfo
     tensor_parameters: ImmutableMap[ModelReference, Any]
     int8_mask: bool
     normalize: bool
@@ -108,7 +108,7 @@ class GTATask(Task[torch.Tensor]):
     ) -> torch.Tensor:
         # collect task vectors
         tvs, base = get_task_vectors(
-            self.out_tensor_name,
+            self.weight_info,
             self.base_model,
             tensors,
             tensor_parameters=self.tensor_parameters.data,
@@ -166,13 +166,15 @@ class GTATask(Task[torch.Tensor]):
 
 
 def get_task_vectors(
-    parameter_name: str,
+    weight_info: WeightInfo,
     base_model: ModelReference,
     tensors: ImmutableMap[ModelReference, torch.Tensor],
     tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], torch.Tensor]:
     keys = list(tensors.keys())
     base = tensors[base_model]
+
+    parameter_name = weight_info.name
 
     res = []
     for model in keys:
@@ -181,7 +183,7 @@ def get_task_vectors(
 
         x = tensors[model].to(base.dtype)
         if x.shape != base.shape:
-            if "lm_head" in parameter_name or "embed_tokens" in parameter_name:
+            if weight_info.is_embed:
                 x = x[: base.shape[0], : base.shape[1]]
                 logging.warning(f"Using submatrix of {model}:{parameter_name}")
             else:

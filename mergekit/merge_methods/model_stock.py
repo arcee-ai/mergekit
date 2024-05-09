@@ -13,21 +13,23 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import logging
 from typing import Any, Dict, List, Optional
 
 import torch
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 class ModelStockMergeTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     base_model: ModelReference
-    parameter_name: str
+    weight_info: WeightInfo
     filter_wise: bool = False
 
     def uses_accelerator(self) -> bool:
@@ -40,6 +42,12 @@ class ModelStockMergeTask(Task[torch.Tensor]):
         if len(tensors) == 1 and self.base_model in tensors:
             return tensors[self.base_model]
         if len(tensors) < 3:
+            if self.weight_info.optional:
+                logging.warning(
+                    f"Optional weight {self.weight_info.name} not present in enough models, discarding"
+                )
+                return None
+
             raise ValueError(
                 "ModelStockMerge requires at least 3 models (base plus two+ others)"
             )
@@ -93,7 +101,7 @@ class ModelStockMergeTask(Task[torch.Tensor]):
         all_weights = [tensors[self.base_model]] + [
             tensors[k] for k in tensors if k != self.base_model
         ]
-        rectify_embed_sizes(self.parameter_name, all_weights)
+        rectify_embed_sizes(self.weight_info, all_weights)
         w_0 = all_weights[0]
         ws = all_weights[1:]
         return w_0, ws
@@ -120,6 +128,6 @@ class ModelStockMerge(MergeMethod):
         return ModelStockMergeTask(
             gather_tensors=tensors,
             base_model=base_model,
-            parameter_name=output_weight.name,
+            weight_info=output_weight,
             filter_wise=parameters["filter_wise"],
         )
