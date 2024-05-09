@@ -32,14 +32,16 @@ def _low_rank_decomposition(
             f"Only support 2D matrix, but your input has {weight.dim()} dimensions."
         )
 
+    dtype = weight.dtype
+
     # SVD Decomposition
-    U, S, Vh = torch.linalg.svd(weight, full_matrices=False)
+    U, S, Vh = torch.linalg.svd(weight.float(), full_matrices=False)
 
     # Truncated matrices
     A = Vh[:reduced_rank, :]
     B = U[:, :reduced_rank] @ torch.diag(S[:reduced_rank])
 
-    return A, B
+    return A.to(dtype), B.to(dtype)
 
 
 def decompose_delta_weight(
