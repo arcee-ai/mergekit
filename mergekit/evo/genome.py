@@ -14,7 +14,7 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import os
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -168,11 +168,12 @@ class ModelGenome:
     ) -> List[Dict]:
         """Generate merge config output slices for non-interpolated parameters."""
         slices = []
-        for layer_idx in range(
-            0,
-            n_layer_groups * self.definition.layer_granularity,
-            self.definition.layer_granularity,
-        ):
+        layer_step = (
+            self.definition.layer_granularity
+            if self.definition.layer_granularity > 0
+            else self.num_layers
+        )
+        for slice_idx in range(n_layer_groups):
             sources = []
             for model_idx, model in enumerate(self.definition.models):
                 params = {}
@@ -181,7 +182,7 @@ class ModelGenome:
                         params[param] = []
                         for set_idx in range(n_param_sets):
                             value = values[
-                                layer_idx // self.definition.layer_granularity,
+                                slice_idx,
                                 model_idx,
                                 set_idx,
                             ]
@@ -192,7 +193,7 @@ class ModelGenome:
                 else:
                     for param, values in param_arrays.items():
                         params[param] = values[
-                            layer_idx // self.definition.layer_granularity,
+                            slice_idx,
                             model_idx,
                             0,
                         ].item()
@@ -201,8 +202,8 @@ class ModelGenome:
                     {
                         "model": model,
                         "layer_range": [
-                            layer_idx,
-                            layer_idx + self.definition.layer_granularity,
+                            slice_idx * layer_step,
+                            (slice_idx + 1) * layer_step,
                         ],
                         "parameters": params,
                     }
@@ -215,8 +216,8 @@ class ModelGenome:
                     {
                         "model": self.definition.base_model,
                         "layer_range": [
-                            layer_idx,
-                            layer_idx + self.definition.layer_granularity,
+                            slice_idx * layer_step,
+                            (slice_idx + 1) * layer_step,
                         ],
                     }
                 )
@@ -271,19 +272,20 @@ class ModelGenome:
         splitting are not supported because it's too hard and I don't want to.
         """
         n_layer_groups, n_models, _, _ = genotype.shape
+        layer_step = (
+            self.definition.layer_granularity
+            if self.definition.layer_granularity > 0
+            else self.num_layers
+        )
         slices = []
-        for layer_idx in range(
-            0,
-            n_layer_groups * self.definition.layer_granularity,
-            self.definition.layer_granularity,
-        ):
+        for slice_idx in range(n_layer_groups):
             s = {
                 "sources": [
                     {
                         "model": self.definition.models[i],
                         "layer_range": [
-                            layer_idx,
-                            layer_idx + self.definition.layer_granularity,
+                            slice_idx * layer_step,
+                            (slice_idx + 1) * layer_step,
                         ],
                     }
                     for i in range(n_models)
@@ -292,9 +294,7 @@ class ModelGenome:
 
             # Choose the two models with the highest weight and
             # calculate the interpolation parameter t
-            chosen = torch.topk(
-                genotype[layer_idx // self.definition.layer_granularity, :, 0, 0], 2
-            )
+            chosen = torch.topk(genotype[slice_idx, :, 0, 0], 2)
             t = torch.softmax(chosen.values, dim=-1)[1].item()
             s["parameters"] = {"t": t}
             s["base_model"] = self.definition.models[chosen.indices[0].item()]
@@ -313,8 +313,8 @@ class ModelGenome:
                     {
                         "model": self.definition.base_model,
                         "layer_range": [
-                            layer_idx,
-                            layer_idx + self.definition.layer_granularity,
+                            slice_idx * layer_step,
+                            (slice_idx + 1) * layer_step,
                         ],
                     }
                 )
@@ -340,16 +340,6 @@ class ModelGenome:
             )
 
         return genotype
-
-    def gene_names(self) -> Dict[Tuple[int, int, int], str]:
-        """Return a mapping from genotype indices to names."""
-        res = {}
-        for i in range(self.num_layers // self.definition.layer_granularity):
-            for j in range(len(self.definition.models)):
-                for k in range(len(METHOD_PARAM_MAPS[self.definition.merge_method])):
-                    param_name = METHOD_PARAM_MAPS[self.definition.merge_method][k]
-                    res[(i, j, k)] = f"lg{i}_m{j}_{param_name}"
-        return res
 
     def genotype_to_param_arrays(
         self, genotype: Union[torch.Tensor, np.ndarray]
