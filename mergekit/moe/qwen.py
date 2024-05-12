@@ -69,10 +69,10 @@ class QwenMoE(MoEOutputArchitecture):
                     "Qwen MoE requires all input models to have the same architecture"
                 )
             return False
-        if model_types[0] not in ("llama", "mistral", "qwen"):
+        if model_types[0] not in ("llama", "mistral", "qwen2"):
             if explain:
                 logging.warning(
-                    "Qwen MoE requires all input models to be Llama or Mistral models"
+                    "Qwen MoE requires all input models to be Qwen2, Llama or Mistral models"
                 )
             return False
         return True
