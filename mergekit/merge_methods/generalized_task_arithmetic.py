@@ -181,11 +181,11 @@ def swapping_method(base, x, parameters):
            rows, cols = shape
            rows_range = torch.arange(rows).view(-1, 1)
            cols_range = torch.arange(cols).view(1, -1)
-           mask = ((rows_range + cols_range) % n == 0).bool()
+           mask = ((rows_range + cols_range) % n == 0).to(base.device.type).bool()
            x = torch.where(mask, x, base)
         else:
            rows_range = torch.arange(shape[0])
-           mask = ((rows_range) % n == 0).bool()
+           mask = ((rows_range) % n == 0).to(base.device.type).bool()
            x = torch.where(mask, x, base)
         return x
 
@@ -194,7 +194,7 @@ def swapping_method(base, x, parameters):
         if seed is not None:
             torch.manual_seed(seed)
         random = torch.rand(base.shape)
-        mask = random <= percent
+        mask = (random <= percent).to(base.device.type).bool()
         del random
         torch.manual_seed(oldseed)
         x = torch.where(mask, x, base) 
