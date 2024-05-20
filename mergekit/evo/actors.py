@@ -38,7 +38,7 @@ except ImportError:
 from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_info
 from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
-from mergekit.evo.genome import ModelGenome
+from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
 from mergekit.evo.helpers import _eval_model, evaluate_model, merge_model
 from mergekit.evo.monkeypatch import (
     NoInit,
@@ -94,13 +94,17 @@ class OnDiskMergeEvaluator(MergeActorBase):
     def evaluate_genotype(
         self,
         genotype: torch.Tensor,
-    ) -> float:
+    ) -> dict:
         gc.collect()
         torch.cuda.empty_cache()
         logging.info("Merging model")
         merged_path = merge_model(
             genotype, self.genome, self.model_storage_path, self.merge_options
         )
+        if not merged_path:
+            logging.error("Model merge failed")
+            return {"score": None, "results": None}
+
         logging.info(f"Model merged to {merged_path}")
         return evaluate_model(
             merged_path,
@@ -232,7 +236,12 @@ class InMemoryMergeEvaluator(MergeActorBase):
         logging.info("Model initialized")
 
     def evaluate(self, genotype: torch.Tensor) -> dict:
-        config = self.genome.genotype_merge_config(genotype)
+        try:
+            config = self.genome.genotype_merge_config(genotype)
+        except InvalidGenotypeError as e:
+            logging.error("Invalid genotype", exc_info=e)
+            return {"score": None, "results": None}
+
         self._maybe_init_model(config)
 
         planner = MergePlanner(
@@ -303,5 +312,5 @@ class InMemoryMergeEvaluator(MergeActorBase):
     def evaluate_genotype(
         self,
         genotype: torch.Tensor,
-    ) -> float:
+    ) -> dict:
         return self.evaluate(genotype)

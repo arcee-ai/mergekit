@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import logging
 import os
 from typing import Any, Dict, List, Optional, Union
 
@@ -31,6 +32,10 @@ METHOD_PARAM_MAPS = {
     "dare_ties": ["weight", "density"],
     "slerp": ["t"],
 }
+
+
+class InvalidGenotypeError(RuntimeError):
+    pass
 
 
 class ModelGenomeDefinition(BaseModel, frozen=True):
@@ -337,6 +342,12 @@ class ModelGenome:
                 len(self.definition.models),
                 len(self.definition.filters or []) + 1,
                 -1,
+            )
+
+        if len(genotype.shape) != 4:
+            logging.error(f"Invalid genotype shape: {genotype.shape}")
+            raise InvalidGenotypeError(
+                "Invalid genotype shape - must be 4D tensor or 1D array"
             )
 
         return genotype
