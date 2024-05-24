@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+
 from typing import Any, Dict, List, Optional, Tuple
 
 import bitsandbytes as bnb
@@ -16,16 +17,18 @@ from mergekit.card import generate_card_lora
 from mergekit.common import ModelReference
 from mergekit.io import LazyTensorLoader
 
-
 def _low_rank_decomposition(
-    weight: torch.Tensor, reduced_rank: int = 16
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    weight: torch.Tensor,
+    reduced_rank: int = 16,
+    min_fraction_variance: float = 1.0
+) -> Tuple[torch.Tensor, torch.Tensor, int]:
     """
-    Decompose a 2D matrix into low-rank matrices A and B using SVD.a
+    Decompose a 2D matrix into low-rank matrices A and B using SVD.
 
     :param weight: The matrix to decompose, of shape (H, W)
     :param reduced_rank: The final rank of the decomposition
-    :return: A tuple of tensors (A, B)
+    :param min_fraction_variance: Minimum fraction of variance explained
+    :return: A tuple of tensors (A, B, final_rank)
     """
     if weight.dim() != 2:
         raise ValueError(
@@ -37,24 +40,54 @@ def _low_rank_decomposition(
     # SVD Decomposition
     U, S, Vh = torch.linalg.svd(weight.float(), full_matrices=False)
 
-    # Truncated matrices
-    A = Vh[:reduced_rank, :]
-    B = U[:, :reduced_rank] @ torch.diag(S[:reduced_rank])
+    # Square the singular values
+    S_squared = S ** 2
 
-    return A.to(dtype), B.to(dtype)
+    # Compute the total sum of squares
+    total_sum_of_squares = S_squared.sum().item()
+
+    # Compute the cumulative variance explained
+    cumulative_variance_explained = torch.cumsum(S_squared, dim=0) / total_sum_of_squares
+    
+    # Set the final rank based on the value we were given.
+    final_rank = reduced_rank
+    
+    # Reduce the rank if we have enough variance explained
+    if min_fraction_variance < 1:
+        rank_based_on_variance = torch.searchsorted(cumulative_variance_explained, min_fraction_variance).item() + 1
+        final_rank = min(final_rank, rank_based_on_variance)
+
+    # Truncate matrices based on the final rank
+    A = Vh[:final_rank, :]
+    B = U[:, :final_rank] @ torch.diag(S[:final_rank])
+
+    # Print the cumulative variance explained up to final_rank and a few values after it
+    #print("Cumulative variance explained (up to and beyond final_rank):")
+    #for i, variance in enumerate(cumulative_variance_explained[:final_rank + 5]):
+    #    if i == final_rank - 1:
+    #        print(f"--> Rank {i + 1}: {variance.item()} (selected)")
+    #    else:
+    #        print(f"    Rank {i + 1}: {variance.item()}")
+            
+    return A.to(dtype), B.to(dtype), final_rank
 
 
 def decompose_delta_weight(
     new_weight: torch.Tensor,
     base_weight: torch.Tensor,
     reduced_rank: int,
+    min_fraction_variance: float,
     device: Optional[str] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, int]:
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
     new_weight = new_weight.to(device)
     base_weight = base_weight.to(device)
+    
+    # Truncate new_weight to match the dimensions of base_weight
+    if new_weight.shape != base_weight.shape:
+        new_weight = new_weight[:base_weight.shape[0], :base_weight.shape[1]]
 
     """
     Decompose the delta weight into low-rank matrices A and B.
@@ -62,6 +95,7 @@ def decompose_delta_weight(
     :param new_weight: The updated weight matrix after applying LoRA.
     :param base_weight: The original weight matrix before LoRA.
     :param reduced_rank: The rank for the low-rank decomposition.
+    :param min_fraction_variance: Minimum fraction of variance explained.
     :param device: The device to perform computation on.
     :return: A tuple of tensors (A, B)
     """
@@ -72,9 +106,13 @@ def decompose_delta_weight(
         reduced_rank <= max_rank
     ), f"The specified rank ({reduced_rank}) must be smaller than or equal to the rank of the weight matrices ({max_rank})"
 
-    A, B = _low_rank_decomposition(delta_weight, reduced_rank=reduced_rank)
+    assert (
+        0 < min_fraction_variance <= 1
+    ), f"The min_fraction_variance ({min_fraction_variance}) must be in the range (0, 1]."
+    
+    A, B, final_rank = _low_rank_decomposition(delta_weight, reduced_rank=reduced_rank, min_fraction_variance=min_fraction_variance)
 
-    return A, B
+    return A, B, final_rank
 
 
 def find_all_linear_names(model: PreTrainedModel) -> List[str]:
@@ -102,7 +140,7 @@ def get_linear_module_names(model_id: str) -> List[str]:
 
 
 def create_peft_config(
-    base_model_name_or_path: str, rank: int, alpha: int, target_modules: List[str]
+    base_model_name_or_path: str, rank: int, rank_pattern: Dict[str, int], alpha: int, target_modules: List[str]
 ) -> Dict[str, Any]:
     return {
         "alpha_pattern": {},
@@ -122,7 +160,7 @@ def create_peft_config(
         "modules_to_save": None,
         "peft_type": "LORA",
         "r": rank,
-        "rank_pattern": {},
+        "rank_pattern": rank_pattern,
         "revision": None,
         "target_modules": target_modules,
         "task_type": "CAUSAL_LM",
@@ -147,7 +185,10 @@ def reconstruct_invocation(args):
     invocation = f"mergekit-extract-lora {args['base_model']} {args['finetuned_model']} {out_path}"
     if args.get("no_lazy_unpickle"):
         invocation += " --no-lazy-unpickle"
-    invocation += f" --rank={args['desired_rank']}"
+    if args.get("desired_rank"):
+        invocation += f" --rank={args['desired_rank']}"
+    if args.get("min_fraction_variance"):
+        invocation += f" --min_fraction_variance={args['min_fraction_variance']}"
     if args.get("model_name"):
         invocation += f" --model_name={args['model_name']}"
     if args.get("device"):
@@ -173,6 +214,12 @@ def reconstruct_invocation(args):
     help="Rank for the low-rank decomposition",
 )
 @click.option(
+    "--min_fraction_variance",
+    type=float,
+    default=1.0,
+    help="Minimum fraction of variance explained (default is 1.0, which means all variance)",
+)
+@click.option(
     "--model_name",
     type=str,
     default=None,
@@ -190,6 +237,7 @@ def main(
     out_path: str,
     no_lazy_unpickle: bool,
     desired_rank: int,
+    min_fraction_variance: float,
     model_name: str,
     device: str,
 ) -> None:
@@ -207,6 +255,7 @@ def main(
         "base_model": base_model,
         "finetuned_model": finetuned_model,
         "desired_rank": desired_rank,
+        "min_fraction_variance": min_fraction_variance,
         "device": device,
         "out_path": out_path,
         "model_name": model_name,
@@ -235,12 +284,13 @@ def main(
     )
 
     lora_weights = {}
+    rank_pattern = {}
     for layer_name in tqdm(linear_module_names):
         base_weight = base_loader.get_tensor(f"{layer_name}.weight")
         finetuned_weight = finetuned_loader.get_tensor(f"{layer_name}.weight")
 
-        lora_A, lora_B = decompose_delta_weight(
-            finetuned_weight, base_weight, desired_rank, device=device
+        lora_A, lora_B, final_rank = decompose_delta_weight(
+            finetuned_weight, base_weight, desired_rank, min_fraction_variance, device=device
         )
 
         lora_weights[f"base_model.model.{layer_name}.lora_A.weight"] = lora_A.to(
@@ -250,10 +300,20 @@ def main(
             "cpu"
         ).contiguous()
 
+        # Add the final rank to the rank_pattern dictionary only if it is different from the desired_rank
+        if final_rank != desired_rank:
+            rank_pattern[layer_name] = final_rank
+            
+        #print(f"--> {layer_name} : {final_rank}")
+
+    # Sort the rank_pattern dictionary by layer names to ensure 'rank_pattern' isn't in a random order.
+    rank_pattern = {k: rank_pattern[k] for k in sorted(rank_pattern)}
+
     lora_config = create_peft_config(
         base_model_name_or_path=base_model_ref.model.path,
         alpha=desired_rank,  # Setting the alpha to the reduced rank value as `peft` will scale the LoRA weights by alpha/r when applying the adapter
         rank=desired_rank,
+        rank_pattern=rank_pattern if rank_pattern else None,  # Pass the rank_pattern dictionary if we have some that need it
         target_modules=list(
             set([module_name.split(".")[-1] for module_name in linear_module_names])
         ),
