@@ -313,7 +313,7 @@ def main(
         base_model_name_or_path=base_model_ref.model.path,
         alpha=desired_rank,  # Setting the alpha to the reduced rank value as `peft` will scale the LoRA weights by alpha/r when applying the adapter
         rank=desired_rank,
-        rank_pattern=rank_pattern if rank_pattern else None,  # Pass the rank_pattern dictionary if we have some that need it
+        rank_pattern=rank_pattern,
         target_modules=list(
             set([module_name.split(".")[-1] for module_name in linear_module_names])
         ),
