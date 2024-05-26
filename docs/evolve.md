@@ -1,6 +1,6 @@
 # mergekit-evolve
 
-`mergekit-evolve` is a script that uses an evolutionary algorithm (CMA-ES) to optimize the parameters of a merge against model metrics. This is inspired by SakanaAI's [Evolutionary Optimization of Model Merging Recipes](https://arxiv.org/abs/2403.13187), in particular their parameter-space approach. `mergekit-evolve` uses EleutherAI's [Language Model Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness) to define and evaluate the scoring function.  The script is set up to be run either single-node or on a Ray cluster and has a few different strategies for scheduling operations depending on your particular configuration of compute.
+`mergekit-evolve` is a script that uses an evolutionary algorithm (CMA-ES) to optimize the parameters of a merge against model metrics. This is inspired by SakanaAI's [Evolutionary Optimization of Model Merging Recipes](https://arxiv.org/abs/2403.13187), in particular their parameter-space approach. `mergekit-evolve` uses EleutherAI's [Language Model Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness) to define and evaluate the scoring function. The script is set up to be run either single-node or on a Ray cluster and has a few different strategies for scheduling operations depending on your particular configuration of compute.
 
 ## Installation
 
@@ -36,8 +36,12 @@ genome:
     base_model: base_model_if_needed
     tokenizer_source: null # optional
     layer_granularity: 8
-    normalize: false # optional
-    allow_negative_weights: false # optional
+
+    # optional:
+    normalize: false
+    allow_negative_weights: false
+    smooth: false
+    filters: ...
 tasks:
   - name: lm_eval_task_name
     weight: 1.0 # optional
@@ -65,6 +69,8 @@ The base model for the merge, if applicable.
 
 A set of parameters will be introduced for each consecutive slice of `layer_granularity` layers. So for example, a 32-layer model like `mistralai/Mistral-7B-v0.1` with `layer_granularity: 8` will be divided into 4 groups of 8 layers with different merge parameters for each. The value specified here must be a divisor of the number of layers in your input models. Large values of `layer_granularity` will reduce the search space greatly, meaning you will get faster convergence at the cost of a potentially less good global solution.
 
+When not set, one set of parameters will be used for all layers.
+
 #### `normalize`
 
 Sets the `normalize` flag when merging. For methods like `linear`, `ties`, and `dare_ties` this constrains the search space to a set of definitely valid models. Similarly to `layer_granularity`, this can greatly speed up convergence at the cost of ruling out oddball solutions that might score better than more standard merges.
@@ -72,6 +78,22 @@ Sets the `normalize` flag when merging. For methods like `linear`, `ties`, and `
 #### `allow_negative_weights`
 
 Pretty self explanatory. When this flag is not set, the absolute value of weight parameters is used. Sensible search space reduction for `linear` and `slerp`. For task arithmetic based methods you probably want `allow_negative_weights: true`.
+
+#### `smooth`
+
+If set to `true`, then parameter values will be interpolated across layers instead of assigning a single, fixed value to each block.
+
+#### `filters`
+
+Accepts a list of filters, as in `mergekit-yaml`, by which to separate the parameters. So, for example, setting filters as below for a Llama-based merge:
+
+```yaml
+filters:
+  - self_attn
+  - mlp
+```
+
+Will divide up the merge parameters into three groups - self attention parameters, MLP parameters, and a third for everything else. Separating the parameters out like this can be very beneficial when merging models trained on different prompt formats. It also makes your parameter space three times as big though!
 
 ### Task Definition
 
@@ -85,7 +107,7 @@ To evaluate the produced merges you need to specify a list of tasks supported by
 mergekit-evolve [OPTIONS] --storage-path PATH GENOME_CONFIG_PATH
 ```
 
-`mergekit-evolve` needs a storage path specified, where it will save the input models, merges to evaluate, and the config for the current best merge evaluated. If you are not using in-memory merging this can require a *lot* of space - expect at least one fp16 model per GPU.
+`mergekit-evolve` needs a storage path specified, where it will save the input models, merges to evaluate, and the config for the current best merge evaluated. If you are not using in-memory merging this can require a _lot_ of space - expect at least one fp16 model per GPU.
 
 Some important options:
 

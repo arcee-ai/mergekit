@@ -174,6 +174,8 @@ class InMemoryMergeEvaluator(MergeActorBase):
             if not different:
                 return
 
+        self.inner_model = None
+
         model_kwargs = {
             "trust_remote_code": self.merge_options.trust_remote_code,
             "torch_dtype": torch.bfloat16,
@@ -202,8 +204,14 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     tempdir, safe_serialization=True, out_shard_size=1_000_000_000_000
                 )
                 del inner_model
+                tokenizer_donor = self.genome.definition.base_model
+                if tokenizer_donor is None:
+                    logging.warning(
+                        f"Base model not set, using tokenizer from first model in genome"
+                    )
+                    tokenizer_donor = self.genome.definition.models[0]
                 tok = transformers.AutoTokenizer.from_pretrained(
-                    self.genome.definition.base_model.model.path, use_fast=True
+                    tokenizer_donor.model.path, use_fast=True
                 )
                 tok.save_pretrained(tempdir)
 
