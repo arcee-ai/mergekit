@@ -107,6 +107,12 @@ from mergekit.options import MergeOptions
     default=True,
     help="Convert models to single-shard safetensors for faster merge",
 )
+@click.option(
+    "--timeout",
+    type=float,
+    default=None,
+    help="Maximum time to run the optimization in seconds",
+)
 def main(
     genome_config_path: str,
     max_fevals: int,
@@ -128,6 +134,7 @@ def main(
     allow_benchmark_tasks: bool,
     save_final_model: bool,
     reshard: bool,
+    timeout: Optional[float],
 ):
     config = EvolMergeConfiguration.model_validate(
         yaml.safe_load(open(genome_config_path, "r", encoding="utf-8"))
@@ -307,7 +314,7 @@ def main(
             parallel_objective=parallel_evaluate,
             x0=x0,
             sigma0=sigma0,
-            options={"maxfevals": max_fevals},
+            options={"maxfevals": max_fevals, "timeout": timeout},
             callback=progress_callback,
         )
         xbest_cost = es.result.fbest
