@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
 import tqdm
@@ -29,7 +29,7 @@ def initialize_io(
     config: MoEMergeConfig,
     out_path: str,
     merge_options: MergeOptions,
-) -> tuple[Dict[ModelReference, LazyTensorLoader], LazyTensorLoader, TensorWriter]:
+) -> Tuple[Dict[ModelReference, LazyTensorLoader], LazyTensorLoader, TensorWriter]:
     base_model = config.base_model
     loaders: Dict[ModelReference, LazyTensorLoader] = {}
     for model in tqdm.tqdm(
