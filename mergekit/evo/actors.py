@@ -38,7 +38,7 @@ except ImportError:
 from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_info
 from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
-from mergekit.evo.genome import ModelGenome
+from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
 from mergekit.evo.helpers import _eval_model, evaluate_model, merge_model
 from mergekit.evo.monkeypatch import (
     NoInit,
@@ -94,13 +94,17 @@ class OnDiskMergeEvaluator(MergeActorBase):
     def evaluate_genotype(
         self,
         genotype: torch.Tensor,
-    ) -> float:
+    ) -> dict:
         gc.collect()
         torch.cuda.empty_cache()
         logging.info("Merging model")
         merged_path = merge_model(
             genotype, self.genome, self.model_storage_path, self.merge_options
         )
+        if not merged_path:
+            logging.error("Model merge failed")
+            return {"score": None, "results": None}
+
         logging.info(f"Model merged to {merged_path}")
         return evaluate_model(
             merged_path,
@@ -170,6 +174,8 @@ class InMemoryMergeEvaluator(MergeActorBase):
             if not different:
                 return
 
+        self.inner_model = None
+
         model_kwargs = {
             "trust_remote_code": self.merge_options.trust_remote_code,
             "torch_dtype": torch.bfloat16,
@@ -198,8 +204,14 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     tempdir, safe_serialization=True, out_shard_size=1_000_000_000_000
                 )
                 del inner_model
+                tokenizer_donor = self.genome.definition.base_model
+                if tokenizer_donor is None:
+                    logging.warning(
+                        f"Base model not set, using tokenizer from first model in genome"
+                    )
+                    tokenizer_donor = self.genome.definition.models[0]
                 tok = transformers.AutoTokenizer.from_pretrained(
-                    self.genome.definition.base_model.model.path, use_fast=True
+                    tokenizer_donor.model.path, use_fast=True
                 )
                 tok.save_pretrained(tempdir)
 
@@ -232,7 +244,12 @@ class InMemoryMergeEvaluator(MergeActorBase):
         logging.info("Model initialized")
 
     def evaluate(self, genotype: torch.Tensor) -> dict:
-        config = self.genome.genotype_merge_config(genotype)
+        try:
+            config = self.genome.genotype_merge_config(genotype)
+        except InvalidGenotypeError as e:
+            logging.error("Invalid genotype", exc_info=e)
+            return {"score": None, "results": None}
+
         self._maybe_init_model(config)
 
         planner = MergePlanner(
@@ -262,7 +279,11 @@ class InMemoryMergeEvaluator(MergeActorBase):
             ".up_proj.": (".gate_up_proj.", 1),
         }
 
-        executor = Executor(tasks, math_device="cuda", storage_device="cuda")
+        executor = Executor(
+            tasks,
+            math_device="cuda" if self.merge_options.cuda else "cpu",
+            storage_device="cuda" if self.merge_options.cuda else "cpu",
+        )
         for tensor_task, value in executor.run(quiet=True):
             assert isinstance(tensor_task, ReturnTensor)
             name = tensor_task.weight_info.name
@@ -299,5 +320,5 @@ class InMemoryMergeEvaluator(MergeActorBase):
     def evaluate_genotype(
         self,
         genotype: torch.Tensor,
-    ) -> float:
+    ) -> dict:
         return self.evaluate(genotype)

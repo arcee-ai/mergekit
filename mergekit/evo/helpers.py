@@ -29,7 +29,7 @@ import ray.util.scheduling_strategies
 import torch
 
 from mergekit.evo.config import TaskConfiguration
-from mergekit.evo.genome import ModelGenome
+from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
 from mergekit.evo.monkeypatch import monkeypatch_lmeval_vllm
 from mergekit.merge import run_merge
 from mergekit.options import MergeOptions
@@ -67,7 +67,7 @@ def evaluate_model(
     vllm: bool,
     batch_size: Optional[int] = None,
     task_manager: Optional[lm_eval.tasks.TaskManager] = None,
-) -> float:
+) -> dict:
     # monkeypatch_tqdm()
     monkeypatch_lmeval_vllm()
     try:
@@ -107,7 +107,11 @@ def merge_model(
     merge_options: MergeOptions,
 ) -> str:
     # monkeypatch_tqdm()
-    cfg = genome.genotype_merge_config(genotype)
+    try:
+        cfg = genome.genotype_merge_config(genotype)
+    except InvalidGenotypeError as e:
+        logging.error("Invalid genotype", exc_info=e)
+        return None
     os.makedirs(model_storage_path, exist_ok=True)
     res = tempfile.mkdtemp(prefix="merged", dir=model_storage_path)
     run_merge(cfg, out_path=res, options=merge_options)

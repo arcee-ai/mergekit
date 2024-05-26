@@ -55,11 +55,11 @@ class EvaluationStrategyBase(ABC):
             os.makedirs(self.model_storage_path, exist_ok=True)
 
     @abstractmethod
-    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
+    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[dict]:
         pass
 
     @abstractmethod
-    def evaluate_genotype(self, genotype: np.ndarray) -> float:
+    def evaluate_genotype(self, genotype: np.ndarray) -> dict:
         pass
 
 
@@ -96,7 +96,7 @@ class ActorPoolEvaluationStrategy(EvaluationStrategyBase):
             ]
         )
 
-    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
+    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[dict]:
         return list(
             self.actor_pool.map(
                 lambda a, x: a.evaluate_genotype.remote(x),
@@ -104,7 +104,7 @@ class ActorPoolEvaluationStrategy(EvaluationStrategyBase):
             )
         )
 
-    def evaluate_genotype(self, genotype: np.ndarray) -> float:
+    def evaluate_genotype(self, genotype: np.ndarray) -> dict:
         return self.evaluate_genotypes([genotype])[0]
 
 
@@ -250,6 +250,8 @@ def evaluate_genotype_serial(
     merged_path = merge_model_ray.options(scheduling_strategy=strat).remote(
         genotype, genome, model_storage_path, merge_options
     )
+    if not merged_path:
+        return {"score": None, "results": None}
     res = ray.get(
         evaluate_model_ray.options(scheduling_strategy=strat).remote(
             merged_path,
@@ -278,7 +280,7 @@ class SerialEvaluationStrategy(EvaluationStrategyBase):
             raise ValueError("In-memory evaluation is not supported for serial mode")
         super().__init__(*args, **kwargs)
 
-    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[float]:
+    def evaluate_genotypes(self, genotypes: List[np.ndarray]) -> List[dict]:
         return ray.get(
             [
                 evaluate_genotype_serial.remote(
@@ -295,5 +297,5 @@ class SerialEvaluationStrategy(EvaluationStrategyBase):
             ]
         )
 
-    def evaluate_genotype(self, genotype: np.ndarray) -> float:
+    def evaluate_genotype(self, genotype: np.ndarray) -> dict:
         return self.evaluate_genotypes([genotype])[0]
