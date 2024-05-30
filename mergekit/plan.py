@@ -42,7 +42,7 @@ from mergekit.io.tasks import (
 from mergekit.merge_methods import MergeMethod
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 from mergekit.options import MergeOptions
-from mergekit.tokenizer import BuildTokenizer
+from mergekit.tokenizer.build import BuildTokenizer
 
 
 class MergePlanner:

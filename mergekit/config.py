@@ -17,7 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
 from pydantic import BaseModel, model_validator
-from typing_extensions import TypeAlias
+from typing_extensions import Literal, TypeAlias
 
 from mergekit.common import ModelReference
 
@@ -88,7 +88,9 @@ class MergeConfiguration(BaseModel):
     parameters: Optional[Dict[str, ParameterSetting]] = None
     base_model: Optional[ModelReference] = None
     dtype: Optional[str] = None
-    tokenizer_source: Optional[str] = None
+    tokenizer_source: Union[Literal["union"], Literal["base"], ModelReference, None] = (
+        None
+    )
 
     def referenced_models(self) -> List[ModelReference]:
         models = set()

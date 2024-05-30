@@ -131,7 +131,7 @@ class TestTokenizerMerges:
         config = self.make_config(
             [model_base, model_padded, model_chatml],
             base_model=model_base,
-            tokenizer_source="model:" + model_chatml,
+            tokenizer_source=model_chatml,
         )
         # tokenizer should match model_chatml
         run_and_check_merge(

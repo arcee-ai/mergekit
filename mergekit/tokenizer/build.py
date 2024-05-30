@@ -16,7 +16,8 @@
 import json
 import logging
 import tempfile
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
+from typing_extensions import Literal
 
 import tokenizers
 import tokenizers.models
@@ -172,7 +173,7 @@ def build_union_tokenizer(
 def build_tokenizer(
     base_model: Optional[ModelReference],
     referenced_models: List[ModelReference],
-    tokenizer_source: str,
+    tokenizer_source: Union[Literal["union"], Literal["base"], ModelReference],
     trust_remote_code: bool,
 ) -> Tuple[transformers.PreTrainedTokenizer, Dict[ModelReference, torch.IntTensor]]:
     if base_model is None:
@@ -208,17 +209,18 @@ def build_tokenizer(
 
     logging.info("Building output tokenizer")
     # build final vocabulary
-    if tokenizer_source == "base":
+    if isinstance(tokenizer_source, ModelReference):
+        tokenizer_out = transformers.AutoTokenizer.from_pretrained(
+            tokenizer_source.model.path,
+            revision=tokenizer_source.model.revision,
+            trust_remote_code=trust_remote_code,
+        )
+    elif tokenizer_source == "base":
         # it done
         tokenizer_out = tokenizer_base
     elif tokenizer_source == "union":
         tokenizer_out = build_union_tokenizer(
             tokenizer_base, tokenizers, trust_remote_code=trust_remote_code
-        )
-    elif tokenizer_source.startswith("model:"):
-        tokenizer_out = transformers.AutoTokenizer.from_pretrained(
-            tokenizer_source[len("model:") :],
-            trust_remote_code=trust_remote_code,
         )
     else:
         raise RuntimeError(f"Unimplemented tokenizer source: {tokenizer_source}")
@@ -270,7 +272,7 @@ class TokenizerInfo(BaseModel, arbitrary_types_allowed=True):
 class BuildTokenizer(Task[TokenizerInfo]):
     base_model: Optional[ModelReference]
     referenced_models: Tuple[ModelReference, ...]
-    tokenizer_source: str
+    tokenizer_source: Union[Literal["union"], Literal["base"], ModelReference]
     trust_remote_code: bool = False
 
     def arguments(self) -> Dict[str, Task]:
