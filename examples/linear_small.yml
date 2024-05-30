@@ -1,0 +1,10 @@
+models:
+  - model: BEE-spoke-data/smol_llama-220M-GQA
+
+  - model: BEE-spoke-data/smol_llama-220M-openhermes
+
+  # - model: psmathur/orca_mini_v3_13b
+  # - model: garage-bAInd/Platypus2-13B
+
+metric_method: scale
+dtype: float32

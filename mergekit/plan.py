@@ -17,7 +17,7 @@ import logging
 from functools import lru_cache
 from typing import Any, List, Optional, Tuple
 
-from mergekit import merge_methods
+from mergekit import merge_methods, metric_methods
 from mergekit.architecture import (
     ArchitectureInfo,
     ConfiguredArchitectureInfo,
@@ -40,6 +40,7 @@ from mergekit.io.tasks import (
     TensorWriterTask,
 )
 from mergekit.merge_methods import MergeMethod
+from mergekit.metric_methods import MetricMethod
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 from mergekit.options import MergeOptions
 from mergekit.tokenizer import BuildTokenizer
@@ -66,7 +67,10 @@ class MergePlanner:
         self.arch_info = arch_info
         self.options = options
         self.out_model_config = out_model_config
-        self._method = merge_methods.get(config.merge_method)
+        if getattr(config, "merge_method", None):
+            self._method = merge_methods.get(config.merge_method)
+        elif getattr(config, "metric_method", None):
+            self._method = metric_methods.get(config.metric_method)
 
         if config.tokenizer_source:
             self._tokenizer_task = BuildTokenizer(
@@ -246,31 +250,13 @@ class MergePlanner:
         """Plan the merge to be streamed to disk, returning a list of tasks."""
         self._plan()
 
-        writer_task = TensorWriterTask(
-            out_path=out_path,
-            max_shard_size=self.options.out_shard_size,
-            safe_serialization=self.options.safe_serialization,
-        )
         save_tasks = []
         for weight, tensor_task in self._tensors:
             save_tasks.append(
-                SaveTensor(
-                    tensor_name=weight.name,
-                    tensor_task=tensor_task,
-                    writer_task=writer_task,
-                    clone=self.options.clone_tensors,
-                    optional=weight.optional,
-                    dtype=weight.force_dtype,
-                )
+                tensor_task
             )
-        finalize = FinalizeModel(
-            tensor_save_tasks=tuple(save_tasks), writer_task=writer_task
-        )
 
-        res = save_tasks + [finalize]
-        if self._tokenizer_task:
-            res.append(self._tokenizer_task)
-        return res
+        return save_tasks
 
     def plan_in_memory(self) -> List[ReturnTensor]:
         """Plan the merge to be performed in memory."""
