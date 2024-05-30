@@ -13,25 +13,22 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Dict, Optional
-import torch
 import logging
-from mergekit.tokenizer.config import (
-    TokenizerConfig,
-    TokenEmbeddingConfig,
-    TokenAverageEmbedding,
-    ZeroEmbedding,
-)
-from mergekit.tokenizer.build import BuildTokenizer, TokenizerInfo
+from typing import Dict, Optional
+
+import torch
+
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.common import ModelReference
 from mergekit.io.tasks import GatherTensors
+from mergekit.tokenizer.build import BuildTokenizer, TokenizerInfo
+from mergekit.tokenizer.config import TokenEmbeddingConfig, ZeroEmbedding
 
 
 class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
     gather_tensors: GatherTensors
     tokenizer_task: BuildTokenizer
-    tokens: Optional[Dict[str, TokenEmbeddingConfig]]
+    tokens: Optional[ImmutableMap[str, TokenEmbeddingConfig]]
     base_model: Optional[ModelReference]
 
     def arguments(self) -> Dict[str, Task]:
@@ -43,8 +40,11 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
         tokenizer = tokenizer_info.tokenizer
         permutations = tokenizer_info.permutations
 
-        models = list(set(tensors.keys()) + set([self.base_model]))
-        permutation_list = [permutation_list[model] for model in models]
+        models = set(tensors.keys())
+        if self.base_model:
+            models.add(self.base_model)
+        models = list(models)
+        permutation_list = [permutations[model] for model in models]
 
         vocab = tokenizer.get_vocab()
         vocab_size = len(vocab)

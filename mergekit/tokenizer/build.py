@@ -17,7 +17,6 @@ import json
 import logging
 import tempfile
 from typing import Dict, List, Optional, Tuple, Union
-from typing_extensions import Literal
 
 import tokenizers
 import tokenizers.models
@@ -25,6 +24,7 @@ import torch
 import tqdm
 import transformers
 from pydantic import BaseModel
+from typing_extensions import Literal
 
 from mergekit.common import ModelPath, ModelReference
 from mergekit.graph import Task

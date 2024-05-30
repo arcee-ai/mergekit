@@ -40,9 +40,9 @@ from mergekit.io.tasks import (
     TensorWriterTask,
 )
 from mergekit.merge_methods import MergeMethod
-from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 from mergekit.options import MergeOptions
 from mergekit.tokenizer.build import BuildTokenizer
+from mergekit.tokenizer.embed import PermutedEmbeddings
 
 
 class MergePlanner:
@@ -143,11 +143,6 @@ class MergePlanner:
                 return
 
         tensor_merge_method = self._method
-        if self._tokenizer_task and weight.is_embed:
-            tensor_merge_method = TokenizerPermutationMerge(
-                tokenizer_task=self._tokenizer_task
-            )
-
         cfg_g = cfg_reader.for_tensor(weight.name)
         global_params = {}
         for p in tensor_merge_method.parameters():
@@ -176,9 +171,21 @@ class MergePlanner:
             device="cuda" if self.options.read_to_gpu else None,
         )
 
+        tensor_input_task = gather_tensors
+        if self._tokenizer_task and weight.is_embed:
+            token_cfg = {}
+            if cfg_reader.config.tokenizer:
+                token_cfg = cfg_reader.config.tokenizer.tokens
+            tensor_input_task = PermutedEmbeddings(
+                gather_tensors=gather_tensors,
+                tokenizer_task=self._tokenizer_task,
+                tokens=token_cfg,
+                base_model=base_model,
+            )
+
         tensor_task = tensor_merge_method.make_task(
             output_weight=weight,
-            tensors=gather_tensors,
+            tensors=tensor_input_task,
             parameters=ImmutableMap(data=global_params),
             tensor_parameters=ImmutableMap(
                 data={

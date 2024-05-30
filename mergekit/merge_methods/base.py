@@ -15,16 +15,15 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Union
-from typing_extensions import TypeAlias
 
 from pydantic import BaseModel
+from typing_extensions import TypeAlias
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
 from mergekit.tokenizer.embed import PermutedEmbeddings
-
 
 MergeTensorInput: TypeAlias = Union[GatherTensors, PermutedEmbeddings]
 
@@ -51,4 +50,5 @@ class MergeMethod(ABC):
         parameters: ImmutableMap[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         base_model: Optional[ModelReference],
-    ) -> Task: ...
+    ) -> Task:
+        ...

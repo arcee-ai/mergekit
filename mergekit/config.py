@@ -20,6 +20,7 @@ from pydantic import BaseModel, model_validator
 from typing_extensions import Literal, TypeAlias
 
 from mergekit.common import ModelReference
+from mergekit.tokenizer.config import TokenizerConfig
 
 ScalarOrGradient: TypeAlias = Union[float, List[float]]
 
@@ -88,9 +89,10 @@ class MergeConfiguration(BaseModel):
     parameters: Optional[Dict[str, ParameterSetting]] = None
     base_model: Optional[ModelReference] = None
     dtype: Optional[str] = None
-    tokenizer_source: Union[Literal["union"], Literal["base"], ModelReference, None] = (
-        None
-    )
+    tokenizer_source: Union[
+        Literal["union"], Literal["base"], ModelReference, None
+    ] = None
+    tokenizer: Optional[TokenizerConfig] = None
 
     def referenced_models(self) -> List[ModelReference]:
         models = set()
@@ -109,6 +111,12 @@ class MergeConfiguration(BaseModel):
     def validate_inputs(self):
         if ((not self.slices) and (not self.models)) or (self.slices and self.models):
             raise RuntimeError("Must specify either output slices or models to merge")
+        return self
+
+    @model_validator(mode="after")
+    def validate_tokenizer(self):
+        if self.tokenizer_source and self.tokenizer:
+            raise RuntimeError("Cannot specify both tokenizer_source and tokenizer")
         return self
 
     def to_yaml(self) -> str:
