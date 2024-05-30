@@ -118,9 +118,9 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
             )
             for token, token_id in vocab.items():
                 if p[token_id] >= 0:
-                    new_embed[token_id] = old_embed[p[token_id]]
+                    new_embed[token_id, :] = old_embed[p[token_id]]
                 elif token in default_embeds:
-                    new_embed[token_id] = default_embeds[token]
+                    new_embed[token_id, :] = default_embeds[token]
                 else:
                     logging.error(
                         f"No embedding for token {repr(token)} in model {model}!"
