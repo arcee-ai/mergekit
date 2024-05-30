@@ -82,7 +82,8 @@ class OutputSliceDefinition(BaseModel):
 
 
 class MergeConfiguration(BaseModel):
-    merge_method: str
+    merge_method: Optional[str] = None
+    metric_method: Optional[str] = None
     slices: Optional[List[OutputSliceDefinition]] = None
     models: Optional[List[InputModelDefinition]] = None
     parameters: Optional[Dict[str, ParameterSetting]] = None
