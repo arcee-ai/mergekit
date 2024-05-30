@@ -23,7 +23,7 @@ from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
-from mergekit.tokenizer.embed import PermutedEmbeddings
+from mergekit.tokenizer import PermutedEmbeddings
 
 MergeTensorInput: TypeAlias = Union[GatherTensors, PermutedEmbeddings]
 

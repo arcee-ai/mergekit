@@ -41,8 +41,7 @@ from mergekit.io.tasks import (
 )
 from mergekit.merge_methods import MergeMethod
 from mergekit.options import MergeOptions
-from mergekit.tokenizer.build import BuildTokenizer
-from mergekit.tokenizer.embed import PermutedEmbeddings
+from mergekit.tokenizer import BuildTokenizer, PermutedEmbeddings
 
 
 class MergePlanner:

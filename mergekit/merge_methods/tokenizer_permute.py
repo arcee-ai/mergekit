@@ -26,7 +26,7 @@ from mergekit.merge_methods.base import (
     MergeTensorInput,
 )
 from mergekit.merge_methods.slerp import slerp
-from mergekit.tokenizer.build import BuildTokenizer, TokenizerInfo
+from mergekit.tokenizer import BuildTokenizer, TokenizerInfo
 
 
 class TokenizerPermutationMergeTask(Task[torch.Tensor]):

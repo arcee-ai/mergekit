@@ -28,7 +28,7 @@ from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache
 from mergekit.options import MergeOptions
 from mergekit.plan import MergePlanner
-from mergekit.tokenizer.build import TokenizerInfo
+from mergekit.tokenizer import TokenizerInfo
 
 
 def run_merge(
