@@ -175,6 +175,7 @@ def build_tokenizer(
     referenced_models: List[ModelReference],
     tokenizer_source: Union[Literal["union"], Literal["base"], ModelReference],
     trust_remote_code: bool,
+    add_tokens: Optional[List[str]] = None,
 ) -> Tuple[transformers.PreTrainedTokenizer, Dict[ModelReference, torch.IntTensor]]:
     if base_model is None:
         base_model = referenced_models[0]
@@ -225,6 +226,9 @@ def build_tokenizer(
     else:
         raise RuntimeError(f"Unimplemented tokenizer source: {tokenizer_source}")
 
+    for tok in add_tokens:
+        tokenizer_out.add_tokens(tok)
+
     vocab_out = tokenizer_out.get_vocab()
 
     logging.info("Building permutations")
@@ -273,6 +277,7 @@ class BuildTokenizer(Task[TokenizerInfo]):
     base_model: Optional[ModelReference]
     referenced_models: Tuple[ModelReference, ...]
     tokenizer_source: Union[Literal["union"], Literal["base"], ModelReference]
+    add_tokens: Optional[Tuple[str, ...]]
     trust_remote_code: bool = False
 
     def arguments(self) -> Dict[str, Task]:
@@ -280,9 +285,10 @@ class BuildTokenizer(Task[TokenizerInfo]):
 
     def execute(self, **_kwargs) -> TokenizerInfo:
         tokenizer, permutations = build_tokenizer(
-            self.base_model,
-            self.referenced_models,
-            self.tokenizer_source,
-            self.trust_remote_code,
+            base_model=self.base_model,
+            referenced_models=self.referenced_models,
+            tokenizer_source=self.tokenizer_source,
+            trust_remote_code=self.trust_remote_code,
+            add_tokens=self.add_tokens,
         )
         return TokenizerInfo(tokenizer=tokenizer, permutations=permutations)

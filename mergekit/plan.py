@@ -67,12 +67,18 @@ class MergePlanner:
         self.out_model_config = out_model_config
         self._method = merge_methods.get(config.merge_method)
 
-        if config.tokenizer_source:
+        token_cfg = {}
+        tokenizer_source = config.tokenizer_source
+        if config.tokenizer is not None:
+            token_cfg = config.tokenizer.tokens
+            tokenizer_source = config.tokenizer.source
+        if tokenizer_source is not None:
             self._tokenizer_task = BuildTokenizer(
                 base_model=config.base_model,
                 referenced_models=tuple(config.referenced_models()),
                 tokenizer_source=config.tokenizer_source,
                 trust_remote_code=options.trust_remote_code,
+                add_tokens=tuple(token_cfg.keys()),
             )
 
     @lru_cache
