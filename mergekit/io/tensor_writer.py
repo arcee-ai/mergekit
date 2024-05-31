@@ -104,11 +104,17 @@ class TensorWriter:
                 f"{prefix}-{idx+1}.{extension}"
             ] = f"{prefix}-{idx+1:05d}-of-{total_shards:05d}.{extension}"
 
+        if total_shards < 2:
+            name_remap[f"{prefix}-1.{extension}"] = f"{prefix}.{extension}"
+
         for old_name, new_name in name_remap.items():
             os.rename(
                 os.path.join(self.out_path, old_name),
                 os.path.join(self.out_path, new_name),
             )
+
+        if total_shards < 2:
+            return
 
         for key in self.weight_map:
             self.weight_map[key] = name_remap[self.weight_map[key]]

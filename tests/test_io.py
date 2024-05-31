@@ -13,8 +13,7 @@ class TestTensorWriter:
             writer.save_tensor("steve", torch.randn(4))
             writer.finalize()
 
-            assert os.path.exists(os.path.join(d, "model-00001-of-00001.safetensors"))
-            assert os.path.exists(os.path.join(d, "model.safetensors.index.json"))
+            assert os.path.exists(os.path.join(d, "model.safetensors"))
 
     def test_pickle(self):
         with tempfile.TemporaryDirectory() as d:
@@ -22,8 +21,7 @@ class TestTensorWriter:
             writer.save_tensor("timothan", torch.randn(4))
             writer.finalize()
 
-            assert os.path.exists(os.path.join(d, "pytorch_model-00001-of-00001.bin"))
-            assert os.path.exists(os.path.join(d, "pytorch_model.bin.index.json"))
+            assert os.path.exists(os.path.join(d, "pytorch_model.bin"))
 
     def test_duplicate_tensor(self):
         with tempfile.TemporaryDirectory() as d:
@@ -33,5 +31,4 @@ class TestTensorWriter:
             writer.save_tensor("jimbo", jim)
             writer.finalize()
 
-            assert os.path.exists(os.path.join(d, "model-00001-of-00001.safetensors"))
-            assert os.path.exists(os.path.join(d, "model.safetensors.index.json"))
+            assert os.path.exists(os.path.join(d, "model.safetensors"))

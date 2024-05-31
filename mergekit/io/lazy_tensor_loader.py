@@ -76,30 +76,41 @@ class ShardedTensorIndex:
                 )
                 shards.append(info)
 
-        elif os.path.exists(model_path):
-            shard_name = os.path.basename(model_path)
-
-            # get list of tensors contained in single-file checkpoint
-            if model_path.lower().endswith(".safetensors"):
-                with safetensors.safe_open(model_path, framework="pt") as st:
-                    tensor_paths = {key: shard_name for key in st.keys()}
-            else:
-                # this is ugly but not much else can be done
-                shard = torch.load(model_path, map_location="meta")
-                if "state_dict" in shard:
-                    shard = shard["state_dict"]
-
-                tensor_paths = {key: shard_name for key in shard}
-
-            shards.append(
-                ShardInfo(os.path.basename(model_path), list(tensor_paths.keys()))
+            return ShardedTensorIndex(
+                base_path=base_path,
+                is_safetensors=is_safetensors,
+                tensor_paths=tensor_paths,
+                shards=shards,
             )
 
+        elif os.path.exists(model_path):
+            return ShardedTensorIndex.from_file(model_path)
+
+        else:
+            raise RuntimeError(f"Unable to find model files at {base_path}")
+
+    @classmethod
+    def from_file(cls, file_path: str) -> "ShardedTensorIndex":
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(file_path)
+
+        lower = file_path.lower()
+        shard_name = os.path.basename(file_path)
+        if lower.endswith(".safetensors"):
+            with safetensors.safe_open(file_path, framework="pt") as st:
+                tensor_paths = {key: shard_name for key in st.keys()}
+        else:
+            shard = torch.load(file_path, map_location="meta")
+            if "state_dict" in shard:
+                shard = shard["state_dict"]
+
+            tensor_paths = {key: shard_name for key in shard}
+
         return ShardedTensorIndex(
-            base_path=base_path,
-            is_safetensors=is_safetensors,
+            base_path=os.path.dirname(file_path),
+            is_safetensors=lower.endswith(".safetensors"),
             tensor_paths=tensor_paths,
-            shards=shards,
+            shards=[ShardInfo(shard_name, list(tensor_paths.keys()))],
         )
 
 

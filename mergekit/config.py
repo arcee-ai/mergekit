@@ -37,7 +37,7 @@ ParameterSetting: TypeAlias = Union[
 
 def evaluate_setting(
     tensor_name: str, setting: ParameterSetting, t: float = 0
-) -> float:
+) -> Optional[float]:
     if isinstance(setting, (float, int, bool, str)):
         return setting
     elif isinstance(setting, list):
