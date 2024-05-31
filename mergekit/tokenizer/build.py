@@ -20,7 +20,6 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import tokenizers
 import tokenizers.models
-import torch
 import tqdm
 import transformers
 from pydantic import BaseModel
@@ -170,13 +169,19 @@ def build_union_tokenizer(
     return res
 
 
+class TokenizerInfo(BaseModel, arbitrary_types_allowed=True):
+    tokenizer: transformers.PreTrainedTokenizerBase
+    permutations: Dict[ModelReference, Dict[int, int]]
+    original_vocabs: Dict[ModelReference, Dict[str, int]]
+
+
 def build_tokenizer(
     base_model: Optional[ModelReference],
     referenced_models: List[ModelReference],
     tokenizer_source: Union[Literal["union"], Literal["base"], ModelReference],
     trust_remote_code: bool,
     add_tokens: Optional[List[str]] = None,
-) -> Tuple[transformers.PreTrainedTokenizer, Dict[ModelReference, torch.IntTensor]]:
+) -> TokenizerInfo:
     if base_model is None:
         base_model = referenced_models[0]
     if base_model is None:
@@ -265,12 +270,11 @@ def build_tokenizer(
 
     del pbar
 
-    return tokenizer_out, permutations
-
-
-class TokenizerInfo(BaseModel, arbitrary_types_allowed=True):
-    tokenizer: transformers.PreTrainedTokenizerBase
-    permutations: Optional[Dict[ModelReference, Dict[int, int]]]
+    return TokenizerInfo(
+        tokenizer=tokenizer_out,
+        permutations=permutations,
+        original_vocabs={model: tok.get_vocab() for model, tok in tokenizers.items()},
+    )
 
 
 class BuildTokenizer(Task[TokenizerInfo]):
@@ -284,11 +288,10 @@ class BuildTokenizer(Task[TokenizerInfo]):
         return {}
 
     def execute(self, **_kwargs) -> TokenizerInfo:
-        tokenizer, permutations = build_tokenizer(
+        return build_tokenizer(
             base_model=self.base_model,
             referenced_models=self.referenced_models,
             tokenizer_source=self.tokenizer_source,
             trust_remote_code=self.trust_remote_code,
             add_tokens=self.add_tokens,
         )
-        return TokenizerInfo(tokenizer=tokenizer, permutations=permutations)

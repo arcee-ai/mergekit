@@ -227,6 +227,49 @@ class TestTokenizerMerges:
 
         run_and_check_merge(config, validate=_check_embed)
 
+    def test_model_token_id(self, model_base: str, model_chatml: str):
+        config = self.make_config(
+            [model_base, model_chatml],
+            base_model=model_base,
+            merge_method="linear",
+            tokenizer_config=TokenizerConfig(
+                source="base",
+                tokens={
+                    "_tok_20": {
+                        "source": {
+                            "kind": "model_token",
+                            "model": model_chatml,
+                            "token_id": 64,
+                        },
+                        "force": True,
+                    },
+                    "_tok_21": {
+                        "source": {
+                            "kind": "model_token",
+                            "model": model_base,
+                            "token": "<s>",
+                        },
+                        "force": True,
+                    },
+                },
+            ),
+        )
+
+        def _check_embed(model_path: str):
+            check_tokenizer(expected_size=64, must_contain=["_tok_10"])(model_path)
+            emb_out = ModelEmbeddings(model_path)
+            emb_base = ModelEmbeddings(model_base)
+            emb_chatml = ModelEmbeddings(model_chatml)
+
+            assert torch.allclose(
+                emb_out.token_embedding("_tok_20"), emb_chatml.embed_tokens[64, :]
+            ), "Token _tok_20 should be == model_chatml token 64"
+            assert torch.allclose(
+                emb_out.token_embedding("_tok_21"), emb_base.token_embedding("<s>")
+            ), "Token _tok_21 should be == model_base <s>"
+
+        run_and_check_merge(config, validate=_check_embed)
+
     def make_config(
         self,
         models: List[str],
