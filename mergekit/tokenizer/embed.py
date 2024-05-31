@@ -56,7 +56,7 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
         dtype = tensors[models[0]].dtype
         device = tensors[models[0]].device
 
-        token_configs = self.tokens or {}
+        token_configs = dict(**self.tokens) or {}
         tokens_to_average = set()
         # find tokens that are only present in one model
         for token, token_id in vocab.items():
@@ -117,7 +117,10 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
                 (vocab_size, embed_size), dtype=dtype, device=device
             )
             for token, token_id in vocab.items():
-                if p[token_id] >= 0:
+                force = False
+                if token in token_configs:
+                    force = token_configs[token].force
+                if p[token_id] >= 0 and not force:
                     new_embed[token_id, :] = old_embed[p[token_id]]
                 elif token in default_embeds:
                     new_embed[token_id, :] = default_embeds[token]

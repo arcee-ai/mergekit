@@ -76,7 +76,7 @@ class MergePlanner:
             self._tokenizer_task = BuildTokenizer(
                 base_model=config.base_model,
                 referenced_models=tuple(config.referenced_models()),
-                tokenizer_source=config.tokenizer_source,
+                tokenizer_source=tokenizer_source,
                 trust_remote_code=options.trust_remote_code,
                 add_tokens=tuple(token_cfg.keys()),
             )
