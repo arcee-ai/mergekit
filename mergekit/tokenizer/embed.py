@@ -48,7 +48,6 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
         if self.base_model:
             models.add(self.base_model)
         models = list(models)
-        permutation_list = [permutations[model] for model in models]
 
         vocab = tokenizer.get_vocab()
         vocab_size = len(vocab)
@@ -61,6 +60,64 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
         device = tensors[models[0]].device
 
         token_configs = dict(**self.tokens) or {}
+        tokens_to_average = self.assign_embedding_sources(
+            permutations, models, vocab, token_configs
+        )
+
+        default_embeds = {}
+        for token, token_id in vocab.items():
+            embed = torch.zeros(embed_size, dtype=dtype, device=device)
+            if token in tokens_to_average:
+                count = 0
+                for model in models:
+                    p = permutations[model]
+                    if p[token_id] < 0:
+                        continue
+                    embed += tensors[model][p[token_id]]
+                    count += 1
+                embed /= count
+            elif cfg := token_configs.get(token, None):
+                cfg: TokenEmbeddingConfig
+                embed = self.compute_default_embedding(
+                    tokenizer_info, tensors, permutations, token, token_id, cfg
+                )
+            else:
+                continue
+            default_embeds[token] = embed
+
+        result = {}
+        for model in models:
+            p = permutations[model]
+            old_embed = tensors[model]
+            new_embed = torch.zeros(
+                (vocab_size, embed_size), dtype=dtype, device=device
+            )
+            for token, token_id in vocab.items():
+                force = False
+                if token in token_configs:
+                    force = token_configs[token].force
+
+                if p[token_id] >= 0 and not force:
+                    new_embed[token_id, :] = old_embed[p[token_id]]
+                elif token in default_embeds:
+                    new_embed[token_id, :] = default_embeds[token]
+                else:
+                    logging.error(
+                        f"No embedding for token {repr(token)} in model {model}!"
+                    )
+            result[model] = new_embed
+
+        return result
+
+    def assign_embedding_sources(
+        self,
+        permutations: Dict[ModelReference, Dict[int, int]],
+        models: list[ModelReference],
+        vocab: Dict[str, int],
+        token_configs: Dict[str, TokenEmbeddingConfig],
+    ):
+        permutation_list = [permutations[model] for model in models]
+
         tokens_to_average = set()
         # find tokens that are only present in one model
         for token, token_id in vocab.items():
@@ -85,72 +142,41 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
                     continue
 
             tokens_to_average.add(token)
+        return tokens_to_average
 
-        default_embeds = {}
-        for token, token_id in vocab.items():
-            embed = torch.zeros(embed_size, dtype=dtype, device=device)
-            if token in tokens_to_average:
-                count = 0
-                for model in models:
-                    p = permutations[model]
-                    if p[token_id] < 0:
-                        continue
-                    embed += tensors[model][p[token_id]]
-                    count += 1
-                embed /= count
-            elif cfg := token_configs.get(token, None):
-                cfg: TokenEmbeddingConfig
-                if isinstance(cfg.source, ZeroEmbedding):
-                    pass
-                elif isinstance(cfg.source, ModelTokenEmbedding):
-                    model = cfg.source.model
-                    assert (
-                        model in permutations
-                    ), f"Model {model} referenced but not part of merge"
-                    p = permutations[model]
-                    src_token_id = cfg.source.token_id
-                    if src_token_id is None:
-                        src_token = cfg.source.token
-                        assert (
-                            src_token in tokenizer_info.original_vocabs[model]
-                        ), f"Token {repr(src_token)} not found in model {model}"
-                        src_token_id = tokenizer_info.original_vocabs[model][src_token]
-                    assert (
-                        src_token_id >= 0 and src_token_id < tensors[model].shape[0]
-                    ), f"Token ID {src_token_id} out of range for model {model}"
-                    embed = tensors[model][src_token_id]
-                elif isinstance(cfg.source, ModelReference):
-                    model = cfg.source
-                    p = permutations[model]
-                    assert (
-                        p[token_id] >= 0
-                    ), f"Token {repr(token)} not found in model {model}"
-                    embed = tensors[model][p[token_id]]
-                else:
-                    raise NotImplementedError(cfg)
-            else:
-                continue
-            default_embeds[token] = embed
-
-        result = {}
-        for model in models:
+    def compute_default_embedding(
+        self,
+        tokenizer_info: TokenizerInfo,
+        tensors: Dict[ModelReference, torch.Tensor],
+        permutations: Dict[ModelReference, Dict[int, int]],
+        token: str,
+        token_id: int,
+        cfg: TokenEmbeddingConfig,
+    ) -> torch.Tensor:
+        if isinstance(cfg.source, ZeroEmbedding):
+            pass
+        elif isinstance(cfg.source, ModelTokenEmbedding):
+            model = cfg.source.model
+            assert (
+                model in permutations
+            ), f"Model {model} referenced but not part of merge"
             p = permutations[model]
-            old_embed = tensors[model]
-            new_embed = torch.zeros(
-                (vocab_size, embed_size), dtype=dtype, device=device
-            )
-            for token, token_id in vocab.items():
-                force = False
-                if token in token_configs:
-                    force = token_configs[token].force
-                if p[token_id] >= 0 and not force:
-                    new_embed[token_id, :] = old_embed[p[token_id]]
-                elif token in default_embeds:
-                    new_embed[token_id, :] = default_embeds[token]
-                else:
-                    logging.error(
-                        f"No embedding for token {repr(token)} in model {model}!"
-                    )
-            result[model] = new_embed
-
-        return result
+            src_token_id = cfg.source.token_id
+            if src_token_id is None:
+                src_token = cfg.source.token
+                assert (
+                    src_token in tokenizer_info.original_vocabs[model]
+                ), f"Token {repr(src_token)} not found in model {model}"
+                src_token_id = tokenizer_info.original_vocabs[model][src_token]
+            assert (
+                src_token_id >= 0 and src_token_id < tensors[model].shape[0]
+            ), f"Token ID {src_token_id} out of range for model {model}"
+            embed = tensors[model][src_token_id]
+        elif isinstance(cfg.source, ModelReference):
+            model = cfg.source
+            p = permutations[model]
+            assert p[token_id] >= 0, f"Token {repr(token)} not found in model {model}"
+            embed = tensors[model][p[token_id]]
+        else:
+            raise NotImplementedError(cfg)
+        return embed
