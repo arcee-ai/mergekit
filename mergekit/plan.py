@@ -70,7 +70,7 @@ class MergePlanner:
         token_cfg = {}
         tokenizer_source = config.tokenizer_source
         if config.tokenizer is not None:
-            token_cfg = config.tokenizer.tokens
+            token_cfg = config.tokenizer.tokens or {}
             tokenizer_source = config.tokenizer.source
         if tokenizer_source is not None:
             self._tokenizer_task = BuildTokenizer(
