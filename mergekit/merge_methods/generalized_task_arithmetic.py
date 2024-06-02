@@ -24,7 +24,6 @@ from typing_extensions import Literal
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import (
     ConfigParameterDef,
     MergeMethod,
@@ -91,7 +90,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
 
 class GTATask(Task[torch.Tensor]):
     method: GeneralizedTaskArithmeticMerge
-    tensors: GatherTensors
+    tensors: MergeTensorInput
     base_model: ModelReference
     weight_info: WeightInfo
     tensor_parameters: ImmutableMap[ModelReference, Any]
