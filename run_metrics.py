@@ -53,7 +53,8 @@ app.layout = html.Div([
         options=[
             {'label': 'SMAPE', 'value': 'SMAPE_full'},
             {'label': 'Cossim', 'value': 'cossim_full'},
-            {'label': 'Scale', 'value': 'scale_full'}
+            {'label': 'Scale', 'value': 'scale_full'},
+            {'label': 'MSE', 'value': 'mse_full'},
         ],
         value='cossim_full',
         style={'font-family': 'Arial'}

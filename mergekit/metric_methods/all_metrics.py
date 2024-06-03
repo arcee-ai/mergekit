@@ -96,6 +96,27 @@ def scale(
         'scale_std': scale_diff.std()
     }
 
+def mse(
+    tensors: List[torch.Tensor], **_kwargs
+) -> torch.Tensor:
+    # Compute the squared differences
+    squared_diff = (tensors[0] - tensors[1]) ** 2
+    
+    
+    # Compute the mean of squared differences for each row
+    mse_per_neuron = torch.mean(squared_diff, dim=1)
+
+    hist_info = binning(mse_per_neuron, 100)
+    return {
+        'mse_full': {
+            'count': hist_info[0],
+            'edges': hist_info[1],
+            'widths': hist_info[2]
+        },
+        'mse_mean': mse_per_neuron.mean(),
+        'mse_std': mse_per_neuron.std()
+    }
+
 class AllMetricTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     weight_info: WeightInfo
@@ -120,6 +141,7 @@ class AllMetricTask(Task[torch.Tensor]):
         res.update(cossim(tensors, angular_distance=self.angular_distance))
         res.update(SMAPE(tensors))
         res.update(scale(tensors))
+        res.update(mse(tensors))
             
         return res
 

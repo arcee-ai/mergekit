@@ -14,17 +14,11 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 from mergekit.metric_methods.base import MetricMethod
-from mergekit.metric_methods.PCA_rank import PCA_RankMetric
-from mergekit.metric_methods.MSE import MSEMetric
 from mergekit.metric_methods.all_metrics import AllMetric
 
 
 def get(method: str) -> MetricMethod:
-    if method == "PCA_rank":
-        return PCA_RankMetric()
-    elif method == "MSE":
-        return MSEMetric()
-    elif method == "all":
+    if method == "all":
         return AllMetric()
     raise RuntimeError(f"Unimplemented metric method {method}")
 
@@ -32,6 +26,4 @@ def get(method: str) -> MetricMethod:
 __all__ = [
     "MetricMethod",
     "get",
-    "MSEMetric",
-    "PCA_RankMetric",
 ]
