@@ -14,33 +14,24 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 from mergekit.metric_methods.base import MetricMethod
-from mergekit.metric_methods.cossim import CossimMetric
 from mergekit.metric_methods.PCA_rank import PCA_RankMetric
 from mergekit.metric_methods.MSE import MSEMetric
-from mergekit.metric_methods.SMAPE import SMAPEMetric
-from mergekit.metric_methods.scale import ScaleMetric
+from mergekit.metric_methods.all_metrics import AllMetric
 
 
 def get(method: str) -> MetricMethod:
-    if method == "cossim":
-        return CossimMetric()
-    elif method == "PCA_rank":
+    if method == "PCA_rank":
         return PCA_RankMetric()
     elif method == "MSE":
         return MSEMetric()
-    elif method == "SMAPE":
-        return SMAPEMetric()
-    elif method == "scale":
-        return ScaleMetric()
-    raise RuntimeError(f"Unimplemented merge method {method}")
+    elif method == "all":
+        return AllMetric()
+    raise RuntimeError(f"Unimplemented metric method {method}")
 
 
 __all__ = [
     "MetricMethod",
     "get",
-    "CossimMetric",
     "MSEMetric",
-    "SMAPEMetric",
-    "ScaleMetric",
     "PCA_RankMetric",
 ]

@@ -6,37 +6,49 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 
 class MetricsHandler():
+    """
+    Object to handle metrics output. Allows for easy plotting of metrics by layer and across layers.
+
+    Input:
+        Use the load_metrics method to load the metrics into the handler.
+        metrics: List of tasks and their metrics. This is the output of the run_measure function in mergekit.measure.
+
+    Attributes:
+        all_stats: Dictionary of recorded statistics for each layer. e.g. {'layer_name': {'cossim_mean': 0.5, 'cossim_std': 0.1}}
+        stat_names: List of names of all statistics available. e.g. ['cossim_mean', 'cossim_std']
+        layer_names: List of layer names. 
+
+    Methods:
+        load_metrics: Load the metrics into the handler.
+        stats_at_layer: Get the metrics for a specific layer.
+        info_at_layer: Get the weight info for a specific layer.
+        line_plot: Plot a line plot of the chosen stat across layers.
+        plot_node_hist: Plot a histogram of the stat for a specific layer.
+    """
     def __init__(self):
-        self.all_metrics: Dict[str, Dict[str, Any]] = {}
-        self.all_stats: List = []
+        self.all_stats: Dict[str, Dict[str, Any]] = {}
+        self.stat_names: List = []
         self.layer_names: List[str] = []
 
     def load_metrics(self, metrics: List[Tuple[Task, Dict[str, Any]]]):
-        stats = set()
         for task, metric in metrics:
             if metric is not None:
-                self.all_metrics[task.weight_info.name] = {'metric':metric,
+                self.all_stats[task.weight_info.name] = {'metric':metric,
                                                     'weight_info':task.weight_info}
                 self.layer_names.append(task.weight_info.name)
-                stats.update(metric.keys())
+                self.stat_names.extend(metric.keys())
         
-        self.all_stats = list(stats)
-
-    def layers(self) -> List[str]:
-        return self.layer_names
+        self.stat_names = list(set(self.stat_names))
     
-    def stats(self) -> List[str]:
-        return self.all_stats
-    
-    def metric_at_layer(self, layer_name: str) -> Dict[str, Any]:
-        if layer_name not in self.all_metrics:
-            raise ValueError(f"Layer {layer_name} not found in metrics")
-        return self.all_metrics[layer_name]['metric']
+    def stats_at_layer(self, layer_name: str) -> Dict[str, Any]:
+        if layer_name not in self.all_stats:
+            raise ValueError(f"Layer {layer_name} not found")
+        return self.all_stats[layer_name]['metric']
     
     def info_at_layer(self, layer_name: str):
-        if layer_name not in self.all_metrics:
-            raise ValueError(f"Layer {layer_name} not found in metrics")
-        return self.all_metrics[layer_name]['weight_info']
+        if layer_name not in self.all_stats:
+            raise ValueError(f"Layer {layer_name} not found")
+        return self.all_stats[layer_name]['weight_info']
     
     def line_plot(self, stat: str, save_to:Optional[str]=None, **kwargs):
         fig, ax = plt.subplots()
@@ -44,14 +56,14 @@ class MetricsHandler():
         ax_kwargs = ['ylabel', 'title', 'ylim', 'xticklabels']
         plot_kwargs = {k: v for k, v in kwargs.items() if k not in ax_kwargs}
 
-        self._plot_with_optional_error_bars(ax, stat, plot_kwargs)
+        self._plot(ax, stat, plot_kwargs)
         self._set_plot_attributes(ax, stat, ax_kwargs, **kwargs)
         if save_to:
             plt.savefig(save_to)
         plt.show()
         plt.close()
 
-    def _plot_with_optional_error_bars(self, ax, stat:str, plot_kwargs: Optional[Dict[str, Any]] = {}):
+    def _plot(self, ax, stat:str, plot_kwargs: Optional[Dict[str, Any]] = {}):
         """
         Plot the stat values with optional error bars.
 
@@ -62,14 +74,14 @@ class MetricsHandler():
             **kwargs: Additional keyword arguments for plotting.
         """
         std_values = None
-        if f'{stat}_mean' in self.all_stats:
+        if f'{stat}_mean' in self.stat_names:
             std_stat = f"{stat}_std"
             stat = f'{stat}_mean'
-            if std_stat in self.all_stats:
-                std_values = [self.all_metrics[layer]['metric'].get(std_stat) for layer in self.layer_names]
+            if std_stat in self.stat_names:
+                std_values = [self.all_stats[layer]['metric'].get(std_stat) for layer in self.layer_names]
 
-        assert (stat in self.all_stats), f"Stat {stat} not found in metrics"
-        stat_values = [self.all_metrics[layer]['metric'][stat] for layer in self.layer_names]
+        assert (stat in self.stat_names), f"Stat {stat} not found"
+        stat_values = [self.all_stats[layer]['metric'][stat] for layer in self.layer_names]
         if std_values:
             ax.errorbar(self.layer_names, stat_values, yerr=std_values, fmt='-o', **plot_kwargs)
         else:
@@ -88,17 +100,33 @@ class MetricsHandler():
         ax.set_ylabel(kwargs.get('ylabel', stat))
         ax.set_xticks(np.arange(len(self.layer_names)))
         ax.set_xticklabels(self.layer_names, rotation=45)
-        ax.set_title(kwargs.get('title', f'{stat.capitalize()}'))
+        ax.set_title(kwargs.get('title', f'{stat.replace("_", " ").capitalize()}'))
 
         # Set additional attributes
         for kwarg in ax_kwargs:
             if kwarg in kwargs:
                 getattr(ax, f"set_{kwarg}")(kwargs[kwarg])
+    
+    def plot_node_hist(self, layer_name: str, stat: str):
+
+        bin_counts, bin_edges, bin_widths = self.all_stats[layer_name]['metric'][stat].values()
+        # Create a bar chart using Plotly
+        return go.Bar(
+            x=bin_edges[:-1],
+            y=bin_counts,
+            width=bin_widths,
+            marker=dict(
+                color='blue',
+                line=dict(
+                    color='black',
+                    width=1
+                )
+            )
+        )
 
 
-class NeuralNetworkGraph:
+class ModelGraph:
     def __init__(self, metrics: List[Tuple['Task', Dict[str, Any]]]):
-        self.metrics = metrics
         self.metric_handler = MetricsHandler()
         self.metric_handler.load_metrics(metrics)
         self.hierarchy = []
@@ -110,12 +138,9 @@ class NeuralNetworkGraph:
         """
         Find common parts in all task names.
         """
-        if not self.metrics:
-            return []
-
         common_parts = None
-        for task, _ in self.metrics:
-            parts = task.weight_info.name.split('.')
+        for task_name, _ in self.metric_handler.all_stats.items():
+            parts = task_name.split('.')
             if common_parts is None:
                 common_parts = set(parts)
             else:
@@ -132,9 +157,8 @@ class NeuralNetworkGraph:
         return '.'.join(cleaned_parts)
 
     def _parse_task_names(self):
-        for task, _ in self.metrics:
-            name = task.weight_info.name
-            self.hierarchy.append(name)
+        for task_name, _ in self.metric_handler.all_stats.items():
+            self.hierarchy.append(task_name)
 
     def _add_nodes_and_edges(self, hierarchy):
         # Current implementation builds linear graph
@@ -153,7 +177,10 @@ class NeuralNetworkGraph:
         """
         Plot the graph using Plotly for interactivity.
         """
-        pos = nx.planar_layout(self.graph)        
+        # Manually set positions for a straight line layout. 
+        # Not yet implemented for more complex layouts with Parallel paths
+        pos = {node: (i, i/5) for i, node in enumerate(self.graph.nodes())}
+
         edge_x = []
         edge_y = []
         for edge in self.graph.edges():
@@ -168,23 +195,31 @@ class NeuralNetworkGraph:
             hoverinfo='none',
             mode='lines')
         
-        metric_to_plot = [m for m in self.metric_handler.stats() if 'mean' in m][0]
+        # Find all metrics that contain 'mean' in their keys
+        metrics_to_plot = [m for m in self.metric_handler.stat_names if 'mean' in m]
 
-        node_x = []
-        node_y = []
-        node_text = []
-        node_values = []
+        node_x,node_y,node_text,hover_text = [], [], [], []
+        node_values = {metric: [] for metric in metrics_to_plot}
+
         for node in self.graph.nodes():
             x, y = pos[node]
             node_x.append(x)
             node_y.append(y)
-            metric_value = self.metric_handler.metric_at_layer(node)[metric_to_plot]
-            node_text.append(f"{self._remove_common_parts(node)}: {metric_value:.2f}{'%' if 'SMAPE' in metric_to_plot else ''}")
-            node_values.append(metric_value)
+            metric_values = self.metric_handler.stats_at_layer(node)
+            
+            # Build the text for each node
+            hover = self._remove_common_parts(node)
+            for metric in metrics_to_plot:
+                if metric in metric_values:
+                    value = metric_values[metric]
+                    hover += f"<br>{metric.replace('_', ' ').capitalize()}: {value:.4f}{'%' if 'SMAPE' in metric else ''}"
+                    node_values[metric].append(value)
 
-        # Normalize node values for coloring
-        norm = plt.Normalize(vmin=min(node_values), vmax=max(node_values))
-        node_colors = [norm(value) for value in node_values]
+            node_text.append(node)
+            hover_text.append(hover)
+
+        first_metric = metrics_to_plot[0]
+        node_colors = [value.item() for value in node_values[first_metric]]
 
         node_trace = go.Scatter(
             x=node_x, y=node_y,
@@ -192,21 +227,21 @@ class NeuralNetworkGraph:
             text=node_text,
             textposition='top center',
             hoverinfo='text',
+            hovertext=hover_text,
             marker=dict(
                 showscale=True,
                 colorscale='Viridis',
                 color=node_colors,
-                cmin=min(node_values).item(),
-                cmax=max(node_values).item(),
+                cmin=min(node_values[first_metric]).item(),
+                cmax=max(node_values[first_metric]).item(),
                 size=10,
                 colorbar=dict(
                     thickness=15,
-                    title='Metric Value',
+                    title=first_metric.replace('_', ' ').capitalize(),
                     xanchor='left',
                     titleside='right',
                 ),
                 line_width=2))
-
 
         fig = go.Figure(data=[edge_trace, node_trace],
                         layout=go.Layout(
@@ -218,5 +253,6 @@ class NeuralNetworkGraph:
 
         if save_to:
             fig.write_html(save_to)
-        fig.show()
+        return fig
+    
 
