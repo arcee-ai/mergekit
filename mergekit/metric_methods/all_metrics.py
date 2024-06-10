@@ -49,7 +49,7 @@ def SMAPE(
     
     hist_info = compute_histogram(smape, 100)
     return {
-        'SMAPE_full': {
+        'SMAPE Histogram': {
             'count': hist_info[0],
             'edges': hist_info[1],
             'widths': hist_info[2]
@@ -67,7 +67,7 @@ def cossim(
 
     hist_info = compute_histogram(cossim, 100)
     return {
-        'cossim_full': {
+        'cossim Histogram': {
             'count': hist_info[0],
             'edges': hist_info[1],
             'widths': hist_info[2]
@@ -87,7 +87,7 @@ def scale(
         
     hist_info = compute_histogram(scale_diff, 100)
     return {
-        'scale_full': {
+        'scale Histogram': {
             'count': hist_info[0],
             'edges': hist_info[1],
             'widths': hist_info[2]
@@ -97,55 +97,86 @@ def scale(
     }
 
 def mse(
-    tensors: List[torch.Tensor], **_kwargs
+    tensors: List[torch.Tensor], heatmap=False, **_kwargs
 ) -> torch.Tensor:
+    
+    res = {}
+
+    if heatmap:
+        num_heads = tensors[0].shape[0]
+        heatmap = np.zeros((num_heads, num_heads))
+        for i in range(num_heads):
+            for j in range(num_heads):
+                heatmap[i, j] = ((tensors[0][i] - tensors[1][j]) ** 2).mean().item()
+        res['MSE Attn Heatmap'] = heatmap
 
     squared_diff = (tensors[0] - tensors[1]) ** 2
     mse_per_neuron = torch.mean(squared_diff, dim=1)
 
     hist_info = compute_histogram(mse_per_neuron, 100)
-    return {
-        'mse_full': {
+    res.update({
+        'mse Histogram': {
             'count': hist_info[0],
             'edges': hist_info[1],
             'widths': hist_info[2]
         },
         'mse_mean': mse_per_neuron.mean().item(),
         'mse_std': mse_per_neuron.std().item()
-    }
+    })
+    return res
 
-def restructure_tensor(input_tensor, num_columns):
+def ungroup_tensor(input_tensor, GQA_groups):
     """
-    Restructure a tensor by splitting its columns.
+    Ungroup a tensor by repeating its columns.
+
+    Args:
+        input_tensor (torch.Tensor): The input tensor to ungroup.
+        GQA_groups (int): The number of GQA groups.
+
+    Returns:
+        torch.Tensor: The ungrouped tensor.
+    """
+    rows, cols = input_tensor.shape
+    new_rows = rows * GQA_groups
+    ungrouped_tensor = torch.zeros(new_rows, cols)
+
+    for i in range(GQA_groups):
+        ungrouped_tensor[i*rows:(i+1)*rows] = input_tensor[i].expand(rows, -1)
+    
+    return ungrouped_tensor
+
+def restructure_tensor(input_tensor, num_rows):
+    """
+    Restructure a tensor by splitting its rows.
 
     Args:
         input_tensor (torch.Tensor): The input tensor to restructure.
-        num_columns (int): The number of columns for splitting.
+        num_rows (int): The number of rows for splitting.
 
     Returns:
         torch.Tensor: The restructured tensor.
     """
     rows, cols = input_tensor.shape
-    new_cols = cols // num_columns
-    reshaped_tensor = input_tensor.view(rows, num_columns, new_cols)
+    new_rows = rows // num_rows
+    reshaped_tensor = input_tensor.view(new_rows, num_rows, cols)
     restructured_tensor = reshaped_tensor.permute(1, 0, 2)
     
     return restructured_tensor
 
-def compare_attn_head_weights(k_proj, q_proj, v_proj, o_proj, num_heads, **_kwargs):
-    models = list(q_proj.keys())
-    q_proj_0 = restructure_tensor(q_proj[models[0]], num_heads)
-    q_proj_1 = restructure_tensor(q_proj[models[1]], num_heads)
+def group_attn_head_weights(k_proj, q_proj, v_proj, o_proj, weight_info):
 
-    # Now the first dimension is the head index, so can be compared pairwise or even cross compared within/between models.
-    heatmap = np.zeros((num_heads, num_heads))
-    for i in range(num_heads):
-        for j in range(num_heads):
-            heatmap[i, j] = ((q_proj_0[i].flatten() - q_proj_1[j].flatten()) ** 2).mean().item()
-    
-    return {
-        'MSE Attn Heatmap': heatmap,
-    }
+    num_heads = weight_info.num_heads
+    GQA_groups = weight_info.GQA_groups
+
+    k_proj = ungroup_tensor(k_proj, GQA_groups)
+    v_proj = ungroup_tensor(v_proj, GQA_groups)
+
+    k_proj = restructure_tensor(k_proj, num_heads)
+    v_proj = restructure_tensor(v_proj, num_heads)
+    q_proj = restructure_tensor(q_proj, num_heads)
+    o_proj = restructure_tensor(o_proj.T, num_heads)
+
+    return k_proj, v_proj, q_proj, o_proj
 
 class AllMetricTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
@@ -193,7 +224,25 @@ class AttnTask(Task[torch.Tensor]):
     ) -> torch.Tensor:
         # Add metrics for attention weights
         res = {}
-        res.update(compare_attn_head_weights(k_proj, q_proj, v_proj, o_proj, num_heads=32)) # 32 is a placeholder
+        models = list(q_proj.keys())
+
+        k_proj_0, v_proj_0, q_proj_0, o_proj_0 = group_attn_head_weights(k_proj[models[0]], q_proj[models[0]], v_proj[models[0]], o_proj[models[0]], self.weight_info)
+        k_proj_1, v_proj_1, q_proj_1, o_proj_1 = group_attn_head_weights(k_proj[models[1]], q_proj[models[1]], v_proj[models[1]], o_proj[models[1]], self.weight_info)
+        
+        # Metrics for K, V, Q, O projections
+
+        model_0_heads = torch.cat([k_proj_0, v_proj_0, q_proj_0, o_proj_0], dim=1)
+        model_1_heads = torch.cat([k_proj_1, v_proj_1, q_proj_1, o_proj_1], dim=1)
+        
+        # Metrics for heads
+        res.update(mse([model_0_heads.view(model_0_heads.shape[0], -1), 
+                        model_1_heads.view(model_1_heads.shape[0], -1)], 
+                        heatmap=True))
+        res.update(cossim([model_0_heads.view(model_0_heads.shape[0], -1), 
+                           model_1_heads.view(model_1_heads.shape[0], -1)], 
+                           angular_distance=True))
+        res.update(scale([model_0_heads.view(model_0_heads.shape[0], -1),
+                            model_1_heads.view(model_1_heads.shape[0], -1)]))
 
         return res
 
@@ -202,14 +251,14 @@ class AttnTask(Task[torch.Tensor]):
         return max([gather_tensor.group_label() for gather_tensor in list(self.weights.values())]) # Check this (X)
     
     def __hash__(self):
-        return hash((tuple(self.weight_infos),))
+        return hash(self.weight_info)
 
     def __eq__(self, other):
         if not isinstance(other, AttnTask):
             return False
-        return self.weight_infos == other.weight_infos
+        return self.weight_info == other.weight_info
 
-class blankTask(Task[torch.Tensor]):
+class DummyTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     weight_info: WeightInfo
     def uses_accelerator(self) -> bool:
@@ -252,21 +301,23 @@ class AllMetric(MetricMethod):
     ) -> Task:
         
         if 'self_attn' in output_weight.name:
+            # collect all attention weights
             for part in self.attn_parts: # also check only one key
                 if part in output_weight.name:
                    self.attn_weight_dict[part] = tensors
                    self.attn_info_dict[part] = output_weight   
 
+            # if all attention weights are collected, create attention task
             if set(list(self.attn_weight_dict.keys())) == set(self.attn_parts):
-                weights = self.attn_weight_dict
-                infos = self.attn_info_dict
-                self.attn_weight_dict = {}
-                self.attn_info_dict = {}
+                weights, infos = self.attn_weight_dict, self.attn_info_dict
+                self.attn_weight_dict, self.attn_info_dict = {}, {}
                 weight_info = WeightInfo(
                     name=f"Attention Block {self.block_count}",
                     force_dtype=None,
                     optional=False,
                     aliases=None,
+                    GQA_groups=4,
+                    num_heads=32
                 )
                 self.block_count += 1
                 return AttnTask(weights=weights, weight_infos=infos, weight_info=weight_info)
@@ -277,6 +328,6 @@ class AllMetric(MetricMethod):
                 angular_distance=parameters["angular_distance"]
             )
         else:
-            return blankTask(gather_tensors=tensors, weight_info=output_weight)
+            return DummyTask(gather_tensors=tensors, weight_info=output_weight)
 
 

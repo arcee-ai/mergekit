@@ -65,6 +65,23 @@ class MetricsHandler:
             plt.savefig(save_to)
         plt.show()
         plt.close()
+    
+    def plotly_line_plot(self, stat: str, save_to:Optional[str]=None, **kwargs):
+        fig = go.Figure()
+
+        y = [self.all_stats[layer]['metric'][stat] for layer in self.layer_names]
+        if f'{stat}'.replace('mean', 'std') in self.stat_names:
+            std_stat = f'{stat}'.replace('mean', 'std')
+            std_values = [self.all_stats[layer]['metric'].get(std_stat) for layer in self.layer_names] 
+
+        return go.Scatter(
+            x=self.layer_names,
+            y=y,
+            mode='lines+markers',
+            name='Line Plot'
+        )
+
+        
 
     def _line_plot(self, ax, stat:str, plot_kwargs: Optional[Dict[str, Any]] = {}):
         """
@@ -129,7 +146,7 @@ class MetricsHandler:
     
     def plot_node_hist(self, layer_name: str, stat: str):
 
-        bin_counts, bin_edges, bin_widths = self.all_stats[layer_name]['metric'][stat].values()
+        bin_counts, bin_edges, bin_widths = self.stats_at_layer(layer_name)[stat].values()
         return go.Bar(
             x=bin_edges[:-1],
             y=bin_counts,
@@ -276,109 +293,68 @@ class ModelGraph:
     
 
 def create_app(nn_graph):
-    """
-    Creates and configures a Dash app to visualize metrics from a neural network graph.
+    app = dash.Dash(__name__, external_stylesheets=['https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'])
+    # app = dash.Dash(__name__, external_stylesheets=['https://bootswatch.com/4/darkly/bootstrap.min.css'])
 
-    Args:
-        nn_graph (ModelGraph): An instance of the neural network graph to be visualized.
-
-    Returns:
-        app (dash.Dash): Configured Dash app ready to be run.
-    """
-    # Initialize the Dash app
-    app = dash.Dash(__name__)
-
-    # Define the layout of the app
     app.layout = html.Div([
-        dcc.Graph(
-            id='graph',
-            figure=nn_graph.plot_graph(),  # Initial plot of the neural network graph
-        ),
-        dcc.Dropdown(
-            id='metric-dropdown',
-            options=[],  # Options will be set dynamically based on the node type
-            style={'width': '50%', 'margin': 'auto', 'display': 'block', 'font-family': 'Arial'}
-        ),
-        dcc.Graph(id='node-details'),  # Placeholder for detailed metrics of a selected node
-        dcc.Store(id='node-type-store')  # Store to keep track of the node type
+        html.Div([
+            html.H1('Neural Network Similarity Vislualisation', style={'textAlign': 'center'}),
+            dcc.Graph(
+                id='graph',
+                figure=nn_graph.plot_graph(),
+                style={'width': '100%', 'height': '50vh'}
+            ),
+        ], className='container-fluid'),
+        
+        html.Div([
+            html.H3('Node Metrics', style={'textAlign': 'center'}),
+            dcc.Dropdown(
+                id='metric-dropdown',
+                options=[],
+                style={'width': '50%', 'margin': 'auto', 'display': 'block', 'font-family': 'Arial'}
+            ),
+            dcc.Graph(id='node-details-plot', style={'width': '100%', 'height': '50vh'}),
+        ], className='container-fluid'),
+
+        html.Div([
+            html.H3('Metrics Across Layers', style={'textAlign': 'center'}),
+            dcc.Dropdown(
+                id='line-plot-dropdown',
+                options=[{'label': metric.replace('_', ' ').title(), 'value': metric} for metric in nn_graph.metric_handler.stat_names if 'mean' in metric],
+                value='cossim_mean',
+                style={'width': '50%', 'margin': 'auto', 'display': 'block', 'font-family': 'Arial'}
+            ),
+            dcc.Graph(id='line-plot', style={'width': '100%', 'height': '100vh'}),
+        ], className='container-fluid'),
     ])
 
-    # Callback to update the node type when a node in the graph is clicked
     @app.callback(
-        Output('node-type-store', 'data'),
+        Output('metric-dropdown', 'options'), Output('metric-dropdown', 'value'),
         [Input('graph', 'clickData')]
     )
-    def update_node_type(clickData):
-        """
-        Updates the node type based on the clicked node in the graph.
-
-        Args:
-            clickData (dict): Data about the clicked node.
-
-        Returns:
-            str: 'histogram' or 'heatmap' depending on the node type, or an empty string if no valid node is clicked.
-        """
+    def update_dropdown_options(clickData):
         if clickData is None:
-            return ''
+            return []
         
         try:
             node_name = clickData['points'][0]['text']
-            return 'histogram' if 'Attention Block' not in node_name else 'heatmap'
+            options = list(nn_graph.metric_handler.stats_at_layer(node_name).keys())
+            options = [option for option in options if 'std' not in option]
+            options = [
+                {'label': option.replace('_', ' ').capitalize(), 'value': option} for option in options if 'mean' not in option
+            ]
+            return options, options[0]['value']
+        
         except (KeyError, IndexError, TypeError) as e:
             print(f"Error processing clickData: {e}")
-            return ''
+            return []
 
-    # Callback to update the dropdown options based on the node type
     @app.callback(
-        Output('metric-dropdown', 'options'), Output('metric-dropdown', 'value'),
-        [Input('node-type-store', 'data')]
+        Output('node-details-plot', 'figure'),
+        [Input('graph', 'clickData'), Input('metric-dropdown', 'value')],
     )
-    def update_dropdown_options(node_type):
-        """
-        Updates the options in the dropdown menu based on the node type.
-
-        Args:
-            node_type (str): The type of the node ('histogram' or 'heatmap').
-
-        Returns:
-            list: List of dropdown options.
-            str: Default value for the dropdown.
-        """
-        if node_type == 'histogram':
-            return [
-                {'label': 'SMAPE', 'value': 'SMAPE_full'},
-                {'label': 'Cossim', 'value': 'cossim_full'},
-                {'label': 'Scale', 'value': 'scale_full'},
-                {'label': 'MSE', 'value': 'mse_full'},
-            ], 'cossim_full'
-        elif node_type == 'heatmap':
-            return [
-                {'label': 'MSE Attn Heatmap', 'value': 'MSE Attn Heatmap'}
-                ], 'MSE Attn Heatmap'
-        else:
-            return [], None
-
-    # Callback to update the node details graph based on selected metric and node type
-    @app.callback(
-        Output('node-details', 'figure'),
-        [Input('graph', 'clickData'),
-         Input('metric-dropdown', 'value')],
-        [State('node-type-store', 'data')]
-    )
-    def display_node_data(clickData, selected_metric, node_type):
-        """
-        Updates the node details graph based on the clicked node and selected metric.
-
-        Args:
-            clickData (dict): Data about the clicked node.
-            selected_metric (str): The selected metric from the dropdown.
-            node_type (str): The type of the node ('histogram' or 'heatmap').
-
-        Returns:
-            go.Figure: The updated figure to display.
-        """
+    def display_node_data(clickData, selected_metric):
         if clickData is None:
-            print("No clickData received")
             return go.Figure()
 
         try:
@@ -388,7 +364,7 @@ def create_app(nn_graph):
             return go.Figure()
 
         fig = go.Figure()
-        if node_type == 'histogram':
+        if 'histogram' in selected_metric or 'Histogram' in selected_metric:
             trace = nn_graph.metric_handler.plot_node_hist(node_name, stat=selected_metric)
             fig.add_trace(trace)
             fig.update_layout(
@@ -396,7 +372,7 @@ def create_app(nn_graph):
                 xaxis_title="Metric",
                 yaxis_title="Value"
             )
-        elif node_type == 'heatmap':
+        elif 'heatmap' in selected_metric or 'Heatmap' in selected_metric:
             trace = nn_graph.metric_handler.heatmap_plot(layer_name=node_name, stat='MSE Attn Heatmap')
             fig.add_trace(trace)
             fig.update_layout(
@@ -405,6 +381,21 @@ def create_app(nn_graph):
                 yaxis_title="Model 0 Head"
             )
 
+        return fig
+
+    @app.callback(
+        Output('line-plot', 'figure'),
+        [Input('line-plot-dropdown', 'value')]
+    )
+    def update_line_plot(selected_metric):
+        fig = go.Figure()
+        stat_values = [nn_graph.metric_handler.stats_at_layer(layer)[selected_metric] for layer in nn_graph.metric_handler.layer_names]
+        fig.add_trace(go.Scatter(x=nn_graph.metric_handler.layer_names, y=stat_values, mode='lines+markers'))
+        fig.update_layout(
+            title=f"{selected_metric.replace('_', ' ').capitalize()} Across Layers",
+            xaxis_title="Layer",
+            yaxis_title=selected_metric.replace('_', ' ').capitalize()
+        )
         return fig
 
     return app
