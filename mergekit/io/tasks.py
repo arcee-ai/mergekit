@@ -209,6 +209,7 @@ class BuildStateDict(Task[Dict[str, torch.Tensor]]):
 class ReturnTensor(Task[torch.Tensor]):
     weight_info: WeightInfo
     tensor_task: Task[torch.Tensor]
+    dtype: Optional[str] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {"tensor": self.tensor_task}
@@ -220,4 +221,6 @@ class ReturnTensor(Task[torch.Tensor]):
         return self.tensor_task.group_label()
 
     def execute(self, tensor: torch.Tensor) -> torch.Tensor:
+        if self.dtype and (dtype := dtype_from_name(self.dtype)) != tensor.dtype:
+            tensor = tensor.to(dtype=dtype)
         return tensor
