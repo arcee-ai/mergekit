@@ -29,11 +29,8 @@ def rescale_sum(tensor: torch.Tensor, mask: torch.Tensor):
     org_sum = tensor.abs().sum()
     new_sum = (tensor * mask).abs().sum()
 
-    if org_sum >= 1e-8:
+    if org_sum >= 1e-8 and new_sum >= 1e-8:
         tensor *= org_sum / new_sum
-    else:
-        pass
-
     return tensor * mask
 
 
