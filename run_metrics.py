@@ -15,10 +15,10 @@ from mergekit.plot_tools.plot_tools import ModelGraph, create_app
 #%%
 with open(CONFIG_YML, "r", encoding="utf-8") as fp:
     metric_config = MergeConfiguration.model_validate(yaml.safe_load(fp))
-
+#%%
 if __name__ == '__main__':
 
-    out = run_measure(
+    metrics = run_measure(
         metric_config,
         out_path=OUTPUT_PATH,
         options=MergeOptions(
@@ -29,7 +29,7 @@ if __name__ == '__main__':
         ),
     )
 
-    nn_graph = ModelGraph([pair for pair in out if pair[1] is not None])
+    nn_graph = ModelGraph(metrics)
     nn_graph.construct_graph()
 
     app = create_app(nn_graph=nn_graph)

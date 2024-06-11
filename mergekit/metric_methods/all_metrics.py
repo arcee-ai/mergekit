@@ -16,33 +16,95 @@
 from typing import Any, Dict, List, Optional
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ModelReference, ImmutableMap
+from mergekit.common import ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors, LoadTensor
+from mergekit.io.tasks import GatherTensors
 from mergekit.metric_methods.base import MetricMethod
-from mergekit.metric_methods.base import ConfigParameterDef
 
 import torch
 import torch.nn.functional as F
 
 import numpy as np
 
-def compute_histogram(tensor: torch.Tensor, n_bins: int) -> List[np.ndarray]:
-    bin_counts, bin_edges = np.histogram(tensor.numpy(), bins=n_bins)
-    bin_widths = np.diff(bin_edges)
-    return bin_counts, bin_edges, bin_widths
-
 def validate_tensors(tensors: List[torch.Tensor], weight_info: WeightInfo, expected_tensors: Optional[int] = 2):
+    """Validate tensor shapes and count."""
     unique_shapes = set(t.shape for t in tensors)
     if len(unique_shapes) != 1:
         raise RuntimeError(f"Tensor size mismatch for {weight_info.name}, sizes: {list(unique_shapes)}")
     if expected_tensors:
         if len(tensors) != expected_tensors:
             raise RuntimeError(f"Expected {expected_tensors} tensors, got {len(tensors)}")
+
+def ungroup_tensor(input_tensor: torch.Tensor, GQA_groups: int) -> torch.Tensor:
+    """
+    Ungroup a grouped tensor by repeating its rows.
+    """
+    rows, cols = input_tensor.shape
+    new_rows = rows * GQA_groups
+    ungrouped_tensor = torch.zeros(new_rows, cols)
+
+    for i in range(GQA_groups):
+        ungrouped_tensor[i*rows:(i+1)*rows] = input_tensor[i].expand(rows, -1)
     
+    return ungrouped_tensor
+
+def restructure_tensor(input_tensor: torch.Tensor, num_rows: int) -> torch.Tensor:
+    """
+    Restructure a tensor by splitting its rows and permuting the dimensions. 
+    
+    This is used so that the attention weights can be grouped by head in the first dimension.
+    """
+    rows, cols = input_tensor.shape
+    new_rows = rows // num_rows
+    reshaped_tensor = input_tensor.view(new_rows, num_rows, cols)
+    restructured_tensor = reshaped_tensor.permute(1, 0, 2)
+    
+    return restructured_tensor
+
+def group_attn_head_weights(k_proj: torch.Tensor, 
+                            q_proj: torch.Tensor, 
+                            v_proj: torch.Tensor, 
+                            o_proj: torch.Tensor, 
+                            weight_info: WeightInfo) -> tuple[torch.Tensor, 
+                                                              torch.Tensor, 
+                                                              torch.Tensor, 
+                                                              torch.Tensor]:
+
+    num_heads = weight_info.num_heads
+    GQA_groups = weight_info.GQA_groups
+
+    k_proj = ungroup_tensor(k_proj, GQA_groups)
+    v_proj = ungroup_tensor(v_proj, GQA_groups)
+
+    k_proj = restructure_tensor(k_proj, num_heads)
+    v_proj = restructure_tensor(v_proj, num_heads)
+    q_proj = restructure_tensor(q_proj, num_heads)
+    o_proj = restructure_tensor(o_proj.T, num_heads) # Output weights are split into heads by rows, not columns
+
+    return k_proj, v_proj, q_proj, o_proj
+
+def compute_histogram(tensor: torch.Tensor, n_bins: int) -> List[np.ndarray]:
+    bin_counts, bin_edges = np.histogram(tensor.numpy(), bins=n_bins)
+    bin_widths = np.diff(bin_edges)
+    return bin_counts, bin_edges, bin_widths
+
+def cossim_heatmap(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+    # Normalize the rows of both matrices
+    A_norm = A / A.norm(dim=1, keepdim=True)
+    B_norm = B / B.norm(dim=1, keepdim=True)
+    
+    # Compute the cosine similarity matrix
+    similarity_matrix = torch.mm(A_norm, B_norm.t())
+    
+    return similarity_matrix
+
+# Metric functions
+
 def SMAPE(
     tensors: List[torch.Tensor], **_kwargs
 ) -> Dict[str, Any]:
+    """Symmetric Mean Absolute Percentage Error (SMAPE)."""
+
     numerator = torch.abs(tensors[0] - tensors[1])
     denominator = (torch.abs(tensors[0]) + torch.abs(tensors[1]))
     smape = torch.mean(torch.div(numerator, denominator), dim=1) 
@@ -59,14 +121,21 @@ def SMAPE(
     }
 
 def cossim(
-    tensors: List[torch.Tensor], **_kwargs
+    tensors: List[torch.Tensor], return_heatmap=False, **_kwargs
 ) -> torch.Tensor:
+    """Cosine similarity"""
     cossim = F.cosine_similarity(tensors[0], tensors[1], dim=1)
-    if _kwargs.get('angular_distance'):
-        cossim = torch.acos(cossim.clamp(min=-1, max=1))/torch.pi 
+
+    res = {}
+
+    if return_heatmap:
+        res.update({'Cossim Heatmap': cossim_heatmap(tensors[0], tensors[1])})
+
+    assert torch.isclose(cossim, cossim, atol=1e-6).all(), "NaNs in cosine similarity"
+    assert torch.isclose(cossim, cossim_heatmap(tensors[0], tensors[1]).diagonal(), atol=1e-4).all(), "Diagonal elements of cosine similarity matrix do not match"
 
     hist_info = compute_histogram(cossim, 100)
-    return {
+    res.update({
         'cossim Histogram': {
             'count': hist_info[0],
             'edges': hist_info[1],
@@ -74,19 +143,34 @@ def cossim(
         },
         'cossim_mean': cossim.mean().item(),
         'cossim_std': cossim.std().item()
-    }
+    })
+    return res
 
 def scale(
-    tensors: List[torch.Tensor], **_kwargs
+    tensors: List[torch.Tensor], return_heatmap=False, **_kwargs
 ) -> torch.Tensor:
+    """
+    Scale difference: ratio of absolute difference to average scale.
+    Complementary to cosine similarity, which measures the angle between two vectors and is invariant to scale.
+    """
 
     norm_0 = torch.norm(tensors[0], dim=1)
     norm_1 = torch.norm(tensors[1], dim=1)
 
+    res = {}
+
+    if return_heatmap:
+        num_heads = tensors[0].shape[0]
+        heatmap = np.zeros((num_heads, num_heads))
+        for i in range(num_heads):
+            for j in range(num_heads):
+                heatmap[i, j] = torch.abs(norm_0[i] - norm_1[j]) / ((norm_0[i] + norm_1[j]) / 2)
+        res.update({'Scale Heatmap': heatmap})
+
     scale_diff = torch.abs(norm_0 - norm_1) / ((norm_0 + norm_1) / 2)
         
     hist_info = compute_histogram(scale_diff, 100)
-    return {
+    res.update({
         'scale Histogram': {
             'count': hist_info[0],
             'edges': hist_info[1],
@@ -94,15 +178,16 @@ def scale(
         },
         'scale_mean': scale_diff.mean().item(),
         'scale_std': scale_diff.std().item()
-    }
+    })
+    return res
 
 def mse(
-    tensors: List[torch.Tensor], heatmap=False, **_kwargs
+    tensors: List[torch.Tensor], return_heatmap: bool =False, **_kwargs
 ) -> torch.Tensor:
-    
+    """Mean squared error (MSE)."""
     res = {}
 
-    if heatmap:
+    if return_heatmap:
         num_heads = tensors[0].shape[0]
         heatmap = np.zeros((num_heads, num_heads))
         for i in range(num_heads):
@@ -125,63 +210,9 @@ def mse(
     })
     return res
 
-def ungroup_tensor(input_tensor, GQA_groups):
-    """
-    Ungroup a tensor by repeating its columns.
-
-    Args:
-        input_tensor (torch.Tensor): The input tensor to ungroup.
-        GQA_groups (int): The number of GQA groups.
-
-    Returns:
-        torch.Tensor: The ungrouped tensor.
-    """
-    rows, cols = input_tensor.shape
-    new_rows = rows * GQA_groups
-    ungrouped_tensor = torch.zeros(new_rows, cols)
-
-    for i in range(GQA_groups):
-        ungrouped_tensor[i*rows:(i+1)*rows] = input_tensor[i].expand(rows, -1)
-    
-    return ungrouped_tensor
-
-def restructure_tensor(input_tensor, num_rows):
-    """
-    Restructure a tensor by splitting its rows.
-
-    Args:
-        input_tensor (torch.Tensor): The input tensor to restructure.
-        num_rows (int): The number of rows for splitting.
-
-    Returns:
-        torch.Tensor: The restructured tensor.
-    """
-    rows, cols = input_tensor.shape
-    new_rows = rows // num_rows
-    reshaped_tensor = input_tensor.view(new_rows, num_rows, cols)
-    restructured_tensor = reshaped_tensor.permute(1, 0, 2)
-    
-    return restructured_tensor
-
-def group_attn_head_weights(k_proj, q_proj, v_proj, o_proj, weight_info):
-
-    num_heads = weight_info.num_heads
-    GQA_groups = weight_info.GQA_groups
-
-    k_proj = ungroup_tensor(k_proj, GQA_groups)
-    v_proj = ungroup_tensor(v_proj, GQA_groups)
-
-    k_proj = restructure_tensor(k_proj, num_heads)
-    v_proj = restructure_tensor(v_proj, num_heads)
-    q_proj = restructure_tensor(q_proj, num_heads)
-    o_proj = restructure_tensor(o_proj.T, num_heads)
-
-    return k_proj, v_proj, q_proj, o_proj
-
-class AllMetricTask(Task[torch.Tensor]):
+class MLPTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     weight_info: WeightInfo
-    angular_distance: bool
 
     def uses_accelerator(self) -> bool:
         return True
@@ -197,7 +228,7 @@ class AllMetricTask(Task[torch.Tensor]):
         res = {}
         if 'mlp' in self.weight_info.name:
 
-            res.update(cossim(tensors, angular_distance=self.angular_distance))
+            res.update(cossim(tensors))
             res.update(SMAPE(tensors))
             res.update(scale(tensors))
             res.update(mse(tensors))
@@ -237,11 +268,14 @@ class AttnTask(Task[torch.Tensor]):
         # Metrics for heads
         res.update(mse([model_0_heads.view(model_0_heads.shape[0], -1), 
                         model_1_heads.view(model_1_heads.shape[0], -1)], 
-                        heatmap=True))
+                        return_heatmap=True))
         res.update(cossim([model_0_heads.view(model_0_heads.shape[0], -1), 
                            model_1_heads.view(model_1_heads.shape[0], -1)], 
-                           angular_distance=True))
+                           return_heatmap=True))
         res.update(scale([model_0_heads.view(model_0_heads.shape[0], -1),
+                            model_1_heads.view(model_1_heads.shape[0], -1)],
+                            return_heatmap=True))
+        res.update(SMAPE([model_0_heads.view(model_0_heads.shape[0], -1),
                             model_1_heads.view(model_1_heads.shape[0], -1)]))
 
         return res
@@ -285,12 +319,8 @@ class AllMetric(MetricMethod):
     attn_info_dict: Optional[Dict[str, WeightInfo]] = {}
 
 
-    attn_parts: Optional[List[str]] = ['k_proj', 'v_proj', 'q_proj', 'o_proj']
+    attn_parts: Optional[List[str]] = ['k_proj', 'v_proj', 'q_proj', 'o_proj'] # hard-coded for now
     block_count: Optional[int] = 0
-    def parameters(self) -> List[ConfigParameterDef]:
-        return [
-            ConfigParameterDef(name="angular_distance", required=False, default_value=False),
-        ]
     def make_task(
         self,
         *,
@@ -316,18 +346,18 @@ class AllMetric(MetricMethod):
                     force_dtype=None,
                     optional=False,
                     aliases=None,
-                    GQA_groups=4,
-                    num_heads=32
+                    GQA_groups=4, # hard-coded for now
+                    num_heads=32 # hard-coded for now
                 )
                 self.block_count += 1
                 return AttnTask(weights=weights, weight_infos=infos, weight_info=weight_info)
         if 'mlp' in output_weight.name:        
-            return AllMetricTask(
+            return MLPTask(
                 gather_tensors=tensors,
                 weight_info=output_weight,
-                angular_distance=parameters["angular_distance"]
             )
         else:
-            return DummyTask(gather_tensors=tensors, weight_info=output_weight)
+            # Executor expects a task to be returned
+            return DummyTask(gather_tensors=tensors, weight_info=output_weight) 
 
 

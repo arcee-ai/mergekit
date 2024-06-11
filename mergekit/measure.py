@@ -18,7 +18,7 @@ import logging
 import tqdm
 import transformers
 
-from mergekit.architecture import ArchitectureInfo, get_architecture_info
+from mergekit.architecture import get_architecture_info
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache

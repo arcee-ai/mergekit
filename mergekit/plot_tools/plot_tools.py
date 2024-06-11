@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 import dash
 from dash import dcc, html
-from dash.dependencies import Input, Output, State
+from dash.dependencies import Input, Output
 
 class MetricsHandler:
     """
@@ -81,8 +81,6 @@ class MetricsHandler:
             name='Line Plot'
         )
 
-        
-
     def _line_plot(self, ax, stat:str, plot_kwargs: Optional[Dict[str, Any]] = {}):
         """
         Plot the stat values with optional error bars.
@@ -137,7 +135,7 @@ class MetricsHandler:
         ax.set_ylabel(kwargs.get('ylabel', stat))
         ax.set_xticks(np.arange(len(self.layer_names)))
         ax.set_xticklabels(self.layer_names, rotation=45)
-        ax.set_title(kwargs.get('title', f'{stat.replace("_", " ").capitalize()}'))
+        ax.set_title(kwargs.get('title', f'{stat.replace("_", " ").title()}'))
 
         # Set additional attributes
         for kwarg in ax_kwargs:
@@ -209,7 +207,7 @@ class ModelGraph:
     def construct_graph(self):
         self._add_nodes_and_edges(self.hierarchy)
 
-    def plot_graph(self, save_to: str = None):
+    def plot_graph(self, colour_by='cossim_mean', save_to: str = None):
         """
         Plot the graph using Plotly for interactivity.
         """
@@ -248,14 +246,13 @@ class ModelGraph:
             for metric in metrics_to_plot:
                 if metric in metric_values:
                     value = metric_values[metric]
-                    hover += f"<br>{metric.replace('_', ' ').capitalize()}: {value:.4f}{'%' if 'SMAPE' in metric else ''}"
+                    hover += f"<br>{metric.replace('_', ' ').title()}: {value:.4f}{'%' if 'SMAPE' in metric else ''}"
                     node_values[metric].append(value)
 
             node_text.append(node)
             hover_text.append(hover)
 
-        first_metric = metrics_to_plot[0]
-        node_colors = [value for value in node_values[first_metric]]
+        node_colors = [value for value in node_values[colour_by]]
 
         node_trace = go.Scatter(
             x=node_x, y=node_y,
@@ -268,12 +265,12 @@ class ModelGraph:
                 showscale=True,
                 colorscale='Viridis',
                 color=node_colors,
-                cmin=min(node_values[first_metric]),
-                cmax=max(node_values[first_metric]),
+                cmin=min(node_values[colour_by]),
+                cmax=max(node_values[colour_by]),
                 size=10,
                 colorbar=dict(
                     thickness=15,
-                    title=first_metric.replace('_', ' ').capitalize(),
+                    title=colour_by.replace('_', ' ').title(),
                     xanchor='left',
                     titleside='right',
                 ),
@@ -294,11 +291,16 @@ class ModelGraph:
 
 def create_app(nn_graph):
     app = dash.Dash(__name__, external_stylesheets=['https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'])
-    # app = dash.Dash(__name__, external_stylesheets=['https://bootswatch.com/4/darkly/bootstrap.min.css'])
 
     app.layout = html.Div([
         html.Div([
-            html.H1('Neural Network Similarity Vislualisation', style={'textAlign': 'center'}),
+            html.H1('Network Weights Similarity Visualisation', style={'textAlign': 'center', 'padding': '20px'}),
+            dcc.Dropdown(
+                id='colour-by-dropdown',
+                options=[{'label': metric.replace('_', ' ').title(), 'value': metric} for metric in nn_graph.metric_handler.stat_names if 'mean' in metric],
+                value='cossim_mean',
+                style={'width': '50%', 'margin': 'auto', 'display': 'block', 'font-family': 'Arial'}
+            ),
             dcc.Graph(
                 id='graph',
                 figure=nn_graph.plot_graph(),
@@ -313,7 +315,7 @@ def create_app(nn_graph):
                 options=[],
                 style={'width': '50%', 'margin': 'auto', 'display': 'block', 'font-family': 'Arial'}
             ),
-            dcc.Graph(id='node-details-plot', style={'width': '100%', 'height': '50vh'}),
+            dcc.Graph(id='node-details-plot', style={'width': '100%', 'height': '80vh', 'textAlign': 'center'}),
         ], className='container-fluid'),
 
         html.Div([
@@ -332,7 +334,7 @@ def create_app(nn_graph):
         Output('metric-dropdown', 'options'), Output('metric-dropdown', 'value'),
         [Input('graph', 'clickData')]
     )
-    def update_dropdown_options(clickData):
+    def update_metric_dropdown_options(clickData):
         if clickData is None:
             return []
         
@@ -341,7 +343,7 @@ def create_app(nn_graph):
             options = list(nn_graph.metric_handler.stats_at_layer(node_name).keys())
             options = [option for option in options if 'std' not in option]
             options = [
-                {'label': option.replace('_', ' ').capitalize(), 'value': option} for option in options if 'mean' not in option
+                {'label': option.replace('_', ' ').title(), 'value': option} for option in options if 'mean' not in option
             ]
             return options, options[0]['value']
         
@@ -373,7 +375,7 @@ def create_app(nn_graph):
                 yaxis_title="Value"
             )
         elif 'heatmap' in selected_metric or 'Heatmap' in selected_metric:
-            trace = nn_graph.metric_handler.heatmap_plot(layer_name=node_name, stat='MSE Attn Heatmap')
+            trace = nn_graph.metric_handler.heatmap_plot(layer_name=node_name, stat=selected_metric)
             fig.add_trace(trace)
             fig.update_layout(
                 title=f"{node_name} | {selected_metric}",
@@ -392,10 +394,17 @@ def create_app(nn_graph):
         stat_values = [nn_graph.metric_handler.stats_at_layer(layer)[selected_metric] for layer in nn_graph.metric_handler.layer_names]
         fig.add_trace(go.Scatter(x=nn_graph.metric_handler.layer_names, y=stat_values, mode='lines+markers'))
         fig.update_layout(
-            title=f"{selected_metric.replace('_', ' ').capitalize()} Across Layers",
+            title=f"{selected_metric.replace('_', ' ').title()} Across Layers",
             xaxis_title="Layer",
-            yaxis_title=selected_metric.replace('_', ' ').capitalize()
+            yaxis_title=selected_metric.replace('_', ' ').title()
         )
         return fig
 
+    @app.callback(
+        Output('graph', 'figure'),
+        [Input('colour-by-dropdown', 'value')]
+    )
+    def update_graph_colour(colour_by):
+        return nn_graph.plot_graph(colour_by=colour_by)
+        
     return app
