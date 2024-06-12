@@ -159,15 +159,18 @@ def scale(
 
     res = {}
 
+    scale_diff = torch.abs(norm_0 - norm_1) / ((norm_0 + norm_1) / 2)
+
     if return_heatmap:
-        num_heads = tensors[0].shape[0]
-        heatmap = np.zeros((num_heads, num_heads))
-        for i in range(num_heads):
-            for j in range(num_heads):
-                heatmap[i, j] = torch.abs(norm_0[i] - norm_1[j]) / ((norm_0[i] + norm_1[j]) / 2)
+        norm_0 = norm_0.unsqueeze(1)  # shape becomes [num_heads, 1]
+        norm_1 = norm_1.unsqueeze(0)  # shape becomes [1, num_heads]
+
+        # Compute the scale difference between each pair of heads by broadcasting
+        heatmap = torch.abs(norm_0 - norm_1) / ((norm_0 + norm_1) / 2)
         res.update({'Scale Heatmap': heatmap})
 
-    scale_diff = torch.abs(norm_0 - norm_1) / ((norm_0 + norm_1) / 2)
+        assert torch.isclose(scale_diff, heatmap.diagonal(), atol=1e-4).all(), "Diagonal elements of scale difference matrix do not match"
+
         
     hist_info = compute_histogram(scale_diff, 100)
     res.update({
@@ -188,11 +191,16 @@ def mse(
     res = {}
 
     if return_heatmap:
-        num_heads = tensors[0].shape[0]
-        heatmap = np.zeros((num_heads, num_heads))
-        for i in range(num_heads):
-            for j in range(num_heads):
-                heatmap[i, j] = ((tensors[0][i] - tensors[1][j]) ** 2).mean().item()
+        # Expand dimensions for broadcasting
+        tensors_0_exp = tensors[0].unsqueeze(1)  # shape becomes [num_heads, 1, ...]
+        tensors_1_exp = tensors[1].unsqueeze(0)  # shape becomes [1, num_heads, ...]
+
+        # Compute squared differences
+        diffs = (tensors_0_exp - tensors_1_exp) ** 2
+
+        # Compute mean over all dimensions except the first two
+        heatmap = diffs.mean(dim=tuple(range(2, diffs.dim()))).numpy()
+
         res['MSE Attn Heatmap'] = heatmap
 
     squared_diff = (tensors[0] - tensors[1]) ** 2
@@ -209,6 +217,8 @@ def mse(
         'mse_std': mse_per_neuron.std().item()
     })
     return res
+
+# Tasks
 
 class MLPTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
@@ -228,10 +238,10 @@ class MLPTask(Task[torch.Tensor]):
         res = {}
         if 'mlp' in self.weight_info.name:
 
-            res.update(cossim(tensors))
+            res.update(cossim(tensors, return_heatmap=True))
             res.update(SMAPE(tensors))
-            res.update(scale(tensors))
-            res.update(mse(tensors))
+            res.update(scale(tensors, return_heatmap=True))
+            res.update(mse(tensors, return_heatmap=False)) # Highly inefficient
             
         return res
 
@@ -309,15 +319,15 @@ class DummyTask(Task[torch.Tensor]):
     
     def group_label(self) -> Optional[str]:
         return self.gather_tensors.group_label()
-        
 
+# Metric method
+   
 class AllMetric(MetricMethod):
     attn_weight_tensors: Optional[list] = []
     attn_weight_infos: Optional[list] = []
 
     attn_weight_dict: Optional[Dict[str, torch.Tensor]] = {}
     attn_info_dict: Optional[Dict[str, WeightInfo]] = {}
-
 
     attn_parts: Optional[List[str]] = ['k_proj', 'v_proj', 'q_proj', 'o_proj'] # hard-coded for now
     block_count: Optional[int] = 0
