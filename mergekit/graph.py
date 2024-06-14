@@ -107,8 +107,6 @@ class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
         """
         return False
 
-import re
-
 class Executor:
     """
     Schedules and executes a set of tasks and their dependencies.
