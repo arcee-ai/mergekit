@@ -107,6 +107,7 @@ class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
         """
         return False
 
+import re
 
 class Executor:
     """
@@ -242,13 +243,20 @@ class Executor:
             # they will be included in the final schedule
             edge_tups.append((Executor.DUMMY_TASK_VALUE, task))
 
+        def _pad_numbers(s):
+            parts = s.split('.')
+            for i, part in enumerate(parts):
+                if part.isdigit():
+                    parts[i] = part.zfill(3)
+            return '.'.join(parts)
+
         def _compare_key(task: Union[Task, str]):
             if task == Executor.DUMMY_TASK_VALUE:
                 return ("", 0)
-            return (
-                task.group_label() or "",
-                -task.priority(),
-            )
+            group_label = task.group_label() or ""
+            padded_label = _pad_numbers(group_label)
+            priority = -task.priority()
+            return (padded_label, priority)
 
         graph = networkx.DiGraph(edge_tups)
         res = [
