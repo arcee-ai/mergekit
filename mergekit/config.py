@@ -109,6 +109,14 @@ class MergeConfiguration(BaseModel):
         if ((not self.slices) and (not self.models)) or (self.slices and self.models):
             raise RuntimeError("Must specify either output slices or models to merge")
         return self
+    
+    @model_validator(mode="after")
+    def validate_methods(self):
+        if not self.merge_method and not self.metric_method:
+            raise ValueError("Either 'merge_method' or 'metric_method' must be provided.")
+        if self.merge_method and self.metric_method:
+            raise ValueError("Only one of 'merge_method' or 'metric_method' can be provided, not both.")
+        return self
 
     def to_yaml(self) -> str:
         return yaml.dump(
