@@ -35,15 +35,15 @@ def validate_tensors(tensors: List[torch.Tensor], weight_info: WeightInfo, expec
         if len(tensors) != expected_tensors:
             raise RuntimeError(f"Expected {expected_tensors} tensors, got {len(tensors)}")
 
-def ungroup_tensor(input_tensor: torch.Tensor, GQA_groups: int) -> torch.Tensor:
+def ungroup_tensor(input_tensor: torch.Tensor, gqa_groups: int) -> torch.Tensor:
     """
     Ungroup a grouped tensor by repeating its rows.
     """
     rows, cols = input_tensor.shape
-    new_rows = rows * GQA_groups
+    new_rows = rows * gqa_groups
     ungrouped_tensor = torch.zeros(new_rows, cols)
 
-    for i in range(GQA_groups):
+    for i in range(gqa_groups):
         ungrouped_tensor[i*rows:(i+1)*rows] = input_tensor[i].expand(rows, -1)
     
     return ungrouped_tensor
@@ -71,10 +71,10 @@ def group_attn_head_weights(k_proj: torch.Tensor,
                                                               torch.Tensor]:
 
     num_heads = weight_info.num_heads
-    GQA_groups = weight_info.GQA_groups
+    gqa_groups = weight_info.gqa_groups
 
-    k_proj = ungroup_tensor(k_proj, GQA_groups)
-    v_proj = ungroup_tensor(v_proj, GQA_groups)
+    k_proj = ungroup_tensor(k_proj, gqa_groups)
+    v_proj = ungroup_tensor(v_proj, gqa_groups)
 
     k_proj = restructure_tensor(k_proj, num_heads)
     v_proj = restructure_tensor(v_proj, num_heads)
@@ -356,7 +356,7 @@ class AllMetric(MetricMethod):
                     force_dtype=None,
                     optional=False,
                     aliases=None,
-                    GQA_groups=4, # hard-coded for now
+                    gqa_groups=4, # hard-coded for now
                     num_heads=32 # hard-coded for now
                 )
                 self.block_count += 1
