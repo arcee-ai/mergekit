@@ -293,7 +293,18 @@ class MergePlanner:
     def plan_in_memory(self) -> List[ReturnTensor]:
         """Plan the merge to be performed in memory."""
         self._plan()
-        return [ReturnTensor(weight_info=w, tensor_task=t) for w, t in self._tensors]
+
+        if self.config.metric_method:
+            return self.metrics_plan_to_disk()
+        
+        return [
+            ReturnTensor(
+                weight_info=w,
+                tensor_task=t,
+                dtype=w.force_dtype or self.config.out_dtype,
+            )
+            for w, t in self._tensors
+        ]
 
     def _plan(self):
         self.normalize_config()
