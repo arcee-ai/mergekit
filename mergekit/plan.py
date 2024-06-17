@@ -246,10 +246,8 @@ class MergePlanner:
                 cfg_reader=cfg_reader,
             )
 
-    def plan_to_disk(self, out_path: str) -> List[Task]:
-        """Plan the merge to be streamed to disk, returning a list of tasks."""
-        self._plan()
-
+    def metrics_plan_to_disk(self) -> List[Task]:
+        """Plan the metrics to be streamed to disk, returning a list of tasks."""
         save_tasks = []
         for weight, tensor_task in self._tensors:
             save_tasks.append(
@@ -257,6 +255,40 @@ class MergePlanner:
             )
 
         return save_tasks
+    
+    def plan_to_disk(self, out_path: str) -> List[Task]:
+        """Plan the merge to be streamed to disk, returning a list of tasks."""
+        self._plan()
+
+        if self.config.metric_method:
+            return self.metrics_plan_to_disk()
+
+
+        writer_task = TensorWriterTask(
+            out_path=out_path,
+            max_shard_size=self.options.out_shard_size,
+            safe_serialization=self.options.safe_serialization,
+        )
+        save_tasks = []
+        for weight, tensor_task in self._tensors:
+            save_tasks.append(
+                SaveTensor(
+                    tensor_name=weight.name,
+                    tensor_task=tensor_task,
+                    writer_task=writer_task,
+                    clone=self.options.clone_tensors,
+                    optional=weight.optional,
+                    dtype=weight.force_dtype or self.config.out_dtype,
+                )
+            )
+        finalize = FinalizeModel(
+            tensor_save_tasks=tuple(save_tasks), writer_task=writer_task
+        )
+
+        res = save_tasks + [finalize]
+        if self._tokenizer_task:
+            res.append(self._tokenizer_task)
+        return res
 
     def plan_in_memory(self) -> List[ReturnTensor]:
         """Plan the merge to be performed in memory."""
