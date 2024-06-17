@@ -1,6 +1,0 @@
-models:
-  - model: BEE-spoke-data/smol_llama-220M-GQA
-  - model: BEE-spoke-data/smol_llama-220M-openhermes
-
-metric_method: all
-dtype: float32
