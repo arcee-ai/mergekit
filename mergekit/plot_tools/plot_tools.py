@@ -67,7 +67,6 @@ class MetricsHandler:
         plt.close()
     
     def plotly_line_plot(self, stat: str, save_to:Optional[str]=None, **kwargs):
-        fig = go.Figure()
 
         y = [self.all_stats[layer]['metric'][stat] for layer in self.layer_names]
         if f'{stat}'.replace('mean', 'std') in self.stat_names:
@@ -77,6 +76,11 @@ class MetricsHandler:
         return go.Scatter(
             x=self.layer_names,
             y=y,
+            error_y=dict(
+                type='data',
+                array=std_values,
+                visible=True
+            ),
             mode='lines+markers',
             name='Line Plot'
         )

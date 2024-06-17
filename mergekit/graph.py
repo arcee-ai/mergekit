@@ -37,7 +37,7 @@ class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
     Abstract base class representing a task in a computational graph.
 
     This class should be extended to define specific tasks. Each task can have arguments (dependencies) and a defined execution strategy.
-    Note that PyDantic BaseModel requires that all attributes are defined in the class initialisation, and cannot be changed after. 
+    Pydantic BaseModel requires that all attributes are defined in the class initialisation, and cannot be changed after. 
 
     Attributes:
         Generic[ValueT] (TypeVar): The type of the value that the task returns upon execution.
