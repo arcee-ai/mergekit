@@ -100,10 +100,10 @@ def cossim_heatmap(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
 
 # Metric functions
 
-def SMAPE(
+def smape(
     tensors: List[torch.Tensor], **_kwargs
 ) -> Dict[str, Any]:
-    """Symmetric Mean Absolute Percentage Error (SMAPE)."""
+    """Symmetric Mean Absolute Percentage Error (smape)."""
 
     numerator = torch.abs(tensors[0] - tensors[1])
     denominator = (torch.abs(tensors[0]) + torch.abs(tensors[1]))
@@ -111,13 +111,13 @@ def SMAPE(
     
     hist_info = compute_histogram(smape, 100)
     return {
-        'SMAPE Histogram': {
+        'smape Histogram': {
             'count': hist_info[0],
             'edges': hist_info[1],
             'widths': hist_info[2]
         },
-        'SMAPE_mean': smape.mean().item(),
-        'SMAPE_std': smape.std().item()
+        'smape_mean': smape.mean().item(),
+        'smape_std': smape.std().item()
     }
 
 def cossim(
@@ -166,7 +166,7 @@ def scale(
         norm_1 = norm_1.unsqueeze(0)  # shape becomes [1, num_heads]
 
         # Compute the scale difference between each pair of heads by broadcasting
-        heatmap = torch.abs(norm_0 - norm_1) / ((norm_0 + norm_1) / 2)
+        heatmap = torch.abs(norm_0 - norm_1) / ((norm_0 + norm_1 + 1e-10) / 2)
         res.update({'Scale Heatmap': heatmap})
 
         assert torch.isclose(scale_diff, heatmap.diagonal(), atol=1e-4).all(), "Diagonal elements of scale difference matrix do not match"
@@ -239,7 +239,7 @@ class MLPTask(Task[torch.Tensor]):
         if 'mlp' in self.weight_info.name:
 
             res.update(cossim(tensors, return_heatmap=True))
-            res.update(SMAPE(tensors))
+            res.update(smape(tensors))
             res.update(scale(tensors, return_heatmap=True))
             res.update(mse(tensors, return_heatmap=False)) # Highly inefficient
             
@@ -285,7 +285,7 @@ class AttnTask(Task[torch.Tensor]):
         res.update(scale([model_0_heads.view(model_0_heads.shape[0], -1),
                             model_1_heads.view(model_1_heads.shape[0], -1)],
                             return_heatmap=True))
-        res.update(SMAPE([model_0_heads.view(model_0_heads.shape[0], -1),
+        res.update(smape([model_0_heads.view(model_0_heads.shape[0], -1),
                             model_1_heads.view(model_1_heads.shape[0], -1)]))
 
         return res
