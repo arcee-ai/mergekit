@@ -4,7 +4,7 @@ import yaml
 
 from mergekit.config import MergeConfiguration
 from mergekit.merge import MergeOptions
-from mergekit.measure import run_measure
+from mergekit.merge import run_merge
 from mergekit.plot_tools.plot_tools import ModelGraph, create_app
 
 @click.command()
@@ -17,7 +17,7 @@ def main(output_path, config_yml, copy_tokenizer, lazy_unpickle, low_cpu_memory)
     with open(config_yml, "r", encoding="utf-8") as fp:
         metric_config = MergeConfiguration.model_validate(yaml.safe_load(fp))
 
-    metrics = run_measure(
+    metrics = run_merge(
         metric_config,
         out_path=output_path,
         options=MergeOptions(
