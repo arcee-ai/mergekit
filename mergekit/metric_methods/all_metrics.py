@@ -155,6 +155,8 @@ def scale(
     """
     Scale difference: ratio of absolute difference to average scale.
     Complementary to cosine similarity, which measures the angle between two vectors and is invariant to scale.
+
+    values close to 0 indicate that the scales of the two vectors are similar
     """
 
     norm_0 = torch.norm(tensors[0], dim=1)
@@ -241,9 +243,9 @@ class MLPTask(Task[torch.Tensor]):
         res = {}
         if 'mlp' in self.weight_info.name:
 
-            res.update(cossim(tensors, return_heatmap=True))
+            res.update(cossim(tensors, return_heatmap=False))
             res.update(smape(tensors))
-            res.update(scale(tensors, return_heatmap=True))
+            res.update(scale(tensors, return_heatmap=False))
             res.update(mse(tensors, return_heatmap=False)) # Highly inefficient
             
         return res

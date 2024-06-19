@@ -300,16 +300,12 @@ def create_app(nn_graph):
         html.Div([
             html.H1('Network Weights Similarity Visualisation', style={'textAlign': 'center', 'padding': '20px'}),
             dcc.Dropdown(
-                id='colour-by-dropdown',
+                id='line-plot-dropdown',
                 options=[{'label': metric.replace('_', ' ').title(), 'value': metric} for metric in nn_graph.metric_handler.stat_names if 'mean' in metric],
                 value='cossim_mean',
                 style={'width': '50%', 'margin': 'auto', 'display': 'block', 'font-family': 'Arial'}
             ),
-            dcc.Graph(
-                id='graph',
-                figure=nn_graph.plot_graph(),
-                style={'width': '100%', 'height': '50vh'}
-            ),
+            dcc.Graph(id='line-plot', style={'width': '100%', 'height': '100vh'}),
         ], className='container-fluid'),
         
         html.Div([
@@ -320,51 +316,40 @@ def create_app(nn_graph):
                 style={'width': '50%', 'margin': 'auto', 'display': 'block', 'font-family': 'Arial'}
             ),
             dcc.Graph(id='node-details-plot', style={'width': '100%', 'height': '80vh', 'textAlign': 'center'}),
-        ], className='container-fluid'),
-
-        html.Div([
-            html.H3('Metrics Across Layers', style={'textAlign': 'center'}),
-            dcc.Dropdown(
-                id='line-plot-dropdown',
-                options=[{'label': metric.replace('_', ' ').title(), 'value': metric} for metric in nn_graph.metric_handler.stat_names if 'mean' in metric],
-                value='cossim_mean',
-                style={'width': '50%', 'margin': 'auto', 'display': 'block', 'font-family': 'Arial'}
-            ),
-            dcc.Graph(id='line-plot', style={'width': '100%', 'height': '100vh'}),
-        ], className='container-fluid'),
+        ], className='container-fluid')
     ])
 
     @app.callback(
         Output('metric-dropdown', 'options'), Output('metric-dropdown', 'value'),
-        [Input('graph', 'clickData')]
+        [Input('line-plot', 'clickData')]
     )
     def update_metric_dropdown_options(clickData):
         if clickData is None:
-            return []
+            return [], None
         
         try:
-            node_name = clickData['points'][0]['text']
+            node_name = clickData['points'][0]['x']
             options = list(nn_graph.metric_handler.stats_at_layer(node_name).keys())
             options = [option for option in options if 'std' not in option]
             options = [
                 {'label': option.replace('_', ' ').title(), 'value': option} for option in options if 'mean' not in option
             ]
-            return options, options[0]['value']
+            return options, options[0]['value'] if options else None
         
         except (KeyError, IndexError, TypeError) as e:
             print(f"Error processing clickData: {e}")
-            return []
+            return [], None
 
     @app.callback(
         Output('node-details-plot', 'figure'),
-        [Input('graph', 'clickData'), Input('metric-dropdown', 'value')],
+        [Input('line-plot', 'clickData'), Input('metric-dropdown', 'value')],
     )
     def display_node_data(clickData, selected_metric):
         if clickData is None:
             return go.Figure()
 
         try:
-            node_name = clickData['points'][0]['text']
+            node_name = clickData['points'][0]['x']
         except (KeyError, IndexError, TypeError) as e:
             print(f"Error processing clickData: {e}")
             return go.Figure()
@@ -395,20 +380,6 @@ def create_app(nn_graph):
     )
     def update_line_plot(selected_metric):
         fig = go.Figure()
-        stat_values = [nn_graph.metric_handler.stats_at_layer(layer)[selected_metric] for layer in nn_graph.metric_handler.layer_names]
-        fig.add_trace(go.Scatter(x=nn_graph.metric_handler.layer_names, y=stat_values, mode='lines+markers'))
-        fig.update_layout(
-            title=f"{selected_metric.replace('_', ' ').title()} Across Layers",
-            xaxis_title="Layer",
-            yaxis_title=selected_metric.replace('_', ' ').title()
-        )
+        fig.add_trace(nn_graph.metric_handler.plotly_line_plot(selected_metric))
         return fig
-
-    @app.callback(
-        Output('graph', 'figure'),
-        [Input('colour-by-dropdown', 'value')]
-    )
-    def update_graph_colour(colour_by):
-        return nn_graph.plot_graph(colour_by=colour_by)
-        
     return app
