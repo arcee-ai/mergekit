@@ -4,6 +4,7 @@ from mergekit.graph import Task
 import networkx as nx
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output
@@ -66,24 +67,64 @@ class MetricsHandler:
         plt.show()
         plt.close()
     
-    def plotly_line_plot(self, stat: str, save_to:Optional[str]=None, **kwargs):
+    def categorise_layers(self, layer_names):
+        # Hardcoded for now - can be extended to include more categories or further generalised
+        categories = []
+        for name in layer_names:
+            if 'Attention Block' in name:
+                categories.append('Attention Block')
+            elif 'model.layer' in name:
+                categories.append('Model Layer')
+            else:
+                categories.append('Other')
+        return categories
 
+    def plotly_line_plot(self, stat: str, save_to: Optional[str] = None, **kwargs):
         y = [self.all_stats[layer]['metric'][stat] for layer in self.layer_names]
-        if f'{stat}'.replace('mean', 'std') in self.stat_names:
-            std_stat = f'{stat}'.replace('mean', 'std')
+        std_stat = f'{stat}'.replace('mean', 'std')
+        if std_stat in self.stat_names:
             std_values = [self.all_stats[layer]['metric'].get(std_stat) for layer in self.layer_names] 
+        else:
+            std_values = [0] * len(self.layer_names)
+        
+        layer_categories = self.categorise_layers(self.layer_names)
+        unique_categories = list(set(layer_categories))
+        
+        # Assign a unique color to each category
+        cmap = plt.get_cmap('jet', len(unique_categories))
+        colors = [mcolors.to_hex(cmap(i)) for i in range(len(unique_categories))]
 
-        return go.Scatter(
-            x=self.layer_names,
-            y=y,
-            error_y=dict(
-                type='data',
-                array=std_values,
-                visible=True
-            ),
-            mode='lines+markers',
-            name='Line Plot'
+        category_styles = {cat: colors[i % len(colors)] for i, cat in enumerate(unique_categories)}
+
+        fig = go.Figure()
+
+        for category in unique_categories:
+            y_category = [y[i] if layer_categories[i] == category else None for i in range(len(self.layer_names))]
+            std_category = [std_values[i] if layer_categories[i] == category else None for i in range(len(self.layer_names))]
+            
+            fig.add_trace(go.Scatter(
+                x=self.layer_names,
+                y=y_category,
+                error_y=dict(
+                    type='data',
+                    array=std_category,
+                    visible=True
+                ),
+                mode='markers',
+                name=category,
+                marker=dict(color=category_styles[category])
+            ))
+        
+        fig.update_layout(
+            title=f"{stat.replace('_', ' ').title()} Across Layers",
+            xaxis_title="Layer",
+            yaxis_title=stat.replace('_', ' ').title()
         )
+        
+        if save_to:
+            fig.write_image(save_to)
+        
+        return fig
 
     def _line_plot(self, ax, stat:str, plot_kwargs: Optional[Dict[str, Any]] = {}):
         """
@@ -379,7 +420,8 @@ def create_app(nn_graph):
         [Input('line-plot-dropdown', 'value')]
     )
     def update_line_plot(selected_metric):
-        fig = go.Figure()
-        fig.add_trace(nn_graph.metric_handler.plotly_line_plot(selected_metric))
-        return fig
+        # fig = go.Figure()
+        # fig.add_trace(nn_graph.metric_handler.plotly_line_plot(selected_metric))
+        # return fig
+        return nn_graph.metric_handler.plotly_line_plot(selected_metric)
     return app
