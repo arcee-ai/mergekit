@@ -71,10 +71,13 @@ def group_attn_head_weights(k_proj: torch.Tensor,
                                                               torch.Tensor]:
 
     num_heads = weight_info.num_attention_heads
-    gqa_groups = num_heads // weight_info.num_key_value_heads
+    assert num_heads is not None, "Number of attention heads is not defined"
+    
+    if getattr(weight_info, 'num_key_value_heads', None) and getattr(weight_info, 'num_key_value_heads', None) != 0:
+        gqa_groups = num_heads // weight_info.num_key_value_heads
 
-    k_proj = ungroup_tensor(k_proj, gqa_groups)
-    v_proj = ungroup_tensor(v_proj, gqa_groups)
+        k_proj = ungroup_tensor(k_proj, gqa_groups)
+        v_proj = ungroup_tensor(v_proj, gqa_groups)
 
     k_proj = restructure_tensor(k_proj, num_heads)
     v_proj = restructure_tensor(v_proj, num_heads)
@@ -353,8 +356,8 @@ class AllMetric(MetricMethod):
                     force_dtype=None,
                     optional=False,
                     aliases=None,
-                    gqa_groups=4, # hard-coded for now
-                    num_heads=32 # hard-coded for now
+                    num_key_value_heads=int(infos['k_proj'].num_key_value_heads), 
+                    num_attention_heads=int(infos['k_proj'].num_attention_heads) 
                 )
                 self.block_count += 1
                 return AttnTask(weights=weights, weight_infos=infos, weight_info=weight_info)
