@@ -70,8 +70,8 @@ def group_attn_head_weights(k_proj: torch.Tensor,
                                                               torch.Tensor, 
                                                               torch.Tensor]:
 
-    num_heads = weight_info.num_heads
-    gqa_groups = weight_info.gqa_groups
+    num_heads = weight_info.num_attention_heads
+    gqa_groups = num_heads // weight_info.num_key_value_heads
 
     k_proj = ungroup_tensor(k_proj, gqa_groups)
     v_proj = ungroup_tensor(v_proj, gqa_groups)
@@ -323,9 +323,6 @@ class DummyTask(Task[torch.Tensor]):
 # Metric method
    
 class AllMetric(MetricMethod):
-    attn_weight_tensors: Optional[list] = []
-    attn_weight_infos: Optional[list] = []
-
     attn_weight_dict: Optional[Dict[str, torch.Tensor]] = {}
     attn_info_dict: Optional[Dict[str, WeightInfo]] = {}
 

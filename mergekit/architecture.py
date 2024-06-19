@@ -43,10 +43,10 @@ class WeightInfo(BaseModel, frozen=True):
             List of alternative names for the weight, if applicable.
         force_dtype (Optional[str]):
             Mandatory dtype for the weight, if applicable.
-        gqa_groups (Optional[int]):
-            Number of groups for GQA-style weight sharing, if applicable.
-        num_heads (Optional[int]):
-            Number of heads for multihead attention, if applicable.
+        num_key_value_heads (Optional[int]):
+            Number of key-value heads in the weight, relevant for GQA, if applicable.
+        num_attention_heads (Optional[int]):
+            Number of attention heads in the weight, if applicable.
     """
 
     name: str
@@ -57,8 +57,8 @@ class WeightInfo(BaseModel, frozen=True):
     aliases: Optional[Tuple[str, ...]] = None
     force_dtype: Optional[str] = None
 
-    gqa_groups: Optional[int] = None # None if not GQA, 1 if MQA, >1 if GQA
-    num_heads: Optional[int] = None
+    num_key_value_heads: Union[int, str, None] = None
+    num_attention_heads: Union[int, str, None] = None
 
 
 class ProceduralSpaceInfo(BaseModel, frozen=True):
