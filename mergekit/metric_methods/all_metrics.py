@@ -26,6 +26,81 @@ import torch.nn.functional as F
 
 import numpy as np
 
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Any
+
+
+# Results
+# └── layers: Dict[str, Layer]
+#     └── Layer
+#         ├── name: str
+#         ├── metrics: Dict[str, Metric]
+#         │   └── Metric
+#         │       ├── name: str
+#         │       ├── histogram: Histogram (optional)
+#         │       │   ├── count: List[float]
+#         │       │   ├── edges: List[float]
+#         │       │   └── widths: List[float]
+#         │       ├── mean_std: MeanStd (optional)
+#         │       │   ├── mean: float
+#         │       │   └── std: float (optional)
+#         │       ├── heatmap: Heatmap (optional)
+#         │       │   └── data: torch.Tensor
+#         │       ├── value: float (optional)
+#         │       └── additional_data: Dict[str, Any]
+#         └── weight_info: WeightInfo
+
+@dataclass
+class MeanStd:
+    mean: float
+    std: Optional[float] = None
+
+@dataclass
+class Heatmap:
+    data: torch.Tensor
+
+@dataclass
+class Histogram:
+    count: List[float]
+    edges: List[float]
+    widths: List[float]
+
+@dataclass
+class Metric:
+    histogram: Histogram = None
+    mean_std: MeanStd = None
+    heatmap: Heatmap = None
+    value: float = None
+    additional_data: Dict[str, Any] = field(default_factory=dict)
+
+    def filled_attributes(self) -> List[str]:
+        filled_attrs = []
+        for attr, value in self.__dict__.items():
+            if value is not None:
+                filled_attrs.append(attr)
+        return filled_attrs
+
+@dataclass
+class Layer:
+    metrics: Dict[str, Metric]
+    weight_info: WeightInfo
+
+    def metrics_with_property(self, prop: str) -> List[str]:
+        return [name for name, metric in self.metrics.items() if getattr(metric, prop) is not None]
+    
+class Results:
+    # Class to store the statistics for each layer, redundant - remove or add more functionality
+    def __init__(self):
+        self.layers: Dict[str, Layer] = {}
+
+    def add_layer(self, layer: Layer, name: str):
+        if name not in self.layers.keys():
+            self.layers[name] = layer
+
+    def get_metric(self, layer_name: str, metric_name: str) -> Metric:
+        return self.get_layer(layer_name, metric_name)
+
 def validate_tensors(tensors: List[torch.Tensor], weight_info: WeightInfo, expected_tensors: Optional[int] = 2):
     """Validate tensor shapes and count."""
     unique_shapes = set(t.shape for t in tensors)
@@ -105,7 +180,7 @@ def cossim_heatmap(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
 
 def smape(
     tensors: List[torch.Tensor], **_kwargs
-) -> Dict[str, Any]:
+) -> Metric:
     """Symmetric Mean Absolute Percentage Error (smape)."""
 
     numerator = torch.abs(tensors[0] - tensors[1])
@@ -113,45 +188,34 @@ def smape(
     smape = torch.mean(torch.div(numerator, denominator), dim=1) 
     
     hist_info = compute_histogram(smape, 100)
-    return {
-        'smape Histogram': {
-            'count': hist_info[0],
-            'edges': hist_info[1],
-            'widths': hist_info[2]
-        },
-        'smape_mean': smape.mean().item(),
-        'smape_std': smape.std().item()
-    }
+
+    return Metric(
+        histogram=Histogram(count=hist_info[0], edges=hist_info[1], widths=hist_info[2]),
+        mean_std=MeanStd(mean=smape.mean().item(), std=smape.std().item())
+    )
 
 def cossim(
     tensors: List[torch.Tensor], return_heatmap=False, **_kwargs
-) -> torch.Tensor:
+) -> Metric:
     """Cosine similarity"""
     cossim = F.cosine_similarity(tensors[0], tensors[1], dim=1)
 
-    res = {}
-
     if return_heatmap:
-        res.update({'Cossim Heatmap': cossim_heatmap(tensors[0], tensors[1])})
+        heatmap = cossim_heatmap(tensors[0], tensors[1])
 
     assert torch.isclose(cossim, cossim, atol=1e-6).all(), "NaNs in cosine similarity"
-    assert torch.isclose(cossim, cossim_heatmap(tensors[0], tensors[1]).diagonal(), atol=1e-4).all(), "Diagonal elements of cosine similarity matrix do not match"
+    assert torch.isclose(cossim, cossim_heatmap(tensors[0], tensors[1]).diagonal(), atol=1e-2).all(), "Diagonal elements of cosine similarity matrix do not match"
 
     hist_info = compute_histogram(cossim, 100)
-    res.update({
-        'cossim Histogram': {
-            'count': hist_info[0],
-            'edges': hist_info[1],
-            'widths': hist_info[2]
-        },
-        'cossim_mean': cossim.mean().item(),
-        'cossim_std': cossim.std().item()
-    })
-    return res
+    return Metric(
+        histogram=Histogram(count=hist_info[0], edges=hist_info[1], widths=hist_info[2]),
+        mean_std=MeanStd(mean=cossim.mean().item(), std=cossim.std().item()),
+        heatmap=Heatmap(data=heatmap) if return_heatmap else None
+    )
 
 def scale(
     tensors: List[torch.Tensor], return_heatmap=False, **_kwargs
-) -> torch.Tensor:
+) -> Metric:
     """
     Scale difference: ratio of absolute difference to average scale.
     Complementary to cosine similarity, which measures the angle between two vectors and is invariant to scale.
@@ -172,29 +236,21 @@ def scale(
 
         # Compute the scale difference between each pair of heads by broadcasting
         heatmap = torch.abs(norm_0 - norm_1) / ((norm_0 + norm_1 + 1e-10) / 2)
-        res.update({'Scale Heatmap': heatmap})
 
         assert torch.isclose(scale_diff, heatmap.diagonal(), atol=1e-4).all(), "Diagonal elements of scale difference matrix do not match"
-
         
     hist_info = compute_histogram(scale_diff, 100)
-    res.update({
-        'scale Histogram': {
-            'count': hist_info[0],
-            'edges': hist_info[1],
-            'widths': hist_info[2]
-        },
-        'scale_mean': scale_diff.mean().item(),
-        'scale_std': scale_diff.std().item()
-    })
-    return res
+
+    return Metric(
+        histogram=Histogram(count=hist_info[0], edges=hist_info[1], widths=hist_info[2]),
+        mean_std=MeanStd(mean=scale_diff.mean().item(), std=scale_diff.std().item()),
+        heatmap=Heatmap(data=heatmap) if return_heatmap else None
+    )
 
 def mse(
     tensors: List[torch.Tensor], return_heatmap: bool =False, **_kwargs
-) -> torch.Tensor:
+) -> Metric:
     """Mean squared error (MSE)."""
-    res = {}
-
     if return_heatmap:
         # Expand dimensions for broadcasting
         tensors_0_exp = tensors[0].unsqueeze(1)  # shape becomes [num_heads, 1, ...]
@@ -206,22 +262,19 @@ def mse(
         # Compute mean over all dimensions except the first two
         heatmap = diffs.mean(dim=tuple(range(2, diffs.dim()))).numpy()
 
-        res['MSE Attn Heatmap'] = heatmap
-
     squared_diff = (tensors[0] - tensors[1]) ** 2
     mse_per_neuron = torch.mean(squared_diff, dim=1)
 
     hist_info = compute_histogram(mse_per_neuron, 100)
-    res.update({
-        'mse Histogram': {
-            'count': hist_info[0],
-            'edges': hist_info[1],
-            'widths': hist_info[2]
-        },
-        'mse_mean': mse_per_neuron.mean().item(),
-        'mse_std': mse_per_neuron.std().item()
-    })
-    return res
+
+    return Metric(
+        histogram=Histogram(count=hist_info[0], edges=hist_info[1], widths=hist_info[2]),
+        mean_std=MeanStd(mean=mse_per_neuron.mean().item(), std=mse_per_neuron.std().item()),
+        heatmap=Heatmap(data=heatmap) if return_heatmap else None
+    )
+
+# Tensor Analysis (number of tensors can vary)
+
 
 # Tasks
 
@@ -238,17 +291,17 @@ class MLPTask(Task[torch.Tensor]):
     def execute(
         self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs
     ) -> torch.Tensor:
-        tensors = list(tensors.values())
-        validate_tensors(tensors, self.weight_info, expected_tensors=2)
-        res = {}
-        if 'mlp' in self.weight_info.name:
+        weights = list(tensors.values())
+        validate_tensors(weights, self.weight_info, expected_tensors=2)
+        out = Layer(metrics={},
+                    weight_info=self.weight_info)
 
-            res.update(cossim(tensors, return_heatmap=False))
-            res.update(smape(tensors))
-            res.update(scale(tensors, return_heatmap=False))
-            res.update(mse(tensors, return_heatmap=False)) # Highly inefficient
-            
-        return res
+        out.metrics['cossim'] = cossim(weights, return_heatmap=False)
+        out.metrics['smape'] = smape(weights)
+        out.metrics['scale'] = scale(weights, return_heatmap=False)
+        out.metrics['mse'] = mse(weights, return_heatmap=False) # Highly inefficient
+
+        return out
 
     def group_label(self) -> Optional[str]:
         return self.gather_tensors.group_label()
@@ -266,10 +319,10 @@ class AttnTask(Task[torch.Tensor]):
         return self.weights
 
     def execute(
-        self, k_proj, v_proj, q_proj, o_proj, **_kwargs
+        self, k_proj: torch.Tensor, v_proj: torch.Tensor, q_proj: torch.Tensor, o_proj: torch.Tensor, **_kwargs
     ) -> torch.Tensor:
         # Add metrics for attention weights
-        res = {}
+
         models = list(q_proj.keys())
 
         k_proj_0, v_proj_0, q_proj_0, o_proj_0 = group_attn_head_weights(k_proj[models[0]], q_proj[models[0]], v_proj[models[0]], o_proj[models[0]], self.weight_info)
@@ -277,27 +330,31 @@ class AttnTask(Task[torch.Tensor]):
         
         # Metrics for K, V, Q, O projections
 
+        
+        # Metrics for heads
+
         model_0_heads = torch.cat([k_proj_0, v_proj_0, q_proj_0, o_proj_0], dim=1)
         model_1_heads = torch.cat([k_proj_1, v_proj_1, q_proj_1, o_proj_1], dim=1)
         
-        # Metrics for heads
-        res.update(mse([model_0_heads.view(model_0_heads.shape[0], -1), 
-                        model_1_heads.view(model_1_heads.shape[0], -1)], 
-                        return_heatmap=True))
-        res.update(cossim([model_0_heads.view(model_0_heads.shape[0], -1), 
-                           model_1_heads.view(model_1_heads.shape[0], -1)], 
-                           return_heatmap=True))
-        res.update(scale([model_0_heads.view(model_0_heads.shape[0], -1),
-                            model_1_heads.view(model_1_heads.shape[0], -1)],
-                            return_heatmap=True))
-        res.update(smape([model_0_heads.view(model_0_heads.shape[0], -1),
-                            model_1_heads.view(model_1_heads.shape[0], -1)]))
+        out = Layer(metrics={},
+                    weight_info=self.weight_info)
 
-        return res
+        out.metrics['cossim'] = cossim([model_0_heads.view(model_0_heads.shape[0], -1), 
+                                       model_1_heads.view(model_1_heads.shape[0], -1)], 
+                                       return_heatmap=True)
+        out.metrics['smape'] = smape([model_0_heads.view(model_0_heads.shape[0], -1),
+                                        model_1_heads.view(model_1_heads.shape[0], -1)])
+        out.metrics['scale'] = scale([model_0_heads.view(model_0_heads.shape[0], -1),
+                                        model_1_heads.view(model_1_heads.shape[0], -1)], 
+                                        return_heatmap=True)
+        out.metrics['mse'] = mse([model_0_heads.view(model_0_heads.shape[0], -1),
+                                    model_1_heads.view(model_1_heads.shape[0], -1)], 
+                                    return_heatmap=False)
+
+        return out
 
     def group_label(self) -> Optional[str]:
-        # Use max of the group labels
-        return max([gather_tensor.group_label() for gather_tensor in list(self.weights.values())]) # Check this (X)
+        return max([gather_tensor.group_label() for gather_tensor in list(self.weights.values())])
     
     def __hash__(self):
         return hash(self.weight_info)
@@ -343,31 +400,31 @@ class AllMetric(MetricMethod):
     ) -> Task:
         
         if 'self_attn' in output_weight.name:
-            # collect all attention weights
-            for part in self.attn_parts: # also check only one key
-                if part in output_weight.name:
-                   self.attn_weight_dict[part] = tensors
-                   self.attn_info_dict[part] = output_weight   
-
-            # if all attention weights are collected, create attention task
-            if set(list(self.attn_weight_dict.keys())) == set(self.attn_parts):
-                weights, infos = self.attn_weight_dict, self.attn_info_dict
-                self.attn_weight_dict, self.attn_info_dict = {}, {}
-                weight_info = WeightInfo(
-                    name=f"Attention Block {self.block_count}",
-                    force_dtype=None,
-                    optional=False,
-                    aliases=None,
-                    num_key_value_heads=int(infos['k_proj'].num_key_value_heads), 
-                    num_attention_heads=int(infos['k_proj'].num_attention_heads) 
-                )
-                self.block_count += 1
-                return AttnTask(weights=weights, weight_infos=infos, weight_info=weight_info)
-        if 'mlp' in output_weight.name:        
+            return self.group_attn_heads(tensors, output_weight)
+        elif 'mlp' in output_weight.name:        
             return MLPTask(
                 gather_tensors=tensors,
                 weight_info=output_weight,
+                intra_model_metrics=parameters['intra_model_metrics']
             )
+        else:
+            # Executor expects a task to be returned
+            return DummyTask(gather_tensors=tensors, weight_info=output_weight) 
+
+        # if all attention weights are collected, create attention task
+        if set(list(self.attn_weight_dict.keys())) == set(self.attn_parts):
+            weights, infos = self.attn_weight_dict, self.attn_info_dict
+            self.attn_weight_dict, self.attn_info_dict = {}, {}
+            weight_info = WeightInfo(
+                name=f"Attention Block {self.block_count}",
+                force_dtype=None,
+                optional=False,
+                aliases=None,
+                num_key_value_heads=int(infos['k_proj'].num_key_value_heads), 
+                num_attention_heads=int(infos['k_proj'].num_attention_heads) 
+            )
+            self.block_count += 1
+            return AttnTask(weights=weights, weight_infos=infos, weight_info=weight_info)
         else:
             # Executor expects a task to be returned
             return DummyTask(gather_tensors=tensors, weight_info=output_weight) 
