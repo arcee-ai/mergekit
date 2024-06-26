@@ -5,7 +5,7 @@ import yaml
 from mergekit.config import MergeConfiguration
 from mergekit.merge import MergeOptions
 from mergekit.merge import run_merge
-from mergekit.plot_tools.plot_tools import ModelGraph, create_app
+from mergekit.plot_tools.plot_tools import create_app, ResultsHandler
 
 @click.command()
 @click.option('--output_path', default="./merged", help='folder to store the result in.')
@@ -17,7 +17,7 @@ def main(output_path, config_yml, copy_tokenizer, lazy_unpickle, low_cpu_memory)
     with open(config_yml, "r", encoding="utf-8") as fp:
         metric_config = MergeConfiguration.model_validate(yaml.safe_load(fp))
 
-    metrics = run_merge(
+    metrics_results = run_merge(
         metric_config,
         out_path=output_path,
         options=MergeOptions(
@@ -28,10 +28,9 @@ def main(output_path, config_yml, copy_tokenizer, lazy_unpickle, low_cpu_memory)
         ),
     )
 
-    nn_graph = ModelGraph(metrics)
-    nn_graph.construct_graph()
+    handler = ResultsHandler(metrics_results)
 
-    app = create_app(nn_graph=nn_graph)
+    app = create_app(results_handler=handler)
     app.run_server()
 
 if __name__ == '__main__':

@@ -3,4 +3,6 @@ models:
   - model: TheBloke/Llama-2-7B-fp16
 
 metric_method: all
+parameters:
+  intra_model_metrics: true
 dtype: float32

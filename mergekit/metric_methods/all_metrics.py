@@ -13,21 +13,16 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ModelReference
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
-from mergekit.metric_methods.base import MetricMethod
-
+from mergekit.metric_methods.base import MetricMethod, MeanStd, Heatmap, Histogram, Metric, Layer
 import torch
 import torch.nn.functional as F
-
 import numpy as np
-
-
-from dataclasses import dataclass, field
 from typing import Dict, List, Any
 
 def validate_tensors(tensors: List[torch.Tensor], weight_info: WeightInfo, expected_tensors: Optional[int] = 2):
@@ -105,7 +100,7 @@ def cossim_heatmap(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
     
     return similarity_matrix
 
-# Metric functions
+# Tensor Comparisons (Require exactly 2 tensors)
 
 def smape(
     tensors: List[torch.Tensor], **_kwargs
@@ -155,8 +150,6 @@ def scale(
     norm_0 = torch.norm(tensors[0], dim=1)
     norm_1 = torch.norm(tensors[1], dim=1)
 
-    res = {}
-
     scale_diff = torch.abs(norm_0 - norm_1) / ((norm_0 + norm_1) / 2)
 
     if return_heatmap:
@@ -204,12 +197,78 @@ def mse(
 
 # Tensor Analysis (number of tensors can vary)
 
+def weight_magnitude(tensors: List[torch.Tensor], model_refs: List[ModelReference]) -> List[Metric]:
+    output = []
+    for tensor, model_reference in zip(tensors, model_refs):
+        weight_magnitudes = torch.abs(tensor.flatten())
+        hist_info = compute_histogram(weight_magnitudes, 100)
+        output.append(Metric(
+            histogram=Histogram(count=hist_info[0], 
+                                edges=hist_info[1], 
+                                widths=hist_info[2]
+                                ),
+            mean_std=MeanStd(mean=weight_magnitudes.mean().item(),
+                                std=weight_magnitudes.std().item()),
+            model_ref=model_reference
+            ))
+    return output
+
+def numerical_rank(tensors: List[torch.Tensor], model_refs: List[ModelReference], epsilon: float = 1e-5) -> List[Metric]:
+    """
+    Computes the numerical rank of the representations matrix X based on the singular values
+    of its sample covariance matrix. The rank is determined as the number of singular values
+    above a threshold. The threshold is defined as the highest singular value times a given epsilon.
+
+    Parameters:
+    - X : torch.Tensor
+        The representations matrix from which the sample covariance matrix will be computed.
+    - epsilon : float, optional
+        The factor to multiply with the highest singular value to set the threshold (default is 1e-3).
+    - flip : bool, optional - allows transpose for efficient computation. False only used in testing
+    Returns:
+    - int
+        The numerical rank of the matrix.
+
+    Implemented according to description in the paper:
+        The Tunnel Effect: Building Data Representations in Deep Neural Networks
+        https://arxiv.org/pdf/2305.19753.pdf
+
+    """
+    output = []
+    for tensor, model_reference in zip(tensors, model_refs):
+        
+        # Center the data by subtracting the mean
+        X_centered = tensor - torch.mean(tensor, dim=0)
+        X_std = torch.std(X_centered, dim=0, unbiased=False)
+        X_centered /= X_std
+
+        # Compute the sample covariance matrix
+        covariance_matrix = X_centered.t() @ X_centered / (tensor.shape[0] - 1)
+        # Compute singular values using SVD on the covariance matrix
+        U, singular_values, V = torch.svd(covariance_matrix)
+        # Determine the threshold
+        threshold = singular_values[0] * epsilon
+        # Count singular values greater than the threshold
+        num_rank = torch.sum(singular_values > threshold).item()
+
+        value = int(num_rank)
+
+        output.append(
+            Metric(
+                model_ref=model_reference,
+                mean_std=MeanStd(
+                    mean=value, 
+                    std=None), 
+                ))
+
+    return output
 
 # Tasks
 
 class MLPTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     weight_info: WeightInfo
+    intra_model_metrics: bool = False
 
     def uses_accelerator(self) -> bool:
         return True
@@ -222,15 +281,20 @@ class MLPTask(Task[torch.Tensor]):
     ) -> torch.Tensor:
         weights = list(tensors.values())
         validate_tensors(weights, self.weight_info, expected_tensors=2)
-        out = Layer(metrics={},
+        layer_results = Layer(metrics={},
                     weight_info=self.weight_info)
 
-        out.metrics['cossim'] = cossim(weights, return_heatmap=False)
-        out.metrics['smape'] = smape(weights)
-        out.metrics['scale'] = scale(weights, return_heatmap=False)
-        out.metrics['mse'] = mse(weights, return_heatmap=False) # Highly inefficient
+        layer_results.add_metric(cossim(weights, return_heatmap=False), name = 'cossim')
+        layer_results.add_metric(smape(weights), name = 'smape')
+        layer_results.add_metric(scale(weights, return_heatmap=False), name = 'scale')
+        layer_results.add_metric(mse(weights, return_heatmap=False), name = 'mse')
 
-        return out
+        if self.intra_model_metrics:
+            model_refs = list(tensors.keys())
+            layer_results.add_metric_list(metric_list=weight_magnitude(weights, model_refs), name='weight_magnitude')
+            layer_results.add_metric_list(metric_list=numerical_rank(weights, model_refs), name='numerical_rank')
+
+        return layer_results
 
     def group_label(self) -> Optional[str]:
         return self.gather_tensors.group_label()
@@ -239,6 +303,7 @@ class AttnTask(Task[torch.Tensor]):
     weights: Dict[str, GatherTensors]
     weight_infos: Dict[str, WeightInfo]
     weight_info: WeightInfo
+    intra_model_metrics: bool = False
 
     def uses_accelerator(self) -> bool:
         return True
@@ -252,10 +317,18 @@ class AttnTask(Task[torch.Tensor]):
     ) -> torch.Tensor:
         # Add metrics for attention weights
 
-        models = list(q_proj.keys())
+        model_references = list(q_proj.keys())
 
-        k_proj_0, v_proj_0, q_proj_0, o_proj_0 = group_attn_head_weights(k_proj[models[0]], q_proj[models[0]], v_proj[models[0]], o_proj[models[0]], self.weight_info)
-        k_proj_1, v_proj_1, q_proj_1, o_proj_1 = group_attn_head_weights(k_proj[models[1]], q_proj[models[1]], v_proj[models[1]], o_proj[models[1]], self.weight_info)
+        k_proj_0, v_proj_0, q_proj_0, o_proj_0 = group_attn_head_weights(k_proj[model_references[0]], 
+                                                                         q_proj[model_references[0]], 
+                                                                         v_proj[model_references[0]], 
+                                                                         o_proj[model_references[0]], 
+                                                                         self.weight_info)
+        k_proj_1, v_proj_1, q_proj_1, o_proj_1 = group_attn_head_weights(k_proj[model_references[1]], 
+                                                                         q_proj[model_references[1]], 
+                                                                         v_proj[model_references[1]], 
+                                                                         o_proj[model_references[1]], 
+                                                                         self.weight_info)
         
         # Metrics for K, V, Q, O projections
 
@@ -265,22 +338,35 @@ class AttnTask(Task[torch.Tensor]):
         model_0_heads = torch.cat([k_proj_0, v_proj_0, q_proj_0, o_proj_0], dim=1)
         model_1_heads = torch.cat([k_proj_1, v_proj_1, q_proj_1, o_proj_1], dim=1)
         
-        out = Layer(metrics={},
+        layer_results = Layer(metrics={},
                     weight_info=self.weight_info)
 
-        out.metrics['cossim'] = cossim([model_0_heads.view(model_0_heads.shape[0], -1), 
-                                       model_1_heads.view(model_1_heads.shape[0], -1)], 
-                                       return_heatmap=True)
-        out.metrics['smape'] = smape([model_0_heads.view(model_0_heads.shape[0], -1),
-                                        model_1_heads.view(model_1_heads.shape[0], -1)])
-        out.metrics['scale'] = scale([model_0_heads.view(model_0_heads.shape[0], -1),
-                                        model_1_heads.view(model_1_heads.shape[0], -1)], 
-                                        return_heatmap=True)
-        out.metrics['mse'] = mse([model_0_heads.view(model_0_heads.shape[0], -1),
-                                    model_1_heads.view(model_1_heads.shape[0], -1)], 
-                                    return_heatmap=False)
 
-        return out
+        layer_results.add_metric(cossim([model_0_heads.view(model_0_heads.shape[0], -1),
+                                model_1_heads.view(model_1_heads.shape[0], -1)],
+                                return_heatmap=True), 
+                                name = 'cossim')
+        layer_results.add_metric(smape([model_0_heads.view(model_0_heads.shape[0], -1),
+                                model_1_heads.view(model_1_heads.shape[0], -1)]), 
+                                name = 'smape')
+        layer_results.add_metric(scale([model_0_heads.view(model_0_heads.shape[0], -1),
+                                model_1_heads.view(model_1_heads.shape[0], -1)], 
+                                return_heatmap=True), 
+                                name = 'scale')
+        layer_results.add_metric(mse([model_0_heads.view(model_0_heads.shape[0], -1),
+                            model_1_heads.view(model_1_heads.shape[0], -1)], 
+                            return_heatmap=False), 
+                            name = 'mse')
+        
+        if self.intra_model_metrics:
+        
+            layer_results.add_metric_list(
+                metric_list=weight_magnitude([model_0_heads, model_1_heads], model_refs=model_references),
+                name='weight_magnitude'
+                )
+            
+
+        return layer_results
 
     def group_label(self) -> Optional[str]:
         return max([gather_tensor.group_label() for gather_tensor in list(self.weights.values())])
@@ -292,6 +378,36 @@ class AttnTask(Task[torch.Tensor]):
         if not isinstance(other, AttnTask):
             return False
         return self.weight_info == other.weight_info
+
+class LayerNormTask(Task[torch.Tensor]):
+    gather_tensors: GatherTensors
+    weight_info: WeightInfo
+    def uses_accelerator(self) -> bool:
+        return True
+
+    def arguments(self) -> Dict[str, Task]:
+        return {"tensors": self.gather_tensors}
+
+    def execute(
+        self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs
+    ) -> torch.Tensor:
+        
+        tensors = list(tensors.values())
+        
+        assert tensors[0].dim() == 1, "LayerNorm tensors must be 2D"
+        assert tensors[1].dim() == 1, "LayerNorm tensors must be 2D"
+
+        layer_results = Layer(metrics={}, weight_info=self.weight_info)
+        
+        layer_results.add_metric(cossim([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'cossim')
+        layer_results.add_metric(smape([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)]), name = 'smape')
+        layer_results.add_metric(scale([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'scale')
+        layer_results.add_metric(mse([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'mse')
+
+        return layer_results
+    
+    def group_label(self) -> Optional[str]:
+        return self.gather_tensors.group_label()
 
 class DummyTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
@@ -311,14 +427,16 @@ class DummyTask(Task[torch.Tensor]):
     def group_label(self) -> Optional[str]:
         return self.gather_tensors.group_label()
 
+
+from mergekit.merge_methods.base import ConfigParameterDef
+
 # Metric method
-   
 class AllMetric(MetricMethod):
     attn_weight_dict: Optional[Dict[str, torch.Tensor]] = {}
     attn_info_dict: Optional[Dict[str, WeightInfo]] = {}
-
     attn_parts: Optional[List[str]] = ['k_proj', 'v_proj', 'q_proj', 'o_proj'] # hard-coded for now
     block_count: Optional[int] = 0
+
     def make_task(
         self,
         *,
@@ -329,16 +447,26 @@ class AllMetric(MetricMethod):
     ) -> Task:
         
         if 'self_attn' in output_weight.name:
-            return self.group_attn_heads(tensors, output_weight)
+            return self.group_attn_heads(tensors, output_weight, parameters)
         elif 'mlp' in output_weight.name:        
             return MLPTask(
                 gather_tensors=tensors,
                 weight_info=output_weight,
                 intra_model_metrics=parameters['intra_model_metrics']
             )
+        elif 'layernorm' in output_weight.name:
+            return LayerNormTask(gather_tensors=tensors, weight_info=output_weight)
         else:
             # Executor expects a task to be returned
             return DummyTask(gather_tensors=tensors, weight_info=output_weight) 
+        
+    def group_attn_heads(self, tensors: GatherTensors, output_weight: WeightInfo, parameters: Dict[str, Any]):
+        # collect all attention weights
+        for part in self.attn_parts: # also check only one key
+            if part in output_weight.name:
+                assert self.attn_weight_dict.get(part) is None, f"Duplicate attention part {part}"
+                self.attn_weight_dict[part] = tensors
+                self.attn_info_dict[part] = output_weight   
 
         # if all attention weights are collected, create attention task
         if set(list(self.attn_weight_dict.keys())) == set(self.attn_parts):
@@ -353,9 +481,15 @@ class AllMetric(MetricMethod):
                 num_attention_heads=int(infos['k_proj'].num_attention_heads) 
             )
             self.block_count += 1
-            return AttnTask(weights=weights, weight_infos=infos, weight_info=weight_info)
+            return AttnTask(weights=weights, weight_infos=infos, weight_info=weight_info, intra_model_metrics=parameters['intra_model_metrics'])
         else:
             # Executor expects a task to be returned
             return DummyTask(gather_tensors=tensors, weight_info=output_weight) 
+        
+
+    def parameters(self) -> List[ConfigParameterDef]:
+        return [
+            ConfigParameterDef(name="intra_model_metrics", required=False, default_value=False),
+        ]
 
 
