@@ -13,23 +13,26 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import torch
 from torch._tensor import Tensor
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 class NuSlerpTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
-    parameter_name: str
+    weight_info: WeightInfo
     row_wise: bool
+    flatten: bool
+    base_model: Optional[ModelReference]
 
     def uses_accelerator(self) -> bool:
         return True
@@ -41,20 +44,52 @@ class NuSlerpTask(Task[torch.Tensor]):
         if len(tensors) == 1:
             return list(tensors.values())[0]
 
+        if self.base_model is not None:
+            if len(tensors) != 3:
+                raise RuntimeError(
+                    "NuSlerp base model can not be one of the two models to merge"
+                )
+            base_tensor = tensors.pop(self.base_model)
+        else:
+            base_tensor = None
+
         keys = list(tensors.keys())
         tensors = [tensors[key] for key in keys]
         weights = [self.tensor_parameters[key]["weight"] for key in keys]
 
         if len(tensors) != 2:
-            raise RuntimeError("NuSlerp merge expects exactly two models")
+            print(keys)
+            print(self.base_model)
+            raise RuntimeError(
+                "NuSlerp merge expects exactly two models (plus optional base model)"
+            )
 
-        t = weights[1] / sum(weights)
         if abs(sum(weights)) < 1e-6:
             # this is fairly arbitrary, but it's more sane than exploding
             t = 0.5
+        else:
+            t = weights[1] / sum(weights)
 
-        rectify_embed_sizes(self.parameter_name, tensors)
-        return nuslerp(t, tensors[0], tensors[1], dim=0 if self.row_wise else -1)
+        if base_tensor is not None:
+            tensors.append(base_tensor)
+        rectify_embed_sizes(self.weight_info, tensors)
+
+        if base_tensor is not None:
+            base_tensor = tensors.pop()
+            return base_tensor + nuslerp(
+                t,
+                tensors[0] - base_tensor,
+                tensors[1] - base_tensor,
+                dim=0 if self.row_wise else -1,
+                flatten=self.flatten,
+            )
+        return nuslerp(
+            t,
+            tensors[0],
+            tensors[1],
+            dim=0 if self.row_wise else -1,
+            flatten=self.flatten,
+        )
 
 
 class NuSlerpMerge(MergeMethod):
@@ -64,7 +99,12 @@ class NuSlerpMerge(MergeMethod):
                 name="nuslerp_row_wise",
                 required=False,
                 default_value=False,
-            )
+            ),
+            ConfigParameterDef(
+                name="nuslerp_flatten",
+                required=False,
+                default_value=False,
+            ),
         ]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
@@ -75,15 +115,18 @@ class NuSlerpMerge(MergeMethod):
         *,
         output_weight: WeightInfo,
         tensors: GatherTensors,
-        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
+        base_model: Optional[ModelReference],
         parameters: ImmutableMap[str, Any],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         **_kwargs,
     ) -> Task:
         return NuSlerpTask(
             gather_tensors=tensors,
             tensor_parameters=tensor_parameters,
-            parameter_name=output_weight.name,
+            weight_info=output_weight,
             row_wise=parameters["nuslerp_row_wise"],
+            flatten=parameters["nuslerp_flatten"],
+            base_model=base_model,
         )
 
 
@@ -93,11 +136,17 @@ def nuslerp(
     v1: torch.Tensor,
     dim: int = -1,
     eps: float = 1e-8,
+    flatten: bool = False,
 ):
+    out_shape = v0.shape
+
     def _normalize(x: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
         return x / torch.norm(x, dim=-1, keepdim=True).clamp(min=eps)
 
-    if dim != -1:
+    if flatten:
+        v0 = v0.view(-1)
+        v1 = v1.view(-1)
+    elif dim != -1:
         v0 = v0.transpose(dim, -1)
         v1 = v1.transpose(dim, -1)
 
@@ -114,6 +163,6 @@ def nuslerp(
     # Use linear interpolation for (nearly) colinear vectors
     res[colinear] = (1 - t) * v0[colinear] + t * v1[colinear]
 
-    if dim != -1:
+    if dim != -1 and not flatten:
         res = res.transpose(dim, -1)
-    return res
+    return res.view(out_shape)
