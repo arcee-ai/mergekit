@@ -128,6 +128,7 @@ A quick overview of the currently supported merge methods:
 | [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)                                            | `breadcrumbs`        | ✅          | ✅              |
 | [Model Breadcrumbs](https://arxiv.org/abs/2312.06795) + [TIES](https://arxiv.org/abs/2306.01708) | `breadcrumbs_ties`   | ✅          | ✅              |
 | [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅          | ✅              |
+| NuSLERP                                                                                          | `nuslerp`            | ❌          | ✅              |
 
 ### Linear
 
@@ -188,6 +189,18 @@ Uses some neat geometric properties of fine tuned models to compute good weights
 Parameters:
 
 - `filter_wise`: if true, weight calculation will be per-row rather than per-tensor. Not recommended.
+
+### NuSLERP
+
+Spherically interpolate between parameters, but with more options and more sensical configuration! Does not require a base model, but can use one to do spherical interpolation of task vectors.
+
+Parameters:
+
+- `weight`: relative weighting of a given tensor
+- `nuslerp_flatten`: if true, flatten tensors into single vectors and SLERP in that space
+- `nuslerp_row_wise`: SLERP row vectors instead of column vectors
+
+To replicate the behavior of the original `slerp` method, set `nuslerp_flatten: true` and `weight` to `1-t` and `t` for your first and second model respectively.
 
 ## LoRA extraction
 
