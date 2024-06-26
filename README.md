@@ -192,7 +192,7 @@ Parameters:
 
 ### NuSLERP
 
-Spherically interpolate between parameters, but with more options and more sensical configuration! Does not require a base model, but can use one to do spherical interpolation of task vectors.
+Spherically interpolate between parameters, but with more options and more sensical configuration! Does not require a base model, but can use one to do spherical interpolation of task vectors. Only works with either two models or two plus a base model.
 
 Parameters:
 
