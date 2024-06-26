@@ -197,10 +197,10 @@ Spherically interpolate between parameters, but with more options and more sensi
 Parameters:
 
 - `weight`: relative weighting of a given tensor
-- `nuslerp_flatten`: if true, flatten tensors into single vectors and SLERP in that space
+- `nuslerp_flatten`: set to false to do row-wise/column-wise interpolation instead of treating tensors as vectors
 - `nuslerp_row_wise`: SLERP row vectors instead of column vectors
 
-To replicate the behavior of the original `slerp` method, set `nuslerp_flatten: true` and `weight` to `1-t` and `t` for your first and second model respectively.
+To replicate the behavior of the original `slerp` method, set `weight` to `1-t` and `t` for your first and second model respectively.
 
 ## LoRA extraction
 

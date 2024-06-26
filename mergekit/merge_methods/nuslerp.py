@@ -103,7 +103,7 @@ class NuSlerpMerge(MergeMethod):
             ConfigParameterDef(
                 name="nuslerp_flatten",
                 required=False,
-                default_value=False,
+                default_value=True,
             ),
         ]
 
