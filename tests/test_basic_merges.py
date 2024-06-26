@@ -119,6 +119,18 @@ class TestBasicMerges:
                         )
                     )
 
+        # test weights that sum to zero
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="nuslerp",
+            base_model=model_c,
+            params={"nuslerp_row_wise": False, "nuslerp_flatten": False},
+        )
+        config.models[0].parameters["weight"] = -0.5
+        config.models[1].parameters["weight"] = 0.5
+        run_and_check_merge(config)
+
     def test_task_arithmetic_merge(self, model_a, model_b, model_c):
         config = self.two_model_config(
             model_a, model_b, merge_method="task_arithmetic", base_model=model_c
