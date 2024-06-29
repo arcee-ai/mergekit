@@ -43,6 +43,10 @@ class WeightInfo(BaseModel, frozen=True):
             List of alternative names for the weight, if applicable.
         force_dtype (Optional[str]):
             Mandatory dtype for the weight, if applicable.
+        num_key_value_heads (Optional[int]):
+            Number of key-value heads in the weight, relevant for GQA, if applicable.
+        num_attention_heads (Optional[int]):
+            Number of attention heads in the weight, if applicable.
     """
 
     name: str
@@ -52,6 +56,9 @@ class WeightInfo(BaseModel, frozen=True):
     optional: bool = False
     aliases: Optional[Tuple[str, ...]] = None
     force_dtype: Optional[str] = None
+
+    num_key_value_heads: Union[int, str, None] = None
+    num_attention_heads: Union[int, str, None] = None
 
 
 class ProceduralSpaceInfo(BaseModel, frozen=True):
@@ -172,29 +179,28 @@ class JSONArchitectureDefinition(BaseModel, frozen=True):
 class TemplateWithArithmetic(string.Template):
     idpattern = r"(?a:[_a-z][_a-z0-9]*([+-]1)?)"
 
-
-def _template_substitution(
-    template: str, num_layers: int, layer_idx: Optional[int] = None
+def _generic_template_substitution(
+    template: str, match_str: str = "num_layers", replace_with: int = 0
 ) -> str:
-    if "{" not in template:
+    if f"{match_str}" not in template:
         return template
 
     substitutions = {
-        "num_layers": num_layers,
-        "num_layers+1": num_layers + 1,
-        "num_layers-1": num_layers - 1,
+        match_str: replace_with,
+        f"{match_str}+1": replace_with + 1,
+        f"{match_str}-1": replace_with - 1,
     }
 
-    if layer_idx is not None:
-        substitutions.update(
-            {
-                "layer_index": layer_idx,
-                "layer_index+1": layer_idx + 1,
-                "layer_index-1": layer_idx - 1,
-            }
-        )
-
     return TemplateWithArithmetic(template).substitute(substitutions)
+
+def _template_substitution(
+    template: str, substitute: Dict[str, Optional[int]]
+) -> str:
+    for key, value in substitute.items():
+        if value is not None:
+            template = _generic_template_substitution(template, key, value)
+
+    return template
 
 
 class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
@@ -206,18 +212,23 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
         config: PretrainedConfig,
         layer_idx: Optional[int] = None,
     ) -> Union[WeightInfo, ProceduralSpaceInfo]:
-        num_layers = self.num_layers(config)
+        substitute = {
+            "num_layers": self.num_layers(config),
+            "layer_index": layer_idx,
+            "num_attention_heads": getattr(config, "num_attention_heads") if getattr(config, "num_attention_heads") is not None else None,
+            "num_key_value_heads": getattr(config, "num_key_value_heads") if getattr(config, "num_key_value_heads") is not None else None,
+        }
 
-        obj_dict = item.model_dump(mode="json", exclude_unset=True)
+        obj_dict = item.model_dump(mode="json", exclude_unset=False)
         for key in obj_dict:
             if isinstance(obj_dict[key], str):
                 obj_dict[key] = _template_substitution(
-                    obj_dict[key], num_layers, layer_idx
+                    obj_dict[key], substitute
                 )
             elif isinstance(obj_dict[key], list):
                 obj_dict[key] = [
                     (
-                        _template_substitution(s, num_layers, layer_idx)
+                        _template_substitution(s, substitute)
                         if isinstance(s, str)
                         else s
                     )

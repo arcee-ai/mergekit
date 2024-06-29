@@ -1,0 +1,6 @@
+models:
+  - model: meta-llama/CodeLlama-7b-Python-hf
+  - model: meta-llama/Llama-2-7b-hf
+
+metric_method: all
+dtype: float32

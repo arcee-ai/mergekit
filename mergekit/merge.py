@@ -88,11 +88,17 @@ def run_merge(
         storage_device="cuda" if options.low_cpu_memory else "cpu",
     )
 
+    metrics_out = []
     tokenizer = None
     for _task, value in exec.run(quiet=options.quiet):
+        if merge_config.metric_method is not None:
+            metrics_out.append((_task, value))
         if isinstance(value, TokenizerInfo):
             tokenizer = value.tokenizer
 
+    if metrics_out:
+        return metrics_out
+    
     if tokenizer:
         _update_config_vocab(cfg_out, tokenizer)
 
