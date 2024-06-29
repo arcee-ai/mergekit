@@ -21,13 +21,16 @@ import torch
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
-from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.base import (
+    ConfigParameterDef,
+    MergeMethod,
+    MergeTensorInput,
+)
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 class SlerpTask(Task[torch.Tensor]):
-    gather_tensors: GatherTensors
+    gather_tensors: MergeTensorInput
     base_model: ModelReference
     t: float
     weight_info: WeightInfo
@@ -75,7 +78,7 @@ class SlerpMerge(MergeMethod):
         self,
         *,
         output_weight: WeightInfo,
-        tensors: GatherTensors,
+        tensors: MergeTensorInput,
         parameters: ImmutableMap[str, Any],
         base_model: Optional[ModelReference],
         **_kwargs,
