@@ -93,6 +93,7 @@ class MergeConfiguration(BaseModel):
         Literal["union"], Literal["base"], ModelReference, None
     ] = None
     tokenizer: Optional[TokenizerConfig] = None
+    out_dtype: Optional[str] = None
 
     def referenced_models(self) -> List[ModelReference]:
         models = set()
