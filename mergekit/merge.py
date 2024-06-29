@@ -179,7 +179,9 @@ def _model_out_config(
         res = config.base_model.config(trust_remote_code=trust_remote_code)
     else:
         res = config.referenced_models()[0].config(trust_remote_code=trust_remote_code)
-    if config.dtype:
+    if config.out_dtype:
+        res.torch_dtype = config.out_dtype
+    elif config.dtype:
         res.torch_dtype = config.dtype
 
     if config.slices:
