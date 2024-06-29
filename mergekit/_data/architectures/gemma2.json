@@ -6,7 +6,7 @@
     "pre_weights": [
         {
             "name": "model.embed_tokens.weight",
-            "is_embed": true,
+            "is_embed": true
         }
     ],
     "num_layers_config_key": "num_hidden_layers",
