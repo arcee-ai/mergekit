@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 import torch
 
+import pickle
+
 class MetricMethod(MergeMethod):
     pass
 
@@ -183,3 +185,12 @@ class Results:
             print(f"  Has histogram: {'Yes' if info['has_histogram'] else 'No'}")
             print(f"  Has heatmap: {'Yes' if info['has_heatmap'] else 'No'}")
             print(f"  Has model reference: {'Yes' if info['has_model_ref'] else 'No'}")
+
+    def save(self, path: str):
+        path = path + '.pkl' if not path.endswith('.pkl') else path
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)
+
+    def load(self, path: str):
+        with open(path, 'rb') as f:
+            return pickle.load(f)
