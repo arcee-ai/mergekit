@@ -135,8 +135,9 @@ it denotes any input space that is found across layers as a residual stream
     "--ignore-spaces",
     "-i",
     type=str,
-    default="up_${layer_index}",
+    default="",
     callback=parse_items,
+    help="Spaces to ignore separated by comma. Example: up_${layer_index}",
 )
 @click.option(
     "--key-growth",
