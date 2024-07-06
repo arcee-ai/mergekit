@@ -71,7 +71,7 @@ def match_tensors_permute(
 def match_tensors_permute_MHA(
     n_heads=32,
     r=0.5,
-    no_absval=False,
+    no_absval=True,
     correlation_matrix=None,
     number_of_repeats=8,
 ):
@@ -104,7 +104,8 @@ def match_tensors_permute_MHA(
                 # take abs value of submatrix of correlations
                 corr_submatrix = (
                     correlation[
-                        head1_idx[0] : head1_idx[1], head2_idx[0] : head2_idx[1]
+                        head1_idx[0] : head1_idx[1],
+                        (Om + head2_idx[0]) : (Om + head2_idx[1]),
                     ]
                     .cpu()
                     .numpy()
@@ -136,7 +137,7 @@ def match_tensors_permute_MHA(
         head_perms.append(torch.tensor(head_perm + query_size * head_2))
 
     new_mat = torch.eye(Om, device=device)[
-        torch.tensor(torch.cat(head_perms)).long().to(device)
+        torch.cat(head_perms).clone().detach().long().to(device)
     ]
     mats.append(new_mat.T)
 
@@ -257,7 +258,7 @@ def match_tensors_permute_MHA_GQA(
             )
 
     new_mat = torch.eye(Om, device=device)[
-        torch.tensor(torch.cat(head_perms)).long().to(device)
+        torch.cat(head_perms).clone().detach().long().to(device)
     ]
     mats.append(new_mat.T)
 
@@ -522,9 +523,9 @@ def main(model1_ft, model2_ft, model_path, out_path, metric, device, key_shrink)
 
     # NOTE: making sure the attention space merge/unmerge is shared
     for v_space, kq_space, qkv_space in zip(v_spaces, kq_spaces, qkv_spaces):
-        merges[v_space], unmerges[v_space] = merges[kq_space], unmerges[kq_space]
+        # merges[v_space], unmerges[v_space] = merges[kq_space], unmerges[kq_space]
 
-        merges[qkv_space], unmerges[qkv_space] = merges[kq_space], unmerges[kq_space]
+        merges[qkv_space], unmerges[qkv_space] = merges[v_space], unmerges[v_space]
 
         if has_gqa:
             # store the alternative

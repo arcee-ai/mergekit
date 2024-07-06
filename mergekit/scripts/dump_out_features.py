@@ -135,7 +135,7 @@ it denotes any input space that is found across layers as a residual stream
     "--ignore-spaces",
     "-i",
     type=str,
-    default="up_${layer_index},attn_v_${layer_index}",
+    default="up_${layer_index}",
     callback=parse_items,
 )
 @click.option(
