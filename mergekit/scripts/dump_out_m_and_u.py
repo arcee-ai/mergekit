@@ -22,7 +22,7 @@ def calc_correlation_matrix(feats):
 
 def match_tensors_permute(
     r=0.5,
-    no_absval=False,
+    no_absval=True,
     correlation_matrix=None,
 ):
     """
