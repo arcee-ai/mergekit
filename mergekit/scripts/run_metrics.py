@@ -28,7 +28,8 @@ def main(output_path, config_yml, copy_tokenizer, lazy_unpickle, low_cpu_memory)
         ),
     )
 
-    handler = ResultsHandler(metrics_results)
+    handler = ResultsHandler()
+    handler.load_metrics(metrics_results)
 
     app = create_app(results_handler=handler)
     app.run_server()

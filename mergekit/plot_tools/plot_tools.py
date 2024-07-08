@@ -33,9 +33,8 @@ class ResultsHandler:
         line_plot: Plot a line plot of the chosen stat across layers.
         plotly_layer_histogram: Plot a histogram of the stat for a specific layer.
     """
-    def __init__(self, metrics: List[Tuple[Task, Layer]]):
+    def __init__(self):
         self.results = Results()
-        self.load_metrics(metrics)
 
     def load_metrics(self, metrics: List[Tuple[Task, Layer]]):
         self.metric_names = []
@@ -45,6 +44,11 @@ class ResultsHandler:
                 self.metric_names.extend(list(metric.metrics.keys()))
         self.layer_names = list(self.results.layers.keys())
         self.metric_names = list(set(self.metric_names))
+
+    def load_results(self, results: Results):
+        self.results = results
+        self.layer_names = list(self.results.layers.keys())
+        self.metric_names = list(set([metric for layer in self.results.layers.values() for metric in layer.metrics.keys()]))
         
     def categorise_layers(self, layer_names):
         # Hardcoded layernames for now - can be extended to include more categories or further generalised based on config
@@ -63,7 +67,7 @@ class ResultsHandler:
     def plotly_line_plots(self, metric_name:str):
         if metric_name not in self.metric_names:
             print(f"Stat {metric_name} not found")
-            return []
+            return [], []
         
         layer_names = self.layer_names
         means, stds, model_refs = self.results.get_lineplot_data(metric_name)
@@ -164,7 +168,6 @@ class ResultsHandler:
     
     def plotly_layer_histogram(self, layer_name: str, metric_name: str):
         metric_list = self.results.layers[layer_name].metrics[metric_name]
-        colors = ['blue', 'red', 'green', 'purple', 'orange', 'pink'] # (X)
 
         traces = []
         for i, metric in enumerate(metric_list):
@@ -175,7 +178,7 @@ class ResultsHandler:
                 y=count,
                 width=widths,
                 marker=dict(
-                    color=colors[i],
+                    color=global_colours_list[i],
                     opacity=0.75,
                     line=dict(
                         color='black',
