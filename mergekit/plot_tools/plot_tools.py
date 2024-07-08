@@ -203,7 +203,8 @@ def create_app(results_handler):
     app.layout = html.Div([
         create_header(),
         create_line_plot_section(results_handler),
-        create_layer_metrics_section()
+        create_layer_metrics_section(),
+        create_heatmap_section(results_handler)
     ])
 
     register_callbacks(app, results_handler)
@@ -237,6 +238,24 @@ def create_layer_metrics_section():
         ),
         dcc.Graph(id='layer-details-plot', style={'width': '100%', 'height': '80vh', 'textAlign': 'center'})
     ], className='container-fluid')
+
+def create_heatmap_section(results_handler):
+    if hasattr(results_handler.results, 'others') and isinstance(results_handler.results.others, dict):
+        heatmap_sections = []
+        for i, (key, value) in enumerate(results_handler.results.others.items()):
+            model_name = key.split('Representations')[1]
+            model_name = model_name.split('.')[0].replace('_', ' ').replace('-',' ').title()
+            metric = key.split('||')[-1].replace('_', ' ').replace('-',' ').title()
+
+            title = f'{model_name} - {metric}'
+
+            heatmap_sections.append(html.Div([
+                html.H3(f'Heatmap: {title}', style={'textAlign': 'center'}),
+                dcc.Graph(id=f'heatmap-plot-{i}', style={'width': '30%', 'height': '30%'})
+            ], className='container-fluid'))
+        return html.Div(heatmap_sections)
+    else:
+        return html.Div()
 
 def default_option(options, current_value):
     if not options:
@@ -337,6 +356,31 @@ def register_callbacks(app, results_handler):
             yaxis=dict(title=selected_metric.replace('_', ' ').title())
         )
         return fig
+    # Dynamically create callbacks for each heatmap plot
+    if hasattr(results_handler.results, 'others') and isinstance(results_handler.results.others, dict):
+        for i, (key, value) in enumerate(results_handler.results.others.items()):
+            if isinstance(value.data, (list, np.ndarray)):  # Assuming heatmap data is in array-like format
+                @app.callback(
+                    Output(f'heatmap-plot-{i}', 'figure'),
+                    Input(f'heatmap-plot-{i}', 'id')  # Dummy input to trigger the callback on load
+                )
+                def update_heatmap_plot(_key=key):
+                    key = list(results_handler.results.others.keys())[int(_key.split('-')[-1])]
+                    heatmap_data = results_handler.results.others[key].data
+                    fig = go.Figure(data=go.Heatmap(
+                        z=heatmap_data,
+                        colorscale='Viridis',  # Using Viridis colormap
+                        zmin=np.nanmin(heatmap_data),  # Set the scale min to the min data value
+                        zmax=np.nanmax(heatmap_data),  # Set the scale max to the max data value
+                        colorbar=dict(title='Scale')  # Customize the color bar
+                    ))
+
+                    fig.update_layout(
+                        title=f"Heatmap: {_key}",
+                        xaxis_title="X Axis",
+                        yaxis_title="Y Axis"
+                    )
+                    return fig
 
 def create_figure(traces, title, xaxis_title, yaxis_title):
     fig = go.Figure()
