@@ -13,7 +13,6 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from enum import Enum
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
@@ -82,11 +81,6 @@ class OutputSliceDefinition(BaseModel):
     parameters: Optional[Dict[str, ParameterSetting]] = None
 
 
-class AlignmentMethod(Enum):
-    REBASIN = "rebasin"
-    ZIPIT = "zipit"
-
-
 class MergeConfiguration(BaseModel):
     merge_method: str
     slices: Optional[List[OutputSliceDefinition]] = None
@@ -95,7 +89,6 @@ class MergeConfiguration(BaseModel):
     base_model: Optional[ModelReference] = None
     dtype: Optional[str] = None
     tokenizer_source: Optional[str] = None
-    align_weights: Optional[AlignmentMethod] = None
 
     def referenced_models(self) -> List[ModelReference]:
         models = set()
