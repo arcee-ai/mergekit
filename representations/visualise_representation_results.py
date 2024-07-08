@@ -9,10 +9,10 @@ import h5py
 from mergekit.config import MergeConfiguration
 from mergekit.merge import MergeOptions
 from mergekit.merge import run_merge
-from mergekit.plot_tools.plot_tools import create_app, ResultsHandler
+from mergekit.plot_tools.plot_tools import create_app, ResultsHandler, global_colours_list
 
 from mergekit.metric_methods.base import MeanStd, Heatmap, Histogram, Metric, Results, Layer
-from mergekit.metric_methods.metrics import cossim, smape, scale, mse, weight_magnitude, numerical_rank, compute_histogram, cossim_heatmap
+from mergekit.metric_methods.metrics import cosine_similarity, smape, scale, mse, weight_magnitude, numerical_rank, compute_histogram, cosine_similarity_heatmap
 from mergekit.architecture import WeightInfo
 
 
@@ -23,8 +23,6 @@ import matplotlib.colors as mcolors
 import numpy as np
 from mergekit.graph import Task
 
-
-
 class CustomResultsHandler(ResultsHandler):
     """
     Object to handle metrics results. Allows for easy plotting of metrics by layer and across layers.
@@ -34,8 +32,8 @@ class CustomResultsHandler(ResultsHandler):
         metrics: List of tasks and their metrics. This is the output of the run_measure function in mergekit.measure.
 
     Attributes:
-        all_stats: Dictionary of recorded statistics for each layer. e.g. {'layer_name': {'cossim_mean': 0.5, 'cossim_std': 0.1}}
-        metric_names: List of names of all statistics available. e.g. ['cossim_mean', 'cossim_std']
+        all_stats: Dictionary of recorded statistics for each layer. e.g. {'layer_name': {'cosine_similarity_mean': 0.5, 'cosine_similarity_std': 0.1}}
+        metric_names: List of names of all statistics available. e.g. ['cosine_similarity_mean', 'cosine_similarity_std']
         layer_names: List of layer names. 
 
     Methods:
@@ -80,7 +78,7 @@ class CustomResultsHandler(ResultsHandler):
     def plotly_line_plots(self, metric_name:str):
         if metric_name not in self.metric_names:
             print(f"Stat {metric_name} not found")
-            return []
+            return [], []
         
         layer_names = self.layer_names
         means, stds, model_refs = self.results.get_lineplot_data(metric_name)
@@ -181,7 +179,6 @@ class CustomResultsHandler(ResultsHandler):
     
     def plotly_layer_histogram(self, layer_name: str, metric_name: str):
         metric_list = self.results.layers[layer_name].metrics[metric_name]
-        colors = ['blue', 'red', 'green', 'purple', 'orange', 'pink'] # (X)
 
         traces = []
         for i, metric in enumerate(metric_list):
@@ -192,7 +189,7 @@ class CustomResultsHandler(ResultsHandler):
                 y=count,
                 width=widths,
                 marker=dict(
-                    color=colors[i],
+                    color=global_colours_list[i],
                     opacity=0.75,
                     line=dict(
                         color='black',
@@ -213,7 +210,6 @@ class CustomResultsHandler(ResultsHandler):
             {"label": f"{metric.title()} Heatmap", "value": [metric, 'heatmap']}
             for metric in layer.metrics_with_attribute('heatmap')
         ]
-
 
 @click.command()
 @click.option('--results_path', 

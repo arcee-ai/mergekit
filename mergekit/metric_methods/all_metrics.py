@@ -22,7 +22,7 @@ from mergekit.io.tasks import GatherTensors
 from mergekit.metric_methods.base import MetricMethod, Layer
 import torch
 from typing import Dict, List, Any
-from mergekit.metric_methods.metrics import cossim, smape, scale, mse, weight_magnitude, numerical_rank
+from mergekit.metric_methods.metrics import cosine_similarity, smape, scale, mse, weight_magnitude, numerical_rank
 
 def validate_tensors(tensors: List[torch.Tensor], weight_info: WeightInfo, expected_tensors: Optional[int] = 2):
     """Validate tensor shapes and count."""
@@ -105,7 +105,7 @@ class MLPTask(Task[torch.Tensor]):
         layer_results = Layer(metrics={},
                     weight_info=self.weight_info)
 
-        layer_results.add_metric(cossim(weights, return_heatmap=False), name = 'cossim')
+        layer_results.add_metric(cosine_similarity(weights, return_heatmap=False), name = 'cosine_similarity')
         layer_results.add_metric(smape(weights), name = 'smape')
         layer_results.add_metric(scale(weights, return_heatmap=False), name = 'scale')
         layer_results.add_metric(mse(weights, return_heatmap=False), name = 'mse')
@@ -163,10 +163,10 @@ class AttnTask(Task[torch.Tensor]):
                     weight_info=self.weight_info)
 
 
-        layer_results.add_metric(cossim([model_0_heads.view(model_0_heads.shape[0], -1),
+        layer_results.add_metric(cosine_similarity([model_0_heads.view(model_0_heads.shape[0], -1),
                                 model_1_heads.view(model_1_heads.shape[0], -1)],
                                 return_heatmap=True), 
-                                name = 'cossim')
+                                name = 'cosine_similarity')
         layer_results.add_metric(smape([model_0_heads.view(model_0_heads.shape[0], -1),
                                 model_1_heads.view(model_1_heads.shape[0], -1)]), 
                                 name = 'smape')
@@ -220,7 +220,7 @@ class LayerNormTask(Task[torch.Tensor]):
 
         layer_results = Layer(metrics={}, weight_info=self.weight_info)
         
-        layer_results.add_metric(cossim([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'cossim')
+        layer_results.add_metric(cosine_similarity([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'cosine_similarity')
         layer_results.add_metric(smape([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)]), name = 'smape')
         layer_results.add_metric(scale([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'scale')
         layer_results.add_metric(mse([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'mse')

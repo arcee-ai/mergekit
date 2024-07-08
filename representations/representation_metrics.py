@@ -13,7 +13,7 @@ from mergekit.merge import run_merge
 from mergekit.plot_tools.plot_tools import create_app, ResultsHandler
 
 from mergekit.metric_methods.base import MeanStd, Heatmap, Histogram, Metric, Results, Layer
-from mergekit.metric_methods.metrics import cossim, smape, scale, mse, weight_magnitude, numerical_rank, compute_histogram, cossim_heatmap
+from mergekit.metric_methods.metrics import cosine_similarity, smape, scale, mse, weight_magnitude, numerical_rank, compute_histogram, cosine_similarity_heatmap
 from mergekit.architecture import WeightInfo
 
 from tqdm import tqdm
@@ -32,7 +32,7 @@ class MetricAggregator():
     def clear(self):
         self.__init__()
 
-class CosineSimilarity(MetricAggregator):
+class Cosine_Similarity(MetricAggregator):
     def __init__(self, device="cpu"):
         self.cosine_similarities = torch.tensor([]).to(device)
 

@@ -27,7 +27,7 @@ def compute_histogram(tensor: torch.Tensor, n_bins: int) -> List[np.ndarray]:
     bin_widths = np.diff(bin_edges)
     return bin_counts, bin_edges, bin_widths
 
-def cossim_heatmap(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+def cosine_similarity_heatmap(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
     # Normalize the rows of both matrices
     A_norm = A / A.norm(dim=1, keepdim=True)
     B_norm = B / B.norm(dim=1, keepdim=True)
@@ -56,22 +56,22 @@ def smape(
         mean_std=MeanStd(mean=smape.mean().item(), std=smape.std().item())
     )
 
-def cossim(
+def cosine_similarity(
     tensors: List[torch.Tensor], return_heatmap=False, **_kwargs
 ) -> Metric:
     """Cosine similarity"""
-    cossim = F.cosine_similarity(tensors[0], tensors[1], dim=1)
+    cosine_similarity = F.cosine_similarity(tensors[0], tensors[1], dim=1)
 
     if return_heatmap:
-        heatmap = cossim_heatmap(tensors[0], tensors[1])
+        heatmap = cosine_similarity_heatmap(tensors[0], tensors[1])
 
-    assert torch.isclose(cossim, cossim, atol=1e-6).all(), "NaNs in cosine similarity"
-    assert torch.isclose(cossim, cossim_heatmap(tensors[0], tensors[1]).diagonal(), atol=1e-2).all(), "Diagonal elements of cosine similarity matrix do not match"
+    assert torch.isclose(cosine_similarity, cosine_similarity, atol=1e-6).all(), "NaNs in cosine similarity"
+    assert torch.isclose(cosine_similarity, cosine_similarity_heatmap(tensors[0], tensors[1]).diagonal(), atol=1e-2).all(), "Diagonal elements of cosine similarity matrix do not match"
 
-    hist_info = compute_histogram(cossim, 100)
+    hist_info = compute_histogram(cosine_similarity, 100)
     return Metric(
         histogram=Histogram(count=hist_info[0], edges=hist_info[1], widths=hist_info[2]),
-        mean_std=MeanStd(mean=cossim.mean().item(), std=cossim.std().item()),
+        mean_std=MeanStd(mean=cosine_similarity.mean().item(), std=cosine_similarity.std().item()),
         heatmap=Heatmap(data=heatmap) if return_heatmap else None
     )
 

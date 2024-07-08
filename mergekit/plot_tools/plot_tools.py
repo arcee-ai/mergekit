@@ -11,6 +11,8 @@ from dash.dependencies import Input, Output, State
 from mergekit.metric_methods.all_metrics import Layer
 from mergekit.metric_methods.base import Results
 
+global_colours_list = ['blue', 'red', 'green', 'purple', 'orange', 'pink']
+
 class ResultsHandler:
     """
     Object to handle metrics results. Allows for easy plotting of metrics by layer and across layers.
@@ -20,8 +22,8 @@ class ResultsHandler:
         metrics: List of tasks and their metrics. This is the output of the run_measure function in mergekit.measure.
 
     Attributes:
-        all_stats: Dictionary of recorded statistics for each layer. e.g. {'layer_name': {'cossim_mean': 0.5, 'cossim_std': 0.1}}
-        metric_names: List of names of all statistics available. e.g. ['cossim_mean', 'cossim_std']
+        all_stats: Dictionary of recorded statistics for each layer. e.g. {'layer_name': {'cosine_similarity_mean': 0.5, 'cosine_similarity_std': 0.1}}
+        metric_names: List of names of all statistics available. e.g. ['cosine_similarity_mean', 'cosine_similarity_std']
         layer_names: List of layer names. 
 
     Methods:
@@ -218,7 +220,7 @@ def create_line_plot_section(results_handler):
             id='line-plot-dropdown',
             options=[{'label': metric_name.replace('_', ' ').title(), 'value': metric_name} 
                     for metric_name in results_handler.metric_names],
-            value='cossim',
+            value='cosine_similarity',
             style={'width': '50%', 'margin': 'auto', 'display': 'block', 'font-family': 'Arial'}
         ),
         dcc.Graph(id='line-plot', style={'width': '100%', 'height': '100vh'})

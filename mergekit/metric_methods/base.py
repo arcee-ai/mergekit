@@ -119,6 +119,7 @@ class Results:
     # Class to store the statistics for each layer
     def __init__(self):
         self.layers: Dict[str, Layer] = {}
+        self.others: Dict[str, Metric] = {}
 
     def add_layer(self, layer: Layer, name: str):
         if name not in self.layers.keys():
@@ -193,4 +194,6 @@ class Results:
 
     def load(self, path: str):
         with open(path, 'rb') as f:
-            return pickle.load(f)
+            results = pickle.load(f)
+        assert isinstance(results, Results), "Loaded object is not a Results object"
+        return results

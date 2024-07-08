@@ -103,7 +103,7 @@ def main(model_path, output_path, dataset, batch_size, max_length, dataset_size,
 
     dataloader = DataLoader(dataset[dataset_column], batch_size=batch_size, shuffle=False, drop_last=True)
     
-    output_name = f'NEW_Representations_{model.name_or_path.replace("/","_")}_{dataset_subset}_{dataset_size}'
+    output_name = f'Representations_{model.name_or_path.replace("/","_")}_{dataset_subset}_{dataset_size}'
     assert not os.path.exists(output_path+f'{output_name}.h5'), f'{output_name}.h5 already exists.'
 
     with h5py.File(f'{output_name}.h5', 'w') as h5file:
