@@ -32,19 +32,6 @@ def parse_items(ctx, param, value):
         return [item.strip() for item in value.split(",")]
 
 
-# NOTE: intends to replicate sizing up the key tensor in gqa to match the query tensor
-# TODO: unit test this
-def repeat_kv(hidden_states: torch.Tensor, init_split: int, n_rep: int) -> torch.Tensor:
-    if n_rep == 1:
-        return hidden_states
-
-    bsz, slen, head_dim = hidden_states.shape
-    hidden_states = hidden_states.view(bsz, init_split, slen, head_dim // init_split)
-    hidden_states = torch.repeat_interleave(hidden_states, n_rep, dim=1)
-    hidden_states = hidden_states.transpose(1, 2)
-    return hidden_states.reshape(bsz, slen, -1)
-
-
 def remove_pads(attention_mask, feature_vector):
     batch_size, seq_length = attention_mask.shape
     if (
@@ -255,30 +242,9 @@ def main(
             if space_name not in storage_dict:
                 storage_dict[space_name] = o
             else:
-                # check last dimension, if different, expand
-                if storage_dict[space_name].shape[-1] != o.shape[-1]:
-                    dim_1 = storage_dict[space_name].shape[-1]
-                    dim_2 = o.shape[-1]
-                    if dim_1 > dim_2:
-                        repeat = dim_1 // dim_2
-                        o = repeat_kv(o, model_config.num_key_value_heads, repeat)
-                        storage_dict[space_name] = torch.cat(
-                            (storage_dict[space_name], o), dim=0
-                        )  # maybe a direct cat
-                    else:
-                        repeat = dim_2 // dim_1
-                        storage_dict[space_name] = repeat_kv(
-                            storage_dict[space_name],
-                            model_config.num_key_value_heads,
-                            repeat,
-                        )
-                        storage_dict[space_name] = torch.cat(
-                            (storage_dict[space_name], o), dim=0
-                        )
-                else:
-                    storage_dict[space_name] = torch.cat(
-                        (storage_dict[space_name], o), dim=0
-                    )
+                storage_dict[space_name] = torch.cat(
+                    (storage_dict[space_name], o), dim=0
+                )
 
         return hook
 
