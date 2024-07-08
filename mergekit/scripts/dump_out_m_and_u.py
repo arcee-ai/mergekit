@@ -198,7 +198,9 @@ def match_tensors_permute_MHA_GQA(
             _compressed_correlation[
                 i * query_size : (i + 1) * query_size,
                 j * query_size : (j + 1) * query_size,
-            ] = _c
+            ] = (
+                _c / number_of_repeats**2
+            )
 
     costs = (
         np.ones((n_heads // number_of_repeats, n_heads // number_of_repeats))
