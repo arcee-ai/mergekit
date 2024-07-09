@@ -32,7 +32,7 @@ def match_tensors_permute(
 
     mats = [torch.eye(Om, device=device)]
     try:
-        corr_submatrix = correlation_matrix[:Om, Om:].numpy()
+        corr_submatrix = correlation_matrix[:Om, Om:].cpu().numpy()
         if absval:
             corr_submatrix = np.absolute(corr_submatrix)
         _, col_ind = scipy.optimize.linear_sum_assignment(corr_submatrix, maximize=True)
@@ -79,10 +79,14 @@ def match_tensors_permute_MHA(
             head1_idx = [query_size * j, query_size * (j + 1)]
             head2_idx = [query_size * k, query_size * (k + 1)]
 
-            corr_submatrix = correlation_matrix[
-                head1_idx[0] : head1_idx[1],
-                (Om + head2_idx[0]) : (Om + head2_idx[1]),
-            ].numpy()
+            corr_submatrix = (
+                correlation_matrix[
+                    head1_idx[0] : head1_idx[1],
+                    (Om + head2_idx[0]) : (Om + head2_idx[1]),
+                ]
+                .cpu()
+                .numpy()
+            )
             if absval:
                 corr_submatrix = np.absolute(corr_submatrix)
 
@@ -143,6 +147,8 @@ def match_tensors_permute_MHA(
     help="Device to compute on (default: cpu)",
 )
 def main(model1_ft, model2_ft, model_path, out_path, absval, device):
+    os.makedirs(out_path, exist_ok=True)
+
     model = ModelReference.model_validate(model_path)
 
     model_config = model.config()
@@ -189,8 +195,6 @@ def main(model1_ft, model2_ft, model_path, out_path, absval, device):
     model1_features.pop("attention_mask")
     model2_features.pop("attention_mask")
 
-    merges, unmerges = {}, {}
-
     for feature_space in model1_features.keys():
         concatenated_feature = torch.cat(
             (model1_features[feature_space], model2_features[feature_space]), dim=-1
@@ -205,28 +209,23 @@ def main(model1_ft, model2_ft, model_path, out_path, absval, device):
                 absval=absval,
             )
 
-            merges[feature_space] = merge
-            unmerges[feature_space] = unmerge
         else:
             merge, unmerge = match_tensors_permute(
                 correlation_matrix=correlation_matrix,
                 absval=absval,
             )
-            merges[feature_space] = merge
-            unmerges[feature_space] = unmerge
 
-    os.makedirs(out_path, exist_ok=True)
+        safetensors.torch.save_file(
+            {feature_space: merge.contiguous()},
+            f"{out_path}/{feature_space}_merge.safetensor",
+        )
 
-    for identifier, tensor in merges.items():
         safetensors.torch.save_file(
-            {identifier: tensor.contiguous()},
-            f"{out_path}/{identifier}_merge.safetensor",
+            {feature_space: unmerge.contiguous()},
+            f"{out_path}/{feature_space}_unmerge.safetensor",
         )
-    for identifier, tensor in unmerges.items():
-        safetensors.torch.save_file(
-            {identifier: tensor.contiguous()},
-            f"{out_path}/{identifier}_unmerge.safetensor",
-        )
+
+        del merge, unmerge, correlation_matrix, concatenated_feature
 
 
 if __name__ == "__main__":
