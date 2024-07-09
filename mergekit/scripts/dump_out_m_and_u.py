@@ -2,7 +2,6 @@ import os
 import pdb
 import sys
 from collections import defaultdict
-from typing import List, Optional
 
 import click
 import numpy as np
@@ -21,21 +20,20 @@ def calc_correlation_matrix(feats):
 
 
 def match_tensors_permute(
-    no_absval=True,
+    absval=False,
     correlation_matrix=None,
 ):
     """
     This function is adapted from ZipIt! (https://github.com/gstoica27/ZipIt)
     """
 
-    O = correlation_matrix.shape[0]
-    Om = O // 2
+    Om = correlation_matrix.shape[0] // 2
     device = correlation_matrix.device
 
     mats = [torch.eye(Om, device=device)]
     try:
-        corr_submatrix = correlation_matrix[:Om, Om : Om * 2].cpu().numpy()
-        if no_absval == False:
+        corr_submatrix = correlation_matrix[:Om, Om:].numpy()
+        if absval:
             corr_submatrix = np.absolute(corr_submatrix)
         _, col_ind = scipy.optimize.linear_sum_assignment(corr_submatrix, maximize=True)
     except Exception as e:
@@ -57,18 +55,16 @@ def match_tensors_permute(
 
 def match_tensors_permute_MHA(
     n_heads=32,
-    no_absval=True,
+    absval=False,
     correlation_matrix=None,
 ):
     """
-    Handles different head permutations in attention
+    Handles different head permutations in attention.
+    Modified version of the function here: https://github.com/nverma1/merging-text-transformers/blob/main/matching_functions.py#L76
     """
-    correlation = correlation_matrix
 
-    O = correlation.shape[0]
-
-    Om = O // 2  # matrix dimension
-    device = correlation.device
+    Om = correlation_matrix.shape[0] // 2
+    device = correlation_matrix.device
     query_size = Om // n_heads
 
     mats = [torch.eye(Om, device=device)]
@@ -78,21 +74,16 @@ def match_tensors_permute_MHA(
 
     col_inds_storage = defaultdict(lambda: defaultdict(int))
 
-    for j in range(n_heads):  # outer loop through all heads
-        for k in range(n_heads):  # inner loop through heads >= current head j
+    for j in range(n_heads):
+        for k in range(n_heads):
             head1_idx = [query_size * j, query_size * (j + 1)]
             head2_idx = [query_size * k, query_size * (k + 1)]
 
-            # take abs value of submatrix of correlations
-            corr_submatrix = (
-                correlation[
-                    head1_idx[0] : head1_idx[1],
-                    (Om + head2_idx[0]) : (Om + head2_idx[1]),
-                ]
-                .cpu()
-                .numpy()
-            )
-            if no_absval == False:
+            corr_submatrix = correlation_matrix[
+                head1_idx[0] : head1_idx[1],
+                (Om + head2_idx[0]) : (Om + head2_idx[1]),
+            ].numpy()
+            if absval:
                 corr_submatrix = np.absolute(corr_submatrix)
 
             # compute perm for head j & head k
@@ -111,7 +102,7 @@ def match_tensors_permute_MHA(
     )
 
     for j in range(n_heads):
-        head_1 = outer_row_ind[j]  # these are in order, outer_row_ind[j] = j
+        head_1 = outer_row_ind[j]
         head_2 = outer_col_ind[j]
 
         head_perm = col_inds_storage[head_1][head_2]
@@ -139,13 +130,19 @@ def match_tensors_permute_MHA(
     "--out_path", required=True, type=str, help="Output path for metric tensors"
 )
 @click.option(
+    "--absval/--no-absval",
+    required=False,
+    default=False,
+    help="Use absolute value on correlation matrices/submatrices while calculating merge/unmerge matrices",
+)
+@click.option(
     "--device",
     "-d",
     type=str,
     default="cpu",
     help="Device to compute on (default: cpu)",
 )
-def main(model1_ft, model2_ft, model_path, out_path, device):
+def main(model1_ft, model2_ft, model_path, out_path, absval, device):
     model = ModelReference.model_validate(model_path)
 
     model_config = model.config()
@@ -186,8 +183,8 @@ def main(model1_ft, model2_ft, model_path, out_path, device):
             _template_substitution(v_space, num_layers=num_layers, layer_idx=j)
         )
 
-    model1_features = safetensors.torch.load_file(model1_ft)
-    model2_features = safetensors.torch.load_file(model2_ft)
+    model1_features = safetensors.torch.load_file(model1_ft, device=device)
+    model2_features = safetensors.torch.load_file(model2_ft, device=device)
 
     model1_features.pop("attention_mask")
     model2_features.pop("attention_mask")
@@ -205,13 +202,15 @@ def main(model1_ft, model2_ft, model_path, out_path, device):
             merge, unmerge = match_tensors_permute_MHA(
                 correlation_matrix=correlation_matrix,
                 n_heads=model_config.num_attention_heads,
+                absval=absval,
             )
 
             merges[feature_space] = merge
             unmerges[feature_space] = unmerge
         else:
             merge, unmerge = match_tensors_permute(
-                correlation_matrix=correlation_matrix
+                correlation_matrix=correlation_matrix,
+                absval=absval,
             )
             merges[feature_space] = merge
             unmerges[feature_space] = unmerge

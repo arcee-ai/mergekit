@@ -269,7 +269,6 @@ def main(
             # Store attention masks
             attention_mask = inputs["attention_mask"]
             if "attention_mask" not in feature_storage:
-                print(attention_mask.shape)
                 feature_storage["attention_mask"] = attention_mask.cpu().detach()
             else:
                 feature_storage["attention_mask"] = torch.cat(
@@ -307,7 +306,11 @@ def main(
         if v is not None:
             logging.info(f"{k}: Shape: {v.shape}")
 
-    model_path = os.path.abspath(model_path).replace("/", "_")
+    abs_path = os.path.abspath(model_path)
+    if os.path.exists(abs_path):
+        model_path = abs_path
+
+    model_path = model_path.replace("/", "_")
 
     # create output directory
     os.makedirs(out_path, exist_ok=True)
