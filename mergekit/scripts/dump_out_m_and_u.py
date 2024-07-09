@@ -205,7 +205,6 @@ def main(model1_ft, model2_ft, model_path, out_path, device):
             merge, unmerge = match_tensors_permute_MHA(
                 correlation_matrix=correlation_matrix,
                 n_heads=model_config.num_attention_heads,
-                number_of_repeats=8,
             )
 
             merges[feature_space] = merge
