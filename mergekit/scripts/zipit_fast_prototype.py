@@ -1,15 +1,14 @@
 import logging
 import os
-from typing import DefaultDict, Dict, List, Optional, Set, Tuple
+from typing import Optional
 
 import click
-import numpy as np
 import safetensors.torch
 import torch
 import tqdm
 from transformers import AutoTokenizer
 
-from mergekit.architecture import ProceduralSpaceInfo, WeightInfo, get_architecture_info
+from mergekit.architecture import get_architecture_info
 from mergekit.common import ModelReference, dtype_from_name
 from mergekit.io.tasks import LoaderCache
 from mergekit.io.tensor_writer import TensorWriter
@@ -27,6 +26,13 @@ from mergekit.options import MergeOptions, add_merge_options
     default="float16",
     help="Data type to convert weights to",
 )
+@click.option(
+    "--device",
+    "-d",
+    type=str,
+    default="cuda",
+    help="Device to compute on (default: cuda)",
+)
 @add_merge_options
 def main(
     model_path: str,
@@ -34,6 +40,7 @@ def main(
     merge_unmerge_directory: str,
     out_path: str,
     dtype: Optional[str],
+    device: Optional[str],
     merge_options: MergeOptions,
 ):
     model = ModelReference.model_validate(model_path)
@@ -47,7 +54,6 @@ def main(
     cache.hf_cache_dir = merge_options.transformers_cache
 
     for m in tqdm.tqdm([model, secondary_model], desc="Preparing models"):
-        print(type(m))
         cache.get(m)
 
     writer = TensorWriter(
@@ -75,12 +81,14 @@ def main(
         if "_unmerge" in f
     ]
     for i in spaces:
-        print(i)
+        logging.info(f"Loading merge/unmerge tensors for {i}")
         m = safetensors.torch.load_file(
-            os.path.join(merge_unmerge_directory, f"{i}_merge.safetensor")
+            os.path.join(merge_unmerge_directory, f"{i}_merge.safetensor"),
+            device=device,
         )
         u = safetensors.torch.load_file(
-            os.path.join(merge_unmerge_directory, f"{i}_unmerge.safetensor")
+            os.path.join(merge_unmerge_directory, f"{i}_unmerge.safetensor"),
+            device=device,
         )
         merge_unmerge_dictionary[i] = (
             m[i].to("cuda", dtype=dtype),
@@ -102,9 +110,9 @@ def main(
             merge_matrix, _ = merge_unmerge_dictionary[weight_info.output_space]
             merge_matrix = merge_matrix.chunk(2, dim=1)
 
-        original_w = loader_1.get_tensor(weight_info.name, device="cuda")
-        original_w2 = loader_2.get_tensor(weight_info.name, device="cuda")
-        print(dtype)
+        original_w = loader_1.get_tensor(weight_info.name, device=device)
+        original_w2 = loader_2.get_tensor(weight_info.name, device=device)
+
         if dtype is not None:
             original_w = original_w.to(dtype=dtype)
             original_w2 = original_w2.to(dtype=dtype)
