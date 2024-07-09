@@ -21,7 +21,6 @@ def calc_correlation_matrix(feats):
 
 
 def match_tensors_permute(
-    r=0.5,
     no_absval=True,
     correlation_matrix=None,
 ):
@@ -30,30 +29,21 @@ def match_tensors_permute(
     """
 
     O = correlation_matrix.shape[0]
-    N = int(1 / (1 - r) + 0.5)
-    Om = O // N
+    Om = O // 2
     device = correlation_matrix.device
 
     mats = [torch.eye(Om, device=device)]
-    cost = 0
-    for i in range(1, N):
-        try:
-            corr_submatrix = (
-                correlation_matrix[:Om, Om * i : Om * (i + 1)].cpu().numpy()
-            )
-            if no_absval == False:
-                corr_submatrix = np.absolute(corr_submatrix)
-            row_ind, col_ind = scipy.optimize.linear_sum_assignment(
-                corr_submatrix, maximize=True
-            )
-            cost = corr_submatrix[row_ind, col_ind].sum()
-            # correlation subset is is [0:4096, 4096:8192]
-        except Exception as e:
-            print(e)
-            pdb.set_trace()
+    try:
+        corr_submatrix = correlation_matrix[:Om, Om : Om * 2].cpu().numpy()
+        if no_absval == False:
+            corr_submatrix = np.absolute(corr_submatrix)
+        _, col_ind = scipy.optimize.linear_sum_assignment(corr_submatrix, maximize=True)
+    except Exception as e:
+        print(e)
+        pdb.set_trace()
 
-        new_mat = torch.eye(Om, device=device)[torch.tensor(col_ind).long().to(device)]
-        mats.append(new_mat.T)
+    new_mat = torch.eye(Om, device=device)[torch.tensor(col_ind).long().to(device)]
+    mats.append(new_mat.T)
 
     unmerge_mats = mats
 
@@ -62,15 +52,13 @@ def match_tensors_permute(
     merge = torch.cat(mats, dim=0)
     merge = merge / (merge.sum(dim=0, keepdim=True) + 1e-5)
 
-    return merge.T, unmerge, None, cost / merge.shape[0]
+    return merge.T, unmerge
 
 
 def match_tensors_permute_MHA(
     n_heads=32,
-    r=0.5,
     no_absval=True,
     correlation_matrix=None,
-    number_of_repeats=8,
 ):
     """
     Handles different head permutations in attention
@@ -79,8 +67,7 @@ def match_tensors_permute_MHA(
 
     O = correlation.shape[0]
 
-    N = int(1 / (1 - r) + 0.5)  # num models
-    Om = O // N  # matrix dimension
+    Om = O // 2  # matrix dimension
     device = correlation.device
     query_size = Om // n_heads
 
@@ -89,42 +76,39 @@ def match_tensors_permute_MHA(
 
     costs = np.ones((n_heads, n_heads)) * -sys.maxsize
 
-    cost = 0
     col_inds_storage = defaultdict(lambda: defaultdict(int))
 
-    for i in range(1, N):  # just once if 2 models
-        for j in range(n_heads):  # outer loop through all heads
-            for k in range(n_heads):  # inner loop through heads >= current head j
-                head1_idx = [query_size * j, query_size * (j + 1)]
-                head2_idx = [query_size * k, query_size * (k + 1)]
+    for j in range(n_heads):  # outer loop through all heads
+        for k in range(n_heads):  # inner loop through heads >= current head j
+            head1_idx = [query_size * j, query_size * (j + 1)]
+            head2_idx = [query_size * k, query_size * (k + 1)]
 
-                # take abs value of submatrix of correlations
-                corr_submatrix = (
-                    correlation[
-                        head1_idx[0] : head1_idx[1],
-                        (Om + head2_idx[0]) : (Om + head2_idx[1]),
-                    ]
-                    .cpu()
-                    .numpy()
-                )
-                if no_absval == False:
-                    corr_submatrix = np.absolute(corr_submatrix)
+            # take abs value of submatrix of correlations
+            corr_submatrix = (
+                correlation[
+                    head1_idx[0] : head1_idx[1],
+                    (Om + head2_idx[0]) : (Om + head2_idx[1]),
+                ]
+                .cpu()
+                .numpy()
+            )
+            if no_absval == False:
+                corr_submatrix = np.absolute(corr_submatrix)
 
-                # compute perm for head j & head k
-                row_ind, col_ind = scipy.optimize.linear_sum_assignment(
-                    corr_submatrix, maximize=True
-                )
+            # compute perm for head j & head k
+            row_ind, col_ind = scipy.optimize.linear_sum_assignment(
+                corr_submatrix, maximize=True
+            )
 
-                # store cost (cost is maximized here)
-                costs[j, k] = corr_submatrix[row_ind, col_ind].sum()
+            # store cost (cost is maximized here)
+            costs[j, k] = corr_submatrix[row_ind, col_ind].sum()
 
-                # store perm so we don't have to recompute it later
-                col_inds_storage[j][k] = col_ind
+            # store perm so we don't have to recompute it later
+            col_inds_storage[j][k] = col_ind
 
     outer_row_ind, outer_col_ind = scipy.optimize.linear_sum_assignment(
         costs, maximize=True
-    )  # get assignment with lowest cost
-    cost += costs[outer_row_ind, outer_col_ind].sum()
+    )
 
     for j in range(n_heads):
         head_1 = outer_row_ind[j]  # these are in order, outer_row_ind[j] = j
@@ -144,7 +128,7 @@ def match_tensors_permute_MHA(
     merge = torch.cat(mats, dim=0)
     merge = merge / (merge.sum(dim=0, keepdim=True) + 1e-5)
 
-    return merge.T, unmerge, None, None
+    return merge.T, unmerge
 
 
 @click.command()
@@ -170,8 +154,8 @@ def main(model1_ft, model2_ft, model_path, out_path, device):
 
     _json = model_arch_info.definition
 
-    residual_space = None  # probably don't need this
-    kq_space = None  # We do need this
+    residual_space = None
+    kq_space = None
     v_space = None
 
     # extract the residual, attention related spaces
@@ -218,18 +202,16 @@ def main(model1_ft, model2_ft, model_path, out_path, device):
         correlation_matrix = calc_correlation_matrix(concatenated_feature)
 
         if feature_space in (kq_spaces + v_spaces):
-            f = match_tensors_permute_MHA
-            merge, unmerge, a_merge, a_unmerge = f(
+            merge, unmerge = match_tensors_permute_MHA(
                 correlation_matrix=correlation_matrix,
                 n_heads=model_config.num_attention_heads,
                 number_of_repeats=8,
             )
 
-            # print merge, unmerge shape
             merges[feature_space] = merge
             unmerges[feature_space] = unmerge
         else:
-            merge, unmerge, _, _ = match_tensors_permute(
+            merge, unmerge = match_tensors_permute(
                 correlation_matrix=correlation_matrix
             )
             merges[feature_space] = merge
@@ -237,19 +219,6 @@ def main(model1_ft, model2_ft, model_path, out_path, device):
 
     os.makedirs(out_path, exist_ok=True)
 
-    qkv_spaces = []
-    # TODO: figure out a better way to do this
-    qkv_space = "attn_qkv_${layer_index}"
-    for j in range(num_layers):
-        qkv_spaces.append(
-            _template_substitution(qkv_space, num_layers=num_layers, layer_idx=j)
-        )
-
-    # NOTE: making sure the attention space merge/unmerge is shared
-    for v_space, qkv_space in zip(v_spaces, qkv_spaces):
-        merges[qkv_space], unmerges[qkv_space] = merges[v_space], unmerges[v_space]
-
-    # Saving the metrics results as SafeTensors
     for identifier, tensor in merges.items():
         safetensors.torch.save_file(
             {identifier: tensor.contiguous()},

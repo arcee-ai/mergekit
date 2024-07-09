@@ -41,7 +41,7 @@
             },
             {
                 "name": "model.layers.${layer_index}.self_attn.o_proj.weight",
-                "input_space": "attn_qkv_${layer_index}",
+                "input_space": "attn_v_${layer_index}",
                 "output_space": "running_residual",
                 "head_split": "input"
             },
@@ -79,16 +79,6 @@
             "is_lm_head": true,
             "aliases": [
                 "model.lm_head.weight"
-            ]
-        }
-    ],
-    "procedural_spaces": [
-        {
-            "type": "kv_expand",
-            "name":"attn_qkv_${layer_index}",
-            "inputs": [
-                "attn_qk_${layer_index}",
-                "attn_v_${layer_index}"
             ]
         }
     ]
