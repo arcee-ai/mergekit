@@ -107,38 +107,44 @@ class LayerByIndex:
 
     def __iter__(self):
         return iter(self.representations[layer] for layer in self.layers)
-
-def compare_representations(representations_a: h5py.File, representations_b: h5py.File, 
+    
+def compare_representations(reps_path_a: str, reps_path_b: str,
                             metrics_classes: Dict[str, MetricAggregator], device: str, results: Results) -> Dict[str, Any]:
     if results is None:
         results = Results()
 
-    for layer_a, layer_b in tqdm(zip(representations_a, representations_b), 
-                                 desc='Comparing Representations at layer', 
-                                 total=len(representations_a), initial = 1):
-        if layer_a != layer_b:
-            raise ValueError(f'Layer mismatch: {layer_a} != {layer_b}')
+    with LayerByIndex(reps_path_a) as representations_a, \
+            LayerByIndex(reps_path_b) as representations_b:
 
-        metrics = [metric_class(device=device) for metric_class in metrics_classes.values()]
-
-        for batch_a, batch_b in tqdm(zip(representations_a[layer_a], representations_b[layer_b]), 
-                                     desc='Batch', total=len(representations_a[layer_a]), leave=False, initial = 1):
-            batch_a = torch.tensor(representations_a[layer_a][batch_a][:], device=device)
-            batch_b = torch.tensor(representations_b[layer_b][batch_b][:], device=device)
+        for layer_a, layer_b in tqdm(zip(representations_a, representations_b), 
+                                    desc='Comparing Representations at layer', 
+                                    total=len(representations_a), initial = 1):
             
-            # Calculate the metrics for each batch
+            layer_a_name = layer_a.name.split('/')[-1]
+            layer_b_name = layer_b.name.split('/')[-1]
+            if layer_a_name != layer_b_name:
+                raise ValueError(f'Layer mismatch: {layer_a_name} != {layer_b_name}')
+
+            metrics = [metric_class(device=device) for metric_class in metrics_classes.values()]
+
+            for batch_a, batch_b in tqdm(zip(layer_a, layer_b), 
+                                        desc='Batch', total=len(layer_a), leave=False, initial = 1):
+                batch_a = torch.tensor(layer_a[batch_a][:], device=device)
+                batch_b = torch.tensor(layer_b[batch_b][:], device=device)
+                
+                # Calculate the metrics for each batch
+                for metric in metrics:
+                    metric.process_batch(batch_a, batch_b)
+
+            layer_results = Layer(WeightInfo(name=layer_a_name))
+            # Aggregate over the batches and add to the layer results
             for metric in metrics:
-                metric.process_batch(batch_a, batch_b)
+                layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
+                metric.clear()
 
-        layer_results = Layer(WeightInfo(name=layer_a))
-        # Aggregate over the batches and add to the layer results
-        for metric in metrics:
-            layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
-            metric.clear()
+            results.add_layer(layer_results, layer_a_name)
 
-        results.add_layer(layer_results, layer_a)
-
-    return results
+        return results
 
 def compute_skip_block_metrics(reps_path: str, skip_layers: int, 
                                metric_classes: List[MetricAggregator], device: str) -> Results:
@@ -216,10 +222,10 @@ def main(config_yml: str):
         if len(model_paths) != 2:
             raise ValueError("Expected 2 model paths for comparison")
 
-        with h5py.File(model_paths[0], 'r') as representations_a, \
-             h5py.File(model_paths[1], 'r') as representations_b:
+        # with h5py.File(model_paths[0], 'r') as representations_a, \
+        #      h5py.File(model_paths[1], 'r') as representations_b:
 
-            all_results = compare_representations(representations_a, representations_b, 
+        all_results = compare_representations(model_paths[0], model_paths[1], 
                                               metrics_classes=use_metrics, device=device, results=all_results)
 
     if config['block_analysis']:
