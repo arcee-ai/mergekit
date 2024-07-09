@@ -55,6 +55,7 @@ class MeanStd:
 @dataclass
 class Heatmap:
     data: torch.Tensor
+    update_layout_options: Optional[Dict] = None
 
 @dataclass
 class Histogram:

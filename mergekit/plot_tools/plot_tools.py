@@ -254,7 +254,7 @@ def create_heatmap_section(results_handler):
 
             heatmap_sections.append(html.Div([
                 html.H3(f'Heatmap: {title}', style={'textAlign': 'center'}),
-                dcc.Graph(id=f'heatmap-plot-{i}', style={'width': '30%', 'height': '30%'})
+                dcc.Graph(id=f'heatmap-plot-{i}', style={'width': '50%', 'height': '50%', 'position': 'relative'})
             ], className='container-fluid'))
         return html.Div(heatmap_sections)
     else:
@@ -377,11 +377,15 @@ def register_callbacks(app, results_handler):
                         zmax=np.nanmax(heatmap_data),  # Set the scale max to the max data value
                         colorbar=dict(title='Scale')  # Customize the color bar
                     ))
-
+                    default_layout_options = {
+                        'xaxis_title':"X Axis",
+                        'yaxis_title':"Y Axis"
+                        }
+                    if results_handler.results.others[key].update_layout_options:
+                        default_layout_options.update(results_handler.results.others[key].update_layout_options)
                     fig.update_layout(
                         title=f"Heatmap: {_key}",
-                        xaxis_title="X Axis",
-                        yaxis_title="Y Axis"
+                        **default_layout_options
                     )
                     return fig
 
