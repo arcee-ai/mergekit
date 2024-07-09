@@ -109,8 +109,9 @@ class LayerByIndex:
         return iter(self.representations[layer] for layer in self.layers)
 
 def compare_representations(representations_a: h5py.File, representations_b: h5py.File, 
-                            metrics_classes: Dict[str, MetricAggregator], device: str) -> Dict[str, Any]:
-    results = Results()
+                            metrics_classes: Dict[str, MetricAggregator], device: str, results: Results) -> Dict[str, Any]:
+    if results is None:
+        results = Results()
 
     for layer_a, layer_b in tqdm(zip(representations_a, representations_b), 
                                  desc='Comparing Representations at layer', 
@@ -124,6 +125,7 @@ def compare_representations(representations_a: h5py.File, representations_b: h5p
                                      desc='Batch', total=len(representations_a[layer_a]), leave=False, initial = 1):
             batch_a = torch.tensor(representations_a[layer_a][batch_a][:], device=device)
             batch_b = torch.tensor(representations_b[layer_b][batch_b][:], device=device)
+            
             # Calculate the metrics for each batch
             for metric in metrics:
                 metric.process_batch(batch_a, batch_b)
@@ -162,11 +164,28 @@ def compute_skip_block_metrics(reps_path: str, skip_layers: int,
             # Aggregate metrics and add to results
             layer_results = Layer(WeightInfo(name=f"Layer {idx}"))
             for metric in metrics:
-                layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower().lower())
+                layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
 
             results.add_layer(layer_results, f"Layer {idx}")
 
     return results
+
+def results_list_to_heatmap(all_results, metric_names:List[str]) -> dict:
+    rows = len(all_results)
+    cols = max([len(result.layers) for result in all_results])
+    heatmaps = {}
+    for metric_name in metric_names:
+        heatmap = np.full((rows, cols), np.nan)
+
+        for i, result in enumerate(all_results):
+            for j, layer in enumerate(result.layers):
+                heatmap[i, j] = result.layers[layer].metrics[metric_name][0].mean_std.mean
+        heatmaps[metric_name] = Heatmap(data=heatmap,
+                                        update_layout_options = {
+                                            'xaxis_title': 'Layer Number',
+                                            'yaxis_title': 'Block Size',
+                                        })
+    return heatmaps
 
 METRICS_TABLE = {
     'cosine_similarity': Cosine_Similarity,
@@ -187,11 +206,12 @@ def main(config_yml: str):
 
     device = torch.device("cuda" if torch.cuda.is_available() else 
                           "mps" if torch.backends.mps.is_available() else "cpu")
-
+    
     for path in model_paths:
         if not Path(path).exists():
             raise FileNotFoundError(f"File not found: {path}")
 
+    all_results = Results()
     if config['compare_between_models']:
         if len(model_paths) != 2:
             raise ValueError("Expected 2 model paths for comparison")
@@ -199,20 +219,23 @@ def main(config_yml: str):
         with h5py.File(model_paths[0], 'r') as representations_a, \
              h5py.File(model_paths[1], 'r') as representations_b:
 
-            results_compare = compare_representations(representations_a, representations_b, 
-                                              metrics_classes=use_metrics, device=device)
-
-        results_compare.save('results_compare.pkl')
+            all_results = compare_representations(representations_a, representations_b, 
+                                              metrics_classes=use_metrics, device=device, results=all_results)
 
     if config['block_analysis']:
         for reps_path in tqdm(model_paths, desc='Model', leave=False, total=len(model_paths), initial = 1):
-            results_block_analysis = Results()
+            results_list = []
+            metric_classes = list(use_metrics.values())
             for skip_layer in tqdm(skip_layers, desc='Skip Layers', initial = 1):
-                results = compute_skip_block_metrics(reps_path, skip_layer, list(use_metrics.values()), device=device)
-                for layer_name, layer in results.layers.items():
-                    results_block_analysis.add_layer(layer, f"{skip_layer}_{layer_name}")
+                results_list.append(
+                    compute_skip_block_metrics(reps_path, skip_layer, metric_classes=metric_classes, device=device)
+                    )
+            
+            heatmaps = results_list_to_heatmap(results_list, metric_names=[metric.__name__.lower() for metric in metric_classes])
+            for metric_name, heatmap in heatmaps.items():
+                all_results.others[reps_path + '||' + metric_name] = heatmap
 
-            results_block_analysis.save(f'results_block_analysis_{Path(reps_path).stem}.pkl')
+    all_results.save('results.pkl')
 
 if __name__ == '__main__':
     main()
