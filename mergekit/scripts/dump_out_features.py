@@ -157,8 +157,8 @@ def main(
         raise ValueError("No residual space found")
 
     # just a list of connected components
-    input_space_to_weights = defaultdict(list)
-    output_space_to_weights = defaultdict(list)
+    input_space_to_weight_templates = defaultdict(list)
+    output_space_to_weight_templates = defaultdict(list)
 
     for layer_template in weights:
         if (
@@ -166,7 +166,9 @@ def main(
             or layer_template.input_space in ignore_spaces
         ):
             continue
-        input_space_to_weights[layer_template.input_space].append(layer_template.name)
+        input_space_to_weight_templates[layer_template.input_space].append(
+            layer_template.name
+        )
 
     for layer_template in weights:
         if (
@@ -174,18 +176,20 @@ def main(
             or layer_template.output_space in ignore_spaces
         ):
             continue
-        output_space_to_weights[layer_template.output_space].append(layer_template.name)
+        output_space_to_weight_templates[layer_template.output_space].append(
+            layer_template.name
+        )
 
     # remove the residual space from the input and output
-    input_space_to_weights.pop(residual_space, None)
-    output_space_to_weights.pop(residual_space, None)
+    input_space_to_weight_templates.pop(residual_space, None)
+    output_space_to_weight_templates.pop(residual_space, None)
 
     # NOTE: if the the input space and output space are the same
     # and they go in from one weight and into another weight
     # we can remove the space from the output
     # as the hook need only be applied to capture input from the input weight
-    input_counts = {k: len(v) for k, v in input_space_to_weights.items()}
-    output_count = {k: len(v) for k, v in output_space_to_weights.items()}
+    input_counts = {k: len(v) for k, v in input_space_to_weight_templates.items()}
+    output_count = {k: len(v) for k, v in output_space_to_weight_templates.items()}
     to_remove = []
 
     for k, v in input_counts.items():
@@ -194,21 +198,21 @@ def main(
                 to_remove.append(k)
 
     # remove keys from output
-    output_space_to_weights = {
-        k: v for k, v in output_space_to_weights.items() if k not in to_remove
+    output_space_to_weight_templates = {
+        k: v for k, v in output_space_to_weight_templates.items() if k not in to_remove
     }
     # -----------------------------------------------------------------
 
     num_layers = model_arch_info.num_layers(model_config)
 
     input_space_to_weights = {}
-    for k, v in input_space_to_weights.items():
+    for k, v in input_space_to_weight_templates.items():
         for j in range(num_layers):
             f = lambda x: _template_substitution(x, num_layers=num_layers, layer_idx=j)
             input_space_to_weights[f(k)] = [f(_v) for _v in v]
 
     output_space_to_weights = {}
-    for k, v in output_space_to_weights.items():
+    for k, v in output_space_to_weight_templates.items():
         for j in range(num_layers):
             f = lambda x: _template_substitution(x, num_layers=num_layers, layer_idx=j)
             output_space_to_weights[f(k)] = [f(_v) for _v in v]
