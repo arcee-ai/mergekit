@@ -114,14 +114,14 @@ def compare_representations(representations_a: h5py.File, representations_b: h5p
 
     for layer_a, layer_b in tqdm(zip(representations_a, representations_b), 
                                  desc='Comparing Representations at layer', 
-                                 total=len(representations_a)):
+                                 total=len(representations_a), initial = 1):
         if layer_a != layer_b:
             raise ValueError(f'Layer mismatch: {layer_a} != {layer_b}')
 
         metrics = [metric_class(device=device) for metric_class in metrics_classes.values()]
 
         for batch_a, batch_b in tqdm(zip(representations_a[layer_a], representations_b[layer_b]), 
-                                     desc='Batch', total=len(representations_a[layer_a]), leave=False):
+                                     desc='Batch', total=len(representations_a[layer_a]), leave=False, initial = 1):
             batch_a = torch.tensor(representations_a[layer_a][batch_a][:], device=device)
             batch_b = torch.tensor(representations_b[layer_b][batch_b][:], device=device)
             # Calculate the metrics for each batch
@@ -143,7 +143,7 @@ def compute_skip_block_metrics(reps_path: str, skip_layers: int,
     results = Results()
     with LayerByIndex(reps_path) as reps:
         for idx, block_start in tqdm(enumerate(reps), desc=f'Comparing {skip_layers}-block, Block Start at Layer', 
-                                     total=len(reps) - skip_layers, leave=False):
+                                     total=len(reps) - skip_layers, leave=False, initial = 1):
             if idx + skip_layers >= len(reps):
                 break
 
@@ -152,7 +152,7 @@ def compute_skip_block_metrics(reps_path: str, skip_layers: int,
             block_end = reps[idx + skip_layers]
 
             for batch_0, batch_1 in tqdm(zip(block_start, block_end), desc='Batch', 
-                                         total=len(block_start), leave=False):
+                                         total=len(block_start), leave=False, initial = 1):
                 batch_0 = torch.tensor(block_start[batch_0][:]).to(device)
                 batch_1 = torch.tensor(block_end[batch_1][:]).to(device)
                 
@@ -205,9 +205,9 @@ def main(config_yml: str):
         results_compare.save('results_compare.pkl')
 
     if config['block_analysis']:
-        for reps_path in model_paths:
+        for reps_path in tqdm(model_paths, desc='Model', leave=False, total=len(model_paths), initial = 1):
             results_block_analysis = Results()
-            for skip_layer in tqdm(skip_layers, desc='Skip Layers'):
+            for skip_layer in tqdm(skip_layers, desc='Skip Layers', initial = 1):
                 results = compute_skip_block_metrics(reps_path, skip_layer, list(use_metrics.values()), device=device)
                 for layer_name, layer in results.layers.items():
                     results_block_analysis.add_layer(layer, f"{skip_layer}_{layer_name}")
