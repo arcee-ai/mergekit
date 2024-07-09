@@ -22,7 +22,7 @@ from mergekit.merge_methods.base import MergeMethod
 from dataclasses import dataclass, field
 from collections import defaultdict
 import torch
-
+from pathlib import Path
 import pickle
 
 class MetricMethod(MergeMethod):
@@ -188,12 +188,19 @@ class Results:
             print(f"  Has model reference: {'Yes' if info['has_model_ref'] else 'No'}")
 
     def save(self, path: str):
-        path = path + '.pkl' if not path.endswith('.pkl') else path
-        with open(path, 'wb') as f:
+        path = Path(path)
+        if not path.suffix or path.suffix != '.pkl':
+            path = path.with_suffix('.pkl')
+        
+        with path.open('wb') as f:
             pickle.dump(self, f)
 
     def load(self, path: str):
-        with open(path, 'rb') as f:
-            results = pickle.load(f)
-        assert isinstance(results, Results), "Loaded object is not a Results object"
-        return results
+        path_obj = Path(path)
+        if path_obj.exists() and path_obj.is_file():
+            with open(path_obj, 'rb') as f:
+                results = pickle.load(f)
+            assert isinstance(results, Results), "Loaded object is not a Results object"
+            return results
+        else:
+            raise FileNotFoundError(f"The path {path} does not exist or is not a file.")
