@@ -156,9 +156,11 @@ def main(
     if residual_space is None:
         raise ValueError("No residual space found")
 
+    # ======================== Mapping spaces to weights ========================
+
     # just a list of connected components
-    input_space_to_weight_templates = defaultdict(list)
-    output_space_to_weight_templates = defaultdict(list)
+    space_to_output_weight_templates = defaultdict(list)
+    space_to_input_weight_templates = defaultdict(list)
 
     for layer_template in weights:
         if (
@@ -166,7 +168,7 @@ def main(
             or layer_template.input_space in ignore_spaces
         ):
             continue
-        input_space_to_weight_templates[layer_template.input_space].append(
+        space_to_output_weight_templates[layer_template.input_space].append(
             layer_template.name
         )
 
@@ -176,46 +178,44 @@ def main(
             or layer_template.output_space in ignore_spaces
         ):
             continue
-        output_space_to_weight_templates[layer_template.output_space].append(
+        space_to_input_weight_templates[layer_template.output_space].append(
             layer_template.name
         )
 
     # remove the residual space from the input and output
-    input_space_to_weight_templates.pop(residual_space, None)
-    output_space_to_weight_templates.pop(residual_space, None)
+    space_to_input_weight_templates.pop(residual_space, None)
+    space_to_output_weight_templates.pop(residual_space, None)
 
-    # NOTE: if the the input space and output space are the same
-    # and they go in from one weight and into another weight
-    # we can remove the space from the output
-    # as the hook need only be applied to capture input from the input weight
-    input_counts = {k: len(v) for k, v in input_space_to_weight_templates.items()}
-    output_count = {k: len(v) for k, v in output_space_to_weight_templates.items()}
+    # NOTE: if space has input and output weights, remove one or the other because hooking
+    # into both will result in duplicate activations
     to_remove = []
-
-    for k, v in input_counts.items():
-        if k in output_count:
-            if v == 1 and output_count[k] == 1:
-                to_remove.append(k)
+    for space, input_weights in space_to_input_weight_templates.items():
+        if space in space_to_output_weight_templates:
+            # if count of input weights and output weights is non zero, remove the space from space to output_weights
+            if (
+                len(input_weights) > 0
+                and len(space_to_output_weight_templates[space]) > 0
+            ):
+                to_remove.append(space)
 
     # remove keys from output
-    output_space_to_weight_templates = {
-        k: v for k, v in output_space_to_weight_templates.items() if k not in to_remove
+    space_to_output_weight_templates = {
+        k: v for k, v in space_to_output_weight_templates.items() if k not in to_remove
     }
-    # -----------------------------------------------------------------
 
     num_layers = model_arch_info.num_layers(model_config)
 
-    input_space_to_weights = {}
-    for k, v in input_space_to_weight_templates.items():
+    space_to_input_weights = {}
+    for k, v in space_to_input_weight_templates.items():
         for j in range(num_layers):
             f = lambda x: _template_substitution(x, num_layers=num_layers, layer_idx=j)
-            input_space_to_weights[f(k)] = [f(_v) for _v in v]
+            space_to_input_weights[f(k)] = [f(_v) for _v in v]
 
-    output_space_to_weights = {}
-    for k, v in output_space_to_weight_templates.items():
+    space_to_output_weights = {}
+    for k, v in space_to_output_weight_templates.items():
         for j in range(num_layers):
             f = lambda x: _template_substitution(x, num_layers=num_layers, layer_idx=j)
-            output_space_to_weights[f(k)] = [f(_v) for _v in v]
+            space_to_output_weights[f(k)] = [f(_v) for _v in v]
 
     # ================== Load model, tokenizer for inference and prepare dataset ==================
 
@@ -246,18 +246,21 @@ def main(
 
     # ================== Hooking into the model ==================
 
-    for k, v in input_space_to_weights.items():
+    # NOTE: if the capture input set to True seems confusing, a space's output is a weight recieving input from the space
+    for k, v in space_to_output_weights.items():
         for weight in v:
             weight = clean_name(weight)
             model.get_submodule(weight).register_forward_hook(
                 get_attention_output_hook(feature_storage, k, capture_input=True)
             )
-    for k, v in output_space_to_weights.items():
+    for k, v in space_to_input_weights.items():
         for weight in v:
             weight = clean_name(weight)
             model.get_submodule(weight).register_forward_hook(
                 get_attention_output_hook(feature_storage, k, capture_input=False)
             )
+
+    # ================== Inference ==================
 
     for batch in datasets_dataloader:
         with torch.no_grad():
