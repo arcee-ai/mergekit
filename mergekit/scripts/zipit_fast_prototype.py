@@ -91,8 +91,8 @@ def main(
             device=device,
         )
         merge_unmerge_dictionary[i] = (
-            m[i].to("cuda", dtype=dtype),
-            u[i].to("cuda", dtype=dtype),
+            m[i].to(device, dtype=dtype),
+            u[i].to(device, dtype=dtype),
         )
 
     # the place where both models are aligned and saved
