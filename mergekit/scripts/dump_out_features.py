@@ -1,7 +1,5 @@
-import itertools
 import logging
 import os
-import sys
 from collections import defaultdict
 from typing import List, Optional
 
@@ -39,16 +37,6 @@ def remove_pads(attention_mask, feature_vector):
         # Expand mask to match the feature_vector dimensions and apply it
         expanded_mask = attention_mask.unsqueeze(-1)
         filtered_feature_vector = feature_vector * expanded_mask
-    elif (
-        len(feature_vector.shape) == 4
-    ):  # Attention outputs: (batch_size, num_attention_heads, seq_length, seq_length)
-        # Expand mask for application to attention outputs
-        expanded_mask = attention_mask.unsqueeze(1).unsqueeze(-1)
-        # Apply mask to the "keys" dimension of the attention scores
-        filtered_feature_vector = feature_vector * expanded_mask
-        # Apply mask to the "queries" dimension of the attention scores (transpose mask application)
-        expanded_mask_transposed = attention_mask.unsqueeze(1).unsqueeze(2)
-        filtered_feature_vector = filtered_feature_vector * expanded_mask_transposed
     else:
         raise ValueError("Unsupported feature vector shape.")
 
@@ -312,17 +300,21 @@ def main(
 
             storage_dict = {}
 
+    # ================== Save activations/features ==================
+
+    logging.info("Feature storage:")
     for k, v in feature_storage.items():
         if v is not None:
-            print(k, v.shape)
+            logging.info(f"{k}: Shape: {v.shape}")
 
-    if "/" in model_path:
-        model_path = model_path.replace("/", "_")
+    model_path = os.path.abspath(model_path).replace("/", "_")
 
     # create output directory
     os.makedirs(out_path, exist_ok=True)
 
-    save_file(feature_storage, f"{out_path}/{model_path}_features.safetensor")
+    save_file(
+        feature_storage, os.path.join(out_path, f"{model_path}_features.safetensor")
+    )
 
 
 if __name__ == "__main__":
