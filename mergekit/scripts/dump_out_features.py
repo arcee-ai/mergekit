@@ -33,7 +33,6 @@ def parse_items(ctx, param, value):
 
 
 def remove_pads(attention_mask, feature_vector):
-    batch_size, seq_length = attention_mask.shape
     if (
         len(feature_vector.shape) == 3
     ):  # Hidden states: (batch_size, seq_length, embedding_dim)
@@ -56,13 +55,31 @@ def remove_pads(attention_mask, feature_vector):
     return filtered_feature_vector
 
 
+def get_attention_output_hook(storage_dict, space_name, capture_input=True):
+    """
+    Returns a hook function that stores the output of the attention layer.
+    """
+
+    def hook(module, input, output):
+        # NOTE: shape of input is [batch, seq_len, dim] and output is Tuple[(seq_len, dim),...]
+        if capture_input:
+            o = input[0].detach()
+        else:
+            o = output.detach()
+
+        if space_name not in storage_dict:
+            storage_dict[space_name] = o
+        else:
+            storage_dict[space_name] = torch.cat((storage_dict[space_name], o), dim=0)
+
+    return hook
+
+
 """
 
 What this script does:
 
 It tries to map input/output spaces to activation maps
-
-it denotes any input space that is found across layers as a residual stream
 
 """
 
@@ -136,7 +153,6 @@ def main(
             residual_space = weight.input_space
         weights.append(weight)
 
-    # TODO: revisit this
     if residual_space is None:
         raise ValueError("No residual space found")
 
@@ -185,24 +201,19 @@ def main(
 
     num_layers = model_arch_info.num_layers(model_config)
 
-    # TODO expand the space_names (i.e fill in the index names)
-
-    i = {}
+    input_space_to_weights = {}
     for k, v in input_space_to_weights.items():
-        print(k)
         for j in range(num_layers):
             f = lambda x: _template_substitution(x, num_layers=num_layers, layer_idx=j)
-            i[f(k)] = [f(_v) for _v in v]
+            input_space_to_weights[f(k)] = [f(_v) for _v in v]
 
-    o = {}
+    output_space_to_weights = {}
     for k, v in output_space_to_weights.items():
-        print(k)
         for j in range(num_layers):
             f = lambda x: _template_substitution(x, num_layers=num_layers, layer_idx=j)
-            o[f(k)] = [f(_v) for _v in v]
+            output_space_to_weights[f(k)] = [f(_v) for _v in v]
 
-    input_space_to_weights = i
-    output_space_to_weights = o
+    # ================== Load model, tokenizer for inference and prepare dataset ==================
 
     model = AutoModel.from_pretrained(
         model_path, output_attentions=True, attn_implementation="eager"
@@ -214,6 +225,8 @@ def main(
 
     model.eval()
     model.to(device)
+    if dtype is not None:
+        model = model.to(dtype=dtype)
 
     dataset = datasets.load_dataset(dataset)[dataset_subset]
 
@@ -227,38 +240,18 @@ def main(
     feature_storage = {}
     storage_dict = {}
 
-    def get_attention_output_hook(storage_dict, space_name, capture_input=True):
-        """
-        Returns a hook function that stores the output of the attention layer.
-        """
-
-        def hook(module, input, output):
-            # NOTE: shape of input is [batch, seq_len, dim] and output is Tuple[(seq_len, dim),...]
-            if capture_input:
-                o = input[0].detach()
-            else:
-                o = output.detach()
-
-            if space_name not in storage_dict:
-                storage_dict[space_name] = o
-            else:
-                storage_dict[space_name] = torch.cat(
-                    (storage_dict[space_name], o), dim=0
-                )
-
-        return hook
+    # ================== Hooking into the model ==================
 
     for k, v in input_space_to_weights.items():
-        for i in v:
-            i = clean_name(i)
-            model.get_submodule(i).register_forward_hook(
+        for weight in v:
+            weight = clean_name(weight)
+            model.get_submodule(weight).register_forward_hook(
                 get_attention_output_hook(feature_storage, k, capture_input=True)
             )
     for k, v in output_space_to_weights.items():
-        for i in v:
-            i = clean_name(i)
-            print(i)
-            model.get_submodule(i).register_forward_hook(
+        for weight in v:
+            weight = clean_name(weight)
+            model.get_submodule(weight).register_forward_hook(
                 get_attention_output_hook(feature_storage, k, capture_input=False)
             )
 
@@ -295,7 +288,6 @@ def main(
             ]
             hidden_states = torch.stack(outputs.hidden_states, dim=1)
 
-            # stack them
             if residual_space not in feature_storage:
                 feature_storage[residual_space] = hidden_states
             else:
@@ -313,7 +305,6 @@ def main(
 
             storage_dict = {}
 
-    # Stack all tensors in feature storage
     for k, v in feature_storage.items():
         if v is not None:
             print(k, v.shape)
@@ -324,22 +315,8 @@ def main(
     # create output directory
     os.makedirs(out_path, exist_ok=True)
 
-    save_file(feature_storage, f"{out_path}/{model_path}_features.bin")
+    save_file(feature_storage, f"{out_path}/{model_path}_features.safetensor")
 
 
 if __name__ == "__main__":
     main()
-
-#  python dump_out_features.py TinyLlama/TinyLlama-1.1B-Chat-v1.0 -o ./dump_output  -d arcee-ai/pmc-test-perplexity  -s 2  -c text  -u test  --device cpu
-#  python dump_out_features.py TinyLlama/TinyLlama-1.1B-Chat-v0.6 -o ./dump_output  -d arcee-ai/pmc-test-perplexity  -s 2  -c text  -u test  --device cpu
-#
-#  examine the output
-#  python
-# import torch
-# import safetensors
-# from safetensors.torch import load_file
-# features = load_file("./dump_output/TinyLlama_TinyLlama-1.1B-Chat-v1.0_features.bin")
-# features.keys()
-# features['running_residual'].shape
-# features['attention_mask'].shape
-# features['up_0'].shape
