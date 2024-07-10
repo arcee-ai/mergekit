@@ -54,7 +54,7 @@ class WeightInfo(BaseModel, frozen=True):
     head_space: Optional[str] = None
     optional: bool = False
     force_dtype: Optional[str] = None
-    aliases: Optional[List[str]] = None
+    aliases: Optional[Tuple[str, ...]] = None
     head_split: Literal[None, "input", "output"] = None
     is_kq: Optional[bool] = False
 
