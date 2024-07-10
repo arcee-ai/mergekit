@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from safetensors.torch import save_file
 from torch.utils.data import DataLoader
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, DefaultDataCollator
 
 from mergekit.architecture import _template_substitution, get_architecture_info
 from mergekit.common import ModelReference
@@ -92,6 +92,11 @@ It tries to map input/output spaces to activation maps
 @click.option(
     "--dataset-subset", "-u", type=str, default="eval", help="Dataset subset to use"
 )
+@click.option(
+    "--chat-template/--no-chat-template",
+    default=False,
+    help="use Chat template for inference",
+)
 @click.option("--max-length", "-l", type=int, default=512, help="Max length")
 @click.option("--dtype", type=str, default=None, help="Data type to convert weights to")
 @click.option(
@@ -114,6 +119,7 @@ def main(
     max_length: int,
     dataset_size: Optional[int],
     dataset_subset: Optional[str],
+    chat_template: Optional[bool],
     dtype: Optional[str],
     device: Optional[str],
     ignore_spaces: Optional[List[str]],
@@ -215,6 +221,25 @@ def main(
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
 
+    tokenize_function = None
+    if chat_template:
+        logging.info("Using chat template for inference")
+        tokenize_function = lambda x: tokenizer.apply_chat_template(
+            x,
+            padding="longest",
+            max_length=max_length,
+            truncation=True,
+            return_dict=True,
+        )
+    else:
+        logging.info("Using default tokenizer (no chat template) for inference")
+        tokenize_function = lambda x: tokenizer(
+            x,
+            padding="longest",
+            max_length=max_length,
+            truncation=True,
+        )
+
     model.eval()
     model.to(device)
     if dtype is not None:
@@ -225,9 +250,19 @@ def main(
     if dataset_size is not None:
         logging.info("Using dataset size %s", dataset_size)
         dataset = dataset.select(range(dataset_size))
-    dataset = dataset[dataset_column]
 
-    datasets_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    def tokenizer(element):
+        outputs = tokenize_function(element[dataset_column])
+        return {
+            "input_ids": outputs["input_ids"],
+            "attention_mask": outputs["attention_mask"],
+        }
+
+    dataset = dataset.map(tokenizer).select_column(["input_ids", "attention_mask"])
+
+    datasets_dataloader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, collate_fn=DefaultDataCollator
+    )
 
     feature_storage = {}
     storage_dict = {}
@@ -252,14 +287,7 @@ def main(
 
     for batch in datasets_dataloader:
         with torch.no_grad():
-            inputs = tokenizer(
-                batch,
-                return_tensors="pt",
-                padding="longest",
-                max_length=max_length,
-                truncation=True,
-            )
-            inputs = {k: v.to(device) for k, v in inputs.items()}
+            inputs = {k: v.to(device) for k, v in batch.items()}
             outputs = model(
                 **inputs, output_hidden_states=True, output_attentions=False
             )
