@@ -24,7 +24,8 @@ dependencies = [
     "sentencepiece",
     "protobuf",
     "scipy",
-    "pot"
+    "pot",
+    "datasets"
 ]
 
 [project.optional-dependencies]
