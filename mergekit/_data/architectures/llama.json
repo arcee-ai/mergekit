@@ -81,5 +81,15 @@
                 "model.lm_head.weight"
             ]
         }
+    ],
+    "procedural_spaces": [
+        {
+            "type": "kv_expand",
+            "name":"attn_qkv_${layer_index}",
+            "inputs": [
+                "attn_qk_${layer_index}",
+                "attn_v_${layer_index}"
+            ]
+        }
     ]
 }
