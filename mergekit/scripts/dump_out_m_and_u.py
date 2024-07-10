@@ -126,7 +126,7 @@ def match_tensors_permute_MHA(
     return merge.T, unmerge
 
 
-@click.command()
+@click.command("mergekit-abm-extract-permutations")
 @click.argument("model1-ft", type=str, required=True)
 @click.argument("model2-ft", type=str, required=True)
 @click.option("--model_path", type=str, required=True, help="Model information")

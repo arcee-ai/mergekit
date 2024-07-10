@@ -15,7 +15,7 @@ from mergekit.io.tensor_writer import TensorWriter
 from mergekit.options import MergeOptions, add_merge_options
 
 
-@click.command("zipit")
+@click.command("mergekit-activation-based-merge")
 @click.argument("model_path", type=str)
 @click.argument("secondary_model_path", type=str)
 @click.argument("merge_unmerge_directory", type=str)
@@ -50,7 +50,6 @@ def main(
 
     cache = LoaderCache()
     cache.lazy_unpickle = merge_options.lazy_unpickle
-    cache.lora_cache_dir = merge_options.lora_merge_cache
     cache.hf_cache_dir = merge_options.transformers_cache
 
     for m in tqdm.tqdm([model, secondary_model], desc="Preparing models"):
@@ -70,7 +69,6 @@ def main(
     loader_1 = cache.get(model)
     loader_2 = cache.get(secondary_model)
 
-    # create output directory if doesn't exist
     os.makedirs(out_path, exist_ok=True)
 
     merge_unmerge_dictionary = {}
@@ -95,15 +93,11 @@ def main(
             u[i].to(device, dtype=dtype),
         )
 
-    # the place where both models are aligned and saved
     for weight_info in model_arch_info.all_weights(config=model_config):
-        # upstream merge , downstream unmerge
-
         merge_matrix, unmerge_matrix = None, None
 
         if weight_info.input_space in merge_unmerge_dictionary:
             _, unmerge_matrix = merge_unmerge_dictionary[weight_info.input_space]
-            # split them into two
             unmerge_matrix = unmerge_matrix.chunk(2, dim=0)
 
         if weight_info.output_space in merge_unmerge_dictionary:
@@ -149,7 +143,7 @@ def main(
 
         if torch.allclose(original_w2, w2):
             logging.warning(
-                f"❌ Weight {weight_info.name} has model 2 has NOT mutated during merge"
+                f"❌ Weight {weight_info.name} for model 2 has NOT mutated during merge"
             )
         else:
             logging.warning(

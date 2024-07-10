@@ -72,7 +72,7 @@ It tries to map input/output spaces to activation maps
 """
 
 
-@click.command("mergekit-activations-dump")
+@click.command("mergekit-abm-extract-activations")
 @click.argument("model-path", type=str)
 @click.option(
     "--dataset", "-d", required=True, type=str, help="Dataset to use for activations"
