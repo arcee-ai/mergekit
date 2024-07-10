@@ -53,6 +53,7 @@ class WeightInfo(BaseModel, frozen=True):
     output_space: Optional[str] = None
     head_space: Optional[str] = None
     optional: bool = False
+    force_dtype: Optional[str] = None
     aliases: Optional[List[str]] = None
     head_split: Literal[None, "input", "output"] = None
     is_kq: Optional[bool] = False
