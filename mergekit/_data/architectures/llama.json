@@ -16,8 +16,7 @@
         "weights": [
             {
                 "name": "model.layers.${layer_index}.input_layernorm.weight",
-                "input_space": "running_residual",
-                "is_vector": true
+                "input_space": "running_residual"
             },
             {
                 "name": "model.layers.${layer_index}.self_attn.q_proj.weight",
@@ -47,8 +46,7 @@
             },
             {
                 "name": "model.layers.${layer_index}.post_attention_layernorm.weight",
-                "input_space": "running_residual",
-                "is_vector": true
+                "input_space": "running_residual"
             },
             {
                 "name": "model.layers.${layer_index}.mlp.up_proj.weight",
@@ -70,13 +68,11 @@
     "post_weights": [
         {
             "name": "model.norm.weight",
-            "input_space": "running_residual",
-            "is_vector": true
+            "input_space": "running_residual"
         },
         {
             "name": "lm_head.weight",
             "input_space": "running_residual",
-            "is_lm_head": true,
             "is_embed":true,
             "aliases": [
                 "model.lm_head.weight"

@@ -47,14 +47,11 @@ class WeightInfo(BaseModel, frozen=True):
 
     name: str
     is_embed: bool = False
-    is_lm_head: bool = False
-    is_vector: bool = False
     input_space: Optional[str] = None
     output_space: Optional[str] = None
-    head_space: Optional[str] = None
     optional: bool = False
-    force_dtype: Optional[str] = None
     aliases: Optional[Tuple[str, ...]] = None
+    force_dtype: Optional[str] = None
     head_split: Literal[None, "input", "output"] = None
     is_kq: Optional[bool] = False
 
@@ -70,7 +67,7 @@ class ProceduralSpaceInfo(BaseModel, frozen=True):
         inputs (List[str]): List of names of spaces used to define this space."""
 
     name: str
-    type: Literal["residual", "kv_expand"]
+    type: Literal["residual"]
     inputs: List[str]
 
 
