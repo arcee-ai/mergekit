@@ -23,6 +23,7 @@ from transformers import PretrainedConfig
 from typing_extensions import Literal
 
 import mergekit._data.architectures
+import mergekit._data.mappings
 
 
 class WeightInfo(BaseModel, frozen=True):
@@ -32,26 +33,36 @@ class WeightInfo(BaseModel, frozen=True):
         name (str):
             The name of the tensor representing the weight.
         is_embed (bool):
-            Indicates whether the weight is for an embedding or language model head.
+            Indicates whether the weight is for an embedding.
+        is_lm_head (bool):
+            Indicates whether the weight is for a language modeling head.
+        is_vector (bool):
+            Indicates whether the weight is a vector (as opposed to a matrix).
         input_space (Optional[str]):
             The name of the input space associated with the weight, if applicable.
         output_space (Optional[str]):
             The name of the output space associated with the weight, if applicable.
+        head_space (Optional[str]):
+            The name of the head space associated with the weight, if applicable.
         optional (bool):
             Indicates whether the weight can be omitted from a model.
         aliases (Optional[List[str]]):
             List of alternative names for the weight, if applicable.
-        force_dtype (Optional[str]):
-            Mandatory dtype for the weight, if applicable.
+        head_split (Optional[Literal[None, "input", "output"]]):
+            Indicates whether the input or output space is split across multiple heads.
     """
 
     name: str
     is_embed: bool = False
+    is_lm_head: bool = False
+    is_vector: bool = False
     input_space: Optional[str] = None
     output_space: Optional[str] = None
+    head_space: Optional[str] = None
     optional: bool = False
-    aliases: Optional[Tuple[str, ...]] = None
-    force_dtype: Optional[str] = None
+    aliases: Optional[List[str]] = None
+    head_split: Literal[None, "input", "output"] = None
+    is_kq: Optional[bool] = False
 
 
 class ProceduralSpaceInfo(BaseModel, frozen=True):
@@ -62,19 +73,14 @@ class ProceduralSpaceInfo(BaseModel, frozen=True):
     Attributes:
         name (str): The name of the space defined.
         type (str): The type of procedural space.
-        inputs (List[str]): List of names of spaces used to define this space."""
+        inputs (Tuple[str, ...]): List of names of spaces used to define this space."""
 
     name: str
-    type: Literal["residual"]
-    inputs: List[str]
+    type: Literal["residual", "kv_expand"]
+    inputs: Tuple[str, ...]
 
 
 class ArchitectureInfo(ABC):
-    @abstractmethod
-    def name(self) -> str:
-        """Return the name of the architecture."""
-        ...
-
     @abstractmethod
     def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         """Return a list of all weights preceding the first layer."""
@@ -128,30 +134,93 @@ class ArchitectureInfo(ABC):
         return False
 
 
+class MappingInfo(BaseModel, frozen=True):
+    """Information about a mapping between two models.
+
+    Attributes:
+        from_model (str):
+            The name of the model from which the mapping originates.
+        to_model (str):
+            The name of the model to which the mapping applies.
+    """
+
+    start_architectures: List[str]
+    destination_architectures: List[str]
+    weights_mapping: Dict[str, str]
+
+
 class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed=True):
     info: ArchitectureInfo
     config: PretrainedConfig
+    overrides: Optional[Dict[str, str]] = None
 
-    def name(self) -> str:
-        return self.info.name()
+    def _substitute_name(self, weight: WeightInfo) -> WeightInfo:
+        if self.overrides and weight.name in self.overrides:
+            return self.info.WeightInfo(
+                name=self.overrides[weight.name], **self.model_dump(exclude=["name"])
+            )
+        return weight
 
     def num_layers(self) -> int:
         return self.info.num_layers(self.config)
 
     def pre_weights(self) -> List[WeightInfo]:
-        return self.info.pre_weights(self.config)
+        return [
+            self._substitute_name(wi)
+            for wi in self.info.pre_weights(self.config, self.overrides.pre_weights)
+        ]
 
     def post_weights(self) -> List[WeightInfo]:
-        return self.info.post_weights(self.config)
+        return [
+            self._substitute_name(wi)
+            for wi in self.info.post_weights(self.config, self.overrides.pre_weights)
+        ]
 
     def layer_weights(self, index: int) -> List[WeightInfo]:
-        return self.info.layer_weights(index, self.config)
+        return [
+            self._substitute_name(wi)
+            for wi in self.info.layer_weights(index, self.config)
+        ]
 
     def procedural_spaces(self) -> List[ProceduralSpaceInfo]:
         return self.info.procedural_spaces(self.config)
 
     def all_weights(self) -> List[WeightInfo]:
         return self.info.all_weights(self.config)
+
+    def set_overrides(self, overrides: Dict[str, str]) -> "ConfiguredArchitectureInfo":
+        # NOTE: this makes sure template strings in overrides are filled in
+
+        def detect_layer_template(s: str) -> bool:
+            return "${" in s and "layer_index" in s
+
+        new_overrides = {}
+
+        num_layers = self.num_layers()
+
+        for k, v in overrides.items():
+            if detect_layer_template(k):
+                if not detect_layer_template(v):
+                    raise RuntimeError(
+                        f"Cross-architecture merging requires one-to-one mapping between architectures. A template was found in {k} but not in {v}"
+                    )
+
+                for layer_idx in range(num_layers):
+                    new_overrides[
+                        _template_substitution(k, num_layers, layer_idx)
+                    ] = _template_substitution(v, num_layers, layer_idx)
+            elif detect_layer_template(v):
+                raise RuntimeError(
+                    f"Cross-architecture merging requires one-to-one mapping between architectures. A template was found in {v} but not in {k}"
+                )
+            else:
+                new_overrides[
+                    _template_substitution(k, num_layers)
+                ] = _template_substitution(v, num_layers)
+
+        return ConfiguredArchitectureInfo(
+            info=self.info, config=self.config, overrides=new_overrides
+        )
 
 
 class JSONLayerTemplates(BaseModel, frozen=True):
@@ -207,7 +276,6 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
         layer_idx: Optional[int] = None,
     ) -> Union[WeightInfo, ProceduralSpaceInfo]:
         num_layers = self.num_layers(config)
-
         obj_dict = item.model_dump(mode="json", exclude_unset=True)
         for key in obj_dict:
             if isinstance(obj_dict[key], str):
@@ -225,26 +293,25 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
                 ]
         return type(item).model_validate(obj_dict)
 
-    def name(self) -> str:
-        return self.definition.expected_model_type
-
     def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
-        return [
+        weights = [
             self._substitute(wi, config=config) for wi in self.definition.pre_weights
         ]
 
-    def layer_weights(
-        self, index: int, config: PretrainedConfig
-    ) -> Optional[List[WeightInfo]]:
+        return weights
+
+    def layer_weights(self, index: int, config: PretrainedConfig) -> List[WeightInfo]:
         return [
             self._substitute(wi, config=config, layer_idx=index)
             for wi in self.definition.layer_templates.weights
         ]
 
     def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
-        return [
+        weights = [
             self._substitute(wi, config=config) for wi in self.definition.post_weights
         ]
+
+        return weights
 
     def sliceable(self) -> bool:
         return True
@@ -281,9 +348,6 @@ class MixtralTensorNames(ArchitectureInfo, BaseModel):
     ARCHITECTURE_NAME: ClassVar[str] = "MixtralForCausalLM"
     num_local_experts: int
 
-    def name(self) -> str:
-        return "mixtral"
-
     @classmethod
     def from_config(cls, config: PretrainedConfig):
         return MixtralTensorNames(num_local_experts=config.num_local_experts)
@@ -312,10 +376,6 @@ class MixtralTensorNames(ArchitectureInfo, BaseModel):
         res = []
         for name in tensor_names:
             res.append(WeightInfo(name=name))
-        for weight_info in MISTRAL_INFO.layer_weights(index, config):
-            if ".mlp." in weight_info.name:
-                continue
-            res.append(weight_info)
         return res
 
     def sliceable(self) -> bool:
@@ -350,7 +410,6 @@ def _load_all_architectures() -> (
 
 JSON_ARCHITECTURES, NAME_TO_ARCH = _load_all_architectures()
 MISTRAL_INFO = _load_json_arch("mistral.json")
-QWEN2_INFO = _load_json_arch("qwen2.json")
 
 
 def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
@@ -376,3 +435,29 @@ def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
     raise RuntimeError(
         f"Unsupported model_type {config.model_type} for architecture {arch_name}"
     )
+
+
+def _load_arch_mappings(name) -> MappingInfo:
+    text = importlib.resources.read_text(mergekit._data.mappings, name)
+    return MappingInfo.model_validate_json(text)
+
+
+def _load_all_mappings() -> Dict[str, Dict[str, Dict[str, str]]]:
+    mappings: Dict[str, MappingInfo] = {}
+    for f in importlib.resources.contents(mergekit._data.mappings):
+        if f.lower().endswith(".json"):
+            mapping = _load_arch_mappings(f)
+            for start_architecture in mapping.start_architectures:
+                if start_architecture not in mappings:
+                    mappings[start_architecture] = {}
+
+                for destination_architecture in mapping.destination_architectures:
+                    if destination_architecture not in mappings[start_architecture]:
+                        mappings[start_architecture][
+                            destination_architecture
+                        ] = mapping.weights_mapping
+
+    return mappings
+
+
+JSON_MAPPINGS = _load_all_mappings()

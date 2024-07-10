@@ -7,29 +7,30 @@ name = "mergekit"
 description = "Tools for merging pre-trained large language models"
 readme = "README.md"
 license = { text = "LGPL-3.0-or-later" }
-version = "0.0.4.4"
+version = "0.0.4.1"
 authors = [{ name = "Charles Goddard", email = "chargoddard@gmail.com" }]
 dependencies = [
     "torch>=2.0.0",
-    "tqdm==4.66.4",
+    "tqdm==4.66.1",
     "click==8.1.7",
-    "safetensors~=0.4.3",
-    "accelerate~=0.30.1",
-    "pydantic==2.7.1",
+    "safetensors==0.4.1",
+    "accelerate==0.25.0",
+    "pydantic==2.5.3",
     "immutables==0.20",
-    "transformers>=4.42.3",
+    "transformers",
     "huggingface_hub",
     "peft",
     "typing-extensions",
     "sentencepiece",
     "protobuf",
+    "scipy",
+    "pot",
+    "datasets"
 ]
 
 [project.optional-dependencies]
-dev = ["black~=24.4.2", "isort~=5.13.2", "pre-commit~=3.7.1"]
-test = ["pytest~=8.2.1"]
-evolve = ["ray", "cma", "lm_eval", "wandb"]
-vllm = ["vllm==0.3.2", "lm_eval[vllm]"]
+dev = ["black~=23.11.0", "isort~=5.12.0", "pre-commit~=3.5.0"]
+test = ["pytest~=7.4.4"]
 
 [project.urls]
 repository = "https://github.com/cg123/mergekit"
@@ -41,24 +42,18 @@ mergekit-mega = "mergekit.scripts.megamerge:main"
 mergekit-legacy = "mergekit.scripts.legacy:main"
 mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
 bakllama = "mergekit.scripts.bakllama:main"
-mergekit-moe = "mergekit.scripts.moe:main"
-mergekit-tokensurgeon = "mergekit.scripts.tokensurgeon:main"
-mergekit-extract-lora = "mergekit.scripts.extract_lora:main"
-mergekit-evolve = "mergekit.scripts.evolve:main"
+mergekit-moe = "mergekit.scripts.mixtral_moe:main"
 
 [tool.setuptools]
 packages = [
     "mergekit",
     "mergekit.io",
     "mergekit.merge_methods",
-    "mergekit.moe",
     "mergekit.scripts",
-    "mergekit.evo",
     "mergekit._data",
     "mergekit._data.architectures",
+    "mergekit._data.mappings",
 ]
-include-package-data = true
-package-data = { "mergekit._data.architectures" = ["*.json"] }
 
 [tool.isort]
 profile = "black"
