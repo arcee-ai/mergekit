@@ -1,5 +1,4 @@
 import os
-import pdb
 import sys
 from collections import defaultdict
 
@@ -31,14 +30,11 @@ def match_tensors_permute(
     device = correlation_matrix.device
 
     mats = [torch.eye(Om, device=device)]
-    try:
-        corr_submatrix = correlation_matrix[:Om, Om:].cpu().numpy()
-        if absval:
-            corr_submatrix = np.absolute(corr_submatrix)
-        _, col_ind = scipy.optimize.linear_sum_assignment(corr_submatrix, maximize=True)
-    except Exception as e:
-        print(e)
-        pdb.set_trace()
+
+    corr_submatrix = correlation_matrix[:Om, Om:].cpu().numpy()
+    if absval:
+        corr_submatrix = np.absolute(corr_submatrix)
+    _, col_ind = scipy.optimize.linear_sum_assignment(corr_submatrix, maximize=True)
 
     new_mat = torch.eye(Om, device=device)[torch.tensor(col_ind).long().to(device)]
     mats.append(new_mat.T)
