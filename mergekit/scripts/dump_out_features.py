@@ -251,14 +251,14 @@ def main(
         logging.info("Using dataset size %s", dataset_size)
         dataset = dataset.select(range(dataset_size))
 
-    def tokenizer(element):
+    def tokenize(element):
         outputs = tokenize_function(element[dataset_column])
         return {
             "input_ids": outputs["input_ids"],
             "attention_mask": outputs["attention_mask"],
         }
 
-    dataset = dataset.map(tokenizer).select_columns(["input_ids", "attention_mask"])
+    dataset = dataset.map(tokenize).select_columns(["input_ids", "attention_mask"])
 
     datasets_dataloader = DataLoader(
         dataset, batch_size=batch_size, shuffle=False, collate_fn=DefaultDataCollator()
