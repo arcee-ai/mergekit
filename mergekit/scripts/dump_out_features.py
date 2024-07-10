@@ -258,7 +258,7 @@ def main(
             "attention_mask": outputs["attention_mask"],
         }
 
-    dataset = dataset.map(tokenizer).select_column(["input_ids", "attention_mask"])
+    dataset = dataset.map(tokenizer).select_columns(["input_ids", "attention_mask"])
 
     datasets_dataloader = DataLoader(
         dataset, batch_size=batch_size, shuffle=False, collate_fn=DefaultDataCollator
