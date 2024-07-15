@@ -58,7 +58,11 @@ packages = [
     "mergekit._data.architectures",
 ]
 include-package-data = true
-package-data = { "mergekit._data.architectures" = ["*.json"] }
+package-data = { "mergekit._data.architectures" = [
+    "*.json",
+], "mergekit._data.chat_templates" = [
+    "*.jinja",
+] }
 
 [tool.isort]
 profile = "black"
