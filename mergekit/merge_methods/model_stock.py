@@ -21,13 +21,16 @@ import torch
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
-from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.base import (
+    ConfigParameterDef,
+    MergeMethod,
+    MergeTensorInput,
+)
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 class ModelStockMergeTask(Task[torch.Tensor]):
-    gather_tensors: GatherTensors
+    gather_tensors: MergeTensorInput
     base_model: ModelReference
     weight_info: WeightInfo
     filter_wise: bool = False
@@ -120,7 +123,7 @@ class ModelStockMerge(MergeMethod):
         self,
         *,
         output_weight: WeightInfo,
-        tensors: GatherTensors,
+        tensors: MergeTensorInput,
         base_model: Optional[ModelReference],
         parameters: ImmutableMap[str, Any],
         **_kwargs,
