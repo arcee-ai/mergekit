@@ -13,16 +13,18 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import importlib
 import importlib.resources
 import logging
 import os
 import shutil
-import importlib
+from collections import Counter
 from typing import Optional
 
 import tqdm
 import transformers
 
+from mergekit._data import chat_templates
 from mergekit.architecture import ArchitectureInfo, get_architecture_info
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
@@ -31,8 +33,6 @@ from mergekit.io.tasks import LoaderCache
 from mergekit.options import MergeOptions
 from mergekit.plan import MergePlanner
 from mergekit.tokenizer import TokenizerInfo
-
-from mergekit._data import chat_templates
 
 
 def run_merge(
@@ -138,23 +138,55 @@ def run_merge(
 
     if tokenizer:
         logging.info("Saving tokenizer")
-        _set_chat_template(tokenizer, merge_config.chat_template)
+        _set_chat_template(tokenizer, merge_config)
         tokenizer.save_pretrained(out_path, safe_serialization=True)
 
 
 def _set_chat_template(
-    tokenizer: transformers.PreTrainedTokenizerBase, chat_template: str
+    tokenizer: transformers.PreTrainedTokenizerBase,
+    merge_config: MergeConfiguration,
+    trust_remote_code: bool = False,
 ):
+    chat_template = merge_config.chat_template
     if not chat_template:
         return
 
-    if importlib.resources.is_resource(chat_templates, chat_template + ".jinja"):
+    if chat_template == "auto":
+        # see if there is a plurality chat template among the input models
+        model_templates = []
+        for model in merge_config.referenced_models():
+            try:
+                tok = transformers.AutoTokenizer.from_pretrained(
+                    model.model.path,
+                    revision=model.model.revision,
+                    trust_remote_code=trust_remote_code,
+                )
+                template = tok.chat_template
+                if isinstance(template, dict):
+                    template = template.get("default", None)
+                if template:
+                    model_templates.append(template.strip())
+            except Exception as e:
+                print(
+                    f"Failed to load tokenizer for {model}. Skipping chat template.",
+                )
+                print(e)
+
+        print(f"Model templates: {model_templates}")
+
+        if not model_templates:
+            return
+
+        chat_template = Counter(model_templates).most_common(1)[0][0]
+        print(f"Auto-selected chat template: {chat_template}")
+
+    elif importlib.resources.is_resource(chat_templates, chat_template + ".jinja"):
         with importlib.resources.open_text(
             chat_templates, chat_template + ".jinja"
         ) as fp:
             chat_template = fp.read()
 
-    if len(chat_template) < 20 or "{" not in chat_template:
+    elif len(chat_template) < 20 or "{" not in chat_template:
         raise RuntimeError(f"Invalid chat template: {chat_template}")
 
     tokenizer.chat_template = chat_template
@@ -198,7 +230,7 @@ def _copy_tokenizer(
         revision=donor_model.model.revision,
         trust_remote_code=trust_remote_code,
     )
-    _set_chat_template(tokenizer, merge_config.chat_template)
+    _set_chat_template(tokenizer, merge_config)
     tokenizer.save_pretrained(out_path, safe_serialization=True)
 
 

@@ -1,20 +1,11 @@
-from typing import Dict, Optional
+from typing import Optional
 
-import pytest
-import os
-from common import make_picollama, run_and_check_merge
-from transformers import AutoConfig, AutoTokenizer
-
-from mergekit.config import (
-    InputModelDefinition,
-    InputSliceDefinition,
-    MergeConfiguration,
-    OutputSliceDefinition,
-    ParameterSetting,
-)
-from mergekit.io import LazyTensorLoader
-from test_basic_merges import model_a, model_b
+from common import run_and_check_merge
+from test_basic_merges import model_b
 from test_tokenizer import model_base
+from transformers import AutoTokenizer
+
+from mergekit.config import InputModelDefinition, MergeConfiguration
 
 
 def check_chat_template(model_path: str, needle: Optional[str] = None):
