@@ -54,6 +54,7 @@ packages = [
     "mergekit.moe",
     "mergekit.scripts",
     "mergekit.evo",
+    "mergekit.tokenizer",
     "mergekit._data",
     "mergekit._data.architectures",
 ]
