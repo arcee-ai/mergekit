@@ -57,6 +57,7 @@ packages = [
     "mergekit.tokenizer",
     "mergekit._data",
     "mergekit._data.architectures",
+    "mergekit._data.chat_templates",
 ]
 include-package-data = true
 package-data = { "mergekit._data.architectures" = [
