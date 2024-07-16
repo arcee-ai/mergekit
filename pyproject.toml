@@ -30,7 +30,8 @@ dev = ["black~=24.4.2", "isort~=5.13.2", "pre-commit~=3.7.1"]
 test = ["pytest~=8.2.1"]
 evolve = ["ray", "cma", "lm_eval", "wandb"]
 vllm = ["vllm==0.3.2", "lm_eval[vllm]"]
-interactive_plot = ["networkx", "plotly", matplotlib"]
+interactive_plot = ["networkx", "plotly", "matplotlib"]
+representations = ["h5py", "datasets", "bitsandbytes"]
 
 [project.urls]
 repository = "https://github.com/cg123/mergekit"

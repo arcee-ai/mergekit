@@ -75,12 +75,6 @@ def main(model_path, output_path, dataset, batch_size, max_length, dataset_size,
             else "mps" if torch.backends.mps.is_available() \
             else "cpu"
 
-    # if resource is a problem
-    quantization_config = BitsAndBytesConfig(load_in_4bit=True,
-                                            bnb_4bit_use_double_quant=True,
-                                            bnb_4bit_quant_type="nf4",
-                                            bnb_4bit_compute_dtype=torch.bfloat16)
-
     dataset = datasets.load_dataset(dataset, split=dataset_subset)
     if dataset_size:
         dataset = dataset.select(range(dataset_size))
@@ -88,7 +82,6 @@ def main(model_path, output_path, dataset, batch_size, max_length, dataset_size,
         
     model = AutoModelForCausalLM.from_pretrained(model_path,  
                                                 device_map="auto", 
-                                                quantization_config=quantization_config if device == "cuda" else None, 
                                                 output_hidden_states=True)
 
 
