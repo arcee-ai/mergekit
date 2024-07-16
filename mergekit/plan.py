@@ -41,9 +41,8 @@ from mergekit.io.tasks import (
 )
 from mergekit.merge_methods import MergeMethod
 from mergekit.metric_methods import MetricMethod
-from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 from mergekit.options import MergeOptions
-from mergekit.tokenizer import BuildTokenizer
+from mergekit.tokenizer import BuildTokenizer, PermutedEmbeddings
 
 
 class MergePlanner:
@@ -72,12 +71,18 @@ class MergePlanner:
         elif getattr(config, "metric_method", None):
             self._method = metric_methods.get(config.metric_method)
 
-        if config.tokenizer_source:
+        token_cfg = {}
+        tokenizer_source = config.tokenizer_source
+        if config.tokenizer is not None:
+            token_cfg = config.tokenizer.tokens or {}
+            tokenizer_source = config.tokenizer.source
+        if tokenizer_source is not None:
             self._tokenizer_task = BuildTokenizer(
                 base_model=config.base_model,
                 referenced_models=tuple(config.referenced_models()),
-                tokenizer_source=config.tokenizer_source,
+                tokenizer_source=tokenizer_source,
                 trust_remote_code=options.trust_remote_code,
+                add_tokens=tuple(token_cfg.keys()),
             )
 
     @lru_cache
@@ -147,11 +152,6 @@ class MergePlanner:
                 return
 
         tensor_merge_method = self._method
-        if self._tokenizer_task and weight.is_embed:
-            tensor_merge_method = TokenizerPermutationMerge(
-                tokenizer_task=self._tokenizer_task
-            )
-
         cfg_g = cfg_reader.for_tensor(weight.name)
         global_params = {}
         for p in tensor_merge_method.parameters():
@@ -180,9 +180,21 @@ class MergePlanner:
             device="cuda" if self.options.read_to_gpu else None,
         )
 
+        tensor_input_task = gather_tensors
+        if self._tokenizer_task and weight.is_embed:
+            token_cfg = {}
+            if cfg_reader.config.tokenizer:
+                token_cfg = cfg_reader.config.tokenizer.tokens
+            tensor_input_task = PermutedEmbeddings(
+                gather_tensors=gather_tensors,
+                tokenizer_task=self._tokenizer_task,
+                tokens=token_cfg,
+                base_model=base_model,
+            )
+
         tensor_task = tensor_merge_method.make_task(
             output_weight=weight,
-            tensors=gather_tensors,
+            tensors=tensor_input_task,
             parameters=ImmutableMap(data=global_params),
             tensor_parameters=ImmutableMap(
                 data={

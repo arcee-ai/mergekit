@@ -20,15 +20,18 @@ from pydantic import BaseModel
 
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
-from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.base import (
+    ConfigParameterDef,
+    MergeMethod,
+    MergeTensorInput,
+)
 from mergekit.merge_methods.slerp import slerp
 from mergekit.tokenizer import BuildTokenizer, TokenizerInfo
 
 
 class TokenizerPermutationMergeTask(Task[torch.Tensor]):
     tokenizer_task: BuildTokenizer
-    gather_tensors: GatherTensors
+    gather_tensors: MergeTensorInput
     base_model: Optional[ModelReference]
     use_slerp: bool
     slerp_t: Optional[float]
@@ -134,7 +137,7 @@ class TokenizerPermutationMerge(MergeMethod, BaseModel):
     def make_task(
         self,
         *,
-        tensors: GatherTensors,
+        tensors: MergeTensorInput,
         parameters: Dict[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         base_model: Optional[ModelReference],
