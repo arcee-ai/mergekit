@@ -167,18 +167,13 @@ def _set_chat_template(
                 if template:
                     model_templates.append(template.strip())
             except Exception as e:
-                print(
-                    f"Failed to load tokenizer for {model}. Skipping chat template.",
-                )
-                print(e)
-
-        print(f"Model templates: {model_templates}")
+                logging.warning(f"Unable to load tokenizer for {model}", exc_info=e)
 
         if not model_templates:
             return
 
         chat_template = Counter(model_templates).most_common(1)[0][0]
-        print(f"Auto-selected chat template: {chat_template}")
+        logging.info(f"Auto-selected chat template: {chat_template}")
 
     elif importlib.resources.is_resource(chat_templates, chat_template + ".jinja"):
         with importlib.resources.open_text(
