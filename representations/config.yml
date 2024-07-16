@@ -1,0 +1,14 @@
+representation_paths:
+- ./representations/Representations_BEE-spoke-data_smol_llama-220M-GQA_train_4000.h5
+- ./representations/Representations_BEE-spoke-data_smol_llama-220M-openhermes_train_4000.h5
+
+metrics:
+ cosine_similarity: true
+ mse: true
+ linearity_score: true
+
+compare_between_models: true
+block_analysis: true
+block_analysis_parameters:
+  skip_layers: [1,2,3,4,5,6,7,8,9]
+analyse_individual_models: true

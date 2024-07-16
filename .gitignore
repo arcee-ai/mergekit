@@ -1,3 +1,11 @@
+# Environment
+
+mergekit/bin/
+mergekit/share/
+mergekit/etc/
+merged/
+.vscode/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

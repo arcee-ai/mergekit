@@ -17,7 +17,7 @@ import logging
 from functools import lru_cache
 from typing import Any, List, Optional, Tuple
 
-from mergekit import merge_methods
+from mergekit import merge_methods, metric_methods
 from mergekit.architecture import (
     ArchitectureInfo,
     ConfiguredArchitectureInfo,
@@ -40,6 +40,7 @@ from mergekit.io.tasks import (
     TensorWriterTask,
 )
 from mergekit.merge_methods import MergeMethod
+from mergekit.metric_methods import MetricMethod
 from mergekit.options import MergeOptions
 from mergekit.tokenizer import BuildTokenizer, PermutedEmbeddings
 
@@ -65,7 +66,10 @@ class MergePlanner:
         self.arch_info = arch_info
         self.options = options
         self.out_model_config = out_model_config
-        self._method = merge_methods.get(config.merge_method)
+        if getattr(config, "merge_method", None):
+            self._method = merge_methods.get(config.merge_method)
+        elif getattr(config, "metric_method", None):
+            self._method = metric_methods.get(config.metric_method)
 
         token_cfg = {}
         tokenizer_source = config.tokenizer_source
@@ -254,9 +258,23 @@ class MergePlanner:
                 cfg_reader=cfg_reader,
             )
 
+    def metrics_plan_to_disk(self) -> List[Task]:
+        """Plan the metrics to be streamed to disk, returning a list of tasks."""
+        save_tasks = []
+        for weight, tensor_task in self._tensors:
+            save_tasks.append(
+                tensor_task
+            )
+
+        return save_tasks
+    
     def plan_to_disk(self, out_path: str) -> List[Task]:
         """Plan the merge to be streamed to disk, returning a list of tasks."""
         self._plan()
+
+        if self.config.metric_method:
+            return self.metrics_plan_to_disk()
+
 
         writer_task = TensorWriterTask(
             out_path=out_path,
@@ -287,6 +305,10 @@ class MergePlanner:
     def plan_in_memory(self) -> List[ReturnTensor]:
         """Plan the merge to be performed in memory."""
         self._plan()
+
+        if self.config.metric_method:
+            return self.metrics_plan_to_disk()
+        
         return [
             ReturnTensor(
                 weight_info=w,
