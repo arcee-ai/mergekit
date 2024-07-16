@@ -77,7 +77,7 @@ def get(method: str) -> MergeMethod:
         )
     elif method == "model_stock":
         return ModelStockMerge()
-    
+
     elif method == "della":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=ConsensusMethod.sum,
@@ -85,7 +85,7 @@ def get(method: str) -> MergeMethod:
             default_normalize=True,
             default_rescale=True,
         )
-    
+
     elif method == "della_linear":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=None,

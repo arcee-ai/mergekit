@@ -135,7 +135,7 @@ class GTATask(Task[torch.Tensor]):
                 kwargs = {}
                 if "gamma" in tv_info:
                     kwargs["gamma"] = tv_info["gamma"]
-                
+
                 if "epsilon" in tv_info:
                     kwargs["epsilon"] = tv_info["epsilon"]
 
@@ -174,8 +174,11 @@ class GTATask(Task[torch.Tensor]):
 
         if self.normalize:
             mixed_delta /= divisor
-        
-        if self.method.sparsification_method == SparsificationMethod.rank_magnitude_sampling:
+
+        if (
+            self.method.sparsification_method
+            == SparsificationMethod.rank_magnitude_sampling
+        ):
             lambda_factor = tvs[0]["lambda"]
             mixed_delta *= lambda_factor
 

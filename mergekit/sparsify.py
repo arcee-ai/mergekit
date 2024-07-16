@@ -119,37 +119,47 @@ def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
 
     return res.to(tensor.dtype)
 
+
 def rank_magnitude(
     tensor: torch.Tensor, density: float, rescale: bool = True, epsilon: float = 0.05
 ) -> torch.Tensor:
     if density >= 1:
         return tensor
 
-    if density <= epsilon or density>=(1-epsilon):
-        raise ValueError(f"Error: density +- epsilon must be in the range (0, 1). density + epsilon = {density+epsilon}, density - epsilon = {density-epsilon}")
+    if density <= epsilon or density >= (1 - epsilon):
+        raise ValueError(
+            f"Error: density +- epsilon must be in the range (0, 1). density + epsilon = {density+epsilon}, density - epsilon = {density-epsilon}"
+        )
 
     if (tensor.device.type != "cpu") or tensor.dtype == torch.bfloat16:
         work_dtype = tensor.dtype
     else:
         work_dtype = torch.float32
 
-    if len(tensor.shape)<2:
+    if len(tensor.shape) < 2:
         tensor = tensor.unsqueeze(0)
-    
+
     # Get Rank matrix for the delta values
     tensor_abs = torch.abs(tensor)
 
     sorted_indices = torch.argsort(tensor_abs, dim=1, descending=False)
-    
+
     ranking_tensor = torch.zeros_like(tensor_abs, dtype=work_dtype)
     for i in range(tensor_abs.size(0)):
-        ranking_tensor[i][sorted_indices[i]] = torch.arange(1, tensor.size(1) + 1, dtype= work_dtype).to(tensor.device)
-    
+        ranking_tensor[i][sorted_indices[i]] = torch.arange(
+            1, tensor.size(1) + 1, dtype=work_dtype
+        ).to(tensor.device)
+
     # Normalise rank matrix to the probability range to density +- epsilon
-    range_vals = ranking_tensor.max(dim = 1, keepdim=True).values - ranking_tensor.min(dim = 1, keepdim=True).values 
-    norm_metrics = (ranking_tensor - ranking_tensor.min(dim = 1, keepdim=True).values)/(range_vals)
-    final_probabilities = (density-epsilon) + norm_metrics * (2*epsilon)
-   
+    range_vals = (
+        ranking_tensor.max(dim=1, keepdim=True).values
+        - ranking_tensor.min(dim=1, keepdim=True).values
+    )
+    norm_metrics = (ranking_tensor - ranking_tensor.min(dim=1, keepdim=True).values) / (
+        range_vals
+    )
+    final_probabilities = (density - epsilon) + norm_metrics * (2 * epsilon)
+
     mask = torch.bernoulli(final_probabilities).to(work_dtype)
     res = tensor.to(work_dtype) * mask
 
