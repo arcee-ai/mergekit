@@ -84,6 +84,61 @@ class MSE(MetricAggregator):
     def clear(self) -> None:
         self.square_errors = torch.tensor([], device=self.device)
 
+class Linearity_Score(MetricAggregator):
+    def __init__(self, device: str = "cpu"):
+        self.device = device
+        self.iterations = 0
+        self.max_iterations = 250
+        self.A = None
+        self.optimiser = None
+        self.initialised = False
+        self.done = False
+        self.losses = []
+
+        self.absolute_square_sum = 0
+        self.num_elements = 0
+
+    def _first_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
+        batch_size, dimension = batch_a.size()
+
+        self.A = torch.empty(dimension, dimension, device=self.device)
+        torch.nn.init.normal_(self.A)
+        self.A = torch.nn.Parameter(self.A)
+
+        self.optimiser = torch.optim.SGD([self.A], lr=0.0001)  
+        self.initialised = True
+
+    def process_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
+        batch_a = batch_a / torch.norm(batch_a, dim=1, keepdim=True)
+        batch_b = batch_b / torch.norm(batch_b, dim=1, keepdim=True) # Check dimensionality (X)
+        if not self.initialised:
+            self._first_batch(batch_a, batch_b)
+        if self.done: # stop training A and evaluate
+            residuals = batch_a @ self.A - batch_b
+            self.absolute_square_sum += torch.abs(residuals).sum().item()
+            self.num_elements += residuals.numel()
+
+        else:
+
+            loss = torch.norm(batch_a @ self.A - batch_b) ** 2
+            loss.backward()
+            self.losses.append(loss.item())
+            print(f'Loss: {loss.item()}')
+            self.optimiser.step()
+
+            self.iterations += 1
+
+            if self.iterations >= self.max_iterations:
+                self.done = True
+    
+    def aggregate(self) -> Metric:
+        linearity_score = 1 - self.absolute_square_sum / self.num_elements
+        self.clear()
+        return Metric(mean_std=MeanStd(mean=linearity_score)) 
+
+    def clear(self) -> None:
+        pass
+
 class LayerByIndex:
     def __init__(self, reps_path: str):
         self.reps_path = reps_path
@@ -195,7 +250,8 @@ def results_list_to_heatmap(all_results, metric_names:List[str]) -> dict:
 
 METRICS_TABLE = {
     'cosine_similarity': Cosine_Similarity,
-    'mse': MSE
+    'mse': MSE,
+    'linearity_score': Linearity_Score
 }
 
 @click.command()
@@ -221,9 +277,6 @@ def main(config_yml: str):
     if config['compare_between_models']:
         if len(model_paths) != 2:
             raise ValueError("Expected 2 model paths for comparison")
-
-        # with h5py.File(model_paths[0], 'r') as representations_a, \
-        #      h5py.File(model_paths[1], 'r') as representations_b:
 
         all_results = compare_representations(model_paths[0], model_paths[1], 
                                               metrics_classes=use_metrics, device=device, results=all_results)

@@ -5,6 +5,7 @@ representation_paths:
 metrics:
  cosine_similarity: true
  mse: true
+ linearity_score: true
 
 compare_between_models: true
 block_analysis: true
