@@ -98,8 +98,12 @@ def get_model_details(
     module_details = []
 
     for name, module in pretrained_model.named_modules():
-        if isinstance(module, torch.nn.Embedding):
+        if module == pretrained_model.get_input_embeddings():
+        # if isinstance(module, torch.nn.Embedding):
             module_details.append(("embedding", name, module.weight.size()))
+        elif module == pretrained_model.get_output_embeddings():
+        # if isinstance(module, torch.nn.Embedding):
+            module_details.append(("output", name, module.weight.size()))
         elif hasattr(module, 'weight') and isinstance(module.weight, torch.Tensor):
             if (
                 # SEE: https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/model.py
@@ -119,7 +123,8 @@ def get_model_details(
 def validate_and_combine_details(
     base_model_id: str,
     finetuned_model_id: str,
-    skip_undecomposable: bool
+    skip_undecomposable: bool,
+    extend_vocab: bool
 ) -> List[Tuple[str, str]]:
     """
     Validate and combine details from a base model and a fine-tuned model.
@@ -142,11 +147,14 @@ def validate_and_combine_details(
         assert base_type == finetuned_type, f"Layer type mismatch: {base_type} != {finetuned_type}"
         assert base_name == finetuned_name, f"Layer name mismatch: {base_name} != {finetuned_name}"
 
-        # Fine-tuned models with added vocab will have their extra rows truncated.
-        # NOTE: Should check only embedding/output types, but no clear way to test for "output" type...
+        # Fine-tuned models with added vocab will have have their extra rows truncated unless `extend_vocab` is specified
         if base_type != "to_save" and finetuned_size[0] > base_size[0]:
             assert base_size[1] == finetuned_size[1], f"Column dimension mismatch in layer '{base_name}': {base_size} != {finetuned_size}"
-            logging.warning(f"Finetuned module '{base_name}' will have {finetuned_size[0] - base_size[0]} rows truncated for weight decomposition!")
+
+            if not extend_vocab:
+                logging.warning(f"Finetuned module '{base_name}' will have {finetuned_size[0] - base_size[0]} rows truncated for weight decomposition! To preserve all embeddings, invoke script with --extend-vocab")
+            else:
+                logging.warning(f"Base module '{base_name}' will have {finetuned_size[0] - base_size[0]} rows added for weight decomposition. Make sure to call `model.resize_token_embeddings({finetuned_size[0]})` before applying LoRA for inference!")
         else:
             assert base_size == finetuned_size, f"Dimension mismatch in layer '{base_name}': {base_size} != {finetuned_size}"
 
@@ -160,6 +168,7 @@ def process_module_details(
     base_model_ref: ModelReference,
     finetuned_model_ref: ModelReference,
     max_rank: int,
+    extend_vocab: bool,
     no_lazy_unpickle: bool,
     device: Optional[str]
 ) -> Tuple[Dict[str, torch.Tensor], Dict[str, int]]:
@@ -195,11 +204,27 @@ def process_module_details(
             logging.info(f"[{module_type}] {module_name}: output_dims=({finetuned_weight.shape})")
 
         else:
-
-            # We can safely truncate rows as validate_and_combine_details() has pre-checked validity.
             if (finetuned_weight.shape[0] > base_weight.shape[0]):
-                finetuned_weight = finetuned_weight[:base_weight.shape[0]]
+                if extend_vocab:
+                    print(f"Extra tokens found!, module name : {module_name}")
+                    
+                    new_base_weight = torch.empty(finetuned_weight.shape, device=base_weight.device)
+                    new_base_weight.normal_(mean=0.0, std=0.02)
+                    
+                    # Copy original base_weight values into the new tensor
+                    new_base_weight[:base_weight.shape[0]] = base_weight
+    
+                    if module_type == "embedding" or module_type == "output":
+                        lora_weights[f"base_model.model.{module_name}.base_layer.weight"] = new_base_weight.to(
+                            "cpu"
+                        ).contiguous()
+                
+                    base_weight = new_base_weight
+                else:
+                    logging.warning(f"Finetuned module '{module_name}' will have {finetuned_weight.shape[0] - base_weight.shape[0]} rows truncated for weight decomposition!")
+                    finetuned_weight = finetuned_weight[:base_weight.shape[0]]
 
+            
             if module_type == "embedding":
 
                 # These need to be transposed for some reason...
@@ -268,6 +293,8 @@ def reconstruct_invocation(
         invocation += " --skip-undecomposable"
     if args.get("max_rank"):
         invocation += f" --rank={args['max_rank']}"
+    if args.get("extend_vocab"):
+        invocation += " --extend-vocab"
     if args.get("model_name"):
         invocation += f" --model_name={args['model_name']}"
     if args.get("device"):
@@ -410,6 +437,12 @@ def save_model_and_config(
     help="The maximum rank for the low-rank decomposition",
 )
 @click.option(
+    "--extend-vocab",
+    is_flag=True,
+    default=False,
+    help="Extend vocabulary for models with additional tokens instead of truncating",
+)
+@click.option(
     "--model_name",
     type=str,
     default=None,
@@ -436,6 +469,7 @@ def main(
     no_lazy_unpickle: bool,
     skip_undecomposable: bool,
     max_rank: int,
+    extend_vocab: bool,
     model_name: str,
     device: str,
     verbose: bool
@@ -454,6 +488,7 @@ def main(
         "base_model": base_model,
         "finetuned_model": finetuned_model,
         "max_rank": max_rank,
+        "extend_vocab": extend_vocab,
         "device": device,
         "out_path": out_path,
         "model_name": model_name,
@@ -472,7 +507,8 @@ def main(
     module_details = validate_and_combine_details(
         ModelReference.parse(base_model).model.path,
         ModelReference.parse(finetuned_model).model.path,
-        skip_undecomposable
+        skip_undecomposable,
+        extend_vocab
     )
 
     lora_weights, ranks = process_module_details(
@@ -480,8 +516,9 @@ def main(
         base_model_ref,
         finetuned_model_ref,
         max_rank,
+        extend_vocab,
         no_lazy_unpickle,
-        device
+        device        
     )
 
     save_model_and_config(
