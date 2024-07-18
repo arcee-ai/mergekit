@@ -211,7 +211,7 @@ def validate_and_combine_details(
     return module_details, base_model_embedding_size, finetuned_model_embedding_size
 
 
-def process_module_details(
+def extract_lora(
     module_details: List[Tuple[str, str]],
     base_model_ref: ModelReference,
     finetuned_model_ref: ModelReference,
@@ -573,7 +573,7 @@ def main(
         extend_vocab,
     )
 
-    lora_weights, ranks = process_module_details(
+    lora_weights, ranks = extract_lora(
         module_details,
         base_model_ref,
         finetuned_model_ref,
