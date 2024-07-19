@@ -54,11 +54,17 @@ packages = [
     "mergekit.moe",
     "mergekit.scripts",
     "mergekit.evo",
+    "mergekit.tokenizer",
     "mergekit._data",
     "mergekit._data.architectures",
+    "mergekit._data.chat_templates",
 ]
 include-package-data = true
-package-data = { "mergekit._data.architectures" = ["*.json"] }
+package-data = { "mergekit._data.architectures" = [
+    "*.json",
+], "mergekit._data.chat_templates" = [
+    "*.jinja",
+] }
 
 [tool.isort]
 profile = "black"
@@ -72,5 +78,7 @@ include = '\.pyi?$'
 minversion = "6.0"
 filterwarnings = [
     "ignore::pydantic.PydanticDeprecatedSince20:huggingface_hub.*:",
+    "ignore::FutureWarning:huggingface_hub.*:",
+    "ignore:(read_text|open_text|contents|is_resource) is deprecated:DeprecationWarning", # yes i know, but files() doesn't exist in 3.8
 ]
 testpaths = ["tests"]
