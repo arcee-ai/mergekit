@@ -132,11 +132,6 @@ def main(
     model_config = model.config()
     model_arch_info = get_architecture_info(model_config)
 
-    # things to do: find the residual space
-    # rest difference the ignore_spaces
-    # residual space is the one to for hidden states
-    # the rest we will attach hooks based on the module name
-
     _json = model_arch_info.definition
 
     residual_space = None

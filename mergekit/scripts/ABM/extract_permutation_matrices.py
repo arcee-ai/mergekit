@@ -91,10 +91,8 @@ def match_tensors_permute_MHA(
                 corr_submatrix, maximize=True
             )
 
-            # store cost (cost is maximized here)
             costs[j, k] = corr_submatrix[row_ind, col_ind].sum()
 
-            # store perm so we don't have to recompute it later
             col_inds_storage[j][k] = col_ind
 
     outer_row_ind, outer_col_ind = scipy.optimize.linear_sum_assignment(
