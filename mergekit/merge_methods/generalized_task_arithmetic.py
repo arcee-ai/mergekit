@@ -66,6 +66,19 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
                     default_value=0.01,
                 )
             )
+        if self.sparsification_method == SparsificationMethod.rank_magnitude_sampling:
+            res.append(
+                ConfigParameterDef(
+                    name="epsilon",
+                    default_value=0.15,
+                )
+            )
+            res.append(
+                ConfigParameterDef(
+                    name="lambda",
+                    default_value=1.0,
+                )
+            )
         return res
 
     def make_task(
@@ -126,6 +139,9 @@ class GTATask(Task[torch.Tensor]):
                 if "gamma" in tv_info:
                     kwargs["gamma"] = tv_info["gamma"]
 
+                if "epsilon" in tv_info:
+                    kwargs["epsilon"] = tv_info["epsilon"]
+
                 tv_info["delta"] = sparsify(
                     tv_info["delta"],
                     density=tv_info["density"],
@@ -161,6 +177,13 @@ class GTATask(Task[torch.Tensor]):
 
         if self.normalize:
             mixed_delta /= divisor
+
+        if (
+            self.method.sparsification_method
+            == SparsificationMethod.rank_magnitude_sampling
+        ):
+            lambda_factor = tvs[0]["lambda"]
+            mixed_delta *= lambda_factor
 
         return (base + mixed_delta).to(base.dtype)
 
