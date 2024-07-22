@@ -60,30 +60,19 @@ def get_last_non_padded_tokens(hidden_states, attention_mask) -> List[torch.Tens
     return last_non_padded_hidden_states
 
 
-@click.command()
-@click.option('--model_path', default="BEE-spoke-data/smol_llama-220M-GQA", help='model to use.')
-@click.option('--output_path', default="./representations/", help='folder to store the result in.')
-@click.option('--dataset', default="arcee-ai/sec-data-mini", help='dataset to use.')
-@click.option('--batch_size', default=8, help='batch size.')
-@click.option('--max_length', default=1024, help='maximum length of the input.')
-@click.option('--dataset_size', default=4000, help='size of the dataset.')
-@click.option('--dataset_column', default="text", help='column of the dataset to use.')
-@click.option('--dataset_subset', default="train", help='subset of the dataset to use.')
-def main(model_path, output_path, dataset, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
+def store_representations(model_path, output_path, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
 
     device = "cuda" if torch.cuda.is_available() \
             else "mps" if torch.backends.mps.is_available() \
             else "cpu"
 
-    dataset = datasets.load_dataset(dataset, split=dataset_subset)
+    dataset = datasets.load_dataset(dataset_name, split=dataset_subset)
     if dataset_size:
         dataset = dataset.select(range(dataset_size))
-
         
     model = AutoModelForCausalLM.from_pretrained(model_path,  
                                                 device_map="auto", 
                                                 output_hidden_states=True)
-
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
 
@@ -96,10 +85,10 @@ def main(model_path, output_path, dataset, batch_size, max_length, dataset_size,
 
     dataloader = DataLoader(dataset[dataset_column], batch_size=batch_size, shuffle=False, drop_last=True)
     
-    output_name = f'Representations_{model.name_or_path.replace("/","_")}_{dataset_subset}_{dataset_size}'
-    assert not os.path.exists(output_path+f'{output_name}.h5'), f'{output_name}.h5 already exists.'
+    output_name = f'Representations_{model.name_or_path}_{dataset_name}_{dataset_size}.h5'.replace("/","_")
+    assert not os.path.exists(output_name), f'{output_name} already exists.' 
 
-    with h5py.File(f'{output_name}.h5', 'w') as h5file:
+    with h5py.File(output_name, 'w') as h5file:
         for batch_idx, batch in enumerate(tqdm(dataloader, desc="Processing batches")):
             inputs = tokenizer(batch, return_tensors="pt", padding="longest", max_length=max_length, truncation=True).to(device)
             with torch.no_grad():
@@ -122,5 +111,16 @@ def main(model_path, output_path, dataset, batch_size, max_length, dataset_size,
             does not match expected number of hidden layers."
 
 
+@click.command()
+@click.option('--model_path', default="BEE-spoke-data/smol_llama-220M-GQA", help='model to use.')
+@click.option('--output_path', default="./representations/", help='folder to store the result in.')
+@click.option('--dataset_name', default="arcee-ai/sec-data-mini", help='dataset to use.')
+@click.option('--batch_size', default=8, help='batch size.')
+@click.option('--max_length', default=1024, help='maximum length of the input.')
+@click.option('--dataset_size', default=4000, help='size of the dataset.')
+@click.option('--dataset_column', default="text", help='column of the dataset to use.')
+@click.option('--dataset_subset', default="train", help='subset of the dataset to use.')
+def main(model_path, output_path, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
+    store_representations(model_path, output_path, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset)
 if __name__ == "__main__":
     main()
