@@ -135,23 +135,19 @@ def mse(
 
 # Tensor Analysis (number of tensors can vary)
 
-def weight_magnitude(tensors: List[torch.Tensor], model_refs: List[ModelReference]) -> List[Metric]:
-    output = []
-    for tensor, model_reference in zip(tensors, model_refs):
-        weight_magnitudes = torch.abs(tensor.flatten())
-        hist_info = compute_histogram(weight_magnitudes, 100)
-        output.append(Metric(
-            histogram=Histogram(count=hist_info[0], 
-                                edges=hist_info[1], 
-                                widths=hist_info[2]
-                                ),
-            mean_std=MeanStd(mean=weight_magnitudes.mean().item(),
-                                std=weight_magnitudes.std().item()),
-            model_ref=model_reference
-            ))
-    return output
+def weight_magnitude(tensor: torch.Tensor) -> Metric:
+    weight_magnitudes = torch.abs(tensor.flatten())
+    hist_info = compute_histogram(weight_magnitudes, 100)
+    return Metric(
+        histogram=Histogram(count=hist_info[0], 
+                            edges=hist_info[1], 
+                            widths=hist_info[2]
+                            ),
+        mean_std=MeanStd(mean=weight_magnitudes.mean().item(),
+                            std=weight_magnitudes.std().item()),
+        )
 
-def numerical_rank(tensors: List[torch.Tensor], model_refs: List[ModelReference], epsilon: float = 1e-5) -> List[Metric]:
+def numerical_rank(tensor: torch.Tensor, epsilon: float = 1e-5) -> Metric:
     """
     Computes the numerical rank of the representations matrix X based on the singular values
     of its sample covariance matrix. The rank is determined as the number of singular values
@@ -172,31 +168,26 @@ def numerical_rank(tensors: List[torch.Tensor], model_refs: List[ModelReference]
         https://arxiv.org/pdf/2305.19753.pdf
 
     """
-    output = []
-    for tensor, model_reference in zip(tensors, model_refs):
         
-        # Center the data by subtracting the mean
-        X_centered = tensor - torch.mean(tensor, dim=0)
-        X_std = torch.std(X_centered, dim=0, unbiased=False)
-        X_centered /= X_std
+    # Center the data by subtracting the mean
+    X_centered = tensor - torch.mean(tensor, dim=0)
+    X_std = torch.std(X_centered, dim=0, unbiased=False)
+    X_centered /= X_std
 
-        # Compute the sample covariance matrix
-        covariance_matrix = X_centered.t() @ X_centered / (tensor.shape[0] - 1)
-        # Compute singular values using SVD on the covariance matrix
-        U, singular_values, V = torch.svd(covariance_matrix.cpu())
-        # Determine the threshold
-        threshold = singular_values[0] * epsilon
-        # Count singular values greater than the threshold
-        num_rank = torch.sum(singular_values > threshold).item()
+    # Compute the sample covariance matrix
+    covariance_matrix = X_centered.t() @ X_centered / (tensor.shape[0] - 1)
+    # Compute singular values using SVD on the covariance matrix
+    U, singular_values, V = torch.svd(covariance_matrix.cpu())
+    # Determine the threshold
+    threshold = singular_values[0] * epsilon
+    # Count singular values greater than the threshold
+    num_rank = torch.sum(singular_values > threshold).item()
 
-        value = int(num_rank)
+    value = int(num_rank)
 
-        output.append(
-            Metric(
-                model_ref=model_reference,
-                mean_std=MeanStd(
-                    mean=value, 
-                    std=None), 
-                ))
+    return Metric(
+            mean_std=MeanStd(
+                mean=value, 
+                std=None), 
+            )
 
-    return output

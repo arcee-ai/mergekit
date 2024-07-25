@@ -101,19 +101,20 @@ class MLPTask(Task[torch.Tensor]):
         self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs
     ) -> torch.Tensor:
         weights = list(tensors.values())
-        validate_tensors(weights, self.weight_info, expected_tensors=2)
         layer_results = Layer(metrics={},
                     weight_info=self.weight_info)
 
-        layer_results.add_metric(cosine_similarity(weights, return_heatmap=False), name = 'cosine_similarity')
-        layer_results.add_metric(smape(weights), name = 'smape')
-        layer_results.add_metric(scale(weights, return_heatmap=False), name = 'scale')
-        layer_results.add_metric(mse(weights, return_heatmap=False), name = 'mse')
-
         if self.intra_model_metrics:
-            model_refs = list(tensors.keys())
-            layer_results.add_metric_list(metric_list=weight_magnitude(weights, model_refs), name='weight_magnitude')
-            layer_results.add_metric_list(metric_list=numerical_rank(weights, model_refs), name='numerical_rank')
+            validate_tensors(weights, self.weight_info, expected_tensors=1)
+            layer_results.add_metric(weight_magnitude(weights[0]), name='weight_magnitude')
+            layer_results.add_metric(numerical_rank(weights[0]), name='numerical_rank')
+        else:
+            validate_tensors(weights, self.weight_info, expected_tensors=2)
+            layer_results.add_metric(cosine_similarity(weights, return_heatmap=False), name = 'cosine_similarity')
+            layer_results.add_metric(smape(weights), name = 'smape')
+            layer_results.add_metric(scale(weights, return_heatmap=False), name = 'scale')
+            layer_results.add_metric(mse(weights, return_heatmap=False), name = 'mse')
+
 
         return layer_results
 
@@ -145,46 +146,46 @@ class AttnTask(Task[torch.Tensor]):
                                                                          v_proj[model_references[0]], 
                                                                          o_proj[model_references[0]], 
                                                                          self.weight_info)
-        k_proj_1, v_proj_1, q_proj_1, o_proj_1 = group_attn_head_weights(k_proj[model_references[1]], 
-                                                                         q_proj[model_references[1]], 
-                                                                         v_proj[model_references[1]], 
-                                                                         o_proj[model_references[1]], 
-                                                                         self.weight_info)
-        
-        # Metrics for K, V, Q, O projections
-
-        
-        # Metrics for heads
-
         model_0_heads = torch.cat([k_proj_0, v_proj_0, q_proj_0, o_proj_0], dim=1)
-        model_1_heads = torch.cat([k_proj_1, v_proj_1, q_proj_1, o_proj_1], dim=1)
-        
         layer_results = Layer(metrics={},
                     weight_info=self.weight_info)
-
-
-        layer_results.add_metric(cosine_similarity([model_0_heads.view(model_0_heads.shape[0], -1),
-                                model_1_heads.view(model_1_heads.shape[0], -1)],
-                                return_heatmap=True), 
-                                name = 'cosine_similarity')
-        layer_results.add_metric(smape([model_0_heads.view(model_0_heads.shape[0], -1),
-                                model_1_heads.view(model_1_heads.shape[0], -1)]), 
-                                name = 'smape')
-        layer_results.add_metric(scale([model_0_heads.view(model_0_heads.shape[0], -1),
-                                model_1_heads.view(model_1_heads.shape[0], -1)], 
-                                return_heatmap=True), 
-                                name = 'scale')
-        layer_results.add_metric(mse([model_0_heads.view(model_0_heads.shape[0], -1),
-                            model_1_heads.view(model_1_heads.shape[0], -1)], 
-                            return_heatmap=False), 
-                            name = 'mse')
+        
         
         if self.intra_model_metrics:
         
-            layer_results.add_metric_list(
-                metric_list=weight_magnitude([model_0_heads, model_1_heads], model_refs=model_references),
+            layer_results.add_metric(
+                metric=weight_magnitude(model_0_heads),
                 name='weight_magnitude'
                 )
+        else:
+        
+            k_proj_1, v_proj_1, q_proj_1, o_proj_1 = group_attn_head_weights(k_proj[model_references[1]], 
+                                                                            q_proj[model_references[1]], 
+                                                                            v_proj[model_references[1]], 
+                                                                            o_proj[model_references[1]], 
+                                                                            self.weight_info)
+            
+
+            model_1_heads = torch.cat([k_proj_1, v_proj_1, q_proj_1, o_proj_1], dim=1)
+        
+
+
+            layer_results.add_metric(cosine_similarity([model_0_heads.view(model_0_heads.shape[0], -1),
+                                    model_1_heads.view(model_1_heads.shape[0], -1)],
+                                    return_heatmap=True), 
+                                    name = 'cosine_similarity')
+            layer_results.add_metric(smape([model_0_heads.view(model_0_heads.shape[0], -1),
+                                    model_1_heads.view(model_1_heads.shape[0], -1)]), 
+                                    name = 'smape')
+            layer_results.add_metric(scale([model_0_heads.view(model_0_heads.shape[0], -1),
+                                    model_1_heads.view(model_1_heads.shape[0], -1)], 
+                                    return_heatmap=True), 
+                                    name = 'scale')
+            layer_results.add_metric(mse([model_0_heads.view(model_0_heads.shape[0], -1),
+                                model_1_heads.view(model_1_heads.shape[0], -1)], 
+                                return_heatmap=False), 
+                                name = 'mse')
+        
             
 
         return layer_results
@@ -203,6 +204,8 @@ class AttnTask(Task[torch.Tensor]):
 class LayerNormTask(Task[torch.Tensor]):
     gather_tensors: GatherTensors
     weight_info: WeightInfo
+    intra_model_metrics: bool = False
+
     def uses_accelerator(self) -> bool:
         return True
 
@@ -216,14 +219,20 @@ class LayerNormTask(Task[torch.Tensor]):
         tensors = list(tensors.values())
         
         assert tensors[0].dim() == 1, "LayerNorm tensors must be 2D"
-        assert tensors[1].dim() == 1, "LayerNorm tensors must be 2D"
 
         layer_results = Layer(metrics={}, weight_info=self.weight_info)
-        
-        layer_results.add_metric(cosine_similarity([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'cosine_similarity')
-        layer_results.add_metric(smape([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)]), name = 'smape')
-        layer_results.add_metric(scale([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'scale')
-        layer_results.add_metric(mse([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'mse')
+
+        if self.intra_model_metrics:
+            layer_results.add_metric(
+                metric=weight_magnitude(tensors[0].unsqueeze(1)),
+                name='weight_magnitude'
+                )
+        else:
+            assert tensors[1].dim() == 1, "LayerNorm tensors must be 2D"
+            layer_results.add_metric(cosine_similarity([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'cosine_similarity')
+            layer_results.add_metric(smape([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)]), name = 'smape')
+            layer_results.add_metric(scale([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'scale')
+            layer_results.add_metric(mse([tensors[0].unsqueeze(1), tensors[1].unsqueeze(1)], return_heatmap=True), name = 'mse')
 
         return layer_results
     
@@ -253,10 +262,12 @@ from mergekit.merge_methods.base import ConfigParameterDef
 
 # Metric method
 class AllMetric(MetricMethod):
-    attn_weight_dict: Optional[Dict[str, torch.Tensor]] = {}
-    attn_info_dict: Optional[Dict[str, WeightInfo]] = {}
-    attn_parts: Optional[List[str]] = ['k_proj', 'v_proj', 'q_proj', 'o_proj'] # hard-coded for now
-    block_count: Optional[int] = 0
+    def __init__(self) -> None:
+        super().__init__()
+        self.attn_weight_dict: Optional[Dict[str, torch.Tensor]] = {}
+        self.attn_info_dict: Optional[Dict[str, WeightInfo]] = {}
+        self.attn_parts: Optional[List[str]] = ['k_proj', 'v_proj', 'q_proj', 'o_proj'] # hard-coded for now
+        self.block_count: Optional[int] = 0
 
     def make_task(
         self,
@@ -276,7 +287,7 @@ class AllMetric(MetricMethod):
                 intra_model_metrics=parameters['intra_model_metrics']
             )
         elif 'layernorm' in output_weight.name:
-            return LayerNormTask(gather_tensors=tensors, weight_info=output_weight)
+            return LayerNormTask(gather_tensors=tensors, weight_info=output_weight, intra_model_metrics=parameters['intra_model_metrics'])
         else:
             # Executor expects a task to be returned
             return DummyTask(gather_tensors=tensors, weight_info=output_weight) 

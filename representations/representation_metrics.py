@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 from tqdm import tqdm
 import torch.nn.functional as F
 
-from mergekit.metric_methods.base import MeanStd, Heatmap, Histogram, Metric, Results, Layer
+from mergekit.metric_methods.base import MeanStd, Heatmap, Histogram, Metric, Results, Layer, ScatterPlot
 from mergekit.metric_methods.metrics import cosine_similarity, smape, scale, mse, weight_magnitude, numerical_rank, compute_histogram, cosine_similarity_heatmap
 
 
@@ -139,6 +139,84 @@ class Linearity_Score(MetricAggregator):
     def clear(self) -> None:
         pass
 
+import math
+class _CKA(object):
+    # Class from https://github.com/jayroxis/CKA-similarity/blob/main/CKA.py
+    def __init__(self):
+        pass
+
+    def centering(self, K):
+        n = K.shape[0]
+        unit = np.ones([n, n])
+        I = np.eye(n)
+        H = I - unit / n
+        return np.dot(np.dot(H, K), H)
+
+    def rbf(self, X, sigma=None):
+        GX = np.dot(X, X.T)
+        KX = np.diag(GX) - GX + (np.diag(GX) - GX).T
+        if sigma is None:
+            mdist = np.median(KX[KX != 0])
+            sigma = math.sqrt(mdist)
+        KX *= -0.5 / (sigma * sigma)
+        KX = np.exp(KX)
+        return KX
+
+    def kernel_HSIC(self, X, Y, sigma):
+        return np.sum(
+            self.centering(self.rbf(X, sigma)) * self.centering(self.rbf(Y, sigma))
+        )
+
+    def linear_HSIC(self, X, Y):
+        L_X = X @ X.T
+        L_Y = Y @ Y.T
+        return np.sum(self.centering(L_X) * self.centering(L_Y))
+
+    def linear_CKA(self, X, Y):
+        hsic = self.linear_HSIC(X, Y)
+        var1 = np.sqrt(self.linear_HSIC(X, X))
+        var2 = np.sqrt(self.linear_HSIC(Y, Y))
+
+        return hsic / (var1 * var2)
+
+    def kernel_CKA(self, X, Y, sigma=None):
+        hsic = self.kernel_HSIC(X, Y, sigma)
+        var1 = np.sqrt(self.kernel_HSIC(X, X, sigma))
+        var2 = np.sqrt(self.kernel_HSIC(Y, Y, sigma))
+
+        return hsic / (var1 * var2)
+
+class CKA(MetricAggregator):
+    def __init__(self, device: str = "cpu"):
+        self.device = device
+        self.cka = _CKA()
+        
+    def process_dataset(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
+        self.result = self.cka.linear_CKA(batch_a.cpu().numpy(), batch_b.cpu().numpy())
+    
+    def aggregate(self) -> Metric:
+        return Metric(mean_std=MeanStd(mean=self.result))
+
+
+from sklearn.manifold import TSNE
+
+class t_SNE(MetricAggregator):
+    def __init__(self, device: str = "cpu"):
+        self.device = device
+        self.tsne = TSNE(n_components=2, random_state=42)
+
+    def process_dataset(self, data: torch.Tensor) -> None:
+        self.result = self.tsne.fit_transform(data.cpu().numpy())
+
+    def aggregate(self) -> Metric:
+        return Metric(
+            scatter_plot=ScatterPlot(
+                x=self.result[:, 0],
+                y=self.result[:, 1],
+            )
+        )
+        
+
 class LayerByIndex:
     def __init__(self, reps_path: str):
         self.reps_path = reps_path
@@ -251,7 +329,9 @@ def results_list_to_heatmap(all_results, metric_names:List[str]) -> dict:
 METRICS_TABLE = {
     'cosine_similarity': Cosine_Similarity,
     'mse': MSE,
-    'linearity_score': Linearity_Score
+    'linearity_score': Linearity_Score,
+    'cka': CKA,
+    't-sne': t_SNE
 }
 
 @click.command()
@@ -292,9 +372,36 @@ def main(config_yml: str):
             
             heatmaps = results_list_to_heatmap(results_list, metric_names=[metric.__name__.lower() for metric in metric_classes])
             for metric_name, heatmap in heatmaps.items():
-                all_results.others[reps_path + '||' + metric_name] = heatmap
+                all_results.across_layer_metircs[reps_path + '||' + metric_name] = heatmap # Address this - new implementation only ever has one model per results object
+    
+    if config['analyse_individually']:
+        results = Results()
+        for reps_path in tqdm(model_paths, desc='Model', leave=False, total=len(model_paths), initial = 1):
+            with LayerByIndex(reps_path) as reps:
+                for i, layer in enumerate(tqdm(reps, desc='Layer', leave=False, initial = 1)):
+                    layer_name = f'Layer_{i}'
+                    layer_results = Layer(WeightInfo(name=layer_name))
+                    for metric_name, metric_class in use_metrics.items():
+                        metric = metric_class(device=device)
+                        # Want automatic choice of metrics according to whether it requires batches or single data.
+                        # For now only accept metrics that require single data.
+                        if not hasattr(metric, 'process_dataset'):
+                            print(f'{metric_name} does not support dataset processing')
+                            continue
+                        collect_batches = []
+                        for batch in tqdm(layer, desc='Batch', leave=False, initial = 1):
+                            batch = torch.tensor(layer[batch][:]).to(device)
+                            collect_batches.append(batch)
+                            if len(collect_batches) == 32:
+                                single_data = torch.cat(collect_batches) # check dimensionality
+                                metric.process_dataset(single_data)
+                                continue
+                        layer_results.add_metric(metric.aggregate(), metric_name)
+                    results.add_layer(layer_results, name=layer_name)
+                    results.save(f'results.pkl')
+    # all_results.save('results.pkl')
 
-    all_results.save('results.pkl')
+
 
 if __name__ == '__main__':
     main()

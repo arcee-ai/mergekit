@@ -5,4 +5,5 @@ models:
 metric_method: all
 parameters:
   intra_model_metrics: true
+  inter_model_metrics: true
 dtype: float32

@@ -29,6 +29,7 @@ class MetricMethod(MergeMethod):
     pass
 
 # Structure of the results object
+# OLD
 
 # Results
 # └── layers: Dict[str, Layer]
@@ -46,6 +47,26 @@ class MetricMethod(MergeMethod):
     # For metrics which compare between models, (e.g. cosine similarity) the list will contain a single Metric object storing the comparison data.
     # For metrics which analyse individual models, (e.g. intrinsic dimension) the list will contain a Metric object for each model.
 
+# New
+
+# Results
+# ├── model_ref: Optional[List[ModelReference]] # One for individual model, two for comparison
+# └── layers: Dict[str, Layer]
+#     └── Layer
+#         ├── weight_info: WeightInfo (remove?)
+#         └── metrics: Dict[str, Metric]
+#             └── Metric
+#                 ├── histogram: Optional[Histogram]
+#                 ├── mean_std: Optional[MeanStd]
+#                 ├── scatter_plot: Optional[ScatterPlot]
+#                 └── heatmap: Optional[Heatmap]
+from enum import Enum
+
+class PlotType(Enum):
+    HISTOGRAM = 'histogram'
+    MEAN_STD = 'mean_std'
+    SCATTER_PLOT = 'scatter_plot'
+    HEATMAP = 'heatmap'
 
 @dataclass
 class MeanStd:
@@ -64,11 +85,16 @@ class Histogram:
     widths: List[float]
 
 @dataclass
+class ScatterPlot:
+    x: List[float]
+    y: List[float]
+
+@dataclass
 class Metric:
     histogram: Optional[Histogram] = None
     mean_std: Optional[MeanStd] = None
     heatmap: Optional[Heatmap] = None
-    model_ref: Optional[ModelReference] = None # For intra-model metrics.
+    scatter_plot: Optional[ScatterPlot] = None
 
     def filled_attributes(self) -> List[str]:
         filled_attrs = []
@@ -80,20 +106,20 @@ class Metric:
 @dataclass
 class Layer:
     weight_info: WeightInfo
-    metrics: Dict[str, List[Metric]] = field(default_factory=dict)
+    metrics: Dict[str, Metric] = field(default_factory=dict)
 
     def metrics_with_attribute(self, attribute: str) -> List[str]:
-        return [name for name, metric in self.metrics.items() if attribute in metric[0].filled_attributes()]
+        return [name for name, metric in self.metrics.items() if attribute in metric.filled_attributes()]
     
     def add_metric(self, metric: Metric, name: str):
         if name not in self.metrics.keys():
-            self.metrics[name] = [metric]
+            self.metrics[name] = metric
         else:
-            self.metrics[name].append(metric)
+            raise ValueError(f"Metric with name {name} already exists in layer {self.weight_info.layer_name}.")
 
-    def add_metric_list(self, metric_list: List[Metric], name: str):
-        for metric in metric_list:
-            self.add_metric(metric, name)
+    # def add_metric_list(self, metric_list: List[Metric], name: str):
+    #     for metric in metric_list:
+    #         self.add_metric(metric, name)
 
 def expand_to_fit(all_layer_names: List[str], values: List[float], subset_layer_names: List[str]) -> List[float]:
     """
@@ -115,38 +141,54 @@ def expand_to_fit(all_layer_names: List[str], values: List[float], subset_layer_
             result[i] = subset_dict[layer]
     
     return result
+
+from typing import List, Tuple
+from mergekit.graph import Task
     
 class Results:
     # Class to store the statistics for each layer
     def __init__(self):
         self.layers: Dict[str, Layer] = {}
-        self.others: Dict[str, Metric] = {}
-
+        self.across_layer_metrics: Dict[str, Metric] = {}
+        self.model_refs: Optional[List[ModelReference]] = None
+ 
     def add_layer(self, layer: Layer, name: str):
         if name not in self.layers.keys():
             self.layers[name] = layer
 
-    def get_metric(self, layer_name: str, metric_name: str) -> Metric:
-        return self.get_layer(layer_name, metric_name)
+    # def get_metric(self, layer_name: str, metric_name: str) -> Metric:
+    #     return self.get_layer(layer_name, metric_name) # Doesnt' Work! (X)
+    def load_metrics(self, metrics: List[Tuple[Task, Layer]], model_refs: Optional[List[ModelReference]] = None):
+        self.model_refs = model_refs
+        for task, metric in metrics:
+            if metric is not None:
+                self.add_layer(metric, name=task.weight_info.name)
+        return self
     
     def get_lineplot_data(self, metric_name: str):
-        means, stds = defaultdict(list), defaultdict(list)
-        layers = []
+        means, stds = [],[]
 
-        for name, layer in self.layers.items():
-            if metric_name in layer.metrics:    
-                for model_result in layer.metrics[metric_name]:
-                    model_ref = model_result.model_ref if model_result.model_ref else 'all'
-                    means[model_ref].append(model_result.mean_std.mean)
-                    stds[model_ref].append(model_result.mean_std.std)
-                layers.append(name)
+        available_line_plots = self.available_plot_types(PlotType.MEAN_STD.value)
+        assert metric_name in available_line_plots, f"Metric {metric_name} does not have mean/std data available."
 
-        means_list, stds_list, model_references = list(means.values()), list(stds.values()), list(means.keys())
-        for i, model_ref in enumerate(model_references):
-            means_list[i] = expand_to_fit(all_layer_names=list(self.layers.keys()), values=means_list[i], subset_layer_names=layers)
-            stds_list[i] = expand_to_fit(all_layer_names=list(self.layers.keys()), values=stds_list[i], subset_layer_names=layers)
+        layers_with_data = available_line_plots[metric_name]
+        means = [self.layers[layer].metrics[metric_name].mean_std.mean for layer in layers_with_data]
+        stds = [self.layers[layer].metrics[metric_name].mean_std.std for layer in layers_with_data]
 
-        return means_list, stds_list, model_references
+        # for name, layer in self.layers.items():
+        #     if metric_name in layer.metrics:    
+        #         # for model_result in layer.metrics[metric_name]:
+        #             # model_ref = model_result.model_refs if model_result.model_refs else 'all'
+        #         means.append(layer.metrics[metric_name].mean_std.mean)
+        #         stds.append(layer.metrics[metric_name].mean_std.std)
+        #         layers.append(name)
+
+        # # means_list, stds_list, model_references = list(means.values()), list(stds.values()), list(means.keys())
+        # # for i, model_ref in enumerate(model_references):
+        means = expand_to_fit(all_layer_names=list(self.layers.keys()), values=means, subset_layer_names=layers_with_data)
+        stds = expand_to_fit(all_layer_names=list(self.layers.keys()), values=stds, subset_layer_names=layers_with_data)
+
+        return means, stds
     
     def available_metrics(self) -> Dict[str, Dict[str, Any]]:
         all_metrics = set()
@@ -157,25 +199,42 @@ class Results:
         for metric in all_metrics:
             info = {
                 'layers': [],
-                'has_mean_std': False,
-                'has_histogram': False,
-                'has_heatmap': False,
-                'has_model_ref': False
+                PlotType.MEAN_STD.value: False,
+                PlotType.HISTOGRAM.value: False,
+                PlotType.HEATMAP.value: False,
+                PlotType.SCATTER_PLOT.value: False
             }
             for layer_name, layer in self.layers.items():
                 if metric in layer.metrics:
                     info['layers'].append(layer_name)
-                    for m in layer.metrics[metric]:
-                        if m.mean_std:
-                            info['has_mean_std'] = True
-                        if m.histogram:
-                            info['has_histogram'] = True
-                        if m.heatmap:
-                            info['has_heatmap'] = True
-                        if m.model_ref:
-                            info['has_model_ref'] = True
+                    m = layer.metrics[metric]
+                    if m.mean_std:
+                        info[PlotType.MEAN_STD.value] = True
+                    if m.histogram:
+                        info[PlotType.HISTOGRAM.value] = True
+                    if m.heatmap:
+                        info[PlotType.HEATMAP.value] = True
+                    if m.scatter_plot:
+                        info[PlotType.SCATTER_PLOT.value] = True
             metric_info[metric] = info
         return metric_info
+    
+    def available_plot_types(self, plot_type: str) -> Dict[str, List[str]]:
+        # Returns dictionary with key metric_name and value: list of layers for which that metric has data
+        metric_info = self.available_metrics()
+        out = {}
+        plot_type = 'mean_std' if plot_type == 'line_plot' else plot_type
+        assert plot_type in [p.value for p in PlotType], f"Plot type {plot_type} is not valid. Must be one of {[p.value for p in PlotType]}"
+        for metric_name, info in metric_info.items():
+            if info[plot_type]:
+                out[metric_name] = info['layers']
+        return out
+
+    def available_metrics_at_layer(self, layer_name: str) -> List[str]:
+        if layer_name in self.layers:
+            return list(self.layers[layer_name].metrics.keys())
+        else:
+            return []
 
     def print_metric_summary(self):
         metric_info = self.available_metrics()
@@ -183,10 +242,14 @@ class Results:
         for metric, info in metric_info.items():
             print(f"\nMetric: {metric}")
             # print(f"  Available in layers: {', '.join(info['layers'])}")
-            print(f"  Has mean/std: {'Yes' if info['has_mean_std'] else 'No'}")
-            print(f"  Has histogram: {'Yes' if info['has_histogram'] else 'No'}")
-            print(f"  Has heatmap: {'Yes' if info['has_heatmap'] else 'No'}")
-            print(f"  Has model reference: {'Yes' if info['has_model_ref'] else 'No'}")
+            print(f"  Has mean/std: {'Yes' if info[PlotType.MEAN_STD.value] else 'No'}")
+            print(f"  Has histogram: {'Yes' if info[PlotType.HISTOGRAM.value] else 'No'}")
+            print(f"  Has heatmap: {'Yes' if info[PlotType.HEATMAP.value] else 'No'}")
+            print(f"  Has scatter plot: {'Yes' if info[PlotType.SCATTER_PLOT.value] else 'No'}")
+
+    def finalise(self):
+        self.layer_names = list(self.layers.keys())
+        self.metric_names = list(set([metric for layer in self.layers.values() for metric in layer.metrics.keys()]))
 
     def save(self, path: str):
         path = Path(path)

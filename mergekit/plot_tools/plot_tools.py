@@ -9,48 +9,46 @@ import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
 from mergekit.metric_methods.all_metrics import Layer
-from mergekit.metric_methods.base import Results
+from mergekit.metric_methods.base import Results, PlotType
+from mergekit.common import ModelReference
 
 global_colours_list = ['blue', 'red', 'green', 'purple', 'orange', 'pink']
+global_shapes_list = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up', 'triangle-down', 'pentagon', 'hexagon', 'star']
 
 class ResultsHandler:
+    # Can accept many intra-model results, but only one inter-model result!! (X)
     """
-    Object to handle metrics results. Allows for easy plotting of metrics by layer and across layers.
-
-    Input:
-        Use the load_metrics method to load the metrics into the handler.
-        metrics: List of tasks and their metrics. This is the output of the run_measure function in mergekit.measure.
-
-    Attributes:
-        all_stats: Dictionary of recorded statistics for each layer. e.g. {'layer_name': {'cosine_similarity_mean': 0.5, 'cosine_similarity_std': 0.1}}
-        metric_names: List of names of all statistics available. e.g. ['cosine_similarity_mean', 'cosine_similarity_std']
-        layer_names: List of layer names. 
-
-    Methods:
-        load_metrics: Load the metrics into the handler.
-        # stats_at_layer: Get the metrics for a specific layer.
-        # info_at_layer: Get the weight info for a specific layer.
-        line_plot: Plot a line plot of the chosen stat across layers.
-        plotly_layer_histogram: Plot a histogram of the stat for a specific layer.
+ 
     """
     def __init__(self):
-        self.results = Results()
-
-    def load_metrics(self, metrics: List[Tuple[Task, Layer]]):
-        self.metric_names = []
-        for task, metric in metrics:
-            if metric is not None:
-                self.results.add_layer(metric, name=task.weight_info.name)
-                self.metric_names.extend(list(metric.metrics.keys()))
-        self.layer_names = list(self.results.layers.keys())
-        self.metric_names = list(set(self.metric_names))
+        self.intra_model_results: Dict[ModelReference, Results] = {}
+        self.inter_model_results: Results = None
+        self.available_layer_plots = {
+            'mean_std': [],
+            'histogram': [],
+            'heatmap': [],
+            'scatter_plot': []
+        }
 
     def load_results(self, results: Results):
-        self.results = results
-        self.layer_names = list(self.results.layers.keys())
-        self.metric_names = list(set([metric for layer in self.results.layers.values() for metric in layer.metrics.keys()]))
+        results.finalise()
+        if len(results.model_refs) == 2:
+            self.inter_model_results = results
+        elif len(results.model_refs) == 1:
+            self.intra_model_results[results.model_refs[0]] = results
+        else:
+            raise ValueError("Results should have either 1 or 2 model_refs")
         
-    def categorise_layers(self, layer_names):
+        for plot_type in self.available_layer_plots.keys():
+            self.available_layer_plots[plot_type] = list(self.inter_model_results.available_plot_types(plot_type).keys())
+            for model_ref, results in self.intra_model_results.items():
+                self.available_layer_plots[plot_type] += list(results.available_plot_types(plot_type).keys())
+                
+            self.available_layer_plots[plot_type] = list(set(self.available_layer_plots[plot_type]))
+        
+        self.all_results = list(self.intra_model_results.values()) + [self.inter_model_results]
+        
+    def categorise_layers(self, layer_names) -> List[str]:
         # Hardcoded layernames for now - can be extended to include more categories or further generalised based on config
         categories = []
         for name in layer_names:
@@ -65,32 +63,31 @@ class ResultsHandler:
         return categories
     
     def plotly_line_plots(self, metric_name:str):
-        if metric_name not in self.metric_names:
-            print(f"Stat {metric_name} not found")
-            return [], []
+        # if metric_name not in self.metric_names:
+        #     print(f"Stat {metric_name} not found")
+        #     return [], []
         
-        layer_names = self.layer_names
-        means, stds, model_refs = self.results.get_lineplot_data(metric_name)
         traces = []
-        available_shapes = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up', 'triangle-down', 'pentagon', 'hexagon', 'star']
+        if metric_name in self.inter_model_results.available_plot_types('line_plot'): # bring if case into loop? (X)
+            layer_names = self.inter_model_results.layer_names
+            means, stds = self.inter_model_results.get_lineplot_data(metric_name)
+            categorised_layers = self.categorise_layers(layer_names) # Different category for each layer type
+            unique_categories = list(set(categorised_layers))
+            traces = self._plotly_line_plot(layer_names, means, stds, categorised_layers, unique_categories) 
 
-        if len(model_refs) > 1:
-            unique_categories = [str(ref) for ref in model_refs]
-            layer_categories = [[str(model_refs[i])]*len(layer_names) for i in range(len(model_refs))]
         else:
-            layer_categories = [self.categorise_layers(layer_names)]
-            unique_categories = list(set(layer_categories[0]))
-        for i, model_ref in enumerate(model_refs):
-            traces.extend(self._plotly_line_plot(layer_names, means[i], stds[i], layer_categories[i], unique_categories, shape=available_shapes[i%len(available_shapes)]))
-
+            unique_categories = list(self.intra_model_results.keys())
+            for i, (model_ref, results) in enumerate(self.intra_model_results.items()):
+                layer_names = results.layer_names
+                means, stds = results.get_lineplot_data(metric_name)
+                categorised_layers = [model_ref]*len(layer_names) # Different category for each model, every layer in each model has the same category
+                shape = global_shapes_list[i%len(global_shapes_list)]
+                traces.extend(self._plotly_line_plot(layer_names, means, stds, categorised_layers, unique_categories, shape))
+                
         return traces, layer_names
 
-    def _plotly_line_plot(self, x_values, means, stds, layer_categories, unique_categories, shape:str='circle', **kwargs):
+    def _plotly_line_plot(self, x_values, means, stds, categorised_layers, unique_categories, shape:str='circle', **kwargs):
         """
-        Plot the stat values across layers using Plotly.
-
-        Args:
-            stat (str): The name of the stat to plot.
         
         Returns:
             List[go.Scatter]: List of Plotly Scatter objects.
@@ -105,8 +102,8 @@ class ResultsHandler:
         traces = []
 
         for category in unique_categories:
-            y_category = [means[i] if layer_categories[i] == category else None for i in range(len(self.layer_names))]
-            std_category = [stds[i] if layer_categories[i] == category else None for i in range(len(self.layer_names))]
+            y_category = [means[i] if categorised_layers[i] == category else None for i in range(len(categorised_layers))]
+            std_category = [stds[i] if categorised_layers[i] == category else None for i in range(len(categorised_layers))]
             if all([y is None for y in y_category]):
                 continue
             
@@ -119,32 +116,95 @@ class ResultsHandler:
                     visible=True
                 ),
                 mode='markers',
-                name=category,
+                name=str(category),
                 marker=dict(color=category_styles[category]), 
                 marker_symbol=shape
             ))
         return traces
 
-    def plotly_layer_heatmap(self, layer_name:str, metric_name:str):
-        """
-        Plot the stat values as a heatmap.
-        
-        Args:
-            layer_name (str): The name of the layer.
-            metric_name (str): The name of the stat to plot.
-        Returns:
-            go.Heatmap: Plotly Heatmap object.
-        """
-        metrics_list = self.results.layers[layer_name].metrics[metric_name]
-        if len(metrics_list) > 1:
-            raise Warning(f"Multiple heatmaps found for {metric_name} at layer {layer_name}. Using the first one.")
-        
-        heatmap = self.results.layers[layer_name].metrics[metric_name][0].heatmap.data
+    def plotly_layer_plot(self, layer_name:str, metric_name:str, plot_type:str):
+        assert plot_type in [p.value for p in PlotType], f"Plot type {plot_type} not in {[p.value for p in PlotType]}"
+        data = []
 
-        return [go.Heatmap(
-            z=heatmap,
-            colorscale='RdBu'
-            )]
+        for result in self.all_results:
+            valid_metrics = result.available_plot_types(plot_type)
+            if metric_name in valid_metrics.keys():
+                if layer_name in valid_metrics[metric_name]:
+                    data.append(getattr(result.layers[layer_name].metrics[metric_name], plot_type))
+        
+        return self.get_traces(data, plot_type) # Can prob use type of data to determine plot type (X)
+
+    def get_traces(self, data:List, plot_type):
+        if plot_type == PlotType.HEATMAP.value:
+            traces = [go.Heatmap(
+                z=d.data,
+                colorscale='RdBu'
+                ) for d in data]
+        elif plot_type == PlotType.SCATTER_PLOT.value:
+            traces = [go.Scatter(
+                x = d.x,
+                y = d.y
+            ) for d in data]
+        elif plot_type == PlotType.HISTOGRAM.value:
+            traces = []
+            for i, d in enumerate(data):
+                count, edges, widths = d.count, d.edges, d.widths
+                traces.append(go.Bar(
+                    x=edges[:-1],
+                    y=count,
+                    width=widths,
+                    marker=dict(
+                        color=global_colours_list[i],
+                        opacity=0.75,
+                        line=dict(
+                            color='black',
+                            width=1
+                            )
+                        )))
+        else: 
+            raise ValueError(f'{plot_type} not valid for layer specific plot')
+
+        return traces
+
+
+    # def plotly_layer_heatmap(self, layer_name:str, metric_name:str):
+    #     """
+    #     Plot the stat values as a heatmap.
+        
+    #     Args:
+    #         layer_name (str): The name of the layer.
+    #         metric_name (str): The name of the stat to plot.
+    #     Returns:
+    #         go.Heatmap: Plotly Heatmap object.
+    #     """
+    #     heatmaps = []
+    #     if metric_name in self.inter_model_results.available_plot_types('histogram').keys() \
+    #             and layer_name in self.inter_model_results.available_plot_types('histogram')[metric_name]:
+    #         heatmaps.append(self.inter_model_results.layers[layer_name].metrics[metric_name].heatmap.data)
+    #     else:
+    #         for model_ref, results in self.intra_model_results.items():
+    #             if metric_name in results.available_plot_types('heatmap'):
+    #                 heatmaps.append(results.layers[layer_name].metrics[metric_name].heatmap.data)
+
+    #     return [go.Heatmap(
+    #         z=data,
+    #         colorscale='RdBu'
+    #         ) for data in heatmaps]
+
+    # def plotly_scatter_plot(self, layer_name:str, metric_name:str):
+        # scatters = []
+        # if metric_name in self.inter_model_results.available_plot_types('scatter_plot').keys() \
+        #         and layer_name in self.inter_model_results.available_plot_types('scatter_plot')[metric_name]:
+        #     scatters.append(self.inter_model_results.layers[layer_name].metrics[metric_name].scatter_plot)
+        # else:
+        #     for model_ref, results in self.intra_model_results.items():
+        #         if metric_name in results.available_plot_types('scatter_plot'):
+        #             scatters.append(results.layers[layer_name].metrics[metric_name].scatter_plot)
+
+        # return [go.Scatter(
+        #     x = scatter.x,
+        #     y = scatter.y
+        # ) for scatter in scatters]
 
     def _set_plot_attributes(self, ax, stat: str, ax_kwargs: List[str], **kwargs):
         """
@@ -166,39 +226,53 @@ class ResultsHandler:
             if kwarg in kwargs:
                 getattr(ax, f"set_{kwarg}")(kwargs[kwarg])
     
-    def plotly_layer_histogram(self, layer_name: str, metric_name: str):
-        metric_list = self.results.layers[layer_name].metrics[metric_name]
+    # def plotly_layer_histogram(self, layer_name: str, metric_name: str):
+    #     histograms = []
+    #     if metric_name in self.inter_model_results.available_plot_types('histogram'):
+    #         histograms.append(self.inter_model_results.layers[layer_name].metrics[metric_name])
+    #     else:
+    #         for model_ref, results in self.intra_model_results.items():
+    #             if metric_name in results.available_plot_types('histogram'):
 
-        traces = []
-        for i, metric in enumerate(metric_list):
-            hist = metric.histogram
-            count, edges, widths = hist.count, hist.edges, hist.widths
-            traces.append(go.Bar(
-                x=edges[:-1],
-                y=count,
-                width=widths,
-                marker=dict(
-                    color=global_colours_list[i],
-                    opacity=0.75,
-                    line=dict(
-                        color='black',
-                        width=1
-                    )
-                ),
-                name=str(metric.model_ref)
-            ))
-        return traces
+    #     metric_list = self.results.layers[layer_name].metrics[metric_name]
+
+    #     traces = []
+    #     for i, metric in enumerate(metric_list):
+    #         hist = metric.histogram
+    #         count, edges, widths = hist.count, hist.edges, hist.widths
+    #         traces.append(go.Bar(
+    #             x=edges[:-1],
+    #             y=count,
+    #             width=widths,
+    #             marker=dict(
+    #                 color=global_colours_list[i],
+    #                 opacity=0.75,
+    #                 line=dict(
+    #                     color='black',
+    #                     width=1
+    #                 )
+    #             ),
+    #             # name=str(metric.model_ref)
+    #         ))
+    #     return traces
     
     def layer_plot_options(self, layer_name: str):
-        layer = self.results.layers[layer_name]
-            
-        return [
-            {"label": f"{metric.title()} Histogram", "value": [metric, 'histogram']}
-            for metric in layer.metrics_with_attribute('histogram')
-        ] + [
-            {"label": f"{metric.title()} Heatmap", "value": [metric, 'heatmap']}
-            for metric in layer.metrics_with_attribute('heatmap')
-        ]
+        metric_options = []
+        for plot_type in PlotType:
+            if plot_type == PlotType.MEAN_STD:
+                continue
+            metric_options.extend([
+                        {"label": f"{metric.title()} {plot_type.value}", "value": [metric, plot_type.value]}
+                    for metric in self.inter_model_results.layers[layer_name].metrics_with_attribute(plot_type.value)]
+                    )
+            for result in self.all_results:
+                metric_options.extend([
+                    {"label": f"{metric.title()} {plot_type.value}", "value": [metric, plot_type.value]}
+                for metric in result.layers[layer_name].metrics_with_attribute(plot_type.value)]
+                )
+                break # Assuming all intra-model results have the same metrics
+        return metric_options
+
 
 def create_app(results_handler):
     app = dash.Dash(__name__, external_stylesheets=['https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'])
@@ -206,8 +280,8 @@ def create_app(results_handler):
     app.layout = html.Div([
         create_header(),
         create_line_plot_section(results_handler),
-        create_layer_metrics_section(),
-        create_heatmap_section(results_handler)
+        create_single_layer_section(),
+        create_across_layers_section(results_handler)
     ])
 
     register_callbacks(app, results_handler)
@@ -223,14 +297,14 @@ def create_line_plot_section(results_handler):
         dcc.Dropdown(
             id='line-plot-dropdown',
             options=[{'label': metric_name.replace('_', ' ').title(), 'value': metric_name} 
-                    for metric_name in results_handler.metric_names],
+                    for metric_name in results_handler.available_layer_plots['mean_std']],
             value='cosine_similarity',
             style={'width': '50%', 'margin': 'auto', 'display': 'block', 'font-family': 'Arial'}
         ),
         dcc.Graph(id='line-plot', style={'width': '100%', 'height': '100vh'})
     ], className='container-fluid')
 
-def create_layer_metrics_section():
+def create_single_layer_section():
     return html.Div([
         html.H3('Layer Metrics', style={'textAlign': 'center'}),
         dcc.Dropdown(
@@ -242,23 +316,22 @@ def create_layer_metrics_section():
         dcc.Graph(id='layer-details-plot', style={'width': '100%', 'height': '80vh', 'textAlign': 'center'})
     ], className='container-fluid')
 
-def create_heatmap_section(results_handler):
-    if hasattr(results_handler.results, 'others') and isinstance(results_handler.results.others, dict):
-        heatmap_sections = []
-        for i, (key, value) in enumerate(results_handler.results.others.items()):
-            model_name = key.split('Representations')[1]
-            model_name = model_name.split('.')[0].replace('_', ' ').replace('-',' ').title()
-            metric = key.split('||')[-1].replace('_', ' ').replace('-',' ').title()
+def create_across_layers_section(results_handler):
+    results = list(results_handler.intra_model_results.values()) + [results_handler.inter_model_results]
 
-            title = f'{model_name} - {metric}'
+    plot_sections = []
 
-            heatmap_sections.append(html.Div([
-                html.H3(f'Heatmap: {title}', style={'textAlign': 'center'}),
-                dcc.Graph(id=f'heatmap-plot-{i}', style={'width': '50%', 'height': '50%', 'position': 'relative'})
-            ], className='container-fluid'))
-        return html.Div(heatmap_sections)
-    else:
-        return html.Div()
+    for result in results:
+        if hasattr(result, 'across_layer_metrics'):
+            for metric_name, metric in result.across_layer_metrics.items():
+                for attr in ['histogram', 'heatmap', 'scatter_plot']:
+                    if hasattr(metric, attr):
+                        plot_sections.append(html.Div([
+                            html.H3(f'{attr+metric_name.replace("_", " ").title()} {attr.replace("_", " ").title()}', style={'textAlign': 'center'}),
+                            dcc.Graph(id=f'{attr}-plot-{metric_name}', style={'width': '50%', 'height': '50%', 'position': 'relative'})
+                        ], className='container-fluid'))
+
+    return html.Div(plot_sections)
 
 def default_option(options, current_value):
     if not options:
@@ -277,7 +350,7 @@ def register_callbacks(app, results_handler):
         Input('line-plot', 'clickData'),
         Input('line-plot-dropdown', 'value')
     )
-    def update_metric_dropdown_options(clickData, selected_metric):
+    def update_metric_dropdown_options(clickData, selected_metric): # What distinguishes these options from layer-specific options?
         if not clickData:
             return [], None
 
@@ -306,6 +379,13 @@ def register_callbacks(app, results_handler):
             if not selected_metric:
                 selected_metric = results_handler.layer_plot_options(layer_name)[0]['value']
 
+
+                # metric_options = []
+                # for result in results_handler.all_results:
+                #     metric_options.extend(result.available_metrics_at_layer(layer_name))
+                # metric_options = list(set(metric_options))
+                # selected_metric =  metric_options[0]
+
             metric_name, plot_type = selected_metric
 
             # Define default axis titles
@@ -318,13 +398,15 @@ def register_callbacks(app, results_handler):
                 yaxis_title = "Model 0 Head"
             
             plot_function = {
-                'histogram': results_handler.plotly_layer_histogram,
-                'heatmap': results_handler.plotly_layer_heatmap
-            }.get(plot_type.lower(), 
-                  lambda *args, **kwargs: go.Figure()) # Defaults to *function* to produce empty figure
+                'histogram': lambda layer_name, metric_name: results_handler.plotly_layer_plot(layer_name, metric_name, PlotType.HISTOGRAM.value),
+                'heatmap': lambda layer_name, metric_name: results_handler.plotly_layer_plot(layer_name, metric_name, PlotType.HEATMAP.value),
+                'scatter_plot': lambda layer_name, metric_name: results_handler.plotly_layer_plot(layer_name, metric_name, PlotType.SCATTER_PLOT.value)
+            }
             
-            traces = plot_function(layer_name=layer_name, 
-                              metric_name=metric_name)
+            traces = plot_function[plot_type.lower()](
+                layer_name=layer_name,
+                metric_name=metric_name
+                )
             
             return create_figure(traces=traces,
                                  title=f"{plot_type.title()} for {layer_name} | {metric_name}", 
@@ -347,7 +429,8 @@ def register_callbacks(app, results_handler):
         traces, layer_names = results_handler.plotly_line_plots(metric_name=selected_metric)
         fig = go.Figure()
         for trace in traces:
-            fig.add_trace(trace)
+            if trace:
+                fig.add_trace(trace)
         
         fig.update_layout(
             title=f"{selected_metric.replace('_', ' ').title()} Across Layers",
@@ -359,35 +442,63 @@ def register_callbacks(app, results_handler):
             yaxis=dict(title=selected_metric.replace('_', ' ').title())
         )
         return fig
-    # Dynamically create callbacks for each heatmap plot
-    if hasattr(results_handler.results, 'others') and isinstance(results_handler.results.others, dict):
-        for i, (key, value) in enumerate(results_handler.results.others.items()):
-            if isinstance(value.data, (list, np.ndarray)):  # Assuming heatmap data is in array-like format
-                @app.callback(
-                    Output(f'heatmap-plot-{i}', 'figure'),
-                    Input(f'heatmap-plot-{i}', 'id')  # Dummy input to trigger the callback on load
-                )
-                def update_heatmap_plot(_key=key):
-                    key = list(results_handler.results.others.keys())[int(_key.split('-')[-1])]
-                    heatmap_data = results_handler.results.others[key].data
-                    fig = go.Figure(data=go.Heatmap(
-                        z=heatmap_data,
-                        colorscale='Viridis',  # Using Viridis colormap
-                        zmin=np.nanmin(heatmap_data),  # Set the scale min to the min data value
-                        zmax=np.nanmax(heatmap_data),  # Set the scale max to the max data value
-                        colorbar=dict(title='Scale')  # Customize the color bar
-                    ))
-                    default_layout_options = {
-                        'xaxis_title':"X Axis",
-                        'yaxis_title':"Y Axis"
-                        }
-                    if results_handler.results.others[key].update_layout_options:
-                        default_layout_options.update(results_handler.results.others[key].update_layout_options)
-                    fig.update_layout(
-                        title=f"Heatmap: {_key}",
-                        **default_layout_options
-                    )
-                    return fig
+    # # Dynamically create callbacks for each heatmap plot
+    # if hasattr(results_handler.results, 'others') and isinstance(results_handler.results.others, dict):
+    #     for i, (key, value) in enumerate(results_handler.results.others.items()):
+    #         if isinstance(value.data, (list, np.ndarray)):  # Assuming heatmap data is in array-like format
+    #             @app.callback(
+    #                 Output(f'heatmap-plot-{i}', 'figure'),
+    #                 Input(f'heatmap-plot-{i}', 'id')  # Dummy input to trigger the callback on load
+    #             )
+    #             def update_heatmap_plot(_key=key):
+    #                 key = list(results_handler.results.others.keys())[int(_key.split('-')[-1])]
+    #                 heatmap_data = results_handler.results.others[key].data
+    #                 fig = go.Figure(data=go.Heatmap(
+    #                     z=heatmap_data,
+    #                     colorscale='Viridis',  # Using Viridis colormap
+    #                     zmin=np.nanmin(heatmap_data),  # Set the scale min to the min data value
+    #                     zmax=np.nanmax(heatmap_data),  # Set the scale max to the max data value
+    #                     colorbar=dict(title='Scale')  # Customize the color bar
+    #                 ))
+    #                 default_layout_options = {
+    #                     'xaxis_title':"X Axis",
+    #                     'yaxis_title':"Y Axis"
+    #                     }
+    #                 if results_handler.results.others[key].update_layout_options:
+    #                     default_layout_options.update(results_handler.results.others[key].update_layout_options)
+    #                 fig.update_layout(
+    #                     title=f"Heatmap: {_key}",
+    #                     **default_layout_options
+    #                 )
+    #                 return fig
+
+    for result in results_handler.all_results:
+        if hasattr(result, 'across_layer_metrics'):
+            for metric_name, metric in result.across_layer_metrics.items():
+                for attr in ['histogram', 'heatmap', 'scatter_plot']:
+                    if hasattr(metric, attr):
+                        id=f'{attr}-plot-{metric_name}'
+
+                        @app.callback(
+                            Output(id, 'figure'),
+                            Input(id, 'id')
+                        )
+                        def update_across_layers_plot(_id=id):
+                            metric_name = _id.split('-')[-1]
+                            plot_function = {
+                                'histogram': lambda metric_name: results_handler.plotly_layer_plot(metric_name, PlotType.HISTOGRAM),
+                                'heatmap': lambda metric_name: results_handler.plotly_layer_plot(metric_name, PlotType.HEATMAP),
+                                'scatter_plot': lambda metric_name: results_handler.plotly_layer_plot(metric_name, PlotType.SCATTER_PLOT)
+                            }.get(attr, 
+                                lambda *args, **kwargs: go.Figure())
+                            traces = plot_function(metric_name=metric_name)
+            
+                            return create_figure(traces=traces,
+                                                title=f"{id} | {metric_name}", 
+                                                # xaxis_title=xaxis_title,
+                                                # yaxis_title=yaxis_title
+                                                )
+
 
 def create_figure(traces, title, xaxis_title, yaxis_title):
     fig = go.Figure()
