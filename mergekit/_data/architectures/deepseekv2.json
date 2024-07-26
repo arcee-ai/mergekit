@@ -37,7 +37,7 @@
                 "name" : "model.layers.${layer_index}.self_attn.kv_b_proj.weight"
             }, 
             {
-                "name" : "model.layers.${layer.index}.self_attn.o_proj.weight"
+                "name" : "model.layers.${layer_index}.self_attn.o_proj.weight"
             },
             {
                 "name": "model.layers.${layer_index}.input_layernorm.weight"
