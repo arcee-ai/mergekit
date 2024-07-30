@@ -39,14 +39,10 @@ def match_tensors_permute(
     new_mat = torch.eye(Om, device=device)[torch.tensor(col_ind).long().to(device)]
     mats.append(new_mat.T)
 
-    unmerge_mats = mats
+    unmerge = torch.cat(mats, dim=0)
+    merge = unmerge.clone().T
 
-    unmerge = torch.cat(unmerge_mats, dim=0)
-
-    merge = torch.cat(mats, dim=0)
-    merge = merge / (merge.sum(dim=0, keepdim=True) + 1e-5)
-
-    return merge.T, unmerge
+    return merge, unmerge
 
 
 def match_tensors_permute_MHA(
@@ -111,13 +107,10 @@ def match_tensors_permute_MHA(
     ]
     mats.append(new_mat.T)
 
-    unmerge_mats = mats
+    unmerge = torch.cat(mats, dim=0)
+    merge = unmerge.clone().T
 
-    unmerge = torch.cat(unmerge_mats, dim=0)
-    merge = torch.cat(mats, dim=0)
-    merge = merge / (merge.sum(dim=0, keepdim=True) + 1e-5)
-
-    return merge.T, unmerge
+    return merge, unmerge
 
 
 @click.command("mergekit-abm-extract-permutations")

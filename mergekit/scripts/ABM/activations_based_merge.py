@@ -16,8 +16,8 @@ from mergekit.options import MergeOptions, add_merge_options
 
 
 @click.command("mergekit-activation-based-merge")
-@click.argument("model_path", type=str)
-@click.argument("secondary_model_path", type=str)
+@click.argument("model_path", type=str, help="Path to the anchor model")
+@click.argument("secondary_model_path", type=str, help="Path to the secondary model")
 @click.argument("merge_unmerge_directory", type=str)
 @click.option("--out-path", "-o", required=True, type=str, help="Output model path")
 @click.option(
@@ -121,8 +121,8 @@ def main(
 
         if merge_matrix is not None:
             if weight_info.is_embed:
-                w = (merge_matrix[0] @ w.T).T
-                w2 = (merge_matrix[1] @ w2.T).T
+                w = w @ merge_matrix[0].T
+                w2 = w2 @ merge_matrix[1].T
             else:
                 w = merge_matrix[0] @ w
                 w2 = merge_matrix[1] @ w2
@@ -151,10 +151,7 @@ def main(
             )
 
         # average weights and save them
-        if merge_matrix:
-            w = w + w2
-        else:
-            w = (w + w2) / 2
+        w = (w + w2) / 2
         writer.save_tensor(weight_info.name, w)
     writer.finalize()
 
