@@ -46,7 +46,7 @@ def main(output_path, config_yml, copy_tokenizer, lazy_unpickle, low_cpu_memory)
                     low_cpu_memory=low_cpu_memory,
                 ),
             )
-            intra_results[model.model] = Results().load_metrics(metrics_out, model_refs=[model.model])
+            intra_results[model.model] = Results().load_metrics(metrics_out, model_paths=[model.model.model.path])
         
     if inter_model:
         assert len(models) == 2, "Inter-model metrics require exactly 2 models"
@@ -64,7 +64,7 @@ def main(output_path, config_yml, copy_tokenizer, lazy_unpickle, low_cpu_memory)
                 low_cpu_memory=low_cpu_memory,
             ),
         )
-        inter_results = Results().load_metrics(metrics_out, model_refs=models)
+        inter_results = Results().load_metrics(metrics_out, model_paths=models)
 
 
     handler = ResultsHandler()

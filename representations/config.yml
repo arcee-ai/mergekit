@@ -1,14 +1,13 @@
 representation_paths:
-- ./representations/Representations_BEE-spoke-data_smol_llama-220M-GQA_train_4000.h5
-- ./representations/Representations_BEE-spoke-data_smol_llama-220M-openhermes_train_4000.h5
+- "/Users/elliotstein/Documents/Arcee/mergekit/representations/stored_representations/Representations_Qwen_Qwen2-7B-Instruct_microsoft_orca-math-word-problems-200k_4000.h5"
+- "/Users/elliotstein/Documents/Arcee/mergekit/representations/stored_representations/Representations_arcee-ai_qwen2-7b-math-tess_microsoft_orca-math-word-problems-200k_4000.h5"
 
 metrics:
  cosine_similarity: true
- mse: true
- linearity_score: true
+ mse: false
+ linearity_score: false
+ cka: false
+ t-sne: false
 
-compare_between_models: true
-block_analysis: true
-block_analysis_parameters:
-  skip_layers: [1,2,3,4,5,6,7,8,9]
-analyse_individual_models: true
+analysis_type: "individual"
+comparison_type: "block"

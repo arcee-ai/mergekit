@@ -1,10 +1,7 @@
 # WORK IN PROGRESS
  
 import click
-import torch
-import yaml
-
-from mergekit.config import MergeConfiguration
+import h5py
 
 import logging
 import numpy as np
@@ -12,9 +9,8 @@ from tqdm import tqdm
 
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import datasets
-
 import os
 
 logging.basicConfig(level=logging.INFO)
@@ -22,14 +18,8 @@ logging.basicConfig(level=logging.INFO)
 # Set seed
 torch.manual_seed(42)
 np.random.seed(42)
-
-import torch
 from typing import List
-
-import h5py
-import torch
 import random
-import numpy as np
 
 def load_batch_from_hdf5(model_name, batch_idx):
     with h5py.File('batches.h5', 'r') as h5file:
@@ -59,8 +49,7 @@ def get_last_non_padded_tokens(hidden_states, attention_mask) -> List[torch.Tens
         last_non_padded_hidden_states.append(torch.cat(batch_last_tokens, dim=0))
     return last_non_padded_hidden_states
 
-
-def store_representations(model_path, output_path, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
+def store_representations(model_path, output_dir, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
 
     device = "cuda" if torch.cuda.is_available() \
             else "mps" if torch.backends.mps.is_available() \
@@ -85,7 +74,7 @@ def store_representations(model_path, output_path, dataset_name, batch_size, max
 
     dataloader = DataLoader(dataset[dataset_column], batch_size=batch_size, shuffle=False, drop_last=True)
     
-    output_name = f'Representations_{model.name_or_path}_{dataset_name}_{dataset_size}.h5'.replace("/","_")
+    output_name = f'{output_dir}/{model.name_or_path}_{dataset_name}_{dataset_size}.h5'.replace("/","_")
     assert not os.path.exists(output_name), f'{output_name} already exists.' 
 
     with h5py.File(output_name, 'w') as h5file:
@@ -101,7 +90,7 @@ def store_representations(model_path, output_path, dataset_name, batch_size, max
             # This adjustment is necessary for analyses focusing on the model's internal transformations
             last_non_padded_hidden_states = last_non_padded_hidden_states[1:]
             for layer, hidden_state in enumerate(last_non_padded_hidden_states):
-                layer_group = h5file.require_group(f'layer_{layer}')
+                layer_group = h5file.require_group(f'layer_{layer:03d}')
                 file_name = f'batch_{batch_idx}.pt'
                 
                 layer_group.create_dataset(file_name, data=hidden_state.to('cpu'), compression="gzip")
@@ -110,17 +99,16 @@ def store_representations(model_path, output_path, dataset_name, batch_size, max
             assert len(last_non_padded_hidden_states) == model.config.num_hidden_layers, "Length of last_non_padded_hidden_states  \
             does not match expected number of hidden layers."
 
-
 @click.command()
 @click.option('--model_path', default="BEE-spoke-data/smol_llama-220M-GQA", help='model to use.')
-@click.option('--output_path', default="./representations/", help='folder to store the result in.')
+@click.option('--output_dir', default="./representations/stored_representations", help='folder to store the result in.')
 @click.option('--dataset_name', default="arcee-ai/sec-data-mini", help='dataset to use.')
 @click.option('--batch_size', default=8, help='batch size.')
 @click.option('--max_length', default=1024, help='maximum length of the input.')
 @click.option('--dataset_size', default=4000, help='size of the dataset.')
 @click.option('--dataset_column', default="text", help='column of the dataset to use.')
 @click.option('--dataset_subset', default="train", help='subset of the dataset to use.')
-def main(model_path, output_path, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
-    store_representations(model_path, output_path, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset)
+def main(model_path, output_dir, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
+    store_representations(model_path, output_dir, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset)
 if __name__ == "__main__":
     main()

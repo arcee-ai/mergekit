@@ -1,3 +1,7 @@
+*.pkl
+*.h5
+offload_folder/
+
 # Environment
 
 mergekit/bin/
