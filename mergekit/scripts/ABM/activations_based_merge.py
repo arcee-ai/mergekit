@@ -16,8 +16,8 @@ from mergekit.options import MergeOptions, add_merge_options
 
 
 @click.command("mergekit-activation-based-merge")
-@click.argument("model_path", type=str, help="Path to the anchor model")
-@click.argument("secondary_model_path", type=str, help="Path to the secondary model")
+@click.argument("model_path", type=str)
+@click.argument("secondary_model_path", type=str)
 @click.argument("merge_unmerge_directory", type=str)
 @click.option("--out-path", "-o", required=True, type=str, help="Output model path")
 @click.option(
