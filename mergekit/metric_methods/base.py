@@ -29,28 +29,10 @@ class MetricMethod(MergeMethod):
     pass
 
 # Structure of the results object
-# OLD
+
 
 # Results
-# └── layers: Dict[str, Layer]
-#     └── Layer
-#         ├── weight_info: WeightInfo
-#         └── metrics: Dict[str, List[Metric]]
-#             └── Metric
-#                 ├── histogram: Optional[Histogram]
-#                 ├── mean_std: Optional[MeanStd]
-#                 ├── heatmap: Optional[Heatmap]
-#                 └── model_ref: Optional[ModelReference]
-
-# Each Layer stores metrics under a key (e.g. 'cosine_similarity') in a dictionary.
-# The values stored under each key are a **list** of Metric objects. This is to allow for a single metric type to be computed for each model.
-    # For metrics which compare between models, (e.g. cosine similarity) the list will contain a single Metric object storing the comparison data.
-    # For metrics which analyse individual models, (e.g. intrinsic dimension) the list will contain a Metric object for each model.
-
-# New
-
-# Results
-# ├── model_ref: Optional[List[ModelReference]] # One for individual model, two for comparison
+# ├── model_path: Optional[List[str]] # One for individual model, two for comparison
 # └── layers: Dict[str, Layer]
 #     └── Layer
 #         ├── weight_info: WeightInfo (remove?)
@@ -117,10 +99,6 @@ class Layer:
         else:
             raise ValueError(f"Metric with name {name} already exists in layer {self.weight_info.layer_name}.")
 
-    # def add_metric_list(self, metric_list: List[Metric], name: str):
-    #     for metric in metric_list:
-    #         self.add_metric(metric, name)
-
 def expand_to_fit(all_layer_names: List[str], values: List[float], subset_layer_names: List[str]) -> List[float]:
     """
     Expands a list of values to fit a larger list of layer names, filling in missing values with None.
@@ -150,16 +128,14 @@ class Results:
     def __init__(self):
         self.layers: Dict[str, Layer] = {}
         self.across_layer_metrics: Dict[str, Metric] = {}
-        self.model_refs: Optional[List[ModelReference]] = None
+        self.model_paths: Optional[List[str]] = None
  
     def add_layer(self, layer: Layer, name: str):
         if name not in self.layers.keys():
             self.layers[name] = layer
 
-    # def get_metric(self, layer_name: str, metric_name: str) -> Metric:
-    #     return self.get_layer(layer_name, metric_name) # Doesnt' Work! (X)
-    def load_metrics(self, metrics: List[Tuple[Task, Layer]], model_refs: Optional[List[ModelReference]] = None):
-        self.model_refs = model_refs
+    def load_metrics(self, metrics: List[Tuple[Task, Layer]], model_paths: Optional[List[str]] = None):
+        self.model_paths = model_paths
         for task, metric in metrics:
             if metric is not None:
                 self.add_layer(metric, name=task.weight_info.name)
@@ -169,22 +145,13 @@ class Results:
         means, stds = [],[]
 
         available_line_plots = self.available_plot_types(PlotType.MEAN_STD.value)
-        assert metric_name in available_line_plots, f"Metric {metric_name} does not have mean/std data available."
+        if metric_name not in available_line_plots:
+            return [], []
 
         layers_with_data = available_line_plots[metric_name]
         means = [self.layers[layer].metrics[metric_name].mean_std.mean for layer in layers_with_data]
         stds = [self.layers[layer].metrics[metric_name].mean_std.std for layer in layers_with_data]
 
-        # for name, layer in self.layers.items():
-        #     if metric_name in layer.metrics:    
-        #         # for model_result in layer.metrics[metric_name]:
-        #             # model_ref = model_result.model_refs if model_result.model_refs else 'all'
-        #         means.append(layer.metrics[metric_name].mean_std.mean)
-        #         stds.append(layer.metrics[metric_name].mean_std.std)
-        #         layers.append(name)
-
-        # # means_list, stds_list, model_references = list(means.values()), list(stds.values()), list(means.keys())
-        # # for i, model_ref in enumerate(model_references):
         means = expand_to_fit(all_layer_names=list(self.layers.keys()), values=means, subset_layer_names=layers_with_data)
         stds = expand_to_fit(all_layer_names=list(self.layers.keys()), values=stds, subset_layer_names=layers_with_data)
 
@@ -241,7 +208,6 @@ class Results:
         print("Available Metrics Summary:")
         for metric, info in metric_info.items():
             print(f"\nMetric: {metric}")
-            # print(f"  Available in layers: {', '.join(info['layers'])}")
             print(f"  Has mean/std: {'Yes' if info[PlotType.MEAN_STD.value] else 'No'}")
             print(f"  Has histogram: {'Yes' if info[PlotType.HISTOGRAM.value] else 'No'}")
             print(f"  Has heatmap: {'Yes' if info[PlotType.HEATMAP.value] else 'No'}")
@@ -260,7 +226,7 @@ class Results:
             pickle.dump(self, f)
 
     def load(self, path: str):
-        path_obj = Path(path)
+        path_obj = Path(path).resolve()
         if path_obj.exists() and path_obj.is_file():
             with open(path_obj, 'rb') as f:
                 results = pickle.load(f)

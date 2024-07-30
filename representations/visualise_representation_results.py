@@ -3,15 +3,16 @@ from mergekit.plot_tools.plot_tools import create_app, ResultsHandler
 from mergekit.metric_methods.base import Results
 
 @click.command()
-@click.option('--results_path', 
-              default="./representations/results.pkl", 
+@click.option('--input_dir', 
+              default="/Users/elliotstein/Documents/Arcee/mergekit/representations/results_to_visualise", 
               help="path to load the results from.")
-def main(results_path):
-    results = Results()
-    results = results.load(results_path)
-
+def main(input_dir):
     handler = ResultsHandler()
-    handler.load_results(results)
+    for res in Path(input_dir).iterdir():
+        results = Results()
+        results = results.load(res.absolute())
+
+        handler.load_results(results)
 
     app = create_app(results_handler=handler)
     app.run_server()

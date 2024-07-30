@@ -1,3 +1,4 @@
+#%%
 import torch
 import h5py
 import numpy as np
@@ -6,214 +7,12 @@ import yaml
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from tqdm import tqdm
-import torch.nn.functional as F
 
-from mergekit.metric_methods.base import MeanStd, Heatmap, Histogram, Metric, Results, Layer, ScatterPlot
-from mergekit.metric_methods.metrics import cosine_similarity, smape, scale, mse, weight_magnitude, numerical_rank, compute_histogram, cosine_similarity_heatmap
-
-import math
-from sklearn.manifold import TSNE
+from mergekit.metric_methods.base import Results, Layer
+from mergekit.metric_methods.aggregator_metrics import ModelAnalysisType, LayerComparisonType, METRICS_TABLE
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ModelReference
-from mergekit.merge_methods.base import MergeMethod
 
-class MetricAggregator:
-    def process_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
-        raise NotImplementedError
-
-    def aggregate(self) -> Metric:
-        raise NotImplementedError
-
-    def clear(self) -> None:
-        raise NotImplementedError
-
-class Cosine_Similarity(MetricAggregator):
-    def __init__(self, device: str = "cpu"):
-        self.device = device
-        self.cosine_similarities = torch.tensor([], device=self.device)
-
-    def process_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
-        batch_similarities = F.cosine_similarity(batch_a, batch_b, dim=1)
-        self.cosine_similarities = torch.cat((self.cosine_similarities, batch_similarities))
-
-    def aggregate(self) -> Metric:
-        hist = compute_histogram(self.cosine_similarities, 100)        
-        mean_std=MeanStd(
-                mean=self.cosine_similarities.mean().item(), 
-                std=self.cosine_similarities.std().item()
-                )
-        histogram=Histogram(
-                count=hist[0],
-                edges=hist[1],
-                widths=hist[2]
-            )
-        self.clear()
-        return Metric(
-            histogram=histogram,
-            mean_std=mean_std
-        )
-
-    def clear(self) -> None:
-        self.cosine_similarities = torch.tensor([], device=self.device)
-
-class MSE(MetricAggregator):
-    def __init__(self, device: str = "cpu"):
-        self.device = device
-        self.square_errors = torch.tensor([], device=self.device)
-
-    def process_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
-        batch_square_errors = torch.square(batch_a - batch_b).flatten()
-        self.square_errors = torch.cat((self.square_errors, batch_square_errors))
-
-    def aggregate(self) -> Metric:
-        hist = compute_histogram(self.square_errors, 100)
-        mean_std=MeanStd(
-                mean=self.square_errors.mean().item(),
-                std=self.square_errors.std().item()
-            )
-        histogram=Histogram(
-                count=hist[0],
-                edges=hist[1],
-                widths=hist[2]
-            )
-        self.clear()
-        return Metric(
-            histogram=histogram,
-            mean_std=mean_std
-        )
-
-    def clear(self) -> None:
-        self.square_errors = torch.tensor([], device=self.device)
-
-class Linearity_Score(MetricAggregator):
-    def __init__(self, device: str = "cpu"):
-        self.device = device
-        self.iterations = 0
-        self.max_iterations = 250
-        self.A = None
-        self.optimiser = None
-        self.initialised = False
-        self.done = False
-        self.losses = []
-
-        self.absolute_square_sum = 0
-        self.num_elements = 0
-
-    def _first_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
-        batch_size, dimension = batch_a.size()
-
-        self.A = torch.empty(dimension, dimension, device=self.device)
-        torch.nn.init.normal_(self.A)
-        self.A = torch.nn.Parameter(self.A)
-
-        self.optimiser = torch.optim.SGD([self.A], lr=0.0001)  
-        self.initialised = True
-
-    def process_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
-        batch_a = batch_a / torch.norm(batch_a, dim=1, keepdim=True)
-        batch_b = batch_b / torch.norm(batch_b, dim=1, keepdim=True) # Check dimensionality (X)
-        if not self.initialised:
-            self._first_batch(batch_a, batch_b)
-        if self.done: # stop training A and evaluate
-            residuals = batch_a @ self.A - batch_b
-            self.absolute_square_sum += torch.abs(residuals).sum().item()
-            self.num_elements += residuals.numel()
-
-        else:
-
-            loss = torch.norm(batch_a @ self.A - batch_b) ** 2
-            loss.backward()
-            self.losses.append(loss.item())
-            print(f'Loss: {loss.item()}')
-            self.optimiser.step()
-
-            self.iterations += 1
-
-            if self.iterations >= self.max_iterations:
-                self.done = True
-    
-    def aggregate(self) -> Metric:
-        linearity_score = 1 - self.absolute_square_sum / self.num_elements
-        self.clear()
-        return Metric(mean_std=MeanStd(mean=linearity_score)) 
-
-    def clear(self) -> None:
-        pass
-
-class _CKA(object):
-    # Class from https://github.com/jayroxis/CKA-similarity/blob/main/CKA.py
-    def __init__(self):
-        pass
-
-    def centering(self, K):
-        n = K.shape[0]
-        unit = np.ones([n, n])
-        I = np.eye(n)
-        H = I - unit / n
-        return np.dot(np.dot(H, K), H)
-
-    def rbf(self, X, sigma=None):
-        GX = np.dot(X, X.T)
-        KX = np.diag(GX) - GX + (np.diag(GX) - GX).T
-        if sigma is None:
-            mdist = np.median(KX[KX != 0])
-            sigma = math.sqrt(mdist)
-        KX *= -0.5 / (sigma * sigma)
-        KX = np.exp(KX)
-        return KX
-
-    def kernel_HSIC(self, X, Y, sigma):
-        return np.sum(
-            self.centering(self.rbf(X, sigma)) * self.centering(self.rbf(Y, sigma))
-        )
-
-    def linear_HSIC(self, X, Y):
-        L_X = X @ X.T
-        L_Y = Y @ Y.T
-        return np.sum(self.centering(L_X) * self.centering(L_Y))
-
-    def linear_CKA(self, X, Y):
-        hsic = self.linear_HSIC(X, Y)
-        var1 = np.sqrt(self.linear_HSIC(X, X))
-        var2 = np.sqrt(self.linear_HSIC(Y, Y))
-
-        return hsic / (var1 * var2)
-
-    def kernel_CKA(self, X, Y, sigma=None):
-        hsic = self.kernel_HSIC(X, Y, sigma)
-        var1 = np.sqrt(self.kernel_HSIC(X, X, sigma))
-        var2 = np.sqrt(self.kernel_HSIC(Y, Y, sigma))
-
-        return hsic / (var1 * var2)
-
-class CKA(MetricAggregator):
-    def __init__(self, device: str = "cpu"):
-        self.device = device
-        self.cka = _CKA()
-        
-    def process_dataset(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
-        self.result = self.cka.linear_CKA(batch_a.cpu().numpy(), batch_b.cpu().numpy())
-    
-    def aggregate(self) -> Metric:
-        return Metric(mean_std=MeanStd(mean=self.result))
-
-class t_SNE(MetricAggregator):
-    def __init__(self, device: str = "cpu"):
-        self.device = device
-        self.tsne = TSNE(n_components=2, random_state=42)
-
-    def process_dataset(self, data: torch.Tensor) -> None:
-        self.result = self.tsne.fit_transform(data.cpu().numpy())
-
-    def aggregate(self) -> Metric:
-        return Metric(
-            scatter_plot=ScatterPlot(
-                x=self.result[:, 0],
-                y=self.result[:, 1],
-            )
-        )
-        
 class LayerByIndex:
     def __init__(self, reps_path: str):
         self.reps_path = reps_path
@@ -238,13 +37,49 @@ class LayerByIndex:
     def __iter__(self):
         return iter(self.representations[layer] for layer in self.layers)
     
-def compare_representations(reps_path_a: str, reps_path_b: str,
-                            metrics_classes: Dict[str, MetricAggregator], device: str, results: Results) -> Dict[str, Any]:
-    if results is None:
-        results = Results()
+def valid_experiment(analysis_type, comparison_type):
+    if comparison_type == LayerComparisonType.ALL_LAYERS:
+        raise ValueError("Comparison type 'all_layers' is not supported")
+    if analysis_type == ModelAnalysisType.COMPARISON and comparison_type in [LayerComparisonType.BLOCK, LayerComparisonType.SINGLE]:
+        raise ValueError("Comparison type 'single' and 'block' only supported for individual analysis")
+    if analysis_type == ModelAnalysisType.INDIVIDUAL and comparison_type == LayerComparisonType.CORRESPONDING_LAYERS:
+        raise ValueError("Comparison type 'corresponding' only supported for comparison analysis")
 
-    with LayerByIndex(reps_path_a) as representations_a, \
-            LayerByIndex(reps_path_b) as representations_b:
+# Experiment Loops
+def single(representations_path, metric_classes, results, device='cpu'):
+    if not results:
+        results = Results()
+    with LayerByIndex(representations_path) as representations:
+        for layer in tqdm(representations, desc='Analysing Layer', 
+                                     total=len(representations), leave=False, initial = 1):
+            layer_name = layer.name.split('/')[-1]
+            num = f"{int(layer_name.split('_')[-1]):03d}"
+            layer_name = f"Layer {num}"
+            metrics = [metric_class(device=device) for metric_class in metric_classes]
+
+            for batch in tqdm(layer, desc='Batch', 
+                                     total=len(layer), leave=False, initial = 1):
+                batch = torch.tensor(layer[batch][:], device=device)
+                
+                # Calculate the metrics for each batch
+                for metric in metrics:
+                    metric.process_batch(batch)
+
+            layer_results = Layer(WeightInfo(name=layer_name))
+            # Aggregate over the batches and add to the layer results
+            for metric in metrics:
+                layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
+                # metric.clear()
+            
+            results.add_layer(layer_results, layer_name)
+
+    return results
+
+def corresponding(representations_path_0, representation_path_1, metric_classes, results, device='cpu'):
+    if not results:
+        results = Results()
+    with LayerByIndex(representations_path_0) as representations_a, \
+            LayerByIndex(representation_path_1) as representations_b:
 
         for layer_a, layer_b in tqdm(zip(representations_a, representations_b), 
                                     desc='Comparing Representations at layer', 
@@ -254,8 +89,10 @@ def compare_representations(reps_path_a: str, reps_path_b: str,
             layer_b_name = layer_b.name.split('/')[-1]
             if layer_a_name != layer_b_name:
                 raise ValueError(f'Layer mismatch: {layer_a_name} != {layer_b_name}')
+            num = f"{int(layer_a_name.split('_')[-1]):03d}"
+            layer_name = f"Layer {num}"
 
-            metrics = [metric_class(device=device) for metric_class in metrics_classes.values()]
+            metrics = [metric_class(device=device) for metric_class in metric_classes]
 
             for batch_a, batch_b in tqdm(zip(layer_a, layer_b), 
                                         desc='Batch', total=len(layer_a), leave=False, initial = 1):
@@ -266,28 +103,28 @@ def compare_representations(reps_path_a: str, reps_path_b: str,
                 for metric in metrics:
                     metric.process_batch(batch_a, batch_b)
 
-            layer_results = Layer(WeightInfo(name=layer_a_name))
+            layer_results = Layer(WeightInfo(name=layer_name))
             # Aggregate over the batches and add to the layer results
             for metric in metrics:
                 layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
-                metric.clear()
+                # metric.clear()
 
-            results.add_layer(layer_results, layer_a_name)
+            results.add_layer(layer_results, layer_name)
+    return results
 
-        return results
-
-def compute_skip_block_metrics(reps_path: str, skip_layers: int, 
-                               metric_classes: List[MetricAggregator], device: str) -> Results:
-    results = Results()
-    with LayerByIndex(reps_path) as reps:
-        for idx, block_start in tqdm(enumerate(reps), desc=f'Comparing {skip_layers}-block, Block Start at Layer', 
-                                     total=len(reps) - skip_layers, leave=False, initial = 1):
-            if idx + skip_layers >= len(reps):
+def block(representations_path, block_size, metric_classes, results, device='cpu'):
+    if not results:
+        results = Results()
+    out = {metric().__class__.__name__.lower(): [] for metric in metric_classes}
+    with LayerByIndex(representations_path) as reps:
+        for idx, block_start in tqdm(enumerate(reps), desc=f'Comparing {block_size}-block, Block Start at Layer', 
+                                     total=len(reps) - block_size, leave=False, initial = 1):
+            if idx + block_size >= len(reps):
                 break
 
             # Create metrics
             metrics = [metric_class(device=device) for metric_class in metric_classes]
-            block_end = reps[idx + skip_layers]
+            block_end = reps[idx + block_size]
 
             for batch_0, batch_1 in tqdm(zip(block_start, block_end), desc='Batch', 
                                          total=len(block_start), leave=False, initial = 1):
@@ -298,107 +135,145 @@ def compute_skip_block_metrics(reps_path: str, skip_layers: int,
                     metric.process_batch(batch_0, batch_1)
             
             # Aggregate metrics and add to results
-            layer_results = Layer(WeightInfo(name=f"Layer {idx}"))
+            layer_results = Layer(WeightInfo(name=f"Block {idx} size {block_size}"))
             for metric in metrics:
-                layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
+                # layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
+                out[metric.__class__.__name__.lower()].append(metric.aggregate())
 
-            results.add_layer(layer_results, f"Layer {idx}")
+            results.add_layer(layer_results, f"Block {idx} size {block_size}")
+    for metric in out:
+        out[metric] = np.array(out[metric])
+    return out
+
+def all_layers(representations_path_0, representations_path_1, metric_classes, results, device='cpu'):
+    if not results:
+        results = Results()
+    with LayerByIndex(representations_path_0) as reps_0, LayerByIndex(representations_path_1) as reps_1:
+        for idx_0, layer_0 in enumerate(tqdm(reps_0, desc='Model 0 Layers', 
+                                     total=len(reps_0), leave=False, initial = 1)):
+            for idx_1, layer_1 in enumerate(tqdm(reps_1, desc='Model 1 Layers', 
+                                     total=len(reps_1), leave=False, initial = 1)):
+                if len(layer_0) != len(layer_1):
+                    raise ValueError(f'Layer mismatch: {len(layer_0)} != {len(layer_1)}')
+
+                metrics = [metric_class(device=device) for metric_class in metric_classes]
+
+                for batch_0, batch_1 in tqdm(zip(layer_0, layer_1), desc='Batch', 
+                                         total=len(layer_0), leave=False, initial = 1):
+                    batch_0 = torch.tensor(layer_0[batch_0][:]).to(device)
+                    batch_1 = torch.tensor(layer_1[batch_1][:]).to(device)
+                    
+                    for metric in metrics:
+                        metric.process_batch(batch_0, batch_1)
+                
+                layer_results = Layer(WeightInfo(name=f"Layer {idx_0} - Layer {idx_1}"))
+                for metric in metrics:
+                    layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
+
+                results.add_layer(layer_results, f"Layer {idx_0} - Layer {idx_1}")
 
     return results
 
-def results_list_to_heatmap(all_results, metric_names:List[str]) -> dict:
-    rows = len(all_results)
-    cols = max([len(result.layers) for result in all_results])
-    heatmaps = {}
-    for metric_name in metric_names:
-        heatmap = np.full((rows, cols), np.nan)
-
-        for i, result in enumerate(all_results):
-            for j, layer in enumerate(result.layers):
-                heatmap[i, j] = result.layers[layer].metrics[metric_name][0].mean_std.mean
-        heatmaps[metric_name] = Heatmap(data=heatmap,
-                                        update_layout_options = {
-                                            'xaxis_title': 'Layer Number',
-                                            'yaxis_title': 'Block Size',
-                                        })
-    return heatmaps
-
-METRICS_TABLE = {
-    'cosine_similarity': Cosine_Similarity,
-    'mse': MSE,
-    'linearity_score': Linearity_Score,
-    'cka': CKA,
-    't-sne': t_SNE
-}
-
 @click.command()
-@click.option('--config_yml', default="./representations/config.yml", help='Merge configuration file.')
-def main(config_yml: str):
+@click.option('--config_yml', default="./representations/config.yml", help='path to the configuration file.')
+def main(config_yml: str = "config.yml"):
     with open(config_yml, "r", encoding="utf-8") as fp:
         config = yaml.safe_load(fp)
 
-    model_paths = config['representation_paths']
+    
+    representation_paths = [Path(model_path) for model_path in config['representation_paths']]
     metrics_toggle = config['metrics']
-    skip_layers = config['block_analysis_parameters']['skip_layers']
+    analysis_type = ModelAnalysisType(config['analysis_type'])
+    comparison_type = LayerComparisonType(config['comparison_type'])
 
-    use_metrics = {name: METRICS_TABLE[name] for name, enabled in metrics_toggle.items() if enabled}
+    out_dir = representation_paths[0].parent.parent / 'stored_results'
 
-    device = torch.device("cuda" if torch.cuda.is_available() else 
-                          "mps" if torch.backends.mps.is_available() else "cpu")
+
+
+    device = 'cuda' if torch.cuda.is_available() else \
+             'mps' if torch.backends.mps.is_available() else \
+             'cpu'
+
+
+    use_metrics = {name: METRICS_TABLE[name] 
+                   for name, enabled in metrics_toggle.items() 
+                   if enabled}
+
+
+    valid_experiment(analysis_type, comparison_type)
+
+    final_results = []
+    if analysis_type == ModelAnalysisType.INDIVIDUAL:
+        out_paths = [out_dir / f"{str(rep).split('/')[-1].split('.')[0]}+{str(list(use_metrics.keys()))}.json" for rep in representation_paths]
+        for out_path in out_paths:
+            assert not Path(out_path).exists(), f'{out_path} already exists.'
+        for representation_path in representation_paths:
+            individual_results = Results()
+            individual_results.model_paths = [representation_path]
+
+            if not representation_path.exists():
+                raise FileNotFoundError(f"Representation file {representation_path} not found")
+
+            if comparison_type == LayerComparisonType.SINGLE:
+                metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.SINGLE.value]]
+                individual_results = single(representation_path, 
+                                        metrics, 
+                                        results=individual_results, 
+                                        device=device)
+
+            if comparison_type == LayerComparisonType.BLOCK:
+                metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.BLOCK.value]]
+                heatmaps = {}
+                for metric in metrics:
+                    heatmaps[metric().__class__.__name__.lower()] = np.array([])
+                for block_size in range(1, 9):
+                    block_res = block(representations_path=representation_path, 
+                                        block_size=block_size, 
+                                        metric_classes=metrics, 
+                                        results=individual_results, 
+                                        device=device)
+                    for metric in metrics:
+                        heatmaps[metric().__class__.__name__.lower()] = np.append(heatmaps[metric().__class__.__name__.lower()], block_res[metric().__class__.__name__.lower()])
+                
+                for metric in metrics:
+                    result.across_layer_metrics[metric.__class__.__name__.lower()] = heatmaps[metric.__class__.__name__.lower()] # Definitely a simpler way to code this (X)
+
+            if comparison_type == LayerComparisonType.CORRESPONDING_LAYERS:
+                metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.CORRESPONDING_LAYERS.value]]
+                individual_results = corresponding(representations_path_0=representation_path,
+                                                    representation_path_1=representation_path,
+                                                    metric_classes=metrics,
+                                                    results=individual_results,
+                                                    device=device)
+
+            final_results.append(individual_results)
     
-    for path in model_paths:
-        if not Path(path).exists():
-            raise FileNotFoundError(f"File not found: {path}")
+    if analysis_type == ModelAnalysisType.COMPARISON:
+        out_paths = [out_dir / f"/{str([str(rep).split('/')[-1].split('.')[0] for rep in representation_paths])}+{str(list(use_metrics.keys()))}.json"]
+        assert not Path(out_path).exists(), f'{out_path} already exists.'
 
-    all_results = Results()
-    if config['compare_between_models']:
-        if len(model_paths) != 2:
-            raise ValueError("Expected 2 model paths for comparison")
+        comparison_results = Results()
+        comparison_results.model_paths = representation_paths
 
-        all_results = compare_representations(model_paths[0], model_paths[1], 
-                                              metrics_classes=use_metrics, device=device, results=all_results)
+        if comparison_type == LayerComparisonType.CORRESPONDING_LAYERS:
+            metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.CORRESPONDING_LAYERS.value]]
+            comparison_results = corresponding(representations_path_0=representation_paths[0],
+                                                representation_path_1=representation_paths[1],
+                                                metric_classes=metrics,
+                                                results=comparison_results,
+                                                device=device)
+        if comparison_type == LayerComparisonType.ALL_LAYERS:
+            metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.ALL_LAYERS.value]]
+            comparison_results = all_layers(representations_path_0=representation_paths[0],
+                                    representations_path_1=representation_paths[1],
+                                    metric_classes=metrics,
+                                    results=comparison_results,
+                                    device=device)
+        final_results.append(comparison_results)
 
-    if config['block_analysis']:
-        for reps_path in tqdm(model_paths, desc='Model', leave=False, total=len(model_paths), initial = 1):
-            results_list = []
-            metric_classes = list(use_metrics.values())
-            for skip_layer in tqdm(skip_layers, desc='Skip Layers', initial = 1):
-                results_list.append(
-                    compute_skip_block_metrics(reps_path, skip_layer, metric_classes=metric_classes, device=device)
-                    )
+    for result, out_path in zip(final_results, out_paths):
+        result.save(out_path) #SAVE AS WE GO, NOT ALL AT THE END (X)
             
-            heatmaps = results_list_to_heatmap(results_list, metric_names=[metric.__name__.lower() for metric in metric_classes])
-            for metric_name, heatmap in heatmaps.items():
-                all_results.across_layer_metircs[reps_path + '||' + metric_name] = heatmap # Address this - new implementation only ever has one model per results object
-    
-    if config['analyse_individually']:
-        results = Results()
-        for reps_path in tqdm(model_paths, desc='Model', leave=False, total=len(model_paths), initial = 1):
-            with LayerByIndex(reps_path) as reps:
-                for i, layer in enumerate(tqdm(reps, desc='Layer', leave=False, initial = 1)):
-                    layer_name = f'Layer_{i:03d}'
-                    layer_results = Layer(WeightInfo(name=layer_name))
-                    for metric_name, metric_class in use_metrics.items():
-                        metric = metric_class(device=device)
-                        # Want automatic choice of metrics according to whether it requires batches or single data.
-                        # For now only accept metrics that require single data.
-                        if not hasattr(metric, 'process_dataset'):
-                            print(f'{metric_name} does not support dataset processing')
-                            continue
-                        collect_batches = []
-                        for batch in tqdm(layer, desc='Batch', leave=False, initial = 1):
-                            batch = torch.tensor(layer[batch][:]).to(device)
-                            collect_batches.append(batch)
-                            if len(collect_batches) == 32:
-                                single_data = torch.cat(collect_batches) # check dimensionality
-                                metric.process_dataset(single_data)
-                                continue
-                        layer_results.add_metric(metric.aggregate(), metric_name)
-                    results.add_layer(layer_results, name=layer_name)
-                    results.save(f'results.pkl')
-    # all_results.save('results.pkl')
 
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
