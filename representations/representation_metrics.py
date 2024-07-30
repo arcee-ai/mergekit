@@ -11,6 +11,8 @@ import torch.nn.functional as F
 from mergekit.metric_methods.base import MeanStd, Heatmap, Histogram, Metric, Results, Layer, ScatterPlot
 from mergekit.metric_methods.metrics import cosine_similarity, smape, scale, mse, weight_magnitude, numerical_rank, compute_histogram, cosine_similarity_heatmap
 
+import math
+from sklearn.manifold import TSNE
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ModelReference
@@ -139,7 +141,6 @@ class Linearity_Score(MetricAggregator):
     def clear(self) -> None:
         pass
 
-import math
 class _CKA(object):
     # Class from https://github.com/jayroxis/CKA-similarity/blob/main/CKA.py
     def __init__(self):
@@ -197,9 +198,6 @@ class CKA(MetricAggregator):
     def aggregate(self) -> Metric:
         return Metric(mean_std=MeanStd(mean=self.result))
 
-
-from sklearn.manifold import TSNE
-
 class t_SNE(MetricAggregator):
     def __init__(self, device: str = "cpu"):
         self.device = device
@@ -216,7 +214,6 @@ class t_SNE(MetricAggregator):
             )
         )
         
-
 class LayerByIndex:
     def __init__(self, reps_path: str):
         self.reps_path = reps_path
@@ -379,7 +376,7 @@ def main(config_yml: str):
         for reps_path in tqdm(model_paths, desc='Model', leave=False, total=len(model_paths), initial = 1):
             with LayerByIndex(reps_path) as reps:
                 for i, layer in enumerate(tqdm(reps, desc='Layer', leave=False, initial = 1)):
-                    layer_name = f'Layer_{i}'
+                    layer_name = f'Layer_{i:03d}'
                     layer_results = Layer(WeightInfo(name=layer_name))
                     for metric_name, metric_class in use_metrics.items():
                         metric = metric_class(device=device)
