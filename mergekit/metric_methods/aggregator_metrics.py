@@ -20,8 +20,8 @@ class ModelAnalysisType(enum.Enum):
 class LayerComparisonType(enum.Enum):
     SINGLE = "single" # Analyse Layer i
     BLOCK = "block" # Compare Layer i in model 1 with layer i+(block size) in model 1
-    CORRESPONDING_LAYERS = "corresponding" # Compare Layer i in model 1 with layer i in model 2
-    ALL_LAYERS = "all_layers" # Compare Layer i in model 1 with Layer j in model (1 or 2)
+    CORRESPONDING = "corresponding" # Compare Layer i in model 1 with layer i in model 2
+    ALL = "all_layers" # Compare Layer i in model 1 with Layer j in model (1 or 2)
 
 class MetricAggregator():
     def __init__(self, device: str = "cpu"):
@@ -29,8 +29,8 @@ class MetricAggregator():
         self.valid_for = {
             LayerComparisonType.SINGLE.value: False,
             LayerComparisonType.BLOCK.value: False,
-            LayerComparisonType.CORRESPONDING_LAYERS.value: False,
-            LayerComparisonType.ALL_LAYERS.value: False
+            LayerComparisonType.CORRESPONDING.value: False,
+            LayerComparisonType.ALL.value: False
         }
 
     def process_batch(self, batch_a: torch.Tensor, batch_b: Optional[torch.Tensor]) -> None:
@@ -48,8 +48,8 @@ class Cosine_Similarity(MetricAggregator):
         self.cosine_similarities = torch.tensor([], device=self.device)
         self.valid_for.update({
             LayerComparisonType.BLOCK.value: True,
-            LayerComparisonType.CORRESPONDING_LAYERS.value: True,
-            LayerComparisonType.ALL_LAYERS.value: True
+            LayerComparisonType.CORRESPONDING.value: True,
+            LayerComparisonType.ALL.value: True
         })
 
     def process_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
@@ -82,7 +82,7 @@ class MSE(MetricAggregator):
         self.square_errors = torch.tensor([], device=self.device)
         self.valid_for.update({
             LayerComparisonType.BLOCK.value: True,
-            LayerComparisonType.CORRESPONDING_LAYERS.value: True,
+            LayerComparisonType.CORRESPONDING.value: True,
         })
 
     def process_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
@@ -223,8 +223,8 @@ class CKA(MetricAggregator):
 
         self.valid_for.update({
             LayerComparisonType.BLOCK.value: True,
-            LayerComparisonType.CORRESPONDING_LAYERS.value: True,
-            LayerComparisonType.ALL_LAYERS.value: True
+            LayerComparisonType.CORRESPONDING.value: True,
+            LayerComparisonType.ALL.value: True
         })
 
     def process_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:

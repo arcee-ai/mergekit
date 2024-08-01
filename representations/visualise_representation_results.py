@@ -16,6 +16,6 @@ def main(input_dir):
 
 if __name__ == '__main__':
     mergekit_root = Path(__file__).parent.parent
-    input_dir = mergekit_root / 'representations' / 'stored_results'
+    input_dir = mergekit_root / 'representations' / 'results_to_visualise'
 
     main(input_dir)

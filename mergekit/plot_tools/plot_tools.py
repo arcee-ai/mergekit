@@ -11,6 +11,7 @@ from dash.dependencies import Input, Output, State
 from mergekit.metric_methods.all_metrics import Layer
 from mergekit.metric_methods.base import Results, PlotType
 from mergekit.common import ModelReference
+from plotly.subplots import make_subplots
 
 global_colours_list = ['blue', 'red', 'green', 'purple', 'orange', 'pink']
 global_shapes_list = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up', 'triangle-down', 'pentagon', 'hexagon', 'star']
@@ -39,11 +40,11 @@ class ResultsHandler:
         
         for plot_type in self.available_layer_plots.keys():
 
-            # if self.inter_model_results is not None:
-            self.available_layer_plots[plot_type] += list(self.inter_model_results.available_plot_types(plot_type).keys())
-            # if self.inter_model_results is not None:
-            for model_path, results in self.intra_model_results.items():
-                self.available_layer_plots[plot_type] += list(results.available_plot_types(plot_type).keys())
+            if self.inter_model_results is not None:
+                self.available_layer_plots[plot_type] += list(self.inter_model_results.available_plot_types(plot_type).keys())
+            if self.intra_model_results is not None:
+                for model_path, results in self.intra_model_results.items():
+                    self.available_layer_plots[plot_type] += list(results.available_plot_types(plot_type).keys())
                 
             self.available_layer_plots[plot_type] = list(set(self.available_layer_plots[plot_type]))
         
@@ -132,7 +133,7 @@ class ResultsHandler:
         
         return self.get_traces(data, plot_type) # Can prob use type of data to determine plot type (X)
 
-    def get_traces(self, data:List, plot_type):
+    def get_traces(self, data:List, plot_type:str): # Can prob use type of data to determine plot type (X)
         if plot_type == PlotType.HEATMAP.value:
             traces = [go.Heatmap(
                 z=d.data,
@@ -195,10 +196,11 @@ class ResultsHandler:
                     for metric in self.inter_model_results.layers[layer_name].metrics_with_attribute(plot_type.value)]
                     )
             for result in self.all_results:
-                metric_options.extend([
-                    {"label": f"{metric.title()} {plot_type.value}", "value": [metric, plot_type.value]}
-                for metric in result.layers[layer_name].metrics_with_attribute(plot_type.value)]
-                )
+                if layer_name in result.layers:
+                    metric_options.extend([
+                        {"label": f"{metric.title()} {plot_type.value}", "value": [metric, plot_type.value]}
+                    for metric in result.layers[layer_name].metrics_with_attribute(plot_type.value)]
+                    )
                 break # Assuming all intra-model results have the same metrics
         return metric_options
 
@@ -251,13 +253,13 @@ def create_across_layers_section(results_handler):
     plot_sections = []
 
     for result in results:
-        if hasattr(result, 'across_layer_metrics'):
+        if getattr(result, 'across_layer_metrics', None):
             for metric_name, metric in result.across_layer_metrics.items():
-                for attr in ['histogram', 'heatmap', 'scatter_plot']:
-                    if hasattr(metric, attr):
+                for plot_type in ['histogram', 'heatmap', 'scatter_plot']:
+                    if getattr(metric, plot_type, None): #(X) shouldn't need [0] - metric is being stored inside an array and shouldn't be!
                         plot_sections.append(html.Div([
-                            html.H3(f'{attr+metric_name.replace("_", " ").title()} {attr.replace("_", " ").title()}', style={'textAlign': 'center'}),
-                            dcc.Graph(id=f'{attr}-plot-{metric_name}', style={'width': '50%', 'height': '50%', 'position': 'relative'})
+                            html.H3(f'{plot_type+metric_name.replace("_", " ").title()} {plot_type.replace("_", " ").title()}', style={'textAlign': 'center'}),
+                            dcc.Graph(id=f"{plot_type}-plot-{metric_name}-{str(result.model_paths[0].name).split('__')[-1].split('.')[0]}", style={'width': '50%', 'height': '50%', 'position': 'relative'})
                         ], className='container-fluid'))
 
     return html.Div(plot_sections)
@@ -317,16 +319,7 @@ def register_callbacks(app, results_handler):
                 xaxis_title = "Value"
                 yaxis_title = "Count"
             
-            plot_function = {
-                'histogram': lambda layer_name, metric_name: results_handler.plotly_layer_plot(layer_name, metric_name, PlotType.HISTOGRAM.value),
-                'heatmap': lambda layer_name, metric_name: results_handler.plotly_layer_plot(layer_name, metric_name, PlotType.HEATMAP.value),
-                'scatter_plot': lambda layer_name, metric_name: results_handler.plotly_layer_plot(layer_name, metric_name, PlotType.SCATTER_PLOT.value)
-            }
-            
-            traces = plot_function[plot_type.lower()](
-                layer_name=layer_name,
-                metric_name=metric_name
-                )
+            traces = results_handler.plotly_layer_plot(layer_name, metric_name, plot_type)
             
             return create_figure(traces=traces,
                                  title=f"{plot_type.title()} for {layer_name} | {metric_name}", 
@@ -365,32 +358,26 @@ def register_callbacks(app, results_handler):
         return fig
 
     for result in results_handler.all_results:
-        if hasattr(result, 'across_layer_metrics'):
+        if getattr(result, 'across_layer_metrics', None):
             for metric_name, metric in result.across_layer_metrics.items():
                 for plot_type in ['histogram', 'heatmap', 'scatter_plot']:
-                    if hasattr(metric, plot_type):
-                        id=f'{plot_type}-plot-{metric_name}'
+                    if getattr(metric, plot_type, None): #(X) shouldn't need [0] - metric is being stored inside an array and shouldn't be!
+                        id=f"{plot_type}-plot-{metric_name}-{str(result.model_paths[0].name).split('__')[-1].split('.')[0]}"
 
                         @app.callback(
                             Output(id, 'figure'),
                             Input(id, 'id')
                         )
-                        def update_across_layers_plot(_id=id):
-                            metric_name = _id.split('-')[-1]
-                            plot_function = {
-                                'histogram': lambda metric_name: results_handler.plotly_layer_plot(metric_name, PlotType.HISTOGRAM),
-                                'heatmap': lambda metric_name: results_handler.plotly_layer_plot(metric_name, PlotType.HEATMAP),
-                                'scatter_plot': lambda metric_name: results_handler.plotly_layer_plot(metric_name, PlotType.SCATTER_PLOT)
-                            }.get(plot_type, 
-                                lambda *args, **kwargs: go.Figure())
-                            traces = plot_function(metric_name=metric_name)
+                        def update_across_layers_plot(_id=id, plot_type=plot_type, metric=metric):
+                            traces = results_handler.get_traces(data = [getattr(metric, plot_type)], plot_type = plot_type)
             
                             return create_figure(traces=traces,
                                                 title=f"{id} | {metric_name}", 
+                                                xaxis_title="Temp title",
+                                                yaxis_title=metric_name,
                                                 plot_type = plot_type
                                                 )
 
-from plotly.subplots import make_subplots
 def create_figure(traces, title, xaxis_title, yaxis_title, plot_type):
     if plot_type in ["scatter_plot", "heatmap"]:
         num_plots = len(traces)

@@ -12,9 +12,34 @@ from mergekit.architecture import WeightInfo
 from mergekit.metric_methods.base import Results, Layer
 from mergekit.metric_methods.aggregator_metrics import ModelAnalysisType, LayerComparisonType, METRICS_TABLE, MetricAggregator
 
-def check_memory(h5file):
+from mergekit.metric_methods.base import Heatmap, Metric
+
+def check_memory(h5file, h5file_2=None):
     # Check if full data can be loaded into memory
+    # Not yet implemented (X)
     return True
+
+def convert_to_2d_array(arrays):
+    """
+    Convert a list of 1D numpy arrays into a single 2D array.
+    
+    Parameters:
+    arrays (list of np.ndarray): List of 1D numpy arrays.
+    
+    Returns:
+    np.ndarray: 2D numpy array with dimensions N x max_length, filled with NaNs where necessary.
+    """
+    # Determine the length of the longest array
+    max_length = max(len(arr) for arr in arrays)
+
+    # Create an empty 2D array filled with NaNs
+    result = np.full((len(arrays), max_length), np.nan)
+
+    # Populate the 2D array with the values from the 1D arrays
+    for i, arr in enumerate(arrays):
+        result[i, :len(arr)] = arr
+
+    return result
 
 class LayerByIndex:
     def __init__(self, reps_path: str, load_into_memory: bool = True):
@@ -23,7 +48,8 @@ class LayerByIndex:
         self.layers = None
         self.load_into_memory = load_into_memory
         self.in_memory_data = None
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = 'cuda' if torch.cuda.is_available() else \
+                        'mps' if torch.backends.mps.is_available() else 'cpu'   
 
     def __enter__(self):
         self.representations = h5py.File(self.reps_path, 'r')
@@ -108,8 +134,6 @@ def corresponding(representations_0: LayerByIndex, representations_1: LayerByInd
                                 desc='Comparing Representations at layer', 
                                 total=len(representations_0), initial = 1):
         
-        # layer_0_name = layer_0.name.split('/')[-1]
-        # layer_1_name = layer_1.name.split('/')[-1]
         if layer_0_name != layer_1_name:
             raise ValueError(f'Layer mismatch: {layer_0_name} != {layer_1_name}')
         num = f"{int(layer_0_name.split('_')[-1]):03d}"
@@ -119,8 +143,6 @@ def corresponding(representations_0: LayerByIndex, representations_1: LayerByInd
 
         for batch_0, batch_1 in tqdm(zip(layer_0.values(), layer_1.values()), 
                                     desc='Batch', total=len(layer_0), leave=False, initial = 1):
-            # batch_0 = torch.tensor(layer_0[batch_0][:], device=device)
-            # batch_1 = torch.tensor(layer_1[batch_1][:], device=device)
             
             # Calculate the metrics for each batch
             for metric in metrics:
@@ -129,8 +151,7 @@ def corresponding(representations_0: LayerByIndex, representations_1: LayerByInd
         layer_results = Layer(WeightInfo(name=layer_name))
         # Aggregate over the batches and add to the layer results
         for metric in metrics:
-            layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
-            # metric.clear()
+            layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower()) # (X)
 
         results.add_layer(layer_results, layer_name)
     
@@ -149,9 +170,6 @@ def block(representations, block_size, metric_classes, device='cpu'):
 
             for batch_0, batch_1 in tqdm(zip(block_start.values(), block_end.values()), desc='Batch', 
                                          total=len(block_start), leave=False, initial = 1):
-                # batch_0 = torch.tensor(block_start[batch_0][:]).to(device)
-                # batch_1 = torch.tensor(block_end[batch_1][:]).to(device)
-                
                 for metric in metrics:
                     metric.process_batch(batch_0, batch_1)
             
@@ -159,8 +177,8 @@ def block(representations, block_size, metric_classes, device='cpu'):
             for metric in metrics:
                 out[metric.__class__.__name__.lower()].append(metric.aggregate())
 
-    for metric in out:
-        out[metric] = np.array(out[metric])
+    for metric_name, metric in out.items():
+        out[metric_name] = np.array([m.mean_std.mean for m in out[metric_name]])
     return out
 
 def all_layers(representations_0, representations_1, metric_classes, results, device='cpu'):
@@ -175,8 +193,6 @@ def all_layers(representations_0, representations_1, metric_classes, results, de
 
             for batch_0, batch_1 in tqdm(zip(layer_0.values(), layer_1.values()), desc='Batch', 
                                         total=len(layer_0), leave=False, initial = 1):
-                # batch_0 = torch.tensor(layer_0[batch_0][:]).to(device)
-                # batch_1 = torch.tensor(layer_1[batch_1][:]).to(device)
                 
                 for metric in metrics:
                     metric.process_batch(batch_0, batch_1)
@@ -202,7 +218,7 @@ class Configuration:
     @classmethod
     def from_dict(cls, config_dict: Dict):
         return cls(
-            representation_paths=list(config_dict['stored_representations'].iterdir()),
+            representation_paths=list([path for path in config_dict['representations_to_analyse'].iterdir() if path.suffix == '.h5']),
             metrics=config_dict['metrics'],
             analysis_type=ModelAnalysisType(config_dict['analysis_type']),
             comparison_type=LayerComparisonType(config_dict['comparison_type']),
@@ -282,26 +298,29 @@ class BlockExperiment(Experiment):
                    if enabled}
 
         metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.BLOCK.value]]
-        heatmaps = {}
         for representation_path in config.representation_paths:
+            heatmaps = {}
             block_results = Results()
             block_results.model_paths = [representation_path]
             if not representation_path.exists():
                 raise FileNotFoundError(f"Representation file {representation_path} not found")
             for metric in metrics:
-                heatmaps[metric().__class__.__name__.lower()] = np.array([])
+                heatmaps[metric().__class__.__name__.lower()] = []
             with LayerByIndex(representation_path, load_into_memory = check_memory(representation_path)) as representations:
-                for block_size in range(1, 9):
+                for block_size in range(1, 9): # (X)
                     block_res = block(representations=representations, 
                                         block_size=block_size, 
                                         metric_classes=metrics, 
                                         device=config.device)
                     for metric in metrics:
-                        heatmaps[metric().__class__.__name__.lower()] = np.append(heatmaps[metric().__class__.__name__.lower()], block_res[metric().__class__.__name__.lower()])
+                        heatmaps[metric().__class__.__name__.lower()].append(block_res[metric().__class__.__name__.lower()])
             
             for metric in metrics:
-                block_results.across_layer_metrics[metric().__class__.__name__.lower()] = heatmaps[metric().__class__.__name__.lower()] # Definitely a simpler way to code this (X)
-
+                block_results.across_layer_metrics[metric().__class__.__name__.lower()] = Metric(
+                    heatmap = Heatmap(
+                        data = convert_to_2d_array(heatmaps[metric().__class__.__name__.lower()]) # Definitely a simpler way to code this (X)
+                        )
+                    )
             out_path = config.out_dir / f"{str(representation_path).split('/')[-1].split('.')[0]}+{config.analysis_type}+{config.comparison_type}.json"
             block_results.save(out_path)
 
@@ -320,7 +339,9 @@ class AllLayersExperiment(Experiment):
                     (rep_0 != rep_1 and config.analysis_type == ModelAnalysisType.COMPARISON) and not stop):
                     if rep_0 != rep_1:
                         stop = True
-                    with LayerByIndex(rep_0) as representations_0, LayerByIndex(rep_1) as representations_1:
+                    load_into_memory = check_memory(rep_0, rep_1)
+                    with LayerByIndex(rep_0, load_into_memory) as representations_0, \
+                        LayerByIndex(rep_1, load_into_memory) as representations_1:
 
                         comparison_results = all_layers(representations_0=representations_0,
                                                 representations_1=representations_1,
