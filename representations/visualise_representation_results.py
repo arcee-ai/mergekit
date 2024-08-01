@@ -1,11 +1,8 @@
 import click
 from mergekit.plot_tools.plot_tools import create_app, ResultsHandler
 from mergekit.metric_methods.base import Results
+from pathlib import Path
 
-@click.command()
-@click.option('--input_dir', 
-              default="/Users/elliotstein/Documents/Arcee/mergekit/representations/results_to_visualise", 
-              help="path to load the results from.")
 def main(input_dir):
     handler = ResultsHandler()
     for res in Path(input_dir).iterdir():
@@ -18,4 +15,7 @@ def main(input_dir):
     app.run_server()
 
 if __name__ == '__main__':
-    main()
+    mergekit_root = Path(__file__).parent.parent
+    input_dir = mergekit_root / 'representations' / 'stored_results'
+
+    main(input_dir)

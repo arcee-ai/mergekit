@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 import numpy as np
 import torch
 from tqdm import tqdm
+import h5py
 
 from mergekit.architecture import WeightInfo
 from mergekit.metric_methods.base import Results, Layer
@@ -51,35 +52,39 @@ class LayerByIndex:
     def __len__(self) -> int:
         return len(self.layers)
 
+    # def __iter__(self):
+    #     if self.load_into_memory:
+    #         return ((layer, self.in_memory_data[layer]) for layer in self.layers)
+    #     else:
+    #         return ((layer, self.representations[layer]) for layer in self.layers)
     def __iter__(self):
         if self.load_into_memory:
-            return iter(self.in_memory_data[layer] for layer in self.layers)
+            return ((layer, self.in_memory_data[layer]) for layer in self.layers)
         else:
-            return iter(self.representations[layer] for layer in self.layers)
+            return ((layer, self.representations[layer]) for layer in self.layers)
 
 def valid_experiment(analysis_type, comparison_type):
-    if comparison_type == LayerComparisonType.ALL_LAYERS:
+    if comparison_type == LayerComparisonType.ALL:
         raise ValueError("Comparison type 'all_layers' is not supported")
     if analysis_type == ModelAnalysisType.COMPARISON and comparison_type in [LayerComparisonType.BLOCK, LayerComparisonType.SINGLE]:
         raise ValueError("Comparison type 'single' and 'block' only supported for individual analysis")
-    if analysis_type == ModelAnalysisType.INDIVIDUAL and comparison_type == LayerComparisonType.CORRESPONDING_LAYERS:
+    if analysis_type == ModelAnalysisType.INDIVIDUAL and comparison_type == LayerComparisonType.CORRESPONDING:
         raise ValueError("Comparison type 'corresponding' only supported for comparison analysis")
 
 # Experiment Loops
 def single(representations: LayerByIndex, metric_classes: List[MetricAggregator], results: Optional[Results], device='cpu'):
     if not results:
         results = Results()
-    # with LayerByIndex(representations_path) as representations:
-    for layer in tqdm(representations, desc='Analysing Layer', 
+    for layer_name, layer in tqdm(representations, desc='Analysing Layer', 
                                     total=len(representations), leave=False, initial = 1):
-        layer_name = layer.name.split('/')[-1]
-        num = f"{int(layer_name.split('_')[-1]):03d}"
-        layer_name = f"Layer {num}"
+        # layer_name = layer.name.split('/')[-1] # layer is a dictionary of batches, doens't have .name attribute. 
+        # num = f"{int(layer_name.split('_')[-1]):03d}"
+        # layer_name = f"Layer {num}"
         metrics = [metric_class(device=device) for metric_class in metric_classes]
 
-        for batch in tqdm(layer, desc='Batch', 
+        for batch in tqdm(layer.values(), desc='Batch', 
                                     total=len(layer), leave=False, initial = 1):
-            batch = torch.tensor(layer[batch][:], device=device)
+            # batch = torch.tensor(layer[batch][:], device=device) # Redundant now as LayerByIndex is already returning torch tensors
             
             # Calculate the metrics for each batch
             for metric in metrics:
@@ -99,12 +104,12 @@ def corresponding(representations_0: LayerByIndex, representations_1: LayerByInd
     if not results:
             results = Results()
 
-    for layer_0, layer_1 in tqdm(zip(representations_0, representations_1), 
+    for (layer_0_name, layer_0), (layer_1_name, layer_1) in tqdm(zip(representations_0, representations_1), 
                                 desc='Comparing Representations at layer', 
                                 total=len(representations_0), initial = 1):
         
-        layer_0_name = layer_0.name.split('/')[-1]
-        layer_1_name = layer_1.name.split('/')[-1]
+        # layer_0_name = layer_0.name.split('/')[-1]
+        # layer_1_name = layer_1.name.split('/')[-1]
         if layer_0_name != layer_1_name:
             raise ValueError(f'Layer mismatch: {layer_0_name} != {layer_1_name}')
         num = f"{int(layer_0_name.split('_')[-1]):03d}"
@@ -112,10 +117,10 @@ def corresponding(representations_0: LayerByIndex, representations_1: LayerByInd
 
         metrics = [metric_class(device=device) for metric_class in metric_classes]
 
-        for batch_0, batch_1 in tqdm(zip(layer_0, layer_1), 
+        for batch_0, batch_1 in tqdm(zip(layer_0.values(), layer_1.values()), 
                                     desc='Batch', total=len(layer_0), leave=False, initial = 1):
-            batch_0 = torch.tensor(layer_0[batch_0][:], device=device)
-            batch_1 = torch.tensor(layer_1[batch_1][:], device=device)
+            # batch_0 = torch.tensor(layer_0[batch_0][:], device=device)
+            # batch_1 = torch.tensor(layer_1[batch_1][:], device=device)
             
             # Calculate the metrics for each batch
             for metric in metrics:
@@ -133,7 +138,7 @@ def corresponding(representations_0: LayerByIndex, representations_1: LayerByInd
 
 def block(representations, block_size, metric_classes, device='cpu'):
     out = {metric().__class__.__name__.lower(): [] for metric in metric_classes}
-    for idx, block_start in tqdm(enumerate(representations), desc=f'Comparing {block_size}-block, Block Start at Layer', 
+    for idx, (block_start_name, block_start) in tqdm(enumerate(representations), desc=f'Comparing {block_size}-block, Block Start at Layer', 
                                      total=len(representations) - block_size, leave=False, initial = 1):
             if idx + block_size >= len(representations):
                 break
@@ -142,18 +147,16 @@ def block(representations, block_size, metric_classes, device='cpu'):
             metrics = [metric_class(device=device) for metric_class in metric_classes]
             block_end = representations[idx + block_size]
 
-            for batch_0, batch_1 in tqdm(zip(block_start, block_end), desc='Batch', 
+            for batch_0, batch_1 in tqdm(zip(block_start.values(), block_end.values()), desc='Batch', 
                                          total=len(block_start), leave=False, initial = 1):
-                batch_0 = torch.tensor(block_start[batch_0][:]).to(device)
-                batch_1 = torch.tensor(block_end[batch_1][:]).to(device)
+                # batch_0 = torch.tensor(block_start[batch_0][:]).to(device)
+                # batch_1 = torch.tensor(block_end[batch_1][:]).to(device)
                 
                 for metric in metrics:
                     metric.process_batch(batch_0, batch_1)
             
             # Aggregate metrics and add to results
-            layer_results = Layer(WeightInfo(name=f"Block {idx} size {block_size}"))
             for metric in metrics:
-                # layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
                 out[metric.__class__.__name__.lower()].append(metric.aggregate())
 
     for metric in out:
@@ -161,28 +164,28 @@ def block(representations, block_size, metric_classes, device='cpu'):
     return out
 
 def all_layers(representations_0, representations_1, metric_classes, results, device='cpu'):
-    for idx_0, layer_0 in enumerate(tqdm(representations_0, desc='Model 0 Layers', 
-                                     total=len(representations_0), leave=False, initial = 1)):
-        for idx_1, layer_1 in enumerate(tqdm(representations_1, desc='Model 1 Layers', 
-                                    total=len(representations_1), leave=False, initial = 1)):
+    for layer_0_name, layer_0 in tqdm(representations_0, desc='Model 0 Layers', 
+                                     total=len(representations_0), leave=False, initial = 1):
+        for layer_1_name, layer_1 in tqdm(representations_1, desc='Model 1 Layers', 
+                                    total=len(representations_1), leave=False, initial = 1):
             if len(layer_0) != len(layer_1):
                 raise ValueError(f'Layer mismatch: {len(layer_0)} != {len(layer_1)}')
 
             metrics = [metric_class(device=device) for metric_class in metric_classes]
 
-            for batch_0, batch_1 in tqdm(zip(layer_0, layer_1), desc='Batch', 
+            for batch_0, batch_1 in tqdm(zip(layer_0.values(), layer_1.values()), desc='Batch', 
                                         total=len(layer_0), leave=False, initial = 1):
-                batch_0 = torch.tensor(layer_0[batch_0][:]).to(device)
-                batch_1 = torch.tensor(layer_1[batch_1][:]).to(device)
+                # batch_0 = torch.tensor(layer_0[batch_0][:]).to(device)
+                # batch_1 = torch.tensor(layer_1[batch_1][:]).to(device)
                 
                 for metric in metrics:
                     metric.process_batch(batch_0, batch_1)
             
-            layer_results = Layer(WeightInfo(name=f"Layer {idx_0} - Layer {idx_1}"))
+            layer_results = Layer(WeightInfo(name=f"{layer_0_name} - {layer_1_name}"))
             for metric in metrics:
                 layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower())
 
-            results.add_layer(layer_results, f"Layer {idx_0} - Layer {idx_1}")
+            results.add_layer(layer_results, f"{layer_0_name} - {layer_1_name}")
     
     return results
 
@@ -208,11 +211,11 @@ class Configuration:
         ).validate()
 
     def validate(self):
-        if self.comparison_type == LayerComparisonType.ALL_LAYERS:
+        if self.comparison_type == LayerComparisonType.ALL:
             raise ValueError("Comparison type 'all_layers' is not supported")
         if self.analysis_type == ModelAnalysisType.COMPARISON and self.comparison_type in [LayerComparisonType.BLOCK, LayerComparisonType.SINGLE]:
             raise ValueError("Comparison type 'single' and 'block' only supported for individual analysis")
-        if self.analysis_type == ModelAnalysisType.INDIVIDUAL and self.comparison_type == LayerComparisonType.CORRESPONDING_LAYERS:
+        if self.analysis_type == ModelAnalysisType.INDIVIDUAL and self.comparison_type == LayerComparisonType.CORRESPONDING:
             raise ValueError("Comparison type 'corresponding' only supported for comparison analysis")
         return self
         
@@ -242,7 +245,7 @@ class SingleExperiment(Experiment):
                                             results=individual_results, 
                                             device=config.device)
             
-            out_path = config.out_dir / f"{str(representation_path).split('/')[-1].split('.')[0]}+{str(list(use_metrics.keys()))}.json"
+            out_path = config.out_dir / f"{str(representation_path).split('/')[-1].split('.')[0]}+{config.analysis_type}+{config.comparison_type}.json"
             individual_results.save(out_path)
 
 class CorrespondingExperiment(Experiment):
@@ -251,13 +254,13 @@ class CorrespondingExperiment(Experiment):
                    for name, enabled in config.metrics.items() 
                    if enabled}
 
-        metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.CORRESPONDING_LAYERS.value]]
+        metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.CORRESPONDING.value]]
         comparison_results = Results()
         stop = False
         for rep_0 in config.representation_paths:
             for rep_1 in config.representation_paths:
-                if ((rep_0 == rep_1 and config.analysis_type == ModelAnalysisType.INDIVIDUAL.value) or \
-                    (rep_0 != rep_1 and config.analysis_type == ModelAnalysisType.COMPARISON.value) and not stop):
+                if ((rep_0 == rep_1 and config.analysis_type == ModelAnalysisType.INDIVIDUAL) or \
+                    (rep_0 != rep_1 and config.analysis_type == ModelAnalysisType.COMPARISON) and not stop):
                     if rep_0 != rep_1:
                         stop = True
 
@@ -269,7 +272,7 @@ class CorrespondingExperiment(Experiment):
                                                             device=config.device)
                         comparison_results.model_paths = [rep_0, rep_1] if rep_0 != rep_1 else [rep_0]
                     
-                    out_path = config.out_dir / f"/{str([str(rep).split('/')[-1].split('.')[0] for rep in [rep_0, rep_1]])}+{str(list(use_metrics.keys()))}.json"
+                    out_path = config.out_dir / f"{str([str(rep).split('/')[-1].split('.')[0] for rep in [rep_0, rep_1]])}+{config.analysis_type}+{config.comparison_type}.json"
                     comparison_results.save(out_path)
 
 class BlockExperiment(Experiment):
@@ -299,7 +302,7 @@ class BlockExperiment(Experiment):
             for metric in metrics:
                 block_results.across_layer_metrics[metric().__class__.__name__.lower()] = heatmaps[metric().__class__.__name__.lower()] # Definitely a simpler way to code this (X)
 
-            out_path = config.out_dir / f"{str(representation_path).split('/')[-1].split('.')[0]}+{str(list(use_metrics.keys()))}.json"
+            out_path = config.out_dir / f"{str(representation_path).split('/')[-1].split('.')[0]}+{config.analysis_type}+{config.comparison_type}.json"
             block_results.save(out_path)
 
 class AllLayersExperiment(Experiment):
@@ -308,13 +311,13 @@ class AllLayersExperiment(Experiment):
                    for name, enabled in config.metrics.items() 
                    if enabled}
 
-        metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.ALL_LAYERS.value]]
+        metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.ALL.value]]
 
         stop = False
         for rep_0 in config.representation_paths:
             for rep_1 in config.representation_paths:
-                if ((rep_0 == rep_1 and config.analysis_type == ModelAnalysisType.INDIVIDUAL.value) or \
-                    (rep_0 != rep_1 and config.analysis_type == ModelAnalysisType.COMPARISON.value) and not stop):
+                if ((rep_0 == rep_1 and config.analysis_type == ModelAnalysisType.INDIVIDUAL) or \
+                    (rep_0 != rep_1 and config.analysis_type == ModelAnalysisType.COMPARISON) and not stop):
                     if rep_0 != rep_1:
                         stop = True
                     with LayerByIndex(rep_0) as representations_0, LayerByIndex(rep_1) as representations_1:
@@ -326,7 +329,7 @@ class AllLayersExperiment(Experiment):
                                                 device=config.device)
                         comparison_results.model_paths = [rep_0, rep_1]
         
-                        out_path = config.out_dir / f"/{str([str(rep).split('/')[-1].split('.')[0] for rep in config.representation_paths])}+{str(list(use_metrics.keys()))}.json"
+                        out_path = config.out_dir / f"{str([str(rep).split('/')[-1].split('.')[0] for rep in config.representation_paths])}+{config.analysis_type}+{config.comparison_type}.json"
                         comparison_results.save(out_path)
       
 

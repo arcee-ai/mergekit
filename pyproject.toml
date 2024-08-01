@@ -31,7 +31,7 @@ test = ["pytest~=8.2.1"]
 evolve = ["ray", "cma", "lm_eval", "wandb"]
 vllm = ["vllm==0.3.2", "lm_eval[vllm]"]
 interactive_plot = ["networkx", "plotly", "matplotlib", "dash"]
-representations = ["h5py", "datasets", "bitsandbytes", "scikit-learn]
+representations = ["h5py", "datasets", "bitsandbytes", "scikit-learn"]
 
 [project.urls]
 repository = "https://github.com/cg123/mergekit"
@@ -54,6 +54,7 @@ packages = [
     "mergekit.io",
     "mergekit.merge_methods",
     "mergekit.metric_methods",
+    "mergekit.plot_tools",
     "mergekit.moe",
     "mergekit.scripts",
     "mergekit.evo",
