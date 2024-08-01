@@ -1,0 +1,11 @@
+stored_representations: "/workspace/mergekit/representations/stored_representations"
+
+metrics:
+ cosine_similarity: true
+ mse: true
+ linearity_score: true
+ cka: true
+ t-sne: true
+
+analysis_type: "individual"
+comparison_type: "block"
