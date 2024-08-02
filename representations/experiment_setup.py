@@ -136,8 +136,6 @@ def corresponding(representations_0: LayerByIndex, representations_1: LayerByInd
         
         if layer_0_name != layer_1_name:
             raise ValueError(f'Layer mismatch: {layer_0_name} != {layer_1_name}')
-        num = f"{int(layer_0_name.split('_')[-1]):03d}"
-        layer_name = f"Layer {num}"
 
         metrics = [metric_class(device=device) for metric_class in metric_classes]
 
@@ -148,12 +146,12 @@ def corresponding(representations_0: LayerByIndex, representations_1: LayerByInd
             for metric in metrics:
                 metric.process_batch(batch_0, batch_1)
 
-        layer_results = Layer(WeightInfo(name=layer_name))
+        layer_results = Layer(WeightInfo(name=layer_0_name))
         # Aggregate over the batches and add to the layer results
         for metric in metrics:
             layer_results.add_metric(metric.aggregate(), metric.__class__.__name__.lower()) # (X)
 
-        results.add_layer(layer_results, layer_name)
+        results.add_layer(layer_results, layer_0_name)
     
     return results
 

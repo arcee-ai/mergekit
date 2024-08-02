@@ -245,7 +245,7 @@ class t_SNE(MetricAggregator):
         super().__init__(device=device)
         self.tsne = TSNE(n_components=2, random_state=42)
         self.batches = []
-        self.max_batches = 5
+        self.max_batches = 20
         self.stop = False
 
         self.valid_for.update({

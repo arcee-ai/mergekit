@@ -16,6 +16,27 @@ from plotly.subplots import make_subplots
 global_colours_list = ['blue', 'red', 'green', 'purple', 'orange', 'pink']
 global_shapes_list = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up', 'triangle-down', 'pentagon', 'hexagon', 'star']
 
+def extend_without_duplicates(l1, l2):
+    """
+    Extend list l1 with elements from list l2, ensuring no duplicates.
+    Assumes the lists contain dictionaries of strings
+    
+    Parameters:
+    l1 (list): The original list to be extended.
+    l2 (list): The list with elements to add to l1.
+    
+    Returns:
+    list: The extended list without duplicates.
+    """
+    # Convert dictionaries to tuples of sorted items for hashability
+    l1_set = set(tuple(sorted(item.items())) for item in l1)
+    for item in l2:
+        item_tuple = tuple(sorted(item.items()))
+        if item_tuple not in l1_set:
+            l1.append(item)
+            l1_set.add(item_tuple)
+    return l1
+
 class ResultsHandler:
     def __init__(self):
         self.intra_model_results: Dict[ModelReference, Results] = {}
@@ -166,44 +187,22 @@ class ResultsHandler:
 
         return traces
 
-    def _set_plot_attributes(self, ax, stat: str, ax_kwargs: List[str], **kwargs):
-        """
-        Set the attributes of the plot.
-
-        Args:
-            ax: The matplotlib Axes object.
-            stat (str): The name of the stat.
-            **kwargs: Additional keyword arguments for plot attributes.
-        """
-        # Defaults 
-        ax.set_ylabel(kwargs.get('ylabel', stat))
-        ax.set_xticks(np.arange(len(self.layer_names)))
-        ax.set_xticklabels(self.layer_names, rotation=45)
-        ax.set_title(kwargs.get('title', f'{stat.replace("_", " ").title()}'))
-
-        # Set additional attributes
-        for kwarg in ax_kwargs:
-            if kwarg in kwargs:
-                getattr(ax, f"set_{kwarg}")(kwargs[kwarg])
-
     def layer_plot_options(self, layer_name: str):
         metric_options = []
+        avoid_duplicates = []
         for plot_type in PlotType:
             if plot_type == PlotType.MEAN_STD:
                 continue
-            metric_options.extend([
-                        {"label": f"{metric.title()} {plot_type.value}", "value": [metric, plot_type.value]}
-                    for metric in self.inter_model_results.layers[layer_name].metrics_with_attribute(plot_type.value)]
-                    )
             for result in self.all_results:
                 if layer_name in result.layers:
-                    metric_options.extend([
-                        {"label": f"{metric.title()} {plot_type.value}", "value": [metric, plot_type.value]}
-                    for metric in result.layers[layer_name].metrics_with_attribute(plot_type.value)]
-                    )
-                break # Assuming all intra-model results have the same metrics
+                    metrics = result.layers[layer_name].metrics_with_attribute(plot_type.value)
+                    for metric in metrics:
+                        if (metric, plot_type) not in avoid_duplicates:
+                            metric_options.append({f"label": f"{metric.title()} {plot_type.value}",
+                                                "value": [metric, plot_type.value]
+                            }) 
+                            avoid_duplicates.append((metric, plot_type))
         return metric_options
-
 
 def create_app(results_handler):
     app = dash.Dash(__name__, external_stylesheets=['https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'])
@@ -256,9 +255,9 @@ def create_across_layers_section(results_handler):
         if getattr(result, 'across_layer_metrics', None):
             for metric_name, metric in result.across_layer_metrics.items():
                 for plot_type in ['histogram', 'heatmap', 'scatter_plot']:
-                    if getattr(metric, plot_type, None): #(X) shouldn't need [0] - metric is being stored inside an array and shouldn't be!
+                    if getattr(metric, plot_type, None):
                         plot_sections.append(html.Div([
-                            html.H3(f'{plot_type+metric_name.replace("_", " ").title()} {plot_type.replace("_", " ").title()}', style={'textAlign': 'center'}),
+                            html.H3(f'{metric_name.replace("_", " ").title()} {plot_type.replace("_", " ").title()}', style={'textAlign': 'center'}),
                             dcc.Graph(id=f"{plot_type}-plot-{metric_name}-{str(result.model_paths[0].name).split('__')[-1].split('.')[0]}", style={'width': '50%', 'height': '50%', 'position': 'relative'})
                         ], className='container-fluid'))
 
@@ -312,7 +311,7 @@ def register_callbacks(app, results_handler):
 
             metric_name, plot_type = selected_metric
 
-            if plot_type.lower() in ["heatmap", "scatter_plot"]:
+            if plot_type.lower() in ["heatmap", "scatter_plot"]: #(x)
                 xaxis_title = "Model 1"
                 yaxis_title = "Model 0"
             elif plot_type.lower() == 'histogram':
@@ -362,29 +361,35 @@ def register_callbacks(app, results_handler):
             for metric_name, metric in result.across_layer_metrics.items():
                 for plot_type in ['histogram', 'heatmap', 'scatter_plot']:
                     if getattr(metric, plot_type, None): #(X) shouldn't need [0] - metric is being stored inside an array and shouldn't be!
-                        id=f"{plot_type}-plot-{metric_name}-{str(result.model_paths[0].name).split('__')[-1].split('.')[0]}"
+                        id=f"{plot_type}-plot-{metric_name}-{str(result.model_paths[0].name).split('__')[-1].split('.')[0]}" # Improve naming scheme, this could get confused with comparison results
 
                         @app.callback(
                             Output(id, 'figure'),
                             Input(id, 'id')
                         )
-                        def update_across_layers_plot(_id=id, plot_type=plot_type, metric=metric):
+                        def update_across_layers_plot(_id=id, plot_type=plot_type, metric=metric, mode_paths=result.model_paths):
                             traces = results_handler.get_traces(data = [getattr(metric, plot_type)], plot_type = plot_type)
             
                             return create_figure(traces=traces,
                                                 title=f"{id} | {metric_name}", 
-                                                xaxis_title="Temp title",
-                                                yaxis_title=metric_name,
+                                                xaxis_title="Layer Model 0",
+                                                yaxis_title=f"Layer Model {0 if len(mode_paths) == 1 else 1}",
                                                 plot_type = plot_type
                                                 )
 
-def create_figure(traces, title, xaxis_title, yaxis_title, plot_type):
+def create_figure(traces, xaxis_title, yaxis_title, plot_type, title=None, subplot_titles=[None]):
     if plot_type in ["scatter_plot", "heatmap"]:
         num_plots = len(traces)
-        num_cols = 2
-        num_rows = (num_plots + 1) // num_cols  
+        
+        num_cols = 2 if num_plots > 1 else 1
 
-        fig = make_subplots(rows=num_rows, cols=num_cols, subplot_titles=[f"Plot {i+1}" for i in range(num_plots)])
+        num_rows = (num_plots + 1) // num_cols if num_plots > 1 else 1
+
+        fig = make_subplots(rows=num_rows, 
+                            cols=num_cols, 
+                            subplot_titles=subplot_titles 
+                                            if subplot_titles 
+                                            else [f"Plot {i+1}" for i in range(num_plots)])
 
         for i, trace in enumerate(traces):
             row = (i // num_cols) + 1
