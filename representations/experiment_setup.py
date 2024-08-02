@@ -248,7 +248,7 @@ class SingleExperiment(Experiment):
         metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.SINGLE.value]]
         for representation_path in config.representation_paths:
             individual_results = Results()
-            individual_results.model_paths = [representation_path]
+            individual_results.representations_details_from_path(representation_path)
 
             if not representation_path.exists():
                 raise FileNotFoundError(f"Representation file {representation_path} not found")
@@ -259,8 +259,7 @@ class SingleExperiment(Experiment):
                                             results=individual_results, 
                                             device=config.device)
             
-            out_path = config.out_dir / f"{str(representation_path).split('/')[-1].split('.')[0]}+{config.analysis_type}+{config.comparison_type}.json"
-            individual_results.save(out_path)
+            individual_results.save(config.out_dir, suffix=f"{config.analysis_type}+{config.comparison_type}")
 
 class CorrespondingExperiment(Experiment):
     def run(self, config: Configuration):
@@ -284,10 +283,10 @@ class CorrespondingExperiment(Experiment):
                                                             metric_classes=metrics,
                                                             results=comparison_results,
                                                             device=config.device)
-                        comparison_results.model_paths = [rep_0, rep_1] if rep_0 != rep_1 else [rep_0]
+                        comparison_results.load_representations_details_from_path(rep_0)
+                        comparison_results.load_representations_details_from_path(rep_1)
                     
-                    out_path = config.out_dir / f"{str([str(rep).split('/')[-1].split('.')[0] for rep in [rep_0, rep_1]])}+{config.analysis_type}+{config.comparison_type}.json"
-                    comparison_results.save(out_path)
+                    comparison_results.save(config.out_dir, suffix=f"{config.analysis_type}+{config.comparison_type}")
 
 class BlockExperiment(Experiment):
     def run(self, config: Configuration):
@@ -299,7 +298,7 @@ class BlockExperiment(Experiment):
         for representation_path in config.representation_paths:
             heatmaps = {}
             block_results = Results()
-            block_results.model_paths = [representation_path]
+            block_results.representations_details_from_path(representation_path)
             if not representation_path.exists():
                 raise FileNotFoundError(f"Representation file {representation_path} not found")
             for metric in metrics:
@@ -319,8 +318,7 @@ class BlockExperiment(Experiment):
                         data = convert_to_2d_array(heatmaps[metric().__class__.__name__.lower()]) # Definitely a simpler way to code this (X)
                         )
                     )
-            out_path = config.out_dir / f"{str(representation_path).split('/')[-1].split('.')[0]}+{config.analysis_type}+{config.comparison_type}.json"
-            block_results.save(out_path)
+            block_results.save(config.out_dir, suffix=f"{config.analysis_type}+{config.comparison_type}")
 
 class AllLayersExperiment(Experiment):
     def run(self, config: Configuration):
@@ -346,10 +344,10 @@ class AllLayersExperiment(Experiment):
                                                 metric_classes=metrics,
                                                 results=comparison_results,
                                                 device=config.device)
-                        comparison_results.model_paths = [rep_0, rep_1]
+                        comparison_results.load_representations_details_from_path(rep_0)
+                        comparison_results.load_representations_details_from_path(rep_1)
         
-                        out_path = config.out_dir / f"{str([str(rep).split('/')[-1].split('.')[0] for rep in config.representation_paths])}+{config.analysis_type}+{config.comparison_type}.json"
-                        comparison_results.save(out_path)
+                        comparison_results.save(config.out_dir, suffix=f"{config.analysis_type}+{config.comparison_type}")
       
 
 class ExperimentFactory:

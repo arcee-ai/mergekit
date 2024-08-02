@@ -122,24 +122,38 @@ def expand_to_fit(all_layer_names: List[str], values: List[float], subset_layer_
 
 from typing import List, Tuple
 from mergekit.graph import Task
+from mergekit._data.models_and_datasets import save_model_and_dataset, model_and_dataset_to_index, index_to_model_and_dataset
     
 class Results:
     # Class to store the statistics for each layer
     def __init__(self):
         self.layers: Dict[str, Layer] = {}
         self.across_layer_metrics: Dict[str, Metric] = {}
-        self.model_paths: Optional[List[str]] = None
+        # self.model_paths: Optional[List[str]] = None
+        self.representations_details: Optional[List[Tuple]] = [] # List of tuples of (model_name, dataset_name)
  
     def add_layer(self, layer: Layer, name: str):
         if name not in self.layers.keys():
             self.layers[name] = layer
 
-    def load_metrics(self, metrics: List[Tuple[Task, Layer]], model_paths: Optional[List[str]] = None):
+    def load_metrics(self, metrics: List[Tuple[Task, Layer]], model_paths: Optional[List[str]] = None): # Maybe remove (#)
         self.model_paths = model_paths
         for task, metric in metrics:
             if metric is not None:
                 self.add_layer(metric, name=task.weight_info.name)
         return self
+    
+    def load_representations_details_from_path(self, representations_path: str):
+        representations_path = Path(representations_path)
+        if representations_path.exists() and representations_path.is_file():
+            file_name = representations_path.name
+            assert file_name.endswith('.h5'), f"File {file_name} is not an HDF5 file."
+            assert len(file_name.split('_')) == 3, f"File {file_name} does not follow the naming convention."
+
+            model_name, dataset_name = index_to_model_and_dataset(*file_name.split('_')[:2])
+            assert model_and_dataset_to_index(model_name, dataset_name) != ([], []), f"Model and dataset {model_name, dataset_name} not found in presets."
+
+            self.representations_details.append((model_name, dataset_name))
     
     def get_lineplot_data(self, metric_name: str):
         means, stds = [],[]
@@ -217,8 +231,19 @@ class Results:
         self.layer_names = list(self.layers.keys())
         self.metric_names = list(set([metric for layer in self.layers.values() for metric in layer.metrics.keys()]))
 
-    def save(self, path: str):
-        path = Path(path)
+    def save(self, out_dir: str, suffix: Optional[str] = None):
+        out_dir = Path(out_dir)
+
+        file_name = ''
+        for i, (model_name, dataset_name) in enumerate(self.representations_details):
+            m_idx, d_idx = model_and_dataset_to_index(model_name, dataset_name)
+            file_name += f"details_{i}__{m_idx}_{d_idx}"
+        
+        if suffix:
+            file_name += f"_{suffix}"
+
+        path = out_dir / f"{file_name}.pkl"
+
         if not path.suffix or path.suffix != '.pkl':
             path = path.with_suffix('.pkl')
         

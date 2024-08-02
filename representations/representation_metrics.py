@@ -8,7 +8,7 @@ from experiment_setup import Configuration, ExperimentFactory
 def run(config_yml: str = "config.yml"):
     mergekit_root = Path(__file__).parent.parent
     config = yaml.safe_load(open(mergekit_root / 'representations' / 'configs' / config_yml, 'r'))
-    config['out_dir'] = mergekit_root / 'representations' / 'stored_results'
+    config['out_dir'] = mergekit_root / 'representations' / 'results_out'
     config['representations_to_analyse'] = mergekit_root / 'representations' / 'representations_to_analyse'
     config = Configuration.from_dict(config)
 

@@ -21,12 +21,14 @@ np.random.seed(42)
 from typing import List
 import random
 
-def load_batch_from_hdf5(model_name, batch_idx):
-    with h5py.File('batches.h5', 'r') as h5file:
-        dataset_name = f'{model_name}/batch_{batch_idx}'
-        batch_data = h5file[dataset_name][:]
-        batch_tensor = torch.tensor(batch_data)
-    return batch_tensor
+from mergekit._data.models_and_datasets import save_model_and_dataset, model_and_dataset_to_index
+
+# def load_batch_from_hdf5(dataset_name, batch_idx):
+#     with h5py.File('batches.h5', 'r') as h5file:
+#         dataset_name = f'{dataset_name}/batch_{batch_idx}'
+#         batch_data = h5file[dataset_name][:]
+#         batch_tensor = torch.tensor(batch_data)
+#     return batch_tensor
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -49,7 +51,7 @@ def get_last_non_padded_tokens(hidden_states, attention_mask) -> List[torch.Tens
         last_non_padded_hidden_states.append(torch.cat(batch_last_tokens, dim=0))
     return last_non_padded_hidden_states
 
-def store_representations(model_path, output_dir, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
+def store_representations(model_name, output_dir, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
 
     device = "cuda" if torch.cuda.is_available() \
             else "mps" if torch.backends.mps.is_available() \
@@ -59,11 +61,11 @@ def store_representations(model_path, output_dir, dataset_name, batch_size, max_
     if dataset_size:
         dataset = dataset.select(range(dataset_size))
         
-    model = AutoModelForCausalLM.from_pretrained(model_path,  
+    model = AutoModelForCausalLM.from_pretrained(model_name,  
                                                 device_map="auto", 
                                                 output_hidden_states=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
@@ -73,8 +75,12 @@ def store_representations(model_path, output_dir, dataset_name, batch_size, max_
     set_seed(42)
 
     dataloader = DataLoader(dataset[dataset_column], batch_size=batch_size, shuffle=False, drop_last=True)
-    
-    output_name = f'{output_dir}/{model.name_or_path}_{dataset_name}_{dataset_size}.h5'.replace("/","_")
+
+    save_model_and_dataset(model_name, dataset_name)
+    model_index, dataset_index = model_and_dataset_to_index(model_name, dataset_name)
+
+    output_name = f'{output_dir}/{model_index}_{dataset_index}_id_{np.random.randint(1000)}.h5'.replace("/","_")
+
     assert not os.path.exists(output_name), f'{output_name} already exists.' 
 
     with h5py.File(output_name, 'w') as h5file:
@@ -100,7 +106,7 @@ def store_representations(model_path, output_dir, dataset_name, batch_size, max_
             does not match expected number of hidden layers."
 
 @click.command()
-@click.option('--model_path', default="BEE-spoke-data/smol_llama-220M-GQA", help='model to use.')
+@click.option('--model_name', default="BEE-spoke-data/smol_llama-220M-GQA", help='model to use.')
 @click.option('--output_dir', default="./representations/stored_representations", help='folder to store the result in.')
 @click.option('--dataset_name', default="arcee-ai/sec-data-mini", help='dataset to use.')
 @click.option('--batch_size', default=8, help='batch size.')
@@ -108,7 +114,7 @@ def store_representations(model_path, output_dir, dataset_name, batch_size, max_
 @click.option('--dataset_size', default=4000, help='size of the dataset.')
 @click.option('--dataset_column', default="text", help='column of the dataset to use.')
 @click.option('--dataset_subset', default="train", help='subset of the dataset to use.')
-def main(model_path, output_dir, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
-    store_representations(model_path, output_dir, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset)
+def main(model_name, output_dir, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset):
+    store_representations(model_name, output_dir, dataset_name, batch_size, max_length, dataset_size, dataset_column, dataset_subset)
 if __name__ == "__main__":
     main()

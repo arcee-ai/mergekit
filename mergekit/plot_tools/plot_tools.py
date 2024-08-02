@@ -16,27 +16,6 @@ from plotly.subplots import make_subplots
 global_colours_list = ['blue', 'red', 'green', 'purple', 'orange', 'pink']
 global_shapes_list = ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up', 'triangle-down', 'pentagon', 'hexagon', 'star']
 
-def extend_without_duplicates(l1, l2):
-    """
-    Extend list l1 with elements from list l2, ensuring no duplicates.
-    Assumes the lists contain dictionaries of strings
-    
-    Parameters:
-    l1 (list): The original list to be extended.
-    l2 (list): The list with elements to add to l1.
-    
-    Returns:
-    list: The extended list without duplicates.
-    """
-    # Convert dictionaries to tuples of sorted items for hashability
-    l1_set = set(tuple(sorted(item.items())) for item in l1)
-    for item in l2:
-        item_tuple = tuple(sorted(item.items()))
-        if item_tuple not in l1_set:
-            l1.append(item)
-            l1_set.add(item_tuple)
-    return l1
-
 class ResultsHandler:
     def __init__(self):
         self.intra_model_results: Dict[ModelReference, Results] = {}
@@ -48,23 +27,22 @@ class ResultsHandler:
             'scatter_plot': []
         }
 
-    def load_results(self, results: Results):
+    def load_results(self, results: Results): # Generalise to handle both representations and model weights
         results.finalise()
-        if len(results.model_paths) == 2:
+        if len(results.representations_details) == 2:
             self.inter_model_results = results
-        elif len(results.model_paths) == 1:
-            # key = results.model_paths[0]
+        elif len(results.representations_details) == 1:
             key = len(self.intra_model_results)
             self.intra_model_results[key] = results
         else:
-            raise ValueError("Results should have either 1 or 2 model_paths")
+            raise ValueError(f"Results should have either 1 or 2 inputs, got {len(results.representations_details)}")
         
         for plot_type in self.available_layer_plots.keys():
 
             if self.inter_model_results is not None:
                 self.available_layer_plots[plot_type] += list(self.inter_model_results.available_plot_types(plot_type).keys())
             if self.intra_model_results is not None:
-                for model_path, results in self.intra_model_results.items():
+                for model_id, results in self.intra_model_results.items():
                     self.available_layer_plots[plot_type] += list(results.available_plot_types(plot_type).keys())
                 
             self.available_layer_plots[plot_type] = list(set(self.available_layer_plots[plot_type]))
@@ -96,11 +74,11 @@ class ResultsHandler:
 
         else:
             unique_categories = list(self.intra_model_results.keys())
-            for i, (model_path, results) in enumerate(self.intra_model_results.items()):
+            for i, (model_id, results) in enumerate(self.intra_model_results.items()):
                 layer_names = results.layer_names
                 means, stds = results.get_lineplot_data(metric_name)
                 if means:
-                    categorised_layers = [model_path]*len(layer_names) # Different category for each model, every layer in each model has the same category
+                    categorised_layers = [model_id]*len(layer_names) # Different category for each model, every layer in each model has the same category
                     shape = global_shapes_list[i%len(global_shapes_list)]
                     traces.extend(self._plotly_line_plot(layer_names, means, stds, categorised_layers, unique_categories, shape))
                 
@@ -258,7 +236,7 @@ def create_across_layers_section(results_handler):
                     if getattr(metric, plot_type, None):
                         plot_sections.append(html.Div([
                             html.H3(f'{metric_name.replace("_", " ").title()} {plot_type.replace("_", " ").title()}', style={'textAlign': 'center'}),
-                            dcc.Graph(id=f"{plot_type}-plot-{metric_name}-{str(result.model_paths[0].name).split('__')[-1].split('.')[0]}", style={'width': '50%', 'height': '50%', 'position': 'relative'})
+                            dcc.Graph(id=f"{plot_type}-plot-{metric_name}-{''.join(item for tup in result.representations_details for item in tup)}", style={'width': '50%', 'height': '50%', 'position': 'relative'})
                         ], className='container-fluid'))
 
     return html.Div(plot_sections)
@@ -361,19 +339,20 @@ def register_callbacks(app, results_handler):
             for metric_name, metric in result.across_layer_metrics.items():
                 for plot_type in ['histogram', 'heatmap', 'scatter_plot']:
                     if getattr(metric, plot_type, None): #(X) shouldn't need [0] - metric is being stored inside an array and shouldn't be!
-                        id=f"{plot_type}-plot-{metric_name}-{str(result.model_paths[0].name).split('__')[-1].split('.')[0]}" # Improve naming scheme, this could get confused with comparison results
+                        id=f"{plot_type}-plot-{metric_name}-{''.join(item for tup in result.representations_details for item in tup)}" # Improve naming scheme, this could get confused with comparison results
 
                         @app.callback(
                             Output(id, 'figure'),
                             Input(id, 'id')
                         )
-                        def update_across_layers_plot(_id=id, plot_type=plot_type, metric=metric, mode_paths=result.model_paths):
+                        def update_across_layers_plot(_id=id, plot_type=plot_type, metric=metric, rep_details=result.representations_details):
                             traces = results_handler.get_traces(data = [getattr(metric, plot_type)], plot_type = plot_type)
-            
+                            xaxis_title = f"Model {rep_details[0][0]} {rep_details[0][1]}"
+                            yaxis_title = f"Model {rep_details[1][0]} {rep_details[1][1]}" if len(rep_details) > 1 else xaxis_title
                             return create_figure(traces=traces,
                                                 title=f"{id} | {metric_name}", 
-                                                xaxis_title="Layer Model 0",
-                                                yaxis_title=f"Layer Model {0 if len(mode_paths) == 1 else 1}",
+                                                xaxis_title=xaxis_title
+                                                yaxis_title=xaxis_title
                                                 plot_type = plot_type
                                                 )
 
