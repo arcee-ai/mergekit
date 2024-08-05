@@ -351,8 +351,8 @@ def register_callbacks(app, results_handler):
                             yaxis_title = f"Model {rep_details[1][0]} {rep_details[1][1]}" if len(rep_details) > 1 else xaxis_title
                             return create_figure(traces=traces,
                                                 title=f"{id} | {metric_name}", 
-                                                xaxis_title=xaxis_title
-                                                yaxis_title=xaxis_title
+                                                xaxis_title=xaxis_title,
+                                                yaxis_title=xaxis_title,
                                                 plot_type = plot_type
                                                 )
 
