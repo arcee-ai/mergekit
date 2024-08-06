@@ -248,7 +248,7 @@ class SingleExperiment(Experiment):
         metrics = [metric for metric in use_metrics.values() if metric().valid_for[LayerComparisonType.SINGLE.value]]
         for representation_path in config.representation_paths:
             individual_results = Results()
-            individual_results.representations_details_from_path(representation_path)
+            individual_results.load_representations_details_from_path(representation_path)
 
             if not representation_path.exists():
                 raise FileNotFoundError(f"Representation file {representation_path} not found")
@@ -259,7 +259,7 @@ class SingleExperiment(Experiment):
                                             results=individual_results, 
                                             device=config.device)
             
-            individual_results.save(config.out_dir, suffix=f"{config.analysis_type}+{config.comparison_type}")
+            individual_results.save(config.out_dir, suffix=f"{config.analysis_type.value}+{config.comparison_type.value}")
 
 class CorrespondingExperiment(Experiment):
     def run(self, config: Configuration):
@@ -286,7 +286,7 @@ class CorrespondingExperiment(Experiment):
                         comparison_results.load_representations_details_from_path(rep_0)
                         comparison_results.load_representations_details_from_path(rep_1)
                     
-                    comparison_results.save(config.out_dir, suffix=f"{config.analysis_type}+{config.comparison_type}")
+                    comparison_results.save(config.out_dir, suffix=f"{config.analysis_type.value}+{config.comparison_type.value}")
 
 class BlockExperiment(Experiment):
     def run(self, config: Configuration):
@@ -298,7 +298,7 @@ class BlockExperiment(Experiment):
         for representation_path in config.representation_paths:
             heatmaps = {}
             block_results = Results()
-            block_results.representations_details_from_path(representation_path)
+            block_results.load_representations_details_from_path(representation_path)
             if not representation_path.exists():
                 raise FileNotFoundError(f"Representation file {representation_path} not found")
             for metric in metrics:
@@ -318,7 +318,7 @@ class BlockExperiment(Experiment):
                         data = convert_to_2d_array(heatmaps[metric().__class__.__name__.lower()]) # Definitely a simpler way to code this (X)
                         )
                     )
-            block_results.save(config.out_dir, suffix=f"{config.analysis_type}+{config.comparison_type}")
+            block_results.save(config.out_dir, suffix=f"{config.analysis_type.value}+{config.comparison_type.value}")
 
 class AllLayersExperiment(Experiment):
     def run(self, config: Configuration):
@@ -347,7 +347,7 @@ class AllLayersExperiment(Experiment):
                         comparison_results.load_representations_details_from_path(rep_0)
                         comparison_results.load_representations_details_from_path(rep_1)
         
-                        comparison_results.save(config.out_dir, suffix=f"{config.analysis_type}+{config.comparison_type}")
+                        comparison_results.save(config.out_dir, suffix=f"{config.analysis_type.value}+{config.comparison_type.value}")
       
 
 class ExperimentFactory:

@@ -148,9 +148,10 @@ class Results:
         if representations_path.exists() and representations_path.is_file():
             file_name = representations_path.name
             assert file_name.endswith('.h5'), f"File {file_name} is not an HDF5 file."
-            assert len(file_name.split('_')) == 3, f"File {file_name} does not follow the naming convention."
-
-            model_name, dataset_name = index_to_model_and_dataset(*file_name.split('_')[:2])
+            assert len(file_name.split('_')) == 4, f"File {file_name} does not follow the naming convention: '(model_num)_(dataset_num)_id_(unique_id).h5'"
+            
+            model_idx, dataset_idx = int(file_name.split('_')[0]), int(file_name.split('_')[1])
+            model_name, dataset_name = index_to_model_and_dataset(model_idx, dataset_idx)
             assert model_and_dataset_to_index(model_name, dataset_name) != ([], []), f"Model and dataset {model_name, dataset_name} not found in presets."
 
             self.representations_details.append((model_name, dataset_name))
@@ -233,11 +234,14 @@ class Results:
 
     def save(self, out_dir: str, suffix: Optional[str] = None):
         out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        file_name = ''
+        file_name = 'details_'
         for i, (model_name, dataset_name) in enumerate(self.representations_details):
+            if i > 0:
+                file_name += '_and_'
             m_idx, d_idx = model_and_dataset_to_index(model_name, dataset_name)
-            file_name += f"details_{i}__{m_idx}_{d_idx}"
+            file_name += f"model_{m_idx}_dataset_{d_idx}"
         
         if suffix:
             file_name += f"_{suffix}"
