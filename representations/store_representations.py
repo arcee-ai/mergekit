@@ -102,7 +102,7 @@ def store_representations(model_name, output_dir, dataset_name, batch_size, max_
 
 @click.command()
 @click.option('--model_name', default="BEE-spoke-data/smol_llama-220M-GQA", help='model to use.')
-@click.option('--output_dir', default="./representations/stored_representations", help='folder to store the result in.')
+@click.option('--output_dir', default="./representations/representations_store", help='folder to store the result in.')
 @click.option('--dataset_name', default="arcee-ai/sec-data-mini", help='dataset to use.')
 @click.option('--batch_size', default=8, help='batch size.')
 @click.option('--max_length', default=1024, help='maximum length of the input.')

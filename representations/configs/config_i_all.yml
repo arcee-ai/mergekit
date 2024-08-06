@@ -1,5 +1,3 @@
-stored_representations: "/workspace/mergekit/representations/stored_representations"
-
 metrics:
  cosine_similarity: true
  mse: true
