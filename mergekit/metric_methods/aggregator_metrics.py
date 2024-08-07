@@ -111,7 +111,7 @@ class Linearity_Score(MetricAggregator):
 
         super().__init__(device=device)
         self.iterations = 0
-        self.max_iterations = 5
+        self.max_iterations = 25
         self.A = None
         self.optimiser = None
         self.initialised = False
@@ -167,50 +167,88 @@ class Linearity_Score(MetricAggregator):
         pass
 
 class _CKA(object):
-    # Class from https://github.com/jayroxis/CKA-similarity/blob/main/CKA.py
     def __init__(self):
-        pass
-
+        self.kernel_functions = {
+            'inner_product': self.inner_product,
+            'rbf': self.rbf
+        }
+    
+    def inner_product(self, X):
+        return X @ X.T
+    
+    def rbf(X, sigma=None):
+        GX = torch.mm(X, X.t())
+        diag_GX = torch.diag(GX).unsqueeze(1)
+        KX = diag_GX - GX + (diag_GX - GX).t()
+        
+        if sigma is None:
+            mdist = torch.median(KX[KX != 0])
+            sigma = torch.sqrt(mdist)
+            
+        KX *= -0.5 / (sigma * sigma)
+        KX = torch.exp(KX)
+        
+        return KX
+    
     def centering(self, K):
         n = K.shape[0]
-        unit = np.ones([n, n])
-        I = np.eye(n)
+        unit = torch.ones([n, n]).to(K.device)
+        I = torch.eye(n).to(K.device)
         H = I - unit / n
-        return np.dot(np.dot(H, K), H)
+        return H @ K @ H
+    
+    def hsic(self, K_x, K_y):
+        """
+        Hilbert-Schmidt Independence Criterion
+        Input: K_x, K_y: *Centered* Kernel matrices
 
-    def rbf(self, X, sigma=None):
-        GX = np.dot(X, X.T)
-        KX = np.diag(GX) - GX + (np.diag(GX) - GX).T
-        if sigma is None:
-            mdist = np.median(KX[KX != 0])
-            sigma = math.sqrt(mdist)
-        KX *= -0.5 / (sigma * sigma)
-        KX = np.exp(KX)
-        return KX
+        Returns: HSIC(K_x, K_y)
+        """
+        return torch.trace(K_x.T @ K_y) / ((K_x.shape[0]-1) ** 2)
 
-    def kernel_HSIC(self, X, Y, sigma):
-        return np.sum(
-            self.centering(self.rbf(X, sigma)) * self.centering(self.rbf(Y, sigma))
-        )
+    def cka(self, X, Y, kernel_function='inner_product'):
+        K_x = self.kernel_functions[kernel_function](X)
+        K_y = self.kernel_functions[kernel_function](Y)
 
-    def linear_HSIC(self, X, Y):
-        L_X = X @ X.T
-        L_Y = Y @ Y.T
-        return np.sum(self.centering(L_X) * self.centering(L_Y))
+        K_x = self.centering(K_x)
+        K_y = self.centering(K_y)
 
-    def linear_CKA(self, X, Y):
-        hsic = self.linear_HSIC(X, Y)
-        var1 = np.sqrt(self.linear_HSIC(X, X))
-        var2 = np.sqrt(self.linear_HSIC(Y, Y))
+        hsic_xy = self.hsic(K_x, K_y)
+        hsic_xx = self.hsic(K_x, K_x)
+        hsic_yy = self.hsic(K_y, K_y)
 
-        return hsic / (var1 * var2)
+        return hsic_xy / torch.sqrt(hsic_xx * hsic_yy)
+    
+    def align(self, X, Y, knn_x, knn_y):
+        """
+        Input: X, Y: Centered Kernel matrices
+        """
+        assert X.shape == Y.shape
+        num_rows, num_cols = X.shape
+        rows, cols = torch.meshgrid(torch.arange(num_rows), torch.arange(num_cols), indexing='ij')
+        
+        # Check if each element in the meshgrid is a mutual nearest neighbor
+        mutual_nn_mask = torch.isin(rows, knn_x.indices[cols]) & \
+                        torch.isin(cols, knn_y.indices[rows])
 
-    def kernel_CKA(self, X, Y, sigma=None):
-        hsic = self.kernel_HSIC(X, Y, sigma)
-        var1 = np.sqrt(self.kernel_HSIC(X, X, sigma))
-        var2 = np.sqrt(self.kernel_HSIC(Y, Y, sigma))
+        trace_xy = torch.trace(X.T @ Y)
+        return mutual_nn_mask * trace_xy
 
-        return hsic / (var1 * var2)
+    def cknna(self, X, Y, kernel_function='inner_product', k=5):
+        K_x = self.kernel_functions[kernel_function](X)
+        K_y = self.kernel_functions[kernel_function](Y)
+
+        K_x = self.centering(K_x)
+        K_y = self.centering(K_y)
+
+        k_nearest_neighbors_x = torch.topk(K_x, k=k, dim=1, largest=True, sorted=False)
+        k_nearest_neighbors_y = torch.topk(K_y, k=k, dim=1, largest=True, sorted=False)
+
+        align_xy = self.align(K_x, K_y, k_nearest_neighbors_x, k_nearest_neighbors_y)
+        align_xx = self.align(K_x, K_x, k_nearest_neighbors_x, k_nearest_neighbors_x)
+        align_yy = self.align(K_y, K_y, k_nearest_neighbors_y, k_nearest_neighbors_y)
+
+        return align_xy / torch.sqrt(align_xx * align_yy)
 
 class CKA(MetricAggregator):
     def __init__(self, device: str = "cpu"):
@@ -219,7 +257,7 @@ class CKA(MetricAggregator):
         self.batches_a = []
         self.batches_b = []
         self.stop = False
-        self.max_batches = 10
+        self.max_batches = 20
 
         self.valid_for.update({
             LayerComparisonType.BLOCK.value: True,
@@ -229,16 +267,48 @@ class CKA(MetricAggregator):
 
     def process_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
         if not self.stop:
-            self.batches_a.append(batch_a.cpu().numpy())
-            self.batches_b.append(batch_b.cpu().numpy())
+            self.batches_a.append(batch_a)
+            self.batches_b.append(batch_b)
         
             if len(self.batches_a) >= self.max_batches:
                 self.stop = True 
         
     def aggregate(self) -> Metric:
-        self.result = self.cka.linear_CKA(np.concatenate(self.batches_a), 
-                                          np.concatenate(self.batches_b))
-        return Metric(mean_std=MeanStd(mean=self.result))
+        result = self.cka.cka(torch.concat(self.batches_a), 
+                                          torch.concat(self.batches_b))
+        
+        self.__init__(self.device) # Reset ready for next layer
+        return Metric(mean_std=MeanStd(mean=result))
+    
+class CNNKA(MetricAggregator):
+    def __init__(self, device: str = "cpu"):
+        super().__init__(device=device)
+        self.cka = _CKA()
+        self.batches_a = []
+        self.batches_b = []
+        self.stop = False
+        self.max_batches = 20
+
+        self.valid_for.update({
+            LayerComparisonType.BLOCK.value: True,
+            LayerComparisonType.CORRESPONDING.value: True,
+            LayerComparisonType.ALL.value: True
+        })
+
+    def process_batch(self, batch_a: torch.Tensor, batch_b: torch.Tensor) -> None:
+        if not self.stop:
+            self.batches_a.append(batch_a)
+            self.batches_b.append(batch_b)
+        
+            if len(self.batches_a) >= self.max_batches:
+                self.stop = True 
+        
+    def aggregate(self) -> Metric:
+        result = self.cka.cknna(torch.concat(self.batches_a), 
+                                          torch.concat(self.batches_b))
+        
+        self.__init__(self.device) # Reset ready for next layer
+        return Metric(mean_std=MeanStd(mean=result))
 
 class t_SNE(MetricAggregator):
     def __init__(self, device: str = "cpu"):
@@ -271,11 +341,47 @@ class t_SNE(MetricAggregator):
         )
         self.__init__(self.device) # Reset ready for next layer
         return metric
+
+class PCA_Projection(MetricAggregator):
+    def __init__(self, device: str = "cpu"):
+        super().__init__(device=device)
+        self.batches = []
+        self.max_batches = 20
+        self.stop = False
+
+        self.valid_for.update({
+            LayerComparisonType.SINGLE.value: True,
+        })
+
+    def process_batch(self, batch: torch.Tensor) -> None:
+        if not self.stop:
+            self.batches.append(batch.cpu().numpy())
+        
+            if len(self.batches) >= self.max_batches:
+                self.stop = True 
+
+    def aggregate(self) -> Metric:
+        data = torch.cat(self.batches, dim=0)
+        mean = torch.mean(data, dim=0)
+        data -= mean
+        U, S, V = torch.pca_lowrank(data, q=2)
+        result = torch.matmul(data, V[:, :2])
+        result = result.cpu().numpy() 
+        metric = Metric(
+            scatter_plot=ScatterPlot(
+                x=result[:, 0],
+                y=result[:, 1],
+            )
+        )
+        self.__init__(self.device) # Reset ready for next layer
+        return metric
      
 METRICS_TABLE = {
     'cosine_similarity': Cosine_Similarity,
     'mse': MSE,
     'linearity_score': Linearity_Score,
     'cka': CKA,
-    't-sne': t_SNE
+    'cknna': CNNKA,
+    't-sne': t_SNE,
+    'pca_projection': PCA_Projection
     }

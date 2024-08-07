@@ -1,5 +1,12 @@
 {
-    "model_names": [],
-    
-    "dataset_names": []
+    "model_names": [
+        "Qwen/Qwen2-7B-Instruct",
+        "arcee-ai/qwen2-7b-math-tess",
+        "arcee-ai/qwen2-mmamo-2",
+        "arcee-ai/Qwen2-Merger"
+    ],
+    "dataset_names": [
+        "microsoft/orca-math-word-problems-200k",
+        "MuskumPillerum/General-Knowledge"
+    ]
 }

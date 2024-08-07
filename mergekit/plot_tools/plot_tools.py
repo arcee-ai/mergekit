@@ -136,7 +136,7 @@ class ResultsHandler:
         if plot_type == PlotType.HEATMAP.value:
             traces = [go.Heatmap(
                 z=d.data,
-                colorscale='RdBu'
+                colorscale='Bluered',
                 ) for d in data]
         elif plot_type == PlotType.SCATTER_PLOT.value:
             traces = [go.Scatter(
@@ -338,8 +338,8 @@ def register_callbacks(app, results_handler):
         if getattr(result, 'across_layer_metrics', None):
             for metric_name, metric in result.across_layer_metrics.items():
                 for plot_type in ['histogram', 'heatmap', 'scatter_plot']:
-                    if getattr(metric, plot_type, None): #(X) shouldn't need [0] - metric is being stored inside an array and shouldn't be!
-                        id=f"{plot_type}-plot-{metric_name}-{''.join(item for tup in result.representations_details for item in tup)}" # Improve naming scheme, this could get confused with comparison results
+                    if getattr(metric, plot_type, None): 
+                        id=f"{plot_type}-plot-{metric_name}-{''.join(item for tup in result.representations_details for item in tup)}"
 
                         @app.callback(
                             Output(id, 'figure'),

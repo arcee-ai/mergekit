@@ -3,7 +3,9 @@ metrics:
  mse: true
  linearity_score: true
  cka: true
+ cknna: true
  t-sne: true
+ pca_projection: true
 
 analysis_type: "comparison"
 comparison_type: "all"

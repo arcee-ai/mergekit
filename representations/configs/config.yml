@@ -1,9 +1,11 @@
 metrics:
  cosine_similarity: true
- mse: false
- linearity_score: false
- cka: false
- t-sne: false
+ mse: true
+ linearity_score: true
+ cka: true
+ cknna: true
+ t-sne: true
+ pca_projection: true
 
 analysis_type: "individual"
 comparison_type: "block"
