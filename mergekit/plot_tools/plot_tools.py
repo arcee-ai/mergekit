@@ -349,6 +349,9 @@ def register_callbacks(app, results_handler):
                             traces = results_handler.get_traces(data = [getattr(metric, plot_type)], plot_type = plot_type)
                             xaxis_title = f"Model {rep_details[0][0]} {rep_details[0][1]}"
                             yaxis_title = f"Model {rep_details[1][0]} {rep_details[1][1]}" if len(rep_details) > 1 else xaxis_title
+                            if hasattr(metric, 'plot_details'):
+                                xaxis_title = metric.plot_details['xaxis_title'] if 'xaxis_title' in metric.plot_details else xaxis_title
+                                yaxis_title = metric.plot_details['yaxis_title'] if 'yaxis_title' in metric.plot_details else yaxis_title
                             return create_figure(traces=traces,
                                                 title=f"{id} | {metric_name}", 
                                                 xaxis_title=xaxis_title,

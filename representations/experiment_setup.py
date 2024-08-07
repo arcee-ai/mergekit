@@ -278,13 +278,13 @@ class CorrespondingExperiment(Experiment):
                         stop = True
 
                     with LayerByIndex(rep_0) as representations_0, LayerByIndex(rep_1) as representations_1:    
+                        comparison_results.load_representations_details_from_path(rep_0)
+                        comparison_results.load_representations_details_from_path(rep_1)
                         comparison_results = corresponding(representations_0=representations_0,
                                                             representations_1=representations_1,
                                                             metric_classes=metrics,
                                                             results=comparison_results,
                                                             device=config.device)
-                        comparison_results.load_representations_details_from_path(rep_0)
-                        comparison_results.load_representations_details_from_path(rep_1)
                     
                     comparison_results.save(config.out_dir, suffix=f"{config.analysis_type.value}+{config.comparison_type.value}")
 
@@ -315,7 +315,8 @@ class BlockExperiment(Experiment):
             for metric in metrics:
                 block_results.across_layer_metrics[metric().__class__.__name__.lower()] = Metric(
                     heatmap = Heatmap(
-                        data = convert_to_2d_array(heatmaps[metric().__class__.__name__.lower()]) # Definitely a simpler way to code this (X)
+                        data = convert_to_2d_array(heatmaps[metric().__class__.__name__.lower()]), # Definitely a simpler way to code this (X)
+                        plot_details={'title': f'{metric().__class__.__name__} across N-blocks', 'xlabel': 'Layer', 'ylabel': 'Block Size'}
                         )
                     )
             block_results.save(config.out_dir, suffix=f"{config.analysis_type.value}+{config.comparison_type.value}")

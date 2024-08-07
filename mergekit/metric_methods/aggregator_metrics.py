@@ -39,8 +39,8 @@ class MetricAggregator():
     def aggregate(self) -> Metric:
         raise NotImplementedError
 
-    def clear(self) -> None:
-        raise NotImplementedError
+    # def clear(self) -> None:
+    #     raise NotImplementedError
 
 class Cosine_Similarity(MetricAggregator):
     def __init__(self, device: str = "cpu"):
@@ -73,8 +73,8 @@ class Cosine_Similarity(MetricAggregator):
             mean_std=mean_std
         )
 
-    def clear(self) -> None:
-        self.cosine_similarities = torch.tensor([], device=self.device)
+    # def clear(self) -> None:
+    #     self.cosine_similarities = torch.tensor([], device=self.device)
 
 class MSE(MetricAggregator):
     def __init__(self, device: str = "cpu"):
@@ -111,7 +111,7 @@ class Linearity_Score(MetricAggregator):
 
         super().__init__(device=device)
         self.iterations = 0
-        self.max_iterations = 25
+        self.max_iterations = 50
         self.A = None
         self.optimiser = None
         self.initialised = False
@@ -163,8 +163,8 @@ class Linearity_Score(MetricAggregator):
         self.__init__()
         return Metric(mean_std=MeanStd(mean=linearity_score)) 
 
-    def clear(self) -> None:
-        pass
+    # def clear(self) -> None:
+    #     pass
 
 class _CKA(object):
     def __init__(self):
@@ -228,11 +228,10 @@ class _CKA(object):
         rows, cols = torch.meshgrid(torch.arange(num_rows), torch.arange(num_cols), indexing='ij')
         
         # Check if each element in the meshgrid is a mutual nearest neighbor
-        mutual_nn_mask = torch.isin(rows, knn_x.indices[cols]) & \
-                        torch.isin(cols, knn_y.indices[rows])
+        mutual_nn_mask = torch.isin(rows.to(knn_x[0].device), knn_x.indices[cols]) & \
+                        torch.isin(cols.to(knn_x[0].device), knn_y.indices[rows])
 
-        trace_xy = torch.trace(X.T @ Y)
-        return mutual_nn_mask * trace_xy
+        return torch.sum(mutual_nn_mask * X * Y)
 
     def cknna(self, X, Y, kernel_function='inner_product', k=5):
         K_x = self.kernel_functions[kernel_function](X)
@@ -278,7 +277,7 @@ class CKA(MetricAggregator):
                                           torch.concat(self.batches_b))
         
         self.__init__(self.device) # Reset ready for next layer
-        return Metric(mean_std=MeanStd(mean=result))
+        return Metric(mean_std=MeanStd(mean=result.cpu().item()))
     
 class CNNKA(MetricAggregator):
     def __init__(self, device: str = "cpu"):
@@ -308,7 +307,7 @@ class CNNKA(MetricAggregator):
                                           torch.concat(self.batches_b))
         
         self.__init__(self.device) # Reset ready for next layer
-        return Metric(mean_std=MeanStd(mean=result))
+        return Metric(mean_std=MeanStd(mean=result.cpu().item()))
 
 class t_SNE(MetricAggregator):
     def __init__(self, device: str = "cpu"):
@@ -355,7 +354,7 @@ class PCA_Projection(MetricAggregator):
 
     def process_batch(self, batch: torch.Tensor) -> None:
         if not self.stop:
-            self.batches.append(batch.cpu().numpy())
+            self.batches.append(batch)
         
             if len(self.batches) >= self.max_batches:
                 self.stop = True 
