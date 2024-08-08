@@ -15,11 +15,12 @@ from mergekit.io.tensor_writer import TensorWriter
 from mergekit.options import MergeOptions, add_merge_options
 
 
-@click.command("mergekit-activation-based-merge")
-@click.argument("model_path", type=str)
+@click.command("mergekit-activation-based-align")
 @click.argument("secondary_model_path", type=str)
 @click.argument("merge_unmerge_directory", type=str)
-@click.option("--out-path", "-o", required=True, type=str, help="Output model path")
+@click.option(
+    "--out-path", "-o", required=True, type=str, help="Path to save the aligned model"
+)
 @click.option(
     "--dtype",
     type=str,
@@ -35,7 +36,6 @@ from mergekit.options import MergeOptions, add_merge_options
 )
 @add_merge_options
 def main(
-    model_path: str,
     secondary_model_path,
     merge_unmerge_directory: str,
     out_path: str,
@@ -43,7 +43,6 @@ def main(
     device: Optional[str],
     merge_options: MergeOptions,
 ):
-    model = ModelReference.model_validate(model_path)
     secondary_model = ModelReference.model_validate(secondary_model_path)
 
     dtype = dtype_from_name(dtype) if dtype else None
@@ -52,8 +51,7 @@ def main(
     cache.lazy_unpickle = merge_options.lazy_unpickle
     cache.hf_cache_dir = merge_options.transformers_cache
 
-    for m in tqdm.tqdm([model, secondary_model], desc="Preparing models"):
-        cache.get(m)
+    cache.get(secondary_model)
 
     writer = TensorWriter(
         out_path=out_path,
@@ -61,18 +59,19 @@ def main(
         safe_serialization=merge_options.safe_serialization,
     )
 
-    model_config = model.config(trust_remote_code=merge_options.trust_remote_code)
+    model_config = secondary_model.config(
+        trust_remote_code=merge_options.trust_remote_code
+    )
     model_arch_info = get_architecture_info(
-        model.config(trust_remote_code=merge_options.trust_remote_code)
+        secondary_model.config(trust_remote_code=merge_options.trust_remote_code)
     )
 
-    loader_1 = cache.get(model)
-    loader_2 = cache.get(secondary_model)
+    loader = cache.get(secondary_model)
 
     os.makedirs(out_path, exist_ok=True)
 
     merge_unmerge_dictionary = {}
-    # load files from merge_unmerge_directory
+
     spaces = [
         f.split("_unmerge")[0]
         for f in os.listdir(merge_unmerge_directory)
@@ -98,68 +97,50 @@ def main(
 
         if weight_info.input_space in merge_unmerge_dictionary:
             _, unmerge_matrix = merge_unmerge_dictionary[weight_info.input_space]
-            unmerge_matrix = unmerge_matrix.chunk(2, dim=0)
 
         if weight_info.output_space in merge_unmerge_dictionary:
             merge_matrix, _ = merge_unmerge_dictionary[weight_info.output_space]
-            merge_matrix = merge_matrix.chunk(2, dim=1)
 
-        original_w = loader_1.get_tensor(weight_info.name, device=device)
-        original_w2 = loader_2.get_tensor(weight_info.name, device=device)
+        original_w = loader.get_tensor(weight_info.name, device=device)
 
         if dtype is not None:
             original_w = original_w.to(dtype=dtype)
             original_w2 = original_w2.to(dtype=dtype)
 
         w = torch.clone(original_w)
-        w2 = torch.clone(original_w2)
 
         if not merge_matrix and not unmerge_matrix:
             logging.warning(
-                f"❌ Weight {weight_info.name} for model 1 and model 2 has no merge or unmerge matrix"
+                f"❌ Weight {weight_info.name} for model has no merge or unmerge matrix !!"
             )
 
         if merge_matrix is not None:
             if weight_info.is_embed:
                 w = w @ merge_matrix[0].T
-                w2 = w2 @ merge_matrix[1].T
             else:
                 w = merge_matrix[0] @ w
-                w2 = merge_matrix[1] @ w2
 
         if unmerge_matrix is not None:
             w = w @ unmerge_matrix[0]
-            w2 = w2 @ unmerge_matrix[1]
 
-        # check if weights have not mutated, if yes then  shoot warning
         if torch.allclose(original_w, w):
             logging.warning(
-                f"❌ Weight {weight_info.name} for model 1 has NOT mutated during merge"
+                f"❌ Weight {weight_info.name} for input model has NOT mutated during merge"
             )
         else:
             logging.warning(
-                f"✅ Weight {weight_info.name} for model 1 has mutated during merge"
+                f"✅ Weight {weight_info.name} for input model has mutated during merge"
             )
 
-        if torch.allclose(original_w2, w2):
-            logging.warning(
-                f"❌ Weight {weight_info.name} for model 2 has NOT mutated during merge"
-            )
-        else:
-            logging.warning(
-                f"✅ Weight {weight_info.name} for model 2 has mutated during merge"
-            )
-
-        # average weights and save them
-        w = (w + w2) / 2
         writer.save_tensor(weight_info.name, w)
     writer.finalize()
 
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(secondary_model_path)
     tokenizer.save_pretrained(out_path, safe_serialization=True)
 
-    # write config
-    model_out_config = model.config(trust_remote_code=merge_options.trust_remote_code)
+    model_out_config = secondary_model.config(
+        trust_remote_code=merge_options.trust_remote_code
+    )
     if dtype:
         model_out_config.torch_dtype = dtype
     model_out_config.save_pretrained(out_path)

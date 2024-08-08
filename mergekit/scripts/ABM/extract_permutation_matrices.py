@@ -29,17 +29,13 @@ def match_tensors_permute(
     Om = correlation_matrix.shape[0] // 2
     device = correlation_matrix.device
 
-    mats = [torch.eye(Om, device=device)]
-
     corr_submatrix = correlation_matrix[:Om, Om:].cpu().numpy()
     if absval:
         corr_submatrix = np.absolute(corr_submatrix)
     _, col_ind = scipy.optimize.linear_sum_assignment(corr_submatrix, maximize=True)
 
-    new_mat = torch.eye(Om, device=device)[torch.tensor(col_ind).long().to(device)]
-    mats.append(new_mat.T)
+    unmerge = torch.eye(Om, device=device)[torch.tensor(col_ind).long().to(device)]
 
-    unmerge = torch.cat(mats, dim=0)
     merge = unmerge.clone().T
 
     return merge, unmerge
@@ -59,7 +55,6 @@ def match_tensors_permute_MHA(
     device = correlation_matrix.device
     query_size = Om // n_heads
 
-    mats = [torch.eye(Om, device=device)]
     head_perms = []
 
     costs = np.ones((n_heads, n_heads)) * -sys.maxsize
@@ -102,12 +97,10 @@ def match_tensors_permute_MHA(
         head_perm = col_inds_storage[head_1][head_2]
         head_perms.append(torch.tensor(head_perm + query_size * head_2))
 
-    new_mat = torch.eye(Om, device=device)[
+    unmerge = torch.eye(Om, device=device)[
         torch.cat(head_perms).clone().detach().long().to(device)
     ]
-    mats.append(new_mat.T)
 
-    unmerge = torch.cat(mats, dim=0)
     merge = unmerge.clone().T
 
     return merge, unmerge
