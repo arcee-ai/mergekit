@@ -34,9 +34,9 @@ def match_tensors_permute(
         corr_submatrix = np.absolute(corr_submatrix)
     _, col_ind = scipy.optimize.linear_sum_assignment(corr_submatrix, maximize=True)
 
-    unmerge = torch.eye(Om, device=device)[torch.tensor(col_ind).long().to(device)]
+    merge = torch.eye(Om, device=device)[torch.tensor(col_ind).long().to(device)]
 
-    merge = unmerge.clone().T
+    unmerge = merge.clone().T
 
     return merge, unmerge
 
@@ -97,11 +97,11 @@ def match_tensors_permute_MHA(
         head_perm = col_inds_storage[head_1][head_2]
         head_perms.append(torch.tensor(head_perm + query_size * head_2))
 
-    unmerge = torch.eye(Om, device=device)[
+    merge = torch.eye(Om, device=device)[
         torch.cat(head_perms).clone().detach().long().to(device)
     ]
 
-    merge = unmerge.clone().T
+    unmerge = merge.clone().T
 
     return merge, unmerge
 
