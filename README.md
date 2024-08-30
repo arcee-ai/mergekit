@@ -14,7 +14,7 @@ Features:
 - [LORA extraction](#lora-extraction)
 - [Evolutionary merge methods](#evolutionary-merge-methods)
 
-🌐 GUI Launch Alert 🤗 - We are excited to announce the launch of a mega-GPU Backed graphical user interface for mergekit in Arcee! This GUI simplifies the merging process, making it more accessible to a broader audience. Check it out and contribute at the [Arcee App](app.arcee.ai). There is also a [Hugging Face Space](https://huggingface.co/mergekit-community) with some GPUs, but limited amounts of GPUs.
+🌐 GUI Launch Alert 🤗 - We are excited to announce the launch of a mega-GPU Backed graphical user interface for mergekit in Arcee! This GUI simplifies the merging process, making it more accessible to a broader audience. Check it out and contribute at the [Arcee App](app.arcee.ai). There is also a [Hugging Face Space](https://huggingface.co/mergekit-community) with limited amounts of GPUs.
 
 ## Installation
 
