@@ -361,10 +361,10 @@ Features:
 - Interpolated gradients for parameter values (inspired by Gryphe's [BlockMerge_Gradient](https://github.com/Gryphe/BlockMerge_Gradient) script)
 - Piecewise assembly of language models from layers ("Frankenmerging")
 - [Mixture of Experts merging](#mixture-of-experts-merging)
+- [LORA extraction](#lora-extraction)
+- [Evolutionary merge methods](#evolutionary-merge-methods)
 
-🔊 Call to Evolve - to solve evolutionary merge methods as a community - please see <https://github.com/arcee-ai/mergekit/issues/207>.
-
-🌐 GUI Launch Alert 🤗 - We are excited to announce the launch of a graphical user interface for mergekit in Hugging Face Spaces! This GUI simplifies the merging process, making it more accessible to a broader audience. Check it out and contribute at [Hugging Face Spaces - mergekit-community](https://huggingface.co/mergekit-community).
+🌐 GUI Launch Alert 🤗 - We are excited to announce the launch of a mega-GPU Backed graphical user interface for mergekit in Arcee! This GUI simplifies the merging process, making it more accessible to a broader audience. Check it out and contribute at the [Arcee App](app.arcee.ai). There is also a [Hugging Face Space](https://huggingface.co/mergekit-community) with limited amounts of GPUs.
 
 ## Installation
 
@@ -562,6 +562,35 @@ mergekit-extract-lora finetuned_model_id_or_path base_model_id_or_path output_pa
 ## Mixture of Experts merging
 
 The `mergekit-moe` script supports merging multiple dense models into a mixture of experts, either for direct use or for further training. For more details see the [`mergekit-moe` documentation](docs/moe.md).
+
+## Evolutionary merge methods
+
+See `docs/evolve.md` for details.
+
+## ✨ Merge in the Cloud ✨
+
+We host merging on Arcee's cloud GPUs - you can launch a cloud merge in the [Arcee App](app.arcee.ai). Or through python - grab an ARCEE_API_KEY:
+
+`export ARCEE_API_KEY=<your-api-key>`
+`pip install -q arcee-py`
+
+```
+import arcee
+arcee.merge_yaml("bio-merge","./examples/bio-merge.yml")
+```
+
+Check your merge status at the [Arcee App](app.arcee.ai)
+
+When complete, either deploy your merge:
+
+```
+arcee.start_deployment("bio-merge", merging="bio-merge")
+```
+
+Or download your merge:
+
+`!arcee merging download bio-merge`
+
 
 ## Citation
 
