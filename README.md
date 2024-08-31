@@ -219,7 +219,7 @@ See `docs/evolve.md` for details.
 
 ## ✨ Merge in the Cloud ✨
 
-We host merging on Arcee's cloud GPUs - you can launch a cloud merge in the [Arcee App](app.arcee.ai). Or through python - grab an ARCEE_API_KEY:
+We host merging on Arcee's cloud GPUs - you can launch a cloud merge in the [Arcee App](https://app.arcee.ai). Or through python - grab an ARCEE_API_KEY:
 
 `export ARCEE_API_KEY=<your-api-key>`
 `pip install -q arcee-py`
@@ -229,7 +229,7 @@ import arcee
 arcee.merge_yaml("bio-merge","./examples/bio-merge.yml")
 ```
 
-Check your merge status at the [Arcee App](app.arcee.ai)
+Check your merge status at the [Arcee App](https://app.arcee.ai)
 
 When complete, either deploy your merge:
 
