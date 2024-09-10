@@ -78,28 +78,21 @@ def main(
         if "_unmerge" in f
     ]
     for i in spaces:
-        logging.info(f"Loading merge/unmerge tensors for {i}")
+        logging.info(f"Loading merge tensors for {i}")
         m = safetensors.torch.load_file(
             os.path.join(merge_unmerge_directory, f"{i}_merge.safetensor"),
             device=device,
         )
-        u = safetensors.torch.load_file(
-            os.path.join(merge_unmerge_directory, f"{i}_unmerge.safetensor"),
-            device=device,
-        )
-        merge_unmerge_dictionary[i] = (
-            m[i].to(device, dtype=dtype),
-            u[i].to(device, dtype=dtype),
-        )
+        merge_unmerge_dictionary[i] = m[i].to(device, dtype=dtype)
 
     for weight_info in model_arch_info.all_weights(config=model_config):
-        merge_matrix, unmerge_matrix = None, None
+        merge_matrix = None
 
         if weight_info.input_space in merge_unmerge_dictionary:
-            _, unmerge_matrix = merge_unmerge_dictionary[weight_info.input_space]
+            unmerge_matrix = merge_unmerge_dictionary[weight_info.input_space].t()
 
         if weight_info.output_space in merge_unmerge_dictionary:
-            merge_matrix, _ = merge_unmerge_dictionary[weight_info.output_space]
+            merge_matrix = merge_unmerge_dictionary[weight_info.output_space]
 
         original_w = loader.get_tensor(weight_info.name, device=device)
 

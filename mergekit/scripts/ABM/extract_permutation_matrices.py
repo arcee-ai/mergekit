@@ -36,9 +36,7 @@ def match_tensors_permute(
 
     merge = torch.eye(Om, device=device)[torch.tensor(col_ind).long().to(device)]
 
-    unmerge = merge.clone().T
-
-    return merge, unmerge
+    return merge
 
 
 def match_tensors_permute_MHA(
@@ -101,9 +99,7 @@ def match_tensors_permute_MHA(
         torch.cat(head_perms).clone().detach().long().to(device)
     ]
 
-    unmerge = merge.clone().T
-
-    return merge, unmerge
+    return merge
 
 
 @click.command("mergekit-abm-extract-permutations")
@@ -183,14 +179,14 @@ def main(model1_ft, model2_ft, model_path, out_path, absval, device):
         correlation_matrix = calc_correlation_matrix(concatenated_feature)
 
         if feature_space in (kq_spaces + v_spaces):
-            merge, unmerge = match_tensors_permute_MHA(
+            merge = match_tensors_permute_MHA(
                 correlation_matrix=correlation_matrix,
                 n_heads=model_config.num_attention_heads,
                 absval=absval,
             )
 
         else:
-            merge, unmerge = match_tensors_permute(
+            merge = match_tensors_permute(
                 correlation_matrix=correlation_matrix,
                 absval=absval,
             )
@@ -200,12 +196,7 @@ def main(model1_ft, model2_ft, model_path, out_path, absval, device):
             f"{out_path}/{feature_space}_merge.safetensor",
         )
 
-        safetensors.torch.save_file(
-            {feature_space: unmerge.contiguous()},
-            f"{out_path}/{feature_space}_unmerge.safetensor",
-        )
-
-        del merge, unmerge, correlation_matrix, concatenated_feature
+        del merge, correlation_matrix, concatenated_feature
 
 
 if __name__ == "__main__":
