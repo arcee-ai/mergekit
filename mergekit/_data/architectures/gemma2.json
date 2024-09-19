@@ -54,9 +54,7 @@
         {
             "name": "lm_head.weight",
             "is_embed": true,
-            "aliases": [
-                "model.embed_tokens.weight"
-            ]
+            "optional": true
         }
     ]
 }
