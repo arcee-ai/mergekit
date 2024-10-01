@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import random
 
-ROOT = '/home/viviane/Documents/Computação Evolutiva/Trabalho_2/relatorio/graficos_v1'
+ROOT = ''
 
 class DE():
     def __init__(
