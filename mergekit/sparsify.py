@@ -23,6 +23,7 @@ class SparsificationMethod(str, Enum):
     random = "random"
     magnitude_outliers = "magnitude_outliers"
     rank_magnitude_sampling = "rank_magnitude_sampling"
+    consensus_ta = "consensus_ta"
 
 
 def rescale_sum(tensor: torch.Tensor, mask: torch.Tensor):
@@ -187,3 +188,11 @@ def sparsify(
         return rank_magnitude(tensor, density=density, rescale=rescale, epsilon=epsilon)
     else:
         raise NotImplementedError(method)
+
+def get_tall_mask(
+    delta: torch.Tensor, # individual task vectors
+    lambda_factor: float, # hyper-parameter lambda for generating TALL masks
+    mixed_delta: torch.Tensor, # multi-task vector
+):
+    mask = delta.abs() > lambda_factor * (mixed_delta - delta).abs()
+    return mask

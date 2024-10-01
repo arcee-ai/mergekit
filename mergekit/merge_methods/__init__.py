@@ -93,6 +93,14 @@ def get(method: str) -> MergeMethod:
             default_normalize=False,
             default_rescale=True,
         )
+    
+    elif method == "consensus_ta":
+        return GeneralizedTaskArithmeticMerge(
+            consensus_method=None,
+            sparsification_method=SparsificationMethod.consensus_ta,
+            default_normalize=False,
+            default_rescale=False,
+        )
     raise RuntimeError(f"Unimplemented merge method {method}")
 
 

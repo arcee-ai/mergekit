@@ -29,7 +29,7 @@ from mergekit.merge_methods.base import (
     MergeMethod,
     MergeTensorInput,
 )
-from mergekit.sparsify import SparsificationMethod, sparsify
+from mergekit.sparsify import SparsificationMethod, sparsify, get_tall_mask
 
 
 class ConsensusMethod(str, Enum):
@@ -71,6 +71,19 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
                 ConfigParameterDef(
                     name="epsilon",
                     default_value=0.15,
+                )
+            )
+            res.append(
+                ConfigParameterDef(
+                    name="lambda",
+                    default_value=1.0,
+                )
+            )
+        if self.sparsification_method == SparsificationMethod.consensus_ta:
+            res.append(
+                ConfigParameterDef(
+                    name="k",
+                    default_value=1,
                 )
             )
             res.append(
@@ -133,7 +146,7 @@ class GTATask(Task[torch.Tensor]):
             return base
 
         # sparsify
-        if self.method.sparsification_method:
+        if self.method.sparsification_method and self.method.sparsification_method != SparsificationMethod.consensus_ta:
             for tv_info in tvs:
                 kwargs = {}
                 if "gamma" in tv_info:
@@ -184,6 +197,20 @@ class GTATask(Task[torch.Tensor]):
         ):
             lambda_factor = tvs[0]["lambda"]
             mixed_delta *= lambda_factor
+            
+        if (
+            self.method.sparsification_method
+            == SparsificationMethod.consensus_ta
+        ):
+            for tv_info in tvs:
+                tv_info["tall_mask"] = get_tall_mask(
+                    tv_info["delta"],
+                    tv_info["lambda"],
+                    mixed_delta,
+                )
+            tall_masks = torch.stack([tv["tall_mask"] for tv in tvs], dim=0)
+            consensus_mask = tall_masks.sum(dim=0) >= tvs[0]["k"]
+            mixed_delta = mixed_delta * consensus_mask
 
         return (base + mixed_delta).to(base.dtype)
 
