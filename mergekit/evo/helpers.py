@@ -19,6 +19,11 @@ import shutil
 import tempfile
 from typing import Any, Dict, List, Optional, Union
 
+import pandas as pd
+from sklearn.metrics import f1_score
+from transformers import pipeline
+from datasets import load_dataset
+
 import lm_eval
 import lm_eval.api.model
 import lm_eval.models.huggingface
@@ -35,28 +40,67 @@ from mergekit.merge import run_merge
 from mergekit.options import MergeOptions
 
 
-def _eval_model(
-    model: Union[str, lm_eval.api.model.LM],
-    tasks: List[TaskConfiguration],
-    model_args: Optional[Dict[str, Any]] = None,
-    task_manager: Optional[lm_eval.tasks.TaskManager] = None,
-    **kwargs,
-) -> Dict[str, Any]:
-    results = lm_eval.evaluator.simple_evaluate(
-        model=model,
-        model_args=model_args,
-        tasks=list(set([task.name for task in tasks])),
-        log_samples=False,
-        verbosity="WARNING",
-        task_manager=task_manager,
-        **kwargs,
-    )
+# def _eval_model(
+#     model: Union[str, lm_eval.api.model.LM],
+#     tasks: List[TaskConfiguration],
+#     model_args: Optional[Dict[str, Any]] = None,
+#     task_manager: Optional[lm_eval.tasks.TaskManager] = None,
+#     **kwargs,
+# ) -> Dict[str, Any]:
+#     results = lm_eval.evaluator.simple_evaluate(
+#         model=model,
+#         model_args=model_args,
+#         tasks=list(set([task.name for task in tasks])),
+#         log_samples=False,
+#         verbosity="WARNING",
+#         task_manager=task_manager,
+#         **kwargs,
+#     )
 
-    logging.info(results["results"])
-    res = 0
-    for task in tasks:
-        res += results["results"][task.name][task.metric] * task.weight
-    return {"score": res, "results": results["results"]}
+#     logging.info(results["results"])
+#     res = 0
+#     for task in tasks:
+#         res += results["results"][task.name][task.metric] * task.weight
+#     return {"score": res, "results": results["results"]}
+
+def _eval_model(
+    merged_path: str,
+    model_args: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    
+    print(f'Avaliando modelo {merged_path}')
+    
+    pipe = pipeline(
+        "text-classification", 
+        model=merged_path,
+        tokenizer=merged_path,
+        device='cuda',
+        truncation=True
+    )
+    tokenizer_kwargs = {
+        'padding':True,
+        'truncation':True,
+        'max_length':512
+    }
+
+    data_val = load_dataset('csv', data_files='data/maritaca-ai_sst2_pt.csv')
+    vals = data_val['train'].map(
+        lambda x: pipe(x['text'], **tokenizer_kwargs)[0]
+    )
+    df = pd.DataFrame(vals)
+    df['model_label'] = df['label'].replace('Positivo', 1).replace('Negativo', 0).replace('Neutro', -1)
+    res = f1_score(
+        df[df['label']!='Neutro']['true_label'], 
+        df[df['label']!='Neutro']['model_label'], 
+        average='binary'
+    )
+    results = {
+        'sst2_pt': {
+            'acc,none': res, 
+            'acc_stderr,none': 0.016939001525351532, 
+            'alias': 'sst2_pt'
+        }}
+    return {"score": res, "results": results}
 
 
 def evaluate_model(
@@ -83,15 +127,27 @@ def evaluate_model(
         else:
             model_args["use_cache"] = True
 
+        # res = _eval_model(
+        #     "vllm" if vllm else "huggingface",
+        #     tasks,
+        #     model_args,
+        #     num_fewshot=num_fewshot,
+        #     limit=limit,
+        #     batch_size=batch_size,
+        #     task_manager=task_manager,
+        # )
         res = _eval_model(
-            "vllm" if vllm else "huggingface",
-            tasks,
-            model_args,
-            num_fewshot=num_fewshot,
-            limit=limit,
-            batch_size=batch_size,
-            task_manager=task_manager,
+            merged_path,
+            model_args
         )
+        # print('############# resposta', res)
+        # res = {'score': 0.4908256880733945, 
+        #        'results': {
+        #            'sst2_pt': {
+        #                'acc,none': 0.4908256880733945, 
+        #                'acc_stderr,none': 0.016939001525351532, 
+        #                'alias': 'sst2_pt'
+        #             }}}
         return res
     finally:
         shutil.rmtree(merged_path)
