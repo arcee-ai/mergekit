@@ -222,7 +222,7 @@ class MergePlanner:
 
         print(f"output_weight: {repr(weight)} ({type(weight)})")
         tensor_task = tensor_merge_method.make_task(
-            output_weight=weight.model_dump(),
+            output_weight=weight,
             tensors=tensor_input_task,
             parameters=ImmutableMap(data=global_params),
             tensor_parameters=ImmutableMap(
