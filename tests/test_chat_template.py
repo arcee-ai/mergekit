@@ -4,6 +4,8 @@ from common import run_and_check_merge
 from transformers import AutoTokenizer
 
 from mergekit.config import InputModelDefinition, MergeConfiguration
+from test_tokenizer import model_base  # pylint: disable=unused-import
+from test_basic_merges import model_b  # pylint: disable=unused-import
 
 
 def check_chat_template(model_path: str, needle: Optional[str] = None):

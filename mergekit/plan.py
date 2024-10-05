@@ -54,7 +54,6 @@ class MergePlanner:
     _tensors: List[Tuple[WeightInfo, Task]]
     _current_module_layers: int = 0
     _tokenizer_task: Optional[BuildTokenizer] = None
-    _tensor_save_tasks: Dict[TensorWriterTask, List[SaveTensor]]
 
     def __init__(
         self,
@@ -68,6 +67,7 @@ class MergePlanner:
         self.options = options
         self.out_model_config = out_model_config
         self._method = merge_methods.get(config.merge_method)
+        self._tensors = []
 
         token_cfg = {}
         tokenizer_source = config.tokenizer_source
@@ -220,8 +220,9 @@ class MergePlanner:
                 base_model=base_model,
             )
 
+        print(f"output_weight: {repr(weight)} ({type(weight)})")
         tensor_task = tensor_merge_method.make_task(
-            output_weight=weight,
+            output_weight=weight.model_dump(),
             tensors=tensor_input_task,
             parameters=ImmutableMap(data=global_params),
             tensor_parameters=ImmutableMap(
@@ -375,7 +376,7 @@ class MergePlanner:
             for w, t in self._tensors
         ]
 
-    def plan(self):
+    def _plan(self):
         self.normalize_config()
         self._tasks = []
 

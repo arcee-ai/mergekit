@@ -14,11 +14,12 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 from transformers import PretrainedConfig
 from typing_extensions import Literal
+
 
 
 class WeightInfo(BaseModel, frozen=True):
@@ -37,6 +38,8 @@ class WeightInfo(BaseModel, frozen=True):
             Indicates whether the weight can be omitted from a model.
         aliases (Optional[List[str]]):
             List of alternative names for the weight, if applicable.
+        force_dtype (Optional[str]):
+            Mandatory dtype for the weight, if applicable.
     """
 
     name: str
@@ -44,7 +47,10 @@ class WeightInfo(BaseModel, frozen=True):
     input_space: Optional[str] = None
     output_space: Optional[str] = None
     optional: bool = False
-    aliases: Optional[List[str]] = None
+    aliases: Optional[Tuple[str, ...]] = None
+    force_dtype: Optional[str] = None
+    head_split: Literal[None, "input", "output"] = None
+    is_kq: Optional[bool] = False
 
 
 class ProceduralSpaceInfo(BaseModel, frozen=True):

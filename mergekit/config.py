@@ -102,9 +102,9 @@ class MergeConfiguration(BaseModel):
     merge_method: str
     base_model: Optional[ModelReference] = None
     dtype: Optional[str] = None
-    tokenizer_source: Union[
-        Literal["union"], Literal["base"], ModelReference, None
-    ] = None
+    tokenizer_source: Union[Literal["union"], Literal["base"], ModelReference, None] = (
+        None
+    )
     tokenizer: Optional[TokenizerConfig] = None
     chat_template: Optional[str] = None
     out_dtype: Optional[str] = None
@@ -146,12 +146,6 @@ class MergeConfiguration(BaseModel):
             raise RuntimeError(
                 "Exactly one of 'models', 'slices', or 'modules' must be present"
             )
-        return self
-
-    @model_validator(mode="after")
-    def validate_tokenizer(self):
-        if self.tokenizer_source and self.tokenizer:
-            raise RuntimeError("Cannot specify both tokenizer_source and tokenizer")
         return self
 
     @model_validator(mode="after")
