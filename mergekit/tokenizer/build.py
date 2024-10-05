@@ -90,7 +90,12 @@ def get_stripped_tokenizer(
             del tok_dict["model"]["vocab"][tok]
 
     def _keep_merge(m):
-        toks = m.split(" ")
+        if isinstance(m, str) and m.count(" ") == 1:
+            toks = m.split(" ")
+        elif isinstance(m, list):
+            toks = m
+        else:
+            raise RuntimeError(f"Unexpected merge format: {repr(m)} ({type(m)})")
         for tok in toks:
             if tok in unused_toks:
                 return False
