@@ -15,12 +15,10 @@
 
 import importlib.resources
 import string
-from abc import ABC, abstractmethod
 from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field
 from transformers import PretrainedConfig
-from typing_extensions import Literal
 
 import mergekit._data.architectures
 from mergekit.architecture.base import (
@@ -47,30 +45,6 @@ class JSONArchitectureDefinition(BaseModel, frozen=True):
 
 class TemplateWithArithmetic(string.Template):
     idpattern = r"(?a:[_a-z][_a-z0-9]*([+-]1)?)"
-
-
-def _template_substitution(
-    template: str, num_layers: int, layer_idx: Optional[int] = None
-) -> str:
-    if "{" not in template:
-        return template
-
-    substitutions = {
-        "num_layers": num_layers,
-        "num_layers+1": num_layers + 1,
-        "num_layers-1": num_layers - 1,
-    }
-
-    if layer_idx is not None:
-        substitutions.update(
-            {
-                "layer_index": layer_idx,
-                "layer_index+1": layer_idx + 1,
-                "layer_index-1": layer_idx - 1,
-            }
-        )
-
-    return TemplateWithArithmetic(template).substitute(substitutions)
 
 
 def _template_substitution(
