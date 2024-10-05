@@ -21,7 +21,6 @@ from transformers import PretrainedConfig
 from typing_extensions import Literal
 
 
-
 class WeightInfo(BaseModel, frozen=True):
     """Information about an individual weight tensor in a model.
 

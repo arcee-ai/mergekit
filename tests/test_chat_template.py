@@ -1,11 +1,23 @@
 from typing import Optional
 
-from common import run_and_check_merge
+import pytest
+from common import make_picollama, run_and_check_merge
+from test_tokenizer import make_tokenizer
 from transformers import AutoTokenizer
 
 from mergekit.config import InputModelDefinition, MergeConfiguration
-from test_tokenizer import model_base  # pylint: disable=unused-import
-from test_basic_merges import model_b  # pylint: disable=unused-import
+
+
+@pytest.fixture(scope="session")
+def model_base(tmp_path_factory):
+    model_path = make_picollama(tmp_path_factory.mktemp("model_base"), vocab_size=64)
+    make_tokenizer(vocab_size=64, added_tokens=[]).save_pretrained(model_path)
+    return model_path
+
+
+@pytest.fixture(scope="session")
+def model_b(tmp_path_factory):
+    return make_picollama(tmp_path_factory.mktemp("model_b"))
 
 
 def check_chat_template(model_path: str, needle: Optional[str] = None):
