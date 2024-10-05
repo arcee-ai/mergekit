@@ -13,13 +13,18 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import importlib
+import importlib.resources
 import logging
 import os
+import shutil
+from collections import Counter
 from typing import Optional
 
 import tqdm
 import transformers
 
+from mergekit._data import chat_templates
 from mergekit.architecture import ModelArchitecture, get_architecture_info
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
@@ -55,30 +60,31 @@ def run_merge(
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
-    loader_cache.lazy_unpickle = options.lazy_unpickle
-    loader_cache.lora_cache_dir = options.lora_merge_cache
-    loader_cache.hf_cache_dir = options.transformers_cache
-    loader_cache.trust_remote_code = options.trust_remote_code
+    loader_cache.setup(options=options)
 
     # create config for output model
     cfg_out = _model_out_config(
         merge_config, arch_info, trust_remote_code=options.trust_remote_code
     )
 
+    # warm up loader cache
+    for model in (
+        pbar := tqdm.tqdm(
+            merge_config.referenced_models(),
+            desc="Warmup loader cache",
+            disable=options.quiet,
+        )
+    ):
+        loader_cache.get(model)
+    del pbar
+
     logging.info("Planning operations")
     targets = MergePlanner(
         merge_config,
         arch_info,
-        out_path=out_path,
         options=options,
         out_model_config=cfg_out,
-    ).plan()
-
-    # warm up loader cache
-    for model in tqdm.tqdm(
-        merge_config.referenced_models(), desc="Warmup loader cache"
-    ):
-        loader_cache.get(model)
+    ).plan_to_disk(out_path=out_path)
 
     exec = Executor(
         tasks=targets,
@@ -87,7 +93,7 @@ def run_merge(
     )
 
     tokenizer = None
-    for _task, value in exec.run():
+    for _task, value in exec.run(quiet=options.quiet):
         if isinstance(value, TokenizerInfo):
             tokenizer = value.tokenizer
 
@@ -114,35 +120,113 @@ def run_merge(
         ) as fp:
             fp.write(config_source)
 
-    if tokenizer is None and options.copy_tokenizer:
-        tokenizer = _get_donor_tokenizer(
-            merge_config, trust_remote_code=options.trust_remote_code
-        )
+    if tokenizer is None:
+        if options.copy_tokenizer:
+            try:
+                _copy_tokenizer(
+                    merge_config, out_path, trust_remote_code=options.trust_remote_code
+                )
+            except Exception as e:
+                logging.error(
+                    "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
+                    exc_info=e,
+                )
+        elif merge_config.chat_template:
+            logging.warning(
+                "Chat template specified but no tokenizer found. Chat template will not be saved."
+            )
 
     if tokenizer:
         logging.info("Saving tokenizer")
+        _set_chat_template(tokenizer, merge_config)
         tokenizer.save_pretrained(out_path, safe_serialization=True)
 
 
-def _get_donor_tokenizer(
-    merge_config: MergeConfiguration, trust_remote_code: bool = False
+def _set_chat_template(
+    tokenizer: transformers.PreTrainedTokenizerBase,
+    merge_config: MergeConfiguration,
+    trust_remote_code: bool = False,
 ):
-    try:
-        donor_model = merge_config.base_model
-        if not donor_model:
-            donor_model = merge_config.referenced_models()[0]
+    chat_template = merge_config.chat_template
+    if not chat_template:
+        return
 
-        return transformers.AutoTokenizer.from_pretrained(
-            donor_model.model.path,
-            revision=donor_model.model.revision,
-            trust_remote_code=trust_remote_code,
+    if chat_template == "auto":
+        # see if there is a plurality chat template among the input models
+        model_templates = []
+        for model in merge_config.referenced_models():
+            try:
+                tok = transformers.AutoTokenizer.from_pretrained(
+                    model.model.path,
+                    revision=model.model.revision,
+                    trust_remote_code=trust_remote_code,
+                )
+                template = tok.chat_template
+                if isinstance(template, dict):
+                    template = template.get("default", None)
+                if template:
+                    model_templates.append(template.strip())
+            except Exception as e:
+                logging.warning(f"Unable to load tokenizer for {model}", exc_info=e)
+
+        if not model_templates:
+            return
+
+        chat_template = Counter(model_templates).most_common(1)[0][0]
+        logging.info(f"Auto-selected chat template: {chat_template}")
+
+    elif importlib.resources.is_resource(chat_templates, chat_template + ".jinja"):
+        with importlib.resources.open_text(
+            chat_templates, chat_template + ".jinja"
+        ) as fp:
+            chat_template = fp.read()
+
+    elif len(chat_template) < 20 or "{" not in chat_template:
+        raise RuntimeError(f"Invalid chat template: {chat_template}")
+
+    tokenizer.chat_template = chat_template
+
+
+def _copy_tokenizer(
+    merge_config: MergeConfiguration, out_path: str, trust_remote_code: bool = False
+):
+    donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
+
+    if (
+        (not merge_config.chat_template)
+        and os.path.exists(
+            os.path.join(donor_model.model.path, "tokenizer_config.json")
         )
-    except Exception as e:
-        logging.error(
-            "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
-            exc_info=e,
+        and (
+            os.path.exists(os.path.join(donor_model.model.path, "tokenizer.json"))
+            or os.path.exists(os.path.join(donor_model.model.path, "tokenizer.model"))
         )
-        return None
+    ):
+        logging.info(f"Copying tokenizer from {donor_model}")
+
+        for file_name in [
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "tokenizer.json",
+            "tokenizer.model",
+        ]:
+            if os.path.exists(os.path.join(donor_model.model.path, file_name)):
+                shutil.copy(
+                    os.path.join(donor_model.model.path, file_name),
+                    os.path.join(out_path, file_name),
+                )
+
+        return
+
+    # fallback: try actually loading the tokenizer and saving it
+    logging.info(f"Reserializing tokenizer from {donor_model}")
+    tokenizer = transformers.AutoTokenizer.from_pretrained(
+        donor_model.model.path,
+        revision=donor_model.model.revision,
+        trust_remote_code=trust_remote_code,
+    )
+    _set_chat_template(tokenizer, merge_config)
+    tokenizer.save_pretrained(out_path, safe_serialization=True)
 
 
 def _model_out_config(
@@ -155,7 +239,9 @@ def _model_out_config(
         res = config.base_model.config(trust_remote_code=trust_remote_code)
     else:
         res = config.referenced_models()[0].config(trust_remote_code=trust_remote_code)
-    if config.dtype:
+    if config.out_dtype:
+        res.torch_dtype = config.out_dtype
+    elif config.dtype:
         res.torch_dtype = config.dtype
 
     module_layers = {}

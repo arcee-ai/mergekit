@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import functools
 import typing
 from typing import Any, Callable, Optional, Union
 
@@ -37,6 +38,8 @@ class MergeOptions(BaseModel):
     lazy_unpickle: bool = False
     write_model_card: bool = True
     safe_serialization: bool = True
+    quiet: bool = False
+    read_to_gpu: bool = False
 
 
 OPTION_HELP = {
@@ -53,6 +56,8 @@ OPTION_HELP = {
     "lazy_unpickle": "Experimental lazy unpickler for lower memory usage",
     "write_model_card": "Output README.md containing details of the merge",
     "safe_serialization": "Save output in safetensors. Do this, don't poison the world with more pickled models.",
+    "quiet": "Suppress progress bars and other non-essential output",
+    "read_to_gpu": "Read model weights directly to GPU",
 }
 
 
@@ -66,6 +71,7 @@ class ShardSizeParamType(click.ParamType):
 
 
 def add_merge_options(f: Callable) -> Callable:
+    @functools.wraps(f)
     def wrapper(*args, **kwargs):
         arg_dict = {}
         for field_name in MergeOptions.model_fields:

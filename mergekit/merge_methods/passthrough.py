@@ -16,41 +16,49 @@
 from typing import Any, Dict, List, Optional
 
 import torch
-from torch._tensor import Tensor
 
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
-from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.base import (
+    ConfigParameterDef,
+    MergeMethod,
+    MergeTensorInput,
+)
 
 
 class PassthroughMergeTask(Task[torch.Tensor]):
-    gather_tensors: GatherTensors
-    scale: Optional[float] = None
+    gather_tensors: MergeTensorInput
+    tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
 
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> Tensor:
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
         if len(tensors) != 1:
             raise RuntimeError("Passthrough merge expects exactly one tensor")
 
-        res = list(tensors.values())[0]
-        if self.scale is not None:
-            res *= self.scale
+        model, tensor = list(tensors.items())[0]
+        scale = self.tensor_parameters[model].data.get("scale", None)
+        if scale is not None:
+            tensor = tensor * scale
 
-        return res
+        return tensor
+
+    def group_label(self) -> Optional[str]:
+        return self.gather_tensors.group_label()
 
 
 class PassthroughMerge(MergeMethod):
-    def parameters(self) -> List[ConfigParameterDef]:
+    def tensor_parameters(self) -> List[ConfigParameterDef]:
         return [ConfigParameterDef(name="scale", required=False, default_value=None)]
 
     def make_task(
         self,
         *,
-        tensors: GatherTensors,
-        parameters: ImmutableMap[str, Any],
+        tensors: MergeTensorInput,
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         **kwargs,
     ) -> Task:
-        return PassthroughMergeTask(gather_tensors=tensors, scale=parameters["scale"])
+        return PassthroughMergeTask(
+            gather_tensors=tensors, tensor_parameters=tensor_parameters
+        )

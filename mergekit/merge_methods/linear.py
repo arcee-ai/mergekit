@@ -13,23 +13,26 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import torch
-from torch._tensor import Tensor
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
-from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.base import (
+    ConfigParameterDef,
+    MergeMethod,
+    MergeTensorInput,
+)
+from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 class LinearMergeTask(Task[torch.Tensor]):
-    gather_tensors: GatherTensors
+    gather_tensors: MergeTensorInput
     tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
     normalize: bool
-    parameter_name: str
+    weight_info: WeightInfo
 
     def uses_accelerator(self) -> bool:
         return True
@@ -37,18 +40,20 @@ class LinearMergeTask(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs) -> Tensor:
+    def execute(
+        self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs
+    ) -> torch.Tensor:
         keys = list(tensors.keys())
 
         tensors = [tensors[key] for key in keys]
         weights = [self.tensor_parameters[key]["weight"] for key in keys]
 
-        rectify_embed_sizes(self.parameter_name, tensors)
+        rectify_embed_sizes(self.weight_info, tensors)
 
         unique_shapes = set(t.shape for t in tensors)
         if len(unique_shapes) != 1:
             raise RuntimeError(
-                f"Tensor size mismatch for {self.parameter_name}, sizes: {list(unique_shapes)}"
+                f"Tensor size mismatch for {self.weight_info.name}, sizes: {list(unique_shapes)}"
             )
 
         tensors = torch.stack(tensors, dim=0)
@@ -58,9 +63,12 @@ class LinearMergeTask(Task[torch.Tensor]):
 
         res = (weights * tensors).sum(dim=0)
         if self.normalize:
-            res /= weights.sum(dim=0)
+            res = res / weights.sum(dim=0)
 
         return res
+
+    def group_label(self) -> Optional[str]:
+        return self.gather_tensors.group_label()
 
 
 class LinearMerge(MergeMethod):
@@ -76,7 +84,7 @@ class LinearMerge(MergeMethod):
         self,
         *,
         output_weight: WeightInfo,
-        tensors: GatherTensors,
+        tensors: MergeTensorInput,
         parameters: Dict[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         **_kwargs,
@@ -85,5 +93,5 @@ class LinearMerge(MergeMethod):
             gather_tensors=tensors,
             tensor_parameters=tensor_parameters,
             normalize=parameters["normalize"],
-            parameter_name=output_weight.name,
+            weight_info=output_weight,
         )

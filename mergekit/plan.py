@@ -14,9 +14,8 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import logging
-import os
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from mergekit import merge_methods
 from mergekit.architecture import (
@@ -33,11 +32,17 @@ from mergekit.config import (
     OutputSliceDefinition,
 )
 from mergekit.graph import Task
-from mergekit.io.tasks import FinalizeModel, GatherTensors, SaveTensor, TensorWriterTask
+from mergekit.io.tasks import (
+    FinalizeModel,
+    GatherTensors,
+    LoaderCache,
+    ReturnTensor,
+    SaveTensor,
+    TensorWriterTask,
+)
 from mergekit.merge_methods import MergeMethod
-from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 from mergekit.options import MergeOptions
-from mergekit.tokenizer import BuildTokenizer
+from mergekit.tokenizer import BuildTokenizer, PermutedEmbeddings
 
 
 class MergePlanner:
@@ -45,9 +50,8 @@ class MergePlanner:
     arch_info: ModelArchitecture
     options: MergeOptions
     out_model_config: Any
-    out_path: str
     _method: MergeMethod
-    _tasks: List[Task] = []
+    _tensors: List[Tuple[WeightInfo, Task]]
     _current_module_layers: int = 0
     _tokenizer_task: Optional[BuildTokenizer] = None
     _tensor_save_tasks: Dict[TensorWriterTask, List[SaveTensor]]
@@ -56,7 +60,6 @@ class MergePlanner:
         self,
         config: MergeConfiguration,
         arch_info: ModelArchitecture,
-        out_path: str,
         options: MergeOptions,
         out_model_config: Any,
     ):
@@ -64,21 +67,20 @@ class MergePlanner:
         self.arch_info = arch_info
         self.options = options
         self.out_model_config = out_model_config
-        self.out_path = out_path
         self._method = merge_methods.get(config.merge_method)
-        self._writer_task = TensorWriterTask(
-            out_path=out_path,
-            max_shard_size=options.out_shard_size,
-            safe_serialization=options.safe_serialization,
-        )
-        self._tensor_save_tasks = {}
 
-        if config.tokenizer_source:
+        token_cfg = {}
+        tokenizer_source = config.tokenizer_source
+        if config.tokenizer is not None:
+            token_cfg = config.tokenizer.tokens or {}
+            tokenizer_source = config.tokenizer.source
+        if tokenizer_source is not None:
             self._tokenizer_task = BuildTokenizer(
                 base_model=config.base_model,
                 referenced_models=tuple(config.referenced_models()),
-                tokenizer_source=config.tokenizer_source,
+                tokenizer_source=tokenizer_source,
                 trust_remote_code=options.trust_remote_code,
+                add_tokens=tuple(token_cfg.keys()),
             )
 
     @lru_cache
@@ -88,17 +90,6 @@ class MergePlanner:
             info=module_def.architecture,
             config=model.config(trust_remote_code=self.options.trust_remote_code),
             weight_prefix=module_def.weight_prefix,
-        )
-
-    @lru_cache
-    def _tensor_writer(self, subfolder: Optional[str] = None):
-        path = self.out_path
-        if subfolder:
-            path = os.path.join(path, subfolder)
-        return TensorWriterTask(
-            out_path=path,
-            max_shard_size=self.options.out_shard_size,
-            safe_serialization=self.options.safe_serialization,
         )
 
     def normalize_config(self):
@@ -174,14 +165,21 @@ class MergePlanner:
         weights_in: List[WeightInfo],
         models: List[ModelReference],
         cfg_reader: ConfigReader,
-        tensor_writer: TensorWriterTask,
     ):
-        tensor_merge_method = self._method
-        if self._tokenizer_task and weight.is_embed:
-            tensor_merge_method = TokenizerPermutationMerge(
-                tokenizer_task=self._tokenizer_task
-            )
+        if weight.optional:
+            # check if any input weights are present
+            any_weight = False
+            for model, w_in in zip(models, weights_in):
+                index = LoaderCache().get(model).index
+                if w_in.name in index.tensor_paths:
+                    any_weight = True
+                    break
 
+            if not any_weight:
+                logging.info(f"Skipping optional weight {weight.name}")
+                return
+
+        tensor_merge_method = self._method
         cfg_g = cfg_reader.for_tensor(weight.name)
         global_params = {}
         for p in tensor_merge_method.parameters():
@@ -189,9 +187,11 @@ class MergePlanner:
                 p.name, model=None, required=p.required, default=p.default_value
             )
 
+        base_model = cfg_reader.base_model
+
         tensor_params = {}
         for model, weight_in in zip(models, weights_in):
-            is_base = model == cfg_reader.config.base_model
+            is_base = model == base_model
             tensor_params[model] = {}
             cfg_m = cfg_reader.for_tensor(weight_in.name)
             for p in tensor_merge_method.tensor_parameters():
@@ -205,29 +205,33 @@ class MergePlanner:
         gather_tensors = GatherTensors(
             weight_info=ImmutableMap(data=dict(zip(models, weights_in))),
             dtype=self.config.dtype,
+            device="cuda" if self.options.read_to_gpu else None,
         )
+
+        tensor_input_task = gather_tensors
+        if self._tokenizer_task and weight.is_embed:
+            token_cfg = {}
+            if cfg_reader.config.tokenizer:
+                token_cfg = cfg_reader.config.tokenizer.tokens
+            tensor_input_task = PermutedEmbeddings(
+                gather_tensors=gather_tensors,
+                tokenizer_task=self._tokenizer_task,
+                tokens=token_cfg,
+                base_model=base_model,
+            )
 
         tensor_task = tensor_merge_method.make_task(
             output_weight=weight,
-            tensors=gather_tensors,
+            tensors=tensor_input_task,
             parameters=ImmutableMap(data=global_params),
             tensor_parameters=ImmutableMap(
                 data={
                     key: ImmutableMap(data=tensor_params[key]) for key in tensor_params
                 }
             ),
-            base_model=self.config.base_model,
+            base_model=base_model,
         )
-        save_task = SaveTensor(
-            tensor_name=weight.name,
-            tensor_task=tensor_task,
-            writer_task=tensor_writer,
-            clone=self.options.clone_tensors,
-        )
-        if tensor_writer not in self._tensor_save_tasks:
-            self._tensor_save_tasks[tensor_writer] = []
-        self._tensor_save_tasks[tensor_writer].append(save_task)
-        self._tasks.append(save_task)
+        self._tensors.append((weight, tensor_task))
 
     def plan_layer(
         self,
@@ -255,7 +259,6 @@ class MergePlanner:
                 weights_in=[weights_in[j][idx] for j in range(len(weights_in))],
                 models=[s.model for s in sources],
                 cfg_reader=cfg_reader.with_t(t),
-                tensor_writer=self._tensor_writer(subfolder=module_arch_def.subfolder),
             )
 
         self._current_module_layers += 1
@@ -309,7 +312,6 @@ class MergePlanner:
                 config_reader.for_tensor(tensor_name=weight_info.name).for_out_slice(
                     definition.slices[0]
                 ),
-                tensor_writer=self._tensor_writer(subfolder=module_arch_def.subfolder),
             )
 
         for out_slice in definition.slices:
@@ -329,8 +331,49 @@ class MergePlanner:
                 config_reader.for_tensor(tensor_name=weight_info.name).for_out_slice(
                     definition.slices[-1]
                 ),
-                tensor_writer=self._tensor_writer(subfolder=module_arch_def.subfolder),
             )
+
+    def plan_to_disk(self, out_path: str) -> List[Task]:
+        """Plan the merge to be streamed to disk, returning a list of tasks."""
+        self._plan()
+
+        writer_task = TensorWriterTask(
+            out_path=out_path,
+            max_shard_size=self.options.out_shard_size,
+            safe_serialization=self.options.safe_serialization,
+        )
+        save_tasks = []
+        for weight, tensor_task in self._tensors:
+            save_tasks.append(
+                SaveTensor(
+                    tensor_name=weight.name,
+                    tensor_task=tensor_task,
+                    writer_task=writer_task,
+                    clone=self.options.clone_tensors,
+                    optional=weight.optional,
+                    dtype=weight.force_dtype or self.config.out_dtype,
+                )
+            )
+        finalize = FinalizeModel(
+            tensor_save_tasks=tuple(save_tasks), writer_task=writer_task
+        )
+
+        res = save_tasks + [finalize]
+        if self._tokenizer_task:
+            res.append(self._tokenizer_task)
+        return res
+
+    def plan_in_memory(self) -> List[ReturnTensor]:
+        """Plan the merge to be performed in memory."""
+        self._plan()
+        return [
+            ReturnTensor(
+                weight_info=w,
+                tensor_task=t,
+                dtype=w.force_dtype or self.config.out_dtype,
+            )
+            for w, t in self._tensors
+        ]
 
     def plan(self):
         self.normalize_config()
@@ -338,13 +381,3 @@ class MergePlanner:
 
         for module_name in self.config.modules:
             self.plan_module(module_name, self.config.modules[module_name])
-
-        self._tasks.append(
-            FinalizeModel(
-                tensor_save_tasks=tuple(self._tasks), writer_task=self._writer_task
-            )
-        )
-        res = list(self._tasks)
-        if self._tokenizer_task:
-            res.append(self._tokenizer_task)
-        return res

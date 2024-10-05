@@ -17,20 +17,23 @@ from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
-from torch._tensor import Tensor
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference, rectify_embed_sizes
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
-from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.base import (
+    ConfigParameterDef,
+    MergeMethod,
+    MergeTensorInput,
+)
+from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 class SlerpTask(Task[torch.Tensor]):
-    gather_tensors: GatherTensors
+    gather_tensors: MergeTensorInput
     base_model: ModelReference
     t: float
-    parameter_name: str
+    weight_info: WeightInfo
 
     def uses_accelerator(self) -> bool:
         return True
@@ -38,7 +41,7 @@ class SlerpTask(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> Tensor:
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
         if len(tensors) == 1:
             return list(tensors.values())[0]
         elif len(tensors) != 2:
@@ -51,7 +54,7 @@ class SlerpTask(Task[torch.Tensor]):
             [a, b] = [b, a]
         prepped_tensors = [a[1], b[1]]
 
-        rectify_embed_sizes(self.parameter_name, prepped_tensors)
+        rectify_embed_sizes(self.weight_info, prepped_tensors)
 
         return (
             slerp(
@@ -63,6 +66,9 @@ class SlerpTask(Task[torch.Tensor]):
             .to(prepped_tensors[0].device)
         )
 
+    def group_label(self) -> Optional[str]:
+        return self.gather_tensors.group_label()
+
 
 class SlerpMerge(MergeMethod):
     def parameters(self) -> List[ConfigParameterDef]:
@@ -72,7 +78,7 @@ class SlerpMerge(MergeMethod):
         self,
         *,
         output_weight: WeightInfo,
-        tensors: GatherTensors,
+        tensors: MergeTensorInput,
         parameters: ImmutableMap[str, Any],
         base_model: Optional[ModelReference],
         **_kwargs,
@@ -80,7 +86,7 @@ class SlerpMerge(MergeMethod):
         return SlerpTask(
             gather_tensors=tensors,
             base_model=base_model,
-            parameter_name=output_weight.name,
+            weight_info=output_weight,
             t=parameters["t"],
         )
 

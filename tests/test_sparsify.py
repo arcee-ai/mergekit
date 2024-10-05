@@ -28,6 +28,21 @@ class TestMagnitude:
         )
         assert torch.count_nonzero(result) == sample_tensor.view(-1).shape[0] // 2
 
+    def test_outliers(self, sample_tensor):
+        for gamma_0 in [0.1, 0.2, 0.5, 1.0]:
+            for density in [0.1, 0.3, 0.5, 0.6, 0.9, 1.0]:
+                sparsity = 1 - density
+                gamma = gamma_0 * sparsity
+                result = sparsify(
+                    sample_tensor,
+                    density=density,
+                    method=SparsificationMethod.magnitude_outliers,
+                    gamma=gamma,
+                )
+                assert torch.count_nonzero(result) == int(
+                    sample_tensor.view(-1).shape[0] * density
+                )
+
 
 class TestBernoulli:
     NUM_ITERATIONS = 1000
@@ -37,7 +52,10 @@ class TestBernoulli:
         avg_abs_sum = torch.zeros_like(ref_abs_sum)
         for _ in range(TestBernoulli.NUM_ITERATIONS):
             rescaled = sparsify(
-                sample_tensor, density=0.5, method=SparsificationMethod.rescaled_random
+                sample_tensor,
+                density=0.5,
+                method=SparsificationMethod.random,
+                rescale=True,
             )
             avg_abs_sum += rescaled.abs().sum()
         avg_abs_sum /= TestBernoulli.NUM_ITERATIONS
@@ -46,7 +64,10 @@ class TestBernoulli:
 
     def test_bernoulli_without_rescale(self, sample_tensor):
         result = sparsify(
-            sample_tensor, density=0.5, method=SparsificationMethod.random
+            sample_tensor,
+            density=0.5,
+            method=SparsificationMethod.random,
+            rescale=False,
         )
         assert 0 < torch.count_nonzero(result) <= sample_tensor.view(-1).shape[0]
 
@@ -55,5 +76,6 @@ class TestBernoulli:
             sparsify(
                 tensor=sample_tensor.to(dtype=dt).cpu(),
                 density=0.5,
-                method=SparsificationMethod.rescaled_random,
+                method=SparsificationMethod.random,
+                rescale=True,
             )

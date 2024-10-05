@@ -1,0 +1,78 @@
+{
+    "model_type": "exaone",
+    "architectures": [
+        "ExaoneForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "transformer.wte.weight",
+            "is_embed": true,
+            "output_space": "running_residual"
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "transformer.h.${layer_index}.ln_1.weight",
+                "input_space": "running_residual"
+            },
+            {
+                "name": "transformer.h.${layer_index}.attn.attention.q_proj.weight",
+                "input_space": "running_residual",
+                "output_space": "attn_qk_${layer_index}",
+                "head_split": "output",
+                "is_kq": true
+            },
+            {
+                "name": "transformer.h.${layer_index}.attn.attention.k_proj.weight",
+                "input_space": "running_residual",
+                "output_space": "attn_qk_${layer_index}",
+                "head_split": "output",
+                "is_kq": true
+            },
+            {
+                "name": "transformer.h.${layer_index}.attn.attention.v_proj.weight",
+                "input_space": "running_residual",
+                "output_space": "attn_v_${layer_index}",
+                "head_split": "output"
+            },
+            {
+                "name": "transformer.h.${layer_index}.attn.attention.out_proj.weight",
+                "input_space": "attn_v_${layer_index}",
+                "output_space": "running_residual",
+                "head_split": "input"
+            },
+            {
+                "name": "transformer.h.${layer_index}.ln_2.weight",
+                "input_space": "running_residual"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.c_fc_0.weight",
+                "input_space": "running_residual",
+                "output_space": "up_${layer_index}"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.c_fc_1.weight",
+                "input_space": "running_residual",
+                "output_space": "up_${layer_index}"
+            },
+            {
+                "name": "transformer.h.${layer_index}.mlp.c_proj.weight",
+                "input_space": "up_${layer_index}",
+                "output_space": "running_residual"
+            }
+        ]
+    },
+    "post_weights": [
+        {
+            "name": "transformer.ln_f.weight",
+            "input_space": "running_residual"
+        },
+        {
+            "name": "lm_head.weight",
+            "input_space": "running_residual",
+            "is_embed": true
+        }
+    ]
+}

@@ -1,0 +1,175 @@
+{
+    "model_type": "bert",
+    "architectures": [
+        "BertModel"
+    ],
+    "pre_weights": [
+        {
+            "name": "embeddings.position_embeddings.weight",
+            "aliases": [
+                "bert.embeddings.position_embeddings.weight"
+            ]
+        },
+        {
+            "name": "embeddings.token_type_embeddings.weight",
+            "aliases": [
+                "bert.embeddings.token_type_embeddings.weight"
+            ]
+        },
+        {
+            "name": "embeddings.word_embeddings.weight",
+            "is_embed": true,
+            "aliases": [
+                "bert.embeddings.word_embeddings.weight"
+            ]
+        },
+        {
+            "name": "embeddings.LayerNorm.bias",
+            "aliases": [
+                "embeddings.LayerNorm.beta",
+                "bert.embeddings.LayerNorm.bias",
+                "bert.embeddings.LayerNorm.beta"
+            ]
+        },
+        {
+            "name": "embeddings.LayerNorm.weight",
+            "aliases": [
+                "embeddings.LayerNorm.gamma",
+                "bert.embeddings.LayerNorm.weight",
+                "bert.embeddings.LayerNorm.gamma",
+                "bert.embeddings.LayerNorm.weight"
+            ]
+        },
+        {
+            "name": "embeddings.position_ids",
+            "optional": true,
+            "force_dtype": "int64",
+            "aliases": [
+                "bert.embeddings.position_ids"
+            ]
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "pooler.dense.weight",
+            "aliases": [
+                "bert.pooler.dense.weight"
+            ]
+        },
+        {
+            "name": "pooler.dense.bias",
+            "aliases": [
+                "bert.pooler.dense.bias"
+            ]
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "encoder.layer.${layer_index}.attention.self.query.weight",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.attention.self.query.weight"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.attention.self.query.bias",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.attention.self.query.bias"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.attention.self.key.weight",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.attention.self.key.weight"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.attention.self.key.bias",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.attention.self.key.bias"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.attention.self.value.weight",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.attention.self.value.weight"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.attention.self.value.bias",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.attention.self.value.bias"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.attention.output.dense.weight",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.attention.output.dense.weight"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.attention.output.dense.bias",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.attention.output.dense.bias"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.attention.output.LayerNorm.bias",
+                "aliases": [
+                    "encoder.layer.${layer_index}.attention.output.LayerNorm.beta",
+                    "bert.encoder.layer.${layer_index}.attention.output.LayerNorm.bias",
+                    "bert.encoder.layer.${layer_index}.attention.output.LayerNorm.beta"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.attention.output.LayerNorm.weight",
+                "aliases": [
+                    "encoder.layer.${layer_index}.attention.output.LayerNorm.gamma",
+                    "bert.encoder.layer.${layer_index}.attention.output.LayerNorm.weight",
+                    "bert.encoder.layer.${layer_index}.attention.output.LayerNorm.gamma"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.intermediate.dense.weight",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.intermediate.dense.weight"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.intermediate.dense.bias",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.intermediate.dense.bias"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.output.dense.weight",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.output.dense.weight"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.output.dense.bias",
+                "aliases": [
+                    "bert.encoder.layer.${layer_index}.output.dense.bias"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.output.LayerNorm.bias",
+                "aliases": [
+                    "encoder.layer.${layer_index}.output.LayerNorm.beta",
+                    "bert.encoder.layer.${layer_index}.output.LayerNorm.bias",
+                    "bert.encoder.layer.${layer_index}.output.LayerNorm.beta"
+                ]
+            },
+            {
+                "name": "encoder.layer.${layer_index}.output.LayerNorm.weight",
+                "aliases": [
+                    "encoder.layer.${layer_index}.output.LayerNorm.gamma",
+                    "bert.encoder.layer.${layer_index}.output.LayerNorm.weight",
+                    "bert.encoder.layer.${layer_index}.output.LayerNorm.gamma"
+                ]
+            }
+        ]
+    }
+}

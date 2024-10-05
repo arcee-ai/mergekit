@@ -60,12 +60,6 @@
             },
             {
                 "name": "transformer.h.${layer_index}.mlp.c_fc.bias"
-            },
-            {
-                "name": "transformer.h.${layer_index}.mlp.c_proj.weight"
-            },
-            {
-                "name": "transformer.h.${layer_index}.mlp.c_proj.bias"
             }
         ]
     }

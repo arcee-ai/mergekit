@@ -23,7 +23,6 @@ from typing import (
     Dict,
     Generic,
     Iterator,
-    List,
     Mapping,
     Optional,
     Tuple,
@@ -36,12 +35,12 @@ import immutables
 import peft
 import torch
 import transformers
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_serializer, model_validator
 from pydantic_core import core_schema
 from transformers import AutoConfig, PretrainedConfig
 from typing_extensions import TypeVar
 
-from mergekit.io import ShardedTensorIndex
+from mergekit.io import LazyTensorLoader, ShardedTensorIndex
 
 
 class ModelPath(BaseModel, frozen=True):
@@ -81,6 +80,7 @@ class ModelReference(BaseModel, frozen=True):
 
     model: ModelPath
     lora: Optional[ModelPath] = None
+    override_architecture: Optional[str] = None
 
     def merged(
         self, cache_dir: Optional[str] = None, trust_remote_code: bool = False
@@ -99,8 +99,12 @@ class ModelReference(BaseModel, frozen=True):
 
         if not os.path.exists(out_path):
             os.makedirs(out_path, exist_ok=True)
+
+            config = self.config(trust_remote_code)
+            auto_cls = _get_auto_cls(config.architectures[0])
+
             logging.info(f"Loading {self.model} for merge...")
-            model = transformers.AutoModelForCausalLM.from_pretrained(
+            model = auto_cls.from_pretrained(
                 self.model.path,
                 revision=self.model.revision,
                 torch_dtype=torch.float16,
@@ -118,11 +122,14 @@ class ModelReference(BaseModel, frozen=True):
         return ModelReference(model=out_path)
 
     def config(self, trust_remote_code: bool = False) -> PretrainedConfig:
-        return AutoConfig.from_pretrained(
+        res = AutoConfig.from_pretrained(
             self.model.path,
             revision=self.model.revision,
             trust_remote_code=trust_remote_code,
         )
+        if self.override_architecture:
+            res.architectures = [self.override_architecture]
+        return res
 
     def tensor_index(self, cache_dir: Optional[str] = None) -> ShardedTensorIndex:
         assert self.lora is None
@@ -150,6 +157,14 @@ class ModelReference(BaseModel, frozen=True):
 
         return ShardedTensorIndex.from_disk(path)
 
+    def lazy_loader(
+        self, cache_dir: Optional[str] = None, lazy_unpickle: bool = True
+    ) -> LazyTensorLoader:
+        return LazyTensorLoader(
+            self.tensor_index(cache_dir),
+            lazy_unpickle=lazy_unpickle,
+        )
+
     @model_validator(mode="before")
     def validate_string(cls, value):
         if isinstance(value, str):
@@ -160,6 +175,13 @@ class ModelReference(BaseModel, frozen=True):
                 return {"model": chunks[0], "lora": chunks[1]}
             raise RuntimeError(f"Can't parse {value}")
         return value
+
+    @model_serializer()
+    def serialize(self):
+        res = str(self)
+        if '"' in res or " " in res:
+            return self
+        return res
 
     @classmethod
     def parse(cls, value: str) -> "ModelReference":
@@ -172,7 +194,10 @@ class ModelReference(BaseModel, frozen=True):
         return str(self.model)
 
 
-def dtype_from_name(name: Optional[str]) -> torch.dtype:
+def dtype_from_name(name: Optional[str]) -> Optional[torch.dtype]:
+    if not name:
+        return None
+
     if name.startswith("torch."):
         name = name[len("torch.") :]
 
@@ -182,34 +207,9 @@ def dtype_from_name(name: Optional[str]) -> torch.dtype:
         return torch.float16
     elif name == "float32":
         return torch.float32
+    elif name == "int64":
+        return torch.int64
     raise RuntimeError(f'Unimplemented dtype "{name}"')
-
-
-def rectify_embed_sizes(param_name: str, tensors: List[torch.Tensor]):
-    # TODO: use arch_info.embed_weights() instead
-    if ("lm_head" in param_name or "embed_tokens" in param_name) and all(
-        len(t.shape) == 2 for t in tensors
-    ):
-        # special case - if lm_head.weight or embed_tokens.weight have a size
-        # mismatch, take the largest common submatrix of all of them
-        if take_common_submatrix(tensors):
-            logging.warning(
-                f"Using common submatrix of size {tensors[0].shape} for {param_name}"
-            )
-
-
-def take_common_submatrix(tensors: List[torch.Tensor]) -> bool:
-    min_size = [None, None]
-    for t in tensors:
-        for idx in range(2):
-            if min_size[idx] is None or t.shape[idx] < min_size[idx]:
-                min_size[idx] = t.shape[idx]
-
-    if not all(t.shape == torch.Size(min_size) for t in tensors):
-        for idx in range(len(tensors)):
-            tensors[idx] = tensors[idx][: min_size[0], : min_size[1]]
-        return True
-    return False
 
 
 def parse_kmb(value: Union[str, int]) -> int:
@@ -271,3 +271,20 @@ class ImmutableMap(Generic[T_K, T_V]):
 
     def values(self) -> Iterator[T_V]:
         return self.data.values()
+
+
+def _get_auto_cls(arch_name: str):
+    """Get the AutoModel class for a given architecture name."""
+    if arch_name.endswith("ForMaskedLM"):
+        auto_cls = transformers.AutoModelForMaskedLM
+    elif arch_name.endswith("ForSequenceClassification"):
+        auto_cls = transformers.AutoModelForSequenceClassification
+    elif arch_name.endswith("ForTokenClassification"):
+        auto_cls = transformers.AutoModelForTokenClassification
+    else:
+        if not arch_name.endswith("ForCausalLM") or arch_name.endswith("LMHeadModel"):
+            logging.warning(
+                f"Unknown model type {arch_name} - assuming AutoModelForCausalLM"
+            )
+        auto_cls = transformers.AutoModelForCausalLM
+    return auto_cls

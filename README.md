@@ -1,6 +1,3 @@
-> [!NOTE]
-> [Charles Goddard](https://github.com/cg123), author of `mergekit` (and person writing this note), has joined [arcee.ai](https://www.arcee.ai/). I will be continuing to develop `mergekit` with their backing and it will continue to be open source under the same license. For more words about this, see the blog post [here](https://blog.arcee.ai/arcee-and-mergekit-unite/).
-
 # mergekit
 
 `mergekit` is a toolkit for merging pre-trained language models. `mergekit` uses an out-of-core approach to perform unreasonably elaborate merges in resource-constrained situations. Merges can be run entirely on CPU or accelerated with as little as 8 GB of VRAM. Many merging algorithms are supported, with more coming as they catch my attention.
@@ -13,11 +10,16 @@ Features:
 - Lazy loading of tensors for low memory use
 - Interpolated gradients for parameter values (inspired by Gryphe's [BlockMerge_Gradient](https://github.com/Gryphe/BlockMerge_Gradient) script)
 - Piecewise assembly of language models from layers ("Frankenmerging")
+- [Mixture of Experts merging](#mixture-of-experts-merging)
+- [LORA extraction](#lora-extraction)
+- [Evolutionary merge methods](#evolutionary-merge-methods)
+
+🌐 GUI Launch Alert 🤗 - We are excited to announce the launch of a mega-GPU backed graphical user interface for mergekit in Arcee! This GUI simplifies the merging process, making it more accessible to a broader audience. Check it out and contribute at the [Arcee App](https://app.arcee.ai). There is also a [Hugging Face Space](https://huggingface.co/mergekit-community) with limited amounts of GPUs.
 
 ## Installation
 
 ```sh
-git clone https://github.com/cg123/mergekit.git
+git clone https://github.com/arcee-ai/mergekit.git
 cd mergekit
 
 pip install -e .  # install the package and make scripts available
@@ -114,16 +116,20 @@ Several examples of merge configurations are available in [`examples/`](examples
 
 A quick overview of the currently supported merge methods:
 
-| Method                                                                                       | `merge_method` value | Multi-Model | Uses base model |
-| -------------------------------------------------------------------------------------------- | -------------------- | ----------- | --------------- |
-| Linear ([Model Soups](https://arxiv.org/abs/2203.05482))                                     | `linear`             | ✅          | ❌              |
-| SLERP                                                                                        | `slerp`              | ❌          | ✅              |
-| [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                          | `task_arithmetic`    | ✅          | ✅              |
-| [TIES](https://arxiv.org/abs/2306.01708)                                                     | `ties`               | ✅          | ✅              |
-| [DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)            | `dare_ties`          | ✅          | ✅              |
-| [DARE](https://arxiv.org/abs/2311.03099) [Task Arithmetic](https://arxiv.org/abs/2212.04089) | `dare_linear`        | ✅          | ✅              |
-| Passthrough                                                                                  | `passthrough`        | ❌          | ❌              |
-
+| Method                                                                                           | `merge_method` value | Multi-Model | Uses base model |
+| ------------------------------------------------------------------------------------------------ | -------------------- | ----------- | --------------- |
+| Linear ([Model Soups](https://arxiv.org/abs/2203.05482))                                         | `linear`             | ✅          | ❌              |
+| SLERP                                                                                            | `slerp`              | ❌          | ✅              |
+| [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                              | `task_arithmetic`    | ✅          | ✅              |
+| [TIES](https://arxiv.org/abs/2306.01708)                                                         | `ties`               | ✅          | ✅              |
+| [DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)                | `dare_ties`          | ✅          | ✅              |
+| [DARE](https://arxiv.org/abs/2311.03099) [Task Arithmetic](https://arxiv.org/abs/2212.04089)     | `dare_linear`        | ✅          | ✅              |
+| Passthrough                                                                                      | `passthrough`        | ❌          | ❌              |
+| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)                                            | `breadcrumbs`        | ✅          | ✅              |
+| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795) + [TIES](https://arxiv.org/abs/2306.01708) | `breadcrumbs_ties`   | ✅          | ✅              |
+| [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅          | ✅              |
+| [DELLA](https://arxiv.org/abs/2406.11617)                                                  | `della`        | ✅          | ✅              |
+| [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                                  | `della_linear`        | ✅          | ✅              |
 ### Linear
 
 The classic merge method - a simple weighted average.
@@ -164,3 +170,87 @@ Parameters: same as [TIES](#ties) for `dare_ties`, or [Linear](#linear) for `dar
 ### Passthrough
 
 `passthrough` is a no-op that simply passes input tensors through unmodified. It is meant to be used for layer-stacking type merges where you have only one input model. Useful for frankenmerging.
+
+### [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)
+
+An extension of task arithmetic that discards both small and and extremely large differences from the base model. As with DARE, the Model Breadcrumbs algorithm can be used with (`breadcrumbs_ties`) or without (`breadcrumbs`) the sign consensus algorithm of TIES.
+
+Parameters: same as [Linear](#linear), plus:
+
+- `density` - fraction of weights in differences from the base model to retain
+- `gamma` - fraction of largest magnitude differences to remove
+
+Note that `gamma` corresponds with the parameter `β` described in the paper, while `density` is the final density of the sparsified tensors (related to `γ` and `β` by `density = 1 - γ - β`). For good default values, try `density: 0.9` and `gamma: 0.01`.
+
+### [Model Stock](https://arxiv.org/abs/2403.19522)
+
+Uses some neat geometric properties of fine tuned models to compute good weights for linear interpolation. Requires at least three models, including a base model.
+
+Parameters:
+
+- `filter_wise`: if true, weight calculation will be per-row rather than per-tensor. Not recommended.
+
+### [DELLA](https://arxiv.org/abs/2406.11617)
+
+Building upon DARE, DELLA uses adaptive pruning based on parameter magnitudes. DELLA first ranks parameters in each row of delta parameters and assigns drop probabilities inversely proportional to their magnitudes. This allows it to retain more important changes while reducing interference. After pruning, it rescales the remaining parameters similar to [DARE](#dare). DELLA can be used with (`della`) or without (`della_linear`) the sign elect step of TIES
+
+Parameters: same as [Linear](#linear), plus:
+- `density` - fraction of weights in differences from the base model to retain
+- `epsilon` - maximum change in drop probability based on magnitude. Drop probabilities assigned will range from `density - epsilon` to `density + epsilon`. (When selecting values for `density` and `epsilon`, ensure that the range of probabilities falls within 0 to 1)
+- `lambda` - scaling factor for the final merged delta parameters before merging with the base parameters.
+
+## LoRA extraction
+
+Mergekit allows extracting PEFT-compatible low-rank approximations of finetuned models.
+
+### Usage
+
+```sh
+mergekit-extract-lora finetuned_model_id_or_path base_model_id_or_path output_path [--no-lazy-unpickle] --rank=desired_rank
+```
+
+## Mixture of Experts merging
+
+The `mergekit-moe` script supports merging multiple dense models into a mixture of experts, either for direct use or for further training. For more details see the [`mergekit-moe` documentation](docs/moe.md).
+
+## Evolutionary merge methods
+
+See `docs/evolve.md` for details.
+
+## ✨ Merge in the Cloud ✨
+
+We host merging on Arcee's cloud GPUs - you can launch a cloud merge in the [Arcee App](https://app.arcee.ai). Or through python - grab an ARCEE_API_KEY:
+
+`export ARCEE_API_KEY=<your-api-key>`
+`pip install -q arcee-py`
+
+```
+import arcee
+arcee.merge_yaml("bio-merge","./examples/bio-merge.yml")
+```
+
+Check your merge status at the [Arcee App](https://app.arcee.ai)
+
+When complete, either deploy your merge:
+
+```
+arcee.start_deployment("bio-merge", merging="bio-merge")
+```
+
+Or download your merge:
+
+`!arcee merging download bio-merge`
+
+
+## Citation
+
+We now have a [paper](https://arxiv.org/abs/2403.13257) you can cite for the MergeKit library:
+
+```bibtex
+@article{goddard2024arcee,
+  title={Arcee's MergeKit: A Toolkit for Merging Large Language Models},
+  author={Goddard, Charles and Siriwardhana, Shamane and Ehghaghi, Malikeh and Meyers, Luke and Karpukhin, Vlad and Benedict, Brian and McQuade, Mark and Solawetz, Jacob},
+  journal={arXiv preprint arXiv:2403.13257},
+  year={2024}
+}
+```
