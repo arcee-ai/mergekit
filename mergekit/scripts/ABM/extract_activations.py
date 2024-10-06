@@ -221,7 +221,7 @@ def main(
         logging.info("Using chat template for inference")
         tokenize_function = lambda x: tokenizer.apply_chat_template(
             x,
-            padding="longest",
+            padding="max_length",
             max_length=max_length,
             truncation=True,
             return_dict=True,
@@ -230,7 +230,7 @@ def main(
         logging.info("Using default tokenizer (no chat template) for inference")
         tokenize_function = lambda x: tokenizer(
             x,
-            padding="longest",
+            padding="max_length",
             max_length=max_length,
             truncation=True,
         )
