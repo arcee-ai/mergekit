@@ -266,7 +266,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
             assert (
                 model.llm_engine.parallel_config.world_size == 1
             ), "Must be single GPU"
-            worker = model.llm_engine.driver_worker
+            worker = model.llm_engine.model_executor.driver_worker
             model = worker.model_runner.model
         param_dict = dict(model.named_parameters())
 
