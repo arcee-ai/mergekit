@@ -22,6 +22,7 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
 from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.model_stock import ModelStockMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
+from mergekit.merge_methods.pcb import PCBMerge
 from mergekit.merge_methods.slerp import SlerpMerge
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 
@@ -77,7 +78,6 @@ def get(method: str) -> MergeMethod:
         )
     elif method == "model_stock":
         return ModelStockMerge()
-
     elif method == "della":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=ConsensusMethod.sum,
@@ -85,7 +85,6 @@ def get(method: str) -> MergeMethod:
             default_normalize=True,
             default_rescale=True,
         )
-
     elif method == "della_linear":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=None,
@@ -93,6 +92,9 @@ def get(method: str) -> MergeMethod:
             default_normalize=False,
             default_rescale=True,
         )
+    elif method == "pcb":
+        return PCBMerge()
+
     raise RuntimeError(f"Unimplemented merge method {method}")
 
 

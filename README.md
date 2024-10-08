@@ -130,6 +130,8 @@ A quick overview of the currently supported merge methods:
 | [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅          | ✅              |
 | [DELLA](https://arxiv.org/abs/2406.11617)                                                  | `della`        | ✅          | ✅              |
 | [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                                  | `della_linear`        | ✅          | ✅              |
+| [PCB](https://arxiv.org/abs/2410.02396)                                                         | `pcb`                | ✅          | ✅              |
+
 ### Linear
 
 The classic merge method - a simple weighted average.
@@ -195,9 +197,19 @@ Parameters:
 Building upon DARE, DELLA uses adaptive pruning based on parameter magnitudes. DELLA first ranks parameters in each row of delta parameters and assigns drop probabilities inversely proportional to their magnitudes. This allows it to retain more important changes while reducing interference. After pruning, it rescales the remaining parameters similar to [DARE](#dare). DELLA can be used with (`della`) or without (`della_linear`) the sign elect step of TIES
 
 Parameters: same as [Linear](#linear), plus:
+
 - `density` - fraction of weights in differences from the base model to retain
 - `epsilon` - maximum change in drop probability based on magnitude. Drop probabilities assigned will range from `density - epsilon` to `density + epsilon`. (When selecting values for `density` and `epsilon`, ensure that the range of probabilities falls within 0 to 1)
 - `lambda` - scaling factor for the final merged delta parameters before merging with the base parameters.
+
+### [PCB](https://arxiv.org/abs/2410.02396)
+
+PCB is a heuristic approach to determine relative importance of parameters in each task vector. It uses terms for both intra-task and inter-task importance to determine both weighting and sparsification of each parameter.
+
+Parameters:
+
+- `density` - fraction of weights in differences from the base model to retain
+- `weight` - total weight at which to apply the final combined task vector.
 
 ## LoRA extraction
 
@@ -240,7 +252,6 @@ arcee.start_deployment("bio-merge", merging="bio-merge")
 Or download your merge:
 
 `!arcee merging download bio-merge`
-
 
 ## Citation
 
