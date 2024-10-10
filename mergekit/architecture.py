@@ -107,7 +107,15 @@ class ArchitectureInfo(ABC):
 
     def num_layers(self, config: PretrainedConfig) -> int:
         """Return the number of layers in a model."""
-        return getattr(config, self.num_layers_config_key())
+        # Split the num_layers_config_key by '.' to handle nested attributes
+        keys = self.num_layers_config_key().split('.')
+        
+        # Traverse the nested attributes based on the keys
+        attr = config
+        for key in keys:
+            attr = getattr(attr, key)
+        
+        return attr
 
     def all_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         """Return all weights associated with a model."""

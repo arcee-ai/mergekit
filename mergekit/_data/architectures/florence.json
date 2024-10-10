@@ -1,0 +1,158 @@
+{
+    "model_type": "florence2",
+    "architectures": [
+        "Florence2ForConditionalGeneration"
+    ],
+    "pre_weights": [
+        {
+            "name": "language_model.model.shared.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "image_proj_norm.weight"
+        },
+        {
+            "name": "image_proj_norm.bias"
+        },
+        {
+            "name": "language_model.lm_head.weight",
+            "is_embed": true,
+            "aliases": [
+                "language_model.model.shared.weight"
+            ]
+        }
+    ],
+    "num_layers_config_key": "text_config.num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.self_attn.k_proj.weight"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.self_attn.k_proj.bias"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.self_attn.v_proj.weight"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.self_attn.v_proj.bias"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.self_attn.q_proj.weight"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.self_attn.q_proj.bias"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.self_attn.out_proj.weight"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.self_attn.out_proj.bias"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.self_attn_layer_norm.weight"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.self_attn_layer_norm.bias"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.fc1.weight"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.fc1.bias"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.fc2.weight"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.fc2.bias"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.final_layer_norm.weight"
+            },
+            {
+                "name": "language_model.model.encoder.layers.${layer_index}.final_layer_norm.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.self_attn.k_proj.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.self_attn.k_proj.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.self_attn.v_proj.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.self_attn.v_proj.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.self_attn.q_proj.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.self_attn.q_proj.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.self_attn.out_proj.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.self_attn.out_proj.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.self_attn_layer_norm.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.self_attn_layer_norm.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.encoder_attn.k_proj.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.encoder_attn.k_proj.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.encoder_attn.v_proj.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.encoder_attn.v_proj.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.encoder_attn.q_proj.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.encoder_attn.q_proj.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.encoder_attn.out_proj.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.encoder_attn.out_proj.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.encoder_attn_layer_norm.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.encoder_attn_layer_norm.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.fc1.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.fc1.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.fc2.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.fc2.bias"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.final_layer_norm.weight"
+            },
+            {
+                "name": "language_model.model.decoder.layers.${layer_index}.final_layer_norm.bias"
+            }
+        ]
+    }
+}

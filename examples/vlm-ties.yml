@@ -1,0 +1,18 @@
+models:
+  # - model: impactframes/Qwen2-VL-7B-Captioner
+  - model: maxiw/Florence-2-ScreenQA-base
+    parameters:
+      density: [1, 0.7, 0.1] # density gradient
+      weight: 1.0
+  # - model: Qwen/Qwen2-VL-7B-Instruct
+  - model: microsoft/Florence-2-base
+    parameters:
+      density: 0.5
+      weight: [0, 0.3, 0.7, 1] # weight gradient
+merge_method: ties
+# base_model: Qwen/Qwen2-VL-7B-Instruct
+base_model: microsoft/Florence-2-base
+parameters:
+  normalize: true
+  int8_mask: true
+dtype: float16
