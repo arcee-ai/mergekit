@@ -107,8 +107,8 @@ class ArchitectureInfo(ABC):
 
     def num_layers(self, config: PretrainedConfig) -> int:
         """Return the number of layers in a model."""
-        # Split the num_layers_config_key by '.' to handle nested attributes
-        keys = self.num_layers_config_key().split('.')
+        # Split the num_layers_config_key by "." to handle nested attributes
+        keys = self.num_layers_config_key().split(".")
         
         # Traverse the nested attributes based on the keys
         attr = config
