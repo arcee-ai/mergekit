@@ -25,7 +25,7 @@ import tqdm
 import transformers
 
 from mergekit._data import chat_templates
-from mergekit.architecture import ArchitectureInfo, get_architecture_info
+from mergekit.architecture import ModelArchitecture, get_architecture_info
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
@@ -231,7 +231,7 @@ def _copy_tokenizer(
 
 def _model_out_config(
     config: MergeConfiguration,
-    arch_info: ArchitectureInfo,
+    arch_info: ModelArchitecture,
     trust_remote_code: bool = False,
 ) -> transformers.PretrainedConfig:
     """Return a configuration for the resulting model."""
@@ -244,18 +244,32 @@ def _model_out_config(
     elif config.dtype:
         res.torch_dtype = config.dtype
 
-    if config.slices:
-        try:
-            num_layers = sum(
+    module_layers = {}
+    for module_name in arch_info.modules:
+        if config.modules and module_name in config.modules:
+            module_def = config.modules.get(module_name)
+            module_layers[module_name] = sum(
+                s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+                for s in module_def.slices
+            )
+        elif config.slices:
+            module_layers[module_name] = sum(
                 s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
                 for s in config.slices
             )
-            setattr(res, arch_info.num_layers_config_key(), num_layers)
-        except Exception as e:
-            logging.warning(
-                "Unable to set number of layers in output config - you may need to manually correct it.",
-                exc_info=e,
-            )
+
+    if module_layers:
+        for module_name in module_layers:
+            try:
+                module_info = arch_info.modules[module_name]
+                cfg_key = module_info.architecture.num_layers_config_key()
+                setattr(res, cfg_key, module_layers[module_name])
+            except Exception as e:
+                logging.warning(
+                    f"Unable to set number of layers for module {module_name} in output config "
+                    "- you may need to manually correct it.",
+                    exc_info=e,
+                )
 
     return res
 

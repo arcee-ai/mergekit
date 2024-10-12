@@ -8,10 +8,8 @@ import click
 import torch
 from peft.tuners.lora import QuantLinear
 from safetensors.torch import save_file
-from torch.nn.functional import pad
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
-from transformers.modeling_utils import PreTrainedModel
 from transformers.pytorch_utils import Conv1D
 
 from mergekit.card import generate_card_lora

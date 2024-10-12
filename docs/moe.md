@@ -49,7 +49,7 @@ An appropriate architecture will be inferred based on the input models and prese
 
 ```yml
 base_model: path/to/self_attn_donor
-architecture: qwen
+architecture: Qwen MoE # Needed if using the Qwen MoE architecture with Qwen2.5
 # ... and so on
 ```
 
