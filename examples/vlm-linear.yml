@@ -1,11 +1,11 @@
 models:
-  # - model: Qwen/Qwen2-VL-7B-Instruct
-  - model: microsoft/Florence-2-base
+  - model: Qwen/Qwen2-VL-7B-Instruct
+  # - model: microsoft/Florence-2-base
     parameters:
       weight: 1.0
-  # - model: impactframes/Qwen2-VL-7B-Captioner
-  - model: maxiw/Florence-2-ScreenQA-base
+  - model: impactframes/Qwen2-VL-7B-Captioner
+  # - model: maxiw/Florence-2-ScreenQA-base
     parameters:
       weight: 1.0
 merge_method: linear
-dtype: float16
+dtype: float32
