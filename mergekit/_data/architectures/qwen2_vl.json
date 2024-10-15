@@ -7,6 +7,10 @@
         {
             "name": "visual.patch_embed.proj.weight",
             "is_embed": true
+        }, 
+        {
+            "name": "model.embed_tokens.weight",
+            "is_embed": true
         }
     ],
     "post_weights": [
@@ -22,43 +26,44 @@
         }
     ],
     "num_layers_config_key": "num_hidden_layers",
+    "num_vision_layers_config_key": "vision_config.depth",
     "layer_templates": {
         "weights": [
             {
-                "name": "visual.blocks.${layer_index}.norm1.weight"
+                "name": "visual.blocks.${vision_layer_index}.norm1.weight"
             },
             {
-                "name": "visual.blocks.${layer_index}.norm1.bias"
+                "name": "visual.blocks.${vision_layer_index}.norm1.bias"
             },
             {
-                "name": "visual.blocks.${layer_index}.norm2.weight"
+                "name": "visual.blocks.${vision_layer_index}.norm2.weight"
             },
             {
-                "name": "visual.blocks.${layer_index}.norm2.bias"
+                "name": "visual.blocks.${vision_layer_index}.norm2.bias"
             },
             {
-                "name": "visual.blocks.${layer_index}.attn.qkv.weight"
+                "name": "visual.blocks.${vision_layer_index}.attn.qkv.weight"
             },
             {
-                "name": "visual.blocks.${layer_index}.attn.qkv.bias"
+                "name": "visual.blocks.${vision_layer_index}.attn.qkv.bias"
             },
             {
-                "name": "visual.blocks.${layer_index}.attn.proj.weight"
+                "name": "visual.blocks.${vision_layer_index}.attn.proj.weight"
             },
             {
-                "name": "visual.blocks.${layer_index}.attn.proj.bias"
+                "name": "visual.blocks.${vision_layer_index}.attn.proj.bias"
             },
             {
-                "name": "visual.blocks.${layer_index}.mlp.fc1.weight"
+                "name": "visual.blocks.${vision_layer_index}.mlp.fc1.weight"
             },
             {
-                "name": "visual.blocks.${layer_index}.mlp.fc1.bias"
+                "name": "visual.blocks.${vision_layer_index}.mlp.fc1.bias"
             },
             {
-                "name": "visual.blocks.${layer_index}.mlp.fc2.weight"
+                "name": "visual.blocks.${vision_layer_index}.mlp.fc2.weight"
             },
             {
-                "name": "visual.blocks.${layer_index}.mlp.fc2.bias"
+                "name": "visual.blocks.${vision_layer_index}.mlp.fc2.bias"
             },
             {
                 "name": "model.layers.${layer_index}.self_attn.q_proj.weight"

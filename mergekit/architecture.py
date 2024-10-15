@@ -89,7 +89,7 @@ class ArchitectureInfo(ABC):
 
     @abstractmethod
     def layer_weights(
-        self, index: int, config: PretrainedConfig
+        self, index: Optional[int], config: PretrainedConfig, vision_layer_idx: Optional[int] = None
     ) -> Optional[List[WeightInfo]]:
         """Return a list of all weights associated with a given layer."""
         ...
@@ -103,7 +103,11 @@ class ArchitectureInfo(ABC):
 
     def num_layers_config_key(self) -> str:
         """Key in config that represents number of layers"""
-        return "num_hidden_layers"
+        return "num_hidden_layers" # (!) should get this from config
+
+    def num_vision_layers_config_key(self) -> str:
+        """Key in config that represents number of vision layers"""
+        return "vision_config.depth" # (!) should get this from config
 
     def num_layers(self, config: PretrainedConfig) -> int:
         """Return the number of layers in a model."""
@@ -117,12 +121,26 @@ class ArchitectureInfo(ABC):
         
         return attr
 
+    def num_vision_layers(self, config: PretrainedConfig) -> int:
+        """Return the number of vision layers in a model."""
+        # Split the num_layers_config_key by '.' to handle nested attributes
+        keys = self.num_vision_layers_config_key().split('.')
+        
+        # Traverse the nested attributes based on the keys
+        attr = config
+        for key in keys:
+            attr = getattr(attr, key, None)
+        
+        return attr
+
     def all_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         """Return all weights associated with a model."""
         num_layers = self.num_layers(config)
         res = list(self.pre_weights(config))
         for layer_idx in range(num_layers):
-            res.extend(self.layer_weights(layer_idx, config))
+            res.extend(self.layer_weights(layer_idx, config, vision_layer_idx=None))
+        for vision_layer_idx in range(self.num_vision_layers(config)):
+            res.extend(self.layer_weights(None, config, vision_layer_idx=vision_layer_idx))
         res.extend(self.post_weights(config))
         return res
 
@@ -148,14 +166,17 @@ class ConfiguredArchitectureInfo(BaseModel, frozen=True, arbitrary_types_allowed
     def num_layers(self) -> int:
         return self.info.num_layers(self.config)
 
+    def num_vision_layers(self) -> int:
+        return self.info.num_vision_layers(self.config)
+
     def pre_weights(self) -> List[WeightInfo]:
         return self.info.pre_weights(self.config)
 
     def post_weights(self) -> List[WeightInfo]:
         return self.info.post_weights(self.config)
 
-    def layer_weights(self, index: int) -> List[WeightInfo]:
-        return self.info.layer_weights(index, self.config)
+    def layer_weights(self, index: Optional[int] = None, vision_layer_idx: Optional[int] = None) -> List[WeightInfo]:
+        return self.info.layer_weights(index, self.config, vision_layer_idx)
 
     def procedural_spaces(self) -> List[ProceduralSpaceInfo]:
         return self.info.procedural_spaces(self.config)
@@ -184,10 +205,8 @@ class TemplateWithArithmetic(string.Template):
 
 
 def _template_substitution(
-    template: str, num_layers: int, layer_idx: Optional[int] = None
+    template: str, num_layers: int, layer_idx: Optional[int] = None, vision_layer_idx: Optional[int] = None
 ) -> str:
-    if "{" not in template:
-        return template
 
     substitutions = {
         "num_layers": num_layers,
@@ -203,6 +222,18 @@ def _template_substitution(
                 "layer_index-1": layer_idx - 1,
             }
         )
+    
+    if vision_layer_idx is not None:
+        substitutions.update(
+            {
+                "vision_layer_index": vision_layer_idx,
+                "vision_layer_index+1": vision_layer_idx + 1,
+                "vision_layer_index-1": vision_layer_idx - 1,
+            }
+        )
+
+    if not any(f"{{{key}}}" in template for key in substitutions):
+        return template
 
     return TemplateWithArithmetic(template).substitute(substitutions)
 
@@ -215,19 +246,21 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
         item: Union[WeightInfo, ProceduralSpaceInfo],
         config: PretrainedConfig,
         layer_idx: Optional[int] = None,
+        vision_layer_idx: Optional[int] = None,
     ) -> Union[WeightInfo, ProceduralSpaceInfo]:
         num_layers = self.num_layers(config)
+        num_vision_layers = self.num_vision_layers(config)
 
         obj_dict = item.model_dump(mode="json", exclude_unset=True)
         for key in obj_dict:
             if isinstance(obj_dict[key], str):
                 obj_dict[key] = _template_substitution(
-                    obj_dict[key], num_layers, layer_idx
+                    obj_dict[key], num_layers, layer_idx, vision_layer_idx
                 )
             elif isinstance(obj_dict[key], list):
                 obj_dict[key] = [
                     (
-                        _template_substitution(s, num_layers, layer_idx)
+                        _template_substitution(s, num_layers, layer_idx, vision_layer_idx)
                         if isinstance(s, str)
                         else s
                     )
@@ -240,16 +273,17 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
 
     def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         return [
-            self._substitute(wi, config=config) for wi in self.definition.pre_weights
+             self._substitute(wi, config=config) for wi in self.definition.pre_weights
         ]
 
     def layer_weights(
-        self, index: int, config: PretrainedConfig
+        self, index: Optional[int], config: PretrainedConfig, vision_layer_idx: Optional[int] = None
     ) -> Optional[List[WeightInfo]]:
-        return [
-            self._substitute(wi, config=config, layer_idx=index)
+        temp = [
+            self._substitute(wi, config=config, layer_idx=index, vision_layer_idx=vision_layer_idx)
             for wi in self.definition.layer_templates.weights
-        ]
+            ]
+        return [t for t in temp if '$' not in t.name]
 
     def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         return [

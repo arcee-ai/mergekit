@@ -66,7 +66,8 @@ def evaluate_setting(
 
 class InputSliceDefinition(BaseModel):
     model: ModelReference
-    layer_range: Tuple[int, int]
+    layer_range: Optional[Tuple[int, int]] = None
+    vision_layer_range: Optional[Tuple[int, int]] = None
     parameters: Optional[Dict[str, ParameterSetting]] = None
 
 

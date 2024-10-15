@@ -109,6 +109,7 @@ class MergePlanner:
                 slices_in.append(
                     InputSliceDefinition(
                         layer_range=[0, model_info.num_layers()],
+                        vision_layer_range=[0, model_info.num_vision_layers()],
                         model=model_in.model,
                         parameters=model_in.parameters,
                     )
@@ -120,6 +121,7 @@ class MergePlanner:
                 slices_in.append(
                     InputSliceDefinition(
                         layer_range=[0, base_info.num_layers()],
+                        vision_layer_range=[0, base_info.num_vision_layers()],
                         model=base_model,
                     )
                 )
@@ -204,17 +206,21 @@ class MergePlanner:
     def plan_layer(
         self,
         sources: List[InputSliceDefinition],
-        layer_offset: int,
+        layer_offset: Optional[int],
+        vision_layer_offset: Optional[int],
         t: float,
         cfg_reader: ConfigReader,
     ):
         weights_out: List[WeightInfo] = self.arch_info.layer_weights(
-            index=self._current_layers,
+            # index=self._current_layers, # (!) Check change 
             config=self.out_model_config,
+            index=sources[0].layer_range[0] + layer_offset if (layer_offset is not None) else None,
+            vision_layer_idx=sources[0].vision_layer_range[0] + vision_layer_offset if (vision_layer_offset is not None) else None,
         )
         weights_in: List[List[WeightInfo]] = [
             self.model_arch_info(s.model).layer_weights(
-                index=s.layer_range[0] + layer_offset
+                index=s.layer_range[0] + layer_offset if (layer_offset is not None) else None,
+                vision_layer_idx=s.vision_layer_range[0] + vision_layer_offset if (vision_layer_offset is not None) else None,
             )
             for s in sources
         ]
@@ -233,14 +239,21 @@ class MergePlanner:
         slice_lengths = [
             s.layer_range[1] - s.layer_range[0] for s in definition.sources
         ]
-        if not all(s == slice_lengths[0] for s in slice_lengths):
+        vision_slice_lengths = [
+            s.vision_layer_range[1] - s.vision_layer_range[0]
+            for s in definition.sources
+        ]
+
+        if not all(s == slice_lengths[0] for s in slice_lengths) and not all(
+            s == vision_slice_lengths[0] for s in vision_slice_lengths):
             raise RuntimeError(
                 "All inputs to a slice must contain the same number of layers"
             )
         num_layers = slice_lengths[0]
+        num_vision_layers = vision_slice_lengths[0]
 
         cfg_reader = ConfigReader(config=self.config, slice_out=definition, t=0)
-        for idx in range(num_layers):
+        for idx in range(num_layers): # this bit works
             # compute t for interpolated gradients
             if num_layers > 1:
                 t = idx / (num_layers - 1)
@@ -250,6 +263,22 @@ class MergePlanner:
             self.plan_layer(
                 definition.sources,
                 layer_offset=idx,
+                vision_layer_offset=None,
+                t=t,
+                cfg_reader=cfg_reader,
+            )
+
+        for idx in range(num_vision_layers):
+            # compute t for interpolated gradients
+            if num_layers > 1:
+                t = idx / (num_layers - 1)
+            else:
+                t = 1
+
+            self.plan_layer(
+                definition.sources,
+                layer_offset=None,
+                vision_layer_offset=idx,
                 t=t,
                 cfg_reader=cfg_reader,
             )
