@@ -111,8 +111,8 @@ class ArchitectureInfo(ABC):
 
     def num_layers(self, config: PretrainedConfig) -> int:
         """Return the number of layers in a model."""
-        # Split the num_layers_config_key by '.' to handle nested attributes
-        keys = self.num_layers_config_key().split('.')
+        # Split the num_layers_config_key by "." to handle nested attributes
+        keys = self.num_layers_config_key().split(".")
         
         # Traverse the nested attributes based on the keys
         attr = config
@@ -123,8 +123,8 @@ class ArchitectureInfo(ABC):
 
     def num_vision_layers(self, config: PretrainedConfig) -> int:
         """Return the number of vision layers in a model."""
-        # Split the num_layers_config_key by '.' to handle nested attributes
-        keys = self.num_vision_layers_config_key().split('.')
+        # Split the num_layers_config_key by "." to handle nested attributes
+        keys = self.num_vision_layers_config_key().split(".")
         
         # Traverse the nested attributes based on the keys
         attr = config
@@ -283,7 +283,7 @@ class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):
             self._substitute(wi, config=config, layer_idx=index, vision_layer_idx=vision_layer_idx)
             for wi in self.definition.layer_templates.weights
             ]
-        return [t for t in temp if '$' not in t.name]
+        return [t for t in temp if "$" not in t.name]
 
     def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         return [
