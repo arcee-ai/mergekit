@@ -24,6 +24,9 @@ from typing_extensions import Literal
 
 import mergekit._data.architectures
 
+import re
+from collections import defaultdict
+
 
 class WeightInfo(BaseModel, frozen=True):
     """Information about an individual weight tensor in a model.
@@ -197,6 +200,67 @@ def _template_substitution(
         )
 
     return TemplateWithArithmetic(template).substitute(substitutions)
+
+
+class AutomaticArchitectureInfo(ArchitectureInfo, BaseModel):
+    arch_name: str = Field(default="")
+    parameter_names: List[str] = Field(default_factory=list)
+    layered_parameter_names: Dict[str, List[str]] = Field(default_factory=dict)
+
+    def __init__(self, arch_name: str, parameter_names: List[str]):
+        super().__init__()
+
+        self.arch_name = arch_name
+        self.parameter_names = parameter_names
+        self.layered_parameter_names = self._hierarchy(self.parameter_names)
+        # We could further inspect layered_parameter_names to split out pre and post weights
+
+    def _hierarchy(self, names):
+        # Initialize a dictionary to hold the hierarchical structure
+        hierarchy = defaultdict(list)
+
+        # Regular expression to match layers (denoted by .{integer}.)
+        layer_pattern = re.compile(r"\.\d+\.")
+
+        for name in names:
+            # Find the layer part of the string (e.g., 'model.layers.0.')
+            match = layer_pattern.search(name)
+            if match:
+                # Extract everything up to the layer identifier
+                layer_prefix = name[: match.end() - 1]  # e.g., 'model.layers.0'
+                # Extract the parameter name after the layer identifier
+                param_name = name[match.end() :]  # e.g., 'input_layernorm.weight'
+                # Add the parameter name to the corresponding layer in the hierarchy
+                hierarchy[layer_prefix].append(param_name)
+
+        return hierarchy
+
+    def name(self) -> str:
+        return self.arch_name
+
+    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return []
+
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return []
+
+    def layer_weights(
+        self, index: int, config: PretrainedConfig
+    ) -> Optional[List[WeightInfo]]:
+        layer_name = list(self.layered_parameter_names.keys())[index]
+        return [
+            WeightInfo(name=(layer_name + ("." + param if param else "")))
+            for param in self.layered_parameter_names[layer_name]
+        ]
+    
+    def all_weights(self, config):
+        return self.parameter_names
+
+    def sliceable(self) -> bool:
+        return True
+
+    def num_layers(self, config: PretrainedConfig) -> int:
+        return len(self.layered_parameter_names)
 
 
 class JsonArchitectureInfo(ArchitectureInfo, BaseModel, frozen=True):

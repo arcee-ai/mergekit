@@ -25,7 +25,10 @@ import tqdm
 import transformers
 
 from mergekit._data import chat_templates
-from mergekit.architecture import ArchitectureInfo, get_architecture_info
+from mergekit.architecture import (
+    ArchitectureInfo,
+    AutomaticArchitectureInfo,
+)
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
@@ -34,6 +37,47 @@ from mergekit.options import MergeOptions
 from mergekit.plan import MergePlanner
 from mergekit.tokenizer import TokenizerInfo
 
+import os
+from safetensors import safe_open
+
+def get_model_parameter_names(repo_id: str):
+    # Get the directory where the model is stored locally
+    hf_home = os.getenv("HF_HOME", "~/.cache/huggingface/hub")
+
+    # Expand the user directory if the path contains ~
+    hf_home = os.path.expanduser(hf_home)
+
+    # Construct the model directory path
+    model_dir = os.path.join(hf_home, "models--" + repo_id.replace("/", "--"))
+
+    # Check if model exists locally
+    if not os.path.exists(model_dir):
+        raise FileNotFoundError(f"Model repository {repo_id} not found locally.")
+
+    # Find all safetensor files in the directory (e.g., model-00001-of-00003.safetensors)
+    safetensors_files = [
+        os.path.join(root, f)
+        for root, dirs, files in os.walk(model_dir)
+        for f in files
+        if f.endswith(".safetensors")
+    ]
+
+    if not safetensors_files:
+        raise FileNotFoundError(f"No safetensors files found for {repo_id}.")
+
+    # Initialize a set to store unique parameter names across all safetensors files
+    param_names = set()
+
+    # Loop through all safetensors files and extract keys
+    for safetensors_file in safetensors_files:
+        safetensors_path = os.path.join(model_dir, safetensors_file)
+
+        with safe_open(safetensors_path, framework="pt", device="cpu") as f:
+            param_names.update(
+                f.keys()
+            )  # Add all parameter names (keys) from this file
+
+    return sorted(param_names)
 
 def run_merge(
     merge_config: MergeConfiguration,
@@ -48,11 +92,18 @@ def run_merge(
         raise RuntimeError("No output requested")
 
     model_arch_info = [
-        get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
-        for m in merge_config.referenced_models()
+        AutomaticArchitectureInfo(
+            arch_name=source_model.model.path,
+            parameter_names=get_model_parameter_names(source_model.model.path),
+            # Could put get_model_parameter_names inside AutomaticArchitectureInfo,
+            # but this way we can still use AutomaticArchitectureInfo for other models for arbitrary pytorch models
+        )
+        for source_model in merge_config.referenced_models()
     ]
+
     if not options.allow_crimes:
-        if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
+        if not all(a.all_weights(None) == model_arch_info[0].all_weights(None) for a in model_arch_info[1:]):
+            # Current implementation has name = repo_id so will be different for each model. Can change if necessary.
             raise RuntimeError(
                 "Must specify --allow-crimes to attempt to mix different architectures"
             )
