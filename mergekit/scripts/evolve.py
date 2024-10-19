@@ -18,6 +18,8 @@ import os
 import time
 from typing import List, Optional
 
+from numpy import array
+
 import click
 import cma
 import numpy as np
@@ -27,6 +29,7 @@ import torch
 import tqdm
 import transformers
 import yaml
+import random
 
 try:
     import wandb
@@ -48,6 +51,18 @@ from mergekit.evo.strategy import (
 )
 from mergekit.merge import run_merge
 from mergekit.options import MergeOptions
+
+from mergekit.evo.differential_evolution import DE
+
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cuda.enable_flash_sdp(False)
+
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 @click.command("mergekit-evolve")
@@ -117,8 +132,14 @@ from mergekit.options import MergeOptions
 @click.option(
     "--force-population-size",
     type=int,
-    default=None,
+    default=10,
     help="Force a specific initial population size for CMA-ES",
+)
+@click.option(
+    "--opt_method",
+    type=str,
+    default='CMA-ES',
+    help="Choose between CMA-ES and SaDE",
 )
 def main(
     genome_config_path: str,
@@ -143,6 +164,7 @@ def main(
     reshard: bool,
     timeout: Optional[float],
     force_population_size: Optional[int],
+    opt_method: Optional[str]
 ):
     config = EvolMergeConfiguration.model_validate(
         yaml.safe_load(open(genome_config_path, "r", encoding="utf-8"))
@@ -317,18 +339,49 @@ def main(
         return [-x["score"] for x in res]  # maximize
 
     try:
-        cma_opts = {"maxfevals": max_fevals, "timeout": timeout}
-        if force_population_size is not None:
-            cma_opts["popsize"] = force_population_size
-        xbest, es = cma.fmin2(
-            None,
-            parallel_objective=parallel_evaluate,
-            x0=x0,
-            sigma0=sigma0,
-            options=cma_opts,
-            callback=progress_callback,
-        )
-        xbest_cost = es.result.fbest
+        set_seed(random_seed)
+        if opt_method == 'DE':
+            print('Execuntando DE')
+            print(f'Caminho output: {storage_path}')
+            de = DE(
+                fct=parallel_evaluate,
+                D_x=len(x0),
+                lb=0, ub=1,
+                max_fevals=max_fevals,
+                population_size=force_population_size if force_population_size is not None else 10,
+                seed=random_seed
+            )
+            xbest, fbest = de.run_DE()
+            xbest_cost = fbest
+        elif opt_method == 'CMA-ES':
+            print('Execuntando CMA-ES')
+            cma_opts = {"maxfevals": max_fevals, "timeout": timeout, "seed": random_seed}
+            if force_population_size is not None:
+                cma_opts["popsize"] = force_population_size
+            xbest, es = cma.fmin2(
+                None,
+                parallel_objective=parallel_evaluate,
+                x0=x0,
+                sigma0=sigma0,
+                options=cma_opts,
+                callback=progress_callback,
+            )
+            xbest_cost = es.result.fbest
+        elif opt_method == 'SaDE':
+            print('Execuntando DE')
+            print(f'Caminho output: {storage_path}')
+            de = DE(
+                fct=parallel_evaluate,
+                D_x=len(x0),
+                lb=0, ub=1,
+                max_fevals=max_fevals,
+                population_size=force_population_size if force_population_size is not None else 10,
+                seed=random_seed
+            )
+            xbest, fbest = de.run_SaDE(learning_period=3)
+            xbest_cost = fbest
+        else:
+            raise ValueError(f"Unknown optimization method {opt_method}")
     except KeyboardInterrupt:
         ray.shutdown()
 
