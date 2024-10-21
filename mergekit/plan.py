@@ -265,16 +265,17 @@ class MergePlanner:
         )
         save_tasks = []
         for weight, tensor_task in self._tensors:
-            save_tasks.append(
-                SaveTensor(
-                    tensor_name=weight.name,
-                    tensor_task=tensor_task,
-                    writer_task=writer_task,
-                    clone=self.options.clone_tensors,
-                    optional=weight.optional,
-                    dtype=weight.force_dtype or self.config.out_dtype,
+            if weight.name not in ['classifier.weight', 'classifier.bias']:
+                save_tasks.append(
+                    SaveTensor(
+                        tensor_name=weight.name,
+                        tensor_task=tensor_task,
+                        writer_task=writer_task,
+                        clone=self.options.clone_tensors,
+                        optional=weight.optional,
+                        dtype=weight.force_dtype or self.config.out_dtype,
+                    )
                 )
-            )
         finalize = FinalizeModel(
             tensor_save_tasks=tuple(save_tasks), writer_task=writer_task
         )
@@ -282,6 +283,7 @@ class MergePlanner:
         res = save_tasks + [finalize]
         if self._tokenizer_task:
             res.append(self._tokenizer_task)
+
         return res
 
     def plan_in_memory(self) -> List[ReturnTensor]:
