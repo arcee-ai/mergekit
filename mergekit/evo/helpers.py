@@ -17,12 +17,7 @@ import logging
 import os
 import shutil
 import tempfile
-from typing import Any, Dict, List, Optional, Union
-
-import pandas as pd
-from sklearn.metrics import f1_score
-from transformers import pipeline
-from datasets import load_dataset
+from typing import Any, Dict, List, Optional
 
 import lm_eval
 import lm_eval.api.model
@@ -38,6 +33,8 @@ from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
 from mergekit.evo.monkeypatch import monkeypatch_lmeval_vllm
 from mergekit.merge import run_merge
 from mergekit.options import MergeOptions
+
+from mergekit.evo.model_eval import fillmask_evaluator
 
 
 # def _eval_model(
@@ -63,44 +60,63 @@ from mergekit.options import MergeOptions
 #         res += results["results"][task.name][task.metric] * task.weight
 #     return {"score": res, "results": results["results"]}
 
+# def _eval_model(
+#     merged_path: str,
+#     model_args: Optional[Dict[str, Any]] = None,
+# ) -> Dict[str, Any]:
+    
+#     print(f'Avaliando modelo {merged_path}')
+    
+#     pipe = pipeline(
+#         "text-classification", 
+#         model=merged_path,
+#         tokenizer=merged_path,
+#         device='cuda',
+#         truncation=True
+#     )
+#     tokenizer_kwargs = {
+#         'padding':True,
+#         'truncation':True,
+#         'max_length':512
+#     }
+
+#     data_val = load_dataset('csv', data_files='data/maritaca-ai_sst2_pt.csv')
+#     vals = data_val['train'].map(
+#         lambda x: pipe(x['text'], **tokenizer_kwargs)[0]
+#     )
+#     df = pd.DataFrame(vals)
+#     df['model_label'] = df['label'].replace('Positivo', 1).replace('Negativo', 0).replace('Neutro', -1)
+#     res = f1_score(
+#         df[df['label']!='Neutro']['true_label'], 
+#         df[df['label']!='Neutro']['model_label'], 
+#         average='binary'
+#     )
+#     results = {
+#         'sst2_pt': {
+#             'acc,none': res, 
+#             'acc_stderr,none': 0.016939001525351532, 
+#             'alias': 'sst2_pt'
+#         }}
+#     return {"score": res, "results": results}
+
+
 def _eval_model(
     merged_path: str,
-    model_args: Optional[Dict[str, Any]] = None,
+    tasks: List[TaskConfiguration]
 ) -> Dict[str, Any]:
     
-    print(f'Avaliando modelo {merged_path}')
-    
-    pipe = pipeline(
-        "text-classification", 
-        model=merged_path,
-        tokenizer=merged_path,
-        device='cuda',
-        truncation=True
-    )
-    tokenizer_kwargs = {
-        'padding':True,
-        'truncation':True,
-        'max_length':512
-    }
+    results = {}
+    score = 0
 
-    data_val = load_dataset('csv', data_files='data/maritaca-ai_sst2_pt.csv')
-    vals = data_val['train'].map(
-        lambda x: pipe(x['text'], **tokenizer_kwargs)[0]
-    )
-    df = pd.DataFrame(vals)
-    df['model_label'] = df['label'].replace('Positivo', 1).replace('Negativo', 0).replace('Neutro', -1)
-    res = f1_score(
-        df[df['label']!='Neutro']['true_label'], 
-        df[df['label']!='Neutro']['model_label'], 
-        average='binary'
-    )
-    results = {
-        'sst2_pt': {
-            'acc,none': res, 
-            'acc_stderr,none': 0.016939001525351532, 
-            'alias': 'sst2_pt'
-        }}
-    return {"score": res, "results": results}
+    for task in tasks:
+        task_name = task.name
+        res = fillmask_evaluator(
+            merged_path=merged_path,
+            task=task_name)
+        results.update(res)
+        score+=res[task_name]['score']
+    
+    return {"score": score, "results": results}
 
 
 def evaluate_model(
@@ -136,11 +152,12 @@ def evaluate_model(
         #     batch_size=batch_size,
         #     task_manager=task_manager,
         # )
-        res = _eval_model(
-            merged_path,
-            model_args
-        )
-        # print('############# resposta', res)
+        # res = _eval_model(
+        #     merged_path,
+        #     model_args
+        # )
+        res = _eval_model(merged_path, tasks)
+        print('############# resposta', res)
         # res = {'score': 0.4908256880733945, 
         #        'results': {
         #            'sst2_pt': {
