@@ -1,0 +1,21 @@
+genome:
+    models:
+       - Nelci/bertimbau_hate_speech
+       - Silly-Machine/TuPy-Bert-Large-Binary-Classifier
+       - danielribeiro/google-play-sentiment-analysis
+    merge_method: dare_ties
+    base_model:
+        model: neuralmind/bert-large-portuguese-cased
+        override_architecture: BertModel
+    tokenizer_source: null # optional
+    layer_granularity: 0
+
+    # optional:
+    normalize: false
+    allow_negative_weights: false
+    smooth: false
+
+tasks:
+  - name: sst2_pt
+    weight: 1.0 # optional
+    metric: "acc,none" # defaults to acc,none
