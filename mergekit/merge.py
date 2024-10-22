@@ -312,7 +312,9 @@ def _get_model_parameter_names(repo_id: str):
         print(f"Error loading tensor paths: {e}")
         snapshot_path = _most_recent_snapshot_path(model_dir)
         try:
-            return list(ShardedTensorIndex.from_disk(str(snapshot_path)).tensor_paths.keys())
+            return list(
+                ShardedTensorIndex.from_disk(str(snapshot_path)).tensor_paths.keys()
+            )
         except Exception as e:
             print(f"Error loading tensor paths from snapshot: {e}")
             raise
@@ -341,7 +343,9 @@ def _most_recent_snapshot_path(model_dir: Path) -> Path:
     most_recent_snapshot = snapshot_dirs[0]
 
     if len(snapshot_dirs) > 1:
-        print(f"Most recent snapshot directory: {most_recent_snapshot} of {len(snapshot_dirs)}")
+        print(
+            f"Most recent snapshot directory: {most_recent_snapshot} of {len(snapshot_dirs)}"
+        )
 
     return most_recent_snapshot
 
