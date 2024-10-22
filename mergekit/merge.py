@@ -19,31 +19,25 @@ import logging
 import os
 import shutil
 from collections import Counter
+from pathlib import Path
 from typing import Optional
 
 import tqdm
 import transformers
+from huggingface_hub import model_info, snapshot_download
+from huggingface_hub.utils import HfHubHTTPError
+from transformers.configuration_utils import download_url, is_remote_url
 
 from mergekit._data import chat_templates
-from mergekit.architecture import (
-    ArchitectureInfo,
-    AutomaticArchitectureInfo,
-)
+from mergekit.architecture import ArchitectureInfo, AutomaticArchitectureInfo
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
-from mergekit.io.tasks import LoaderCache
 from mergekit.io.lazy_tensor_loader import ShardedTensorIndex
+from mergekit.io.tasks import LoaderCache
 from mergekit.options import MergeOptions
 from mergekit.plan import MergePlanner
 from mergekit.tokenizer import TokenizerInfo
-
-import os
-from transformers.configuration_utils import is_remote_url, download_url
-from huggingface_hub import snapshot_download
-from pathlib import Path
-from huggingface_hub import model_info
-from huggingface_hub.utils import HfHubHTTPError
 
 # Overwritten by the environment variable HF_HOME if set
 HF_HOME_DEFAULT = "~/.cache/huggingface"

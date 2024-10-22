@@ -14,8 +14,10 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 import importlib.resources
+import re
 import string
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field
@@ -23,9 +25,6 @@ from transformers import PretrainedConfig
 from typing_extensions import Literal
 
 import mergekit._data.architectures
-
-import re
-from collections import defaultdict
 
 
 class WeightInfo(BaseModel, frozen=True):
