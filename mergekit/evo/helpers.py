@@ -114,7 +114,7 @@ def _eval_model(
             merged_path=merged_path,
             task=task_name)
         results.update(res)
-        score+=res[task_name]['score']
+        score+=res[task_name]['f1-score']
     
     return {"score": score, "results": results}
 
