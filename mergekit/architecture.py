@@ -232,6 +232,8 @@ class AutomaticArchitectureInfo(ArchitectureInfo, BaseModel):
                 param_name = name[match.end() :]  # e.g., 'input_layernorm.weight'
                 # Add the parameter name to the corresponding layer in the hierarchy
                 hierarchy[layer_prefix].append(param_name)
+            else:
+                hierarchy[name].append("")
 
         return hierarchy
 
@@ -252,9 +254,6 @@ class AutomaticArchitectureInfo(ArchitectureInfo, BaseModel):
             WeightInfo(name=(layer_name + ("." + param if param else "")))
             for param in self.layered_parameter_names[layer_name]
         ]
-    
-    def all_weights(self, config):
-        return self.parameter_names
 
     def sliceable(self) -> bool:
         return True
