@@ -297,10 +297,12 @@ def load_model_architecture(merge_config, options):
                 "AutomaticArchitectureInfo only supports models with the same architecture"
             )
     else:
-        if not options.allow_crimes and not all(a == model_arch_info[0] for a in model_arch_info[1:]):
-                raise RuntimeError(
-                    "Must specify --allow-crimes to attempt to mix different architectures"
-                )
+        if not options.allow_crimes and not all(
+            a == model_arch_info[0] for a in model_arch_info[1:]
+        ):
+            raise RuntimeError(
+                "Must specify --allow-crimes to attempt to mix different architectures"
+            )
 
     return model_arch_info[0]
 
