@@ -23,6 +23,7 @@ from typing import ClassVar, Dict, List, Optional, Tuple, Union
 from pydantic import BaseModel, Field
 from transformers import PretrainedConfig
 from typing_extensions import Literal
+import warnings
 
 import mergekit._data.architectures
 
@@ -427,7 +428,8 @@ def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
         return MixtralTensorNames.from_config(config)
 
     if arch_name not in NAME_TO_ARCH:
-        raise RuntimeError(f"Unsupported architecture {arch_name}")
+        warnings.warn(f"Unsupported architecture {arch_name}, attempting automatic architecture generation")
+        return False
 
     candidates = list(NAME_TO_ARCH[arch_name])
     if len(candidates) == 1:
@@ -437,6 +439,7 @@ def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
         if c.definition.expected_model_type == config.model_type:
             return c
 
-    raise RuntimeError(
+    warnings.warn(
         f"Unsupported model_type {config.model_type} for architecture {arch_name}"
     )
+    return False

@@ -24,12 +24,15 @@ from typing import Optional
 
 import tqdm
 import transformers
-from huggingface_hub import model_info, snapshot_download
+from huggingface_hub import snapshot_download
 from huggingface_hub.utils import HfHubHTTPError
-from transformers.configuration_utils import download_url, is_remote_url
 
 from mergekit._data import chat_templates
-from mergekit.architecture import ArchitectureInfo, AutomaticArchitectureInfo
+from mergekit.architecture import (
+    ArchitectureInfo,
+    AutomaticArchitectureInfo,
+    get_architecture_info,
+)
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
@@ -55,15 +58,7 @@ def run_merge(
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
-    model_arch_info = [
-        AutomaticArchitectureInfo(
-            arch_name=source_model.model.path,
-            parameter_names=_get_model_parameter_names(source_model.model.path),
-        )
-        for source_model in merge_config.referenced_models()
-    ]
-
-    arch_info = model_arch_info[0]
+    arch_info = load_model_architecture(merge_config, options)
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
@@ -280,84 +275,72 @@ def _update_config_vocab(
         )
 
 
-def _get_model_parameter_names(repo_id: str):
+def load_model_architecture(merge_config, options):
+    model_arch_info = [
+        get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
+        for m in merge_config.referenced_models()
+    ]
+    if any(a is None for a in model_arch_info):
+        # Attempt to load the architecture automatically if it's not specified
+        model_arch_info = [
+            AutomaticArchitectureInfo(
+                arch_name=source_model.model.path,
+                parameter_names=_get_model_parameter_names(source_model.model.path),
+            )
+            for source_model in merge_config.referenced_models()
+        ]
+        if not all(
+            a.all_weights() == model_arch_info[0].all_weights()
+            for a in model_arch_info[1:]
+        ):
+            raise RuntimeError(
+                "AutomaticArchitectureInfo only supports models with the same architecture"
+            )
+    else:
+        if not options.allow_crimes and not all(a == model_arch_info[0] for a in model_arch_info[1:]):
+                raise RuntimeError(
+                    "Must specify --allow-crimes to attempt to mix different architectures"
+                )
+
+    return model_arch_info[0]
+
+
+def _get_model_parameter_names(repo_id: str) -> list:
     """
-    Get the names of the parameters from a Hugging Face model or local model.
-    This function supports local paths, remote URLs, or Hugging Face repository IDs.
+    Get the parameter names of a model from a Hugging Face repo or local directory.
+
+    This function checks if the model is available locally or in the Hugging Face cache.
+    If the model is not available, it attempts to download it. If the download fails,
+    it raises an error. Once the model is resolved, it returns the list of tensor paths.
+
     :param repo_id: The model's repo ID, URL, or local directory path.
     :return: A list of parameter names.
     """
-    # Determine if repo_id is a local path, remote URL, or Hugging Face repo
+    # Try to resolve the model directory, either locally or by downloading
+    model_dir = _resolve_model_directory(repo_id)
+
+    # Attempt to get the tensor paths from the resolved directory
+    return list(ShardedTensorIndex.from_disk(str(model_dir)).tensor_paths.keys())
+
+
+def _resolve_model_directory(repo_id: str) -> Path:
+    """
+    Resolve the model directory either from a local path, URL, or by downloading from Hugging Face.
+
+    :param repo_id: The model's repo ID, URL, or local directory path.
+    :return: The path to the resolved model directory.
+    """
     if Path(repo_id).is_dir():
-        model_dir = Path(repo_id)
-    elif is_remote_url(repo_id):
-        model_dir = Path(download_url(repo_id))
-    elif _is_hf_repo(repo_id):
-        hf_home = Path(os.getenv("HF_HOME", HF_HOME_DEFAULT)).expanduser()
-        snapshot_download(repo_id)
-        model_dir = hf_home / "hub" / f"models--{repo_id.replace('/', '--')}"
-    else:
-        raise ValueError(f"Invalid repo_id: {repo_id}")
+        # If it's a local directory, return the path
+        return Path(repo_id)
 
-    # Try to get the model parameter names
     try:
-        return list(ShardedTensorIndex.from_disk(str(model_dir)).tensor_paths.keys())
-    except Exception as e:
-        print(f"Error loading tensor paths: {e}")
-        snapshot_path = _most_recent_snapshot_path(model_dir)
-        try:
-            return list(
-                ShardedTensorIndex.from_disk(str(snapshot_path)).tensor_paths.keys()
-            )
-        except Exception as e:
-            print(f"Error loading tensor paths from snapshot: {e}")
-            raise
-
-
-def _most_recent_snapshot_path(model_dir: Path) -> Path:
-    """
-    Get the most recently created snapshot directory within a model directory.
-    :param model_dir: The directory where model snapshots are stored.
-    :return: The path of the most recent snapshot directory.
-    """
-    snapshots_dir = model_dir / "snapshots"
-
-    if not snapshots_dir.exists():
-        raise FileNotFoundError(f"Snapshot directory does not exist: {snapshots_dir}")
-
-    # List all directories in the snapshots directory
-    snapshot_dirs = [d for d in snapshots_dir.iterdir() if d.is_dir()]
-
-    # Sort directories by creation time (most recent first)
-    snapshot_dirs.sort(key=lambda d: d.stat().st_ctime, reverse=True)
-
-    if not snapshot_dirs:
-        raise FileNotFoundError(f"No snapshot directories found in {snapshots_dir}")
-
-    most_recent_snapshot = snapshot_dirs[0]
-
-    if len(snapshot_dirs) > 1:
-        print(
-            f"Most recent snapshot directory: {most_recent_snapshot} of {len(snapshot_dirs)}"
-        )
-
-    return most_recent_snapshot
-
-
-def _is_hf_repo(repo_id: str) -> bool:
-    """
-    Check if a given repo_id is a valid Hugging Face repository.
-    :param repo_id: The Hugging Face repository ID.
-    :return: True if the repo exists, False otherwise.
-    """
-    try:
-        model_info(repo_id)
-        return True
+        # Use Hugging Face snapshot_download to check cache or download the model
+        return Path(snapshot_download(repo_id))
     except HfHubHTTPError:
-        return False
+        raise ValueError(f"Model {repo_id} not found on Hugging Face Hub.")
     except Exception as e:
-        print(f"Unexpected error while checking repo: {e}")
-        return False
+        raise ValueError(f"Error locating model {repo_id}: {e}")
 
 
 __all__ = ["MergeOptions", "run_merge"]
