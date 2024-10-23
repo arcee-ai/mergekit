@@ -280,7 +280,7 @@ def load_model_architecture(merge_config, options):
         get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
         for m in merge_config.referenced_models()
     ]
-    if any(a is None for a in model_arch_info):
+    if any(a is False for a in model_arch_info):
         # Attempt to load the architecture automatically if it's not specified
         model_arch_info = [
             AutomaticArchitectureInfo(
@@ -290,7 +290,7 @@ def load_model_architecture(merge_config, options):
             for source_model in merge_config.referenced_models()
         ]
         if not all(
-            a.all_weights() == model_arch_info[0].all_weights()
+            a.all_weights(None) == model_arch_info[0].all_weights(None)
             for a in model_arch_info[1:]
         ):
             raise RuntimeError(
