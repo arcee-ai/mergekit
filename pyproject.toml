@@ -18,13 +18,14 @@ dependencies = [
     "pydantic~=2.9.2",
     "immutables==0.20",
     "transformers>=4.45.2",
+    "tokenizers>=0.20.1",
     "huggingface_hub",
     "peft",
     "typing-extensions",
     "sentencepiece",
     "protobuf",
     "scipy",
-    "datasets"
+    "datasets",
 ]
 
 [project.optional-dependencies]
