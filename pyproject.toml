@@ -11,25 +11,26 @@ version = "0.0.4.4"
 authors = [{ name = "Charles Goddard", email = "chargoddard@gmail.com" }]
 dependencies = [
     "torch>=2.0.0",
-    "tqdm==4.66.4",
+    "tqdm==4.66.5",
     "click==8.1.7",
     "safetensors~=0.4.3",
-    "accelerate~=0.30.1",
-    "pydantic==2.7.1",
+    "accelerate~=1.0.1",
+    "pydantic~=2.9.2",
     "immutables==0.20",
-    "transformers>=4.42.3",
+    "transformers>=4.45.2",
+    "tokenizers>=0.20.1",
     "huggingface_hub",
     "peft",
     "typing-extensions",
     "sentencepiece",
     "protobuf",
     "scipy",
-    "datasets"
+    "datasets",
 ]
 
 [project.optional-dependencies]
-dev = ["black~=24.4.2", "isort~=5.13.2", "pre-commit~=3.7.1"]
-test = ["pytest~=8.2.1"]
+dev = ["black~=24.10.0", "isort~=5.13.2", "pre-commit~=4.0.1"]
+test = ["pytest~=8.3.3"]
 evolve = ["ray", "cma", "lm_eval", "wandb"]
 vllm = ["vllm==0.3.2", "lm_eval[vllm]"]
 
