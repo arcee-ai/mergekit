@@ -70,7 +70,7 @@ class MergePlanner:
         token_cfg = {}
         tokenizer_source = config.tokenizer_source
         if config.tokenizer is not None:
-            token_cfg = config.tokenizer.tokens
+            token_cfg = config.tokenizer.tokens or {}
             tokenizer_source = config.tokenizer.source
         if tokenizer_source is not None:
             self._tokenizer_task = BuildTokenizer(
@@ -272,7 +272,7 @@ class MergePlanner:
                     writer_task=writer_task,
                     clone=self.options.clone_tensors,
                     optional=weight.optional,
-                    dtype=weight.force_dtype,
+                    dtype=weight.force_dtype or self.config.out_dtype,
                 )
             )
         finalize = FinalizeModel(
@@ -287,7 +287,14 @@ class MergePlanner:
     def plan_in_memory(self) -> List[ReturnTensor]:
         """Plan the merge to be performed in memory."""
         self._plan()
-        return [ReturnTensor(weight_info=w, tensor_task=t) for w, t in self._tensors]
+        return [
+            ReturnTensor(
+                weight_info=w,
+                tensor_task=t,
+                dtype=w.force_dtype or self.config.out_dtype,
+            )
+            for w, t in self._tensors
+        ]
 
     def _plan(self):
         self.normalize_config()

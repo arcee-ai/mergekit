@@ -202,6 +202,8 @@ def generate_card_lora(
     base_model_ref: ModelReference,
     finetuned_model_ref: ModelReference,
     invocation: str,
+    extended: bool,
+    vocab_size: int,
     name: str,
 ) -> str:
     """
@@ -218,7 +220,13 @@ def generate_card_lora(
     hf_bases = list(extract_hf_paths([base_model_ref, finetuned_model_ref]))
     tags = ["mergekit", "peft"]
 
-    details = f"This LoRA adapter was extracted from {modelref_md(finetuned_model_ref)} and uses {modelref_md(base_model_ref)} as a base."
+    finetuned_ref_md = modelref_md(finetuned_model_ref)
+    basemodel_ref_md = modelref_md(base_model_ref)
+
+    details = f"This LoRA adapter was extracted from {finetuned_ref_md} and uses {basemodel_ref_md} as a base."
+
+    if extended:
+        details += f"\n\n> [!WARNING]\n> This LoRA adapter has an extended vocabulary. Make sure to call `model.resize_token_embeddings({vocab_size})` before applying the adapter to {basemodel_ref_md}"
 
     if os.path.isdir(base_model_ref.model.path) or os.path.isdir(
         finetuned_model_ref.model.path

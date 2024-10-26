@@ -1,5 +1,5 @@
 {
-    "model_type": "phi",
+    "model_type": "phi3",
     "architectures": [
         "Phi3ForCausalLM"
     ],
@@ -22,28 +22,22 @@
     "layer_templates": {
         "weights": [
             {
-                "name": "model.layers.${layer_index}.input_layernorm.weight",
-                "is_embed": false
+                "name": "model.layers.${layer_index}.input_layernorm.weight"
             },
             {
-                "name": "model.layers.${layer_index}.post_attention_layernorm.weight",
-                "is_embed": false
+                "name": "model.layers.${layer_index}.post_attention_layernorm.weight"
             },
             {
-                "name": "model.layers.${layer_index}.self_attn.o_proj.weight",
-                "is_embed": false
+                "name": "model.layers.${layer_index}.self_attn.o_proj.weight"
             },
             {
-                "name": "model.layers.${layer_index}.self_attn.qkv_proj.weight",
-                "is_embed": false
+                "name": "model.layers.${layer_index}.self_attn.qkv_proj.weight"
             },
             {
-                "name": "model.layers.${layer_index}.mlp.gate_up_proj.weight",
-                "is_embed": false
+                "name": "model.layers.${layer_index}.mlp.gate_up_proj.weight"
             },
             {
-                "name": "model.layers.${layer_index}.mlp.down_proj.weight",
-                "is_embed": false
+                "name": "model.layers.${layer_index}.mlp.down_proj.weight"
             }
         ]
     }
