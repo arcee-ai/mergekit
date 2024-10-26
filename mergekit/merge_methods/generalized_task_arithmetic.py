@@ -29,7 +29,7 @@ from mergekit.merge_methods.base import (
     MergeMethod,
     MergeTensorInput,
 )
-from mergekit.sparsify import SparsificationMethod, sparsify, get_tall_mask
+from mergekit.sparsify import SparsificationMethod, get_tall_mask, sparsify
 
 
 class ConsensusMethod(str, Enum):
@@ -79,7 +79,10 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
                     default_value=1.0,
                 )
             )
-        if self.sparsification_method == SparsificationMethod.consensus_ta or self.sparsification_method == SparsificationMethod.consensus_ties:
+        if (
+            self.sparsification_method == SparsificationMethod.consensus_ta
+            or self.sparsification_method == SparsificationMethod.consensus_ties
+        ):
             res.append(
                 ConfigParameterDef(
                     name="k",
@@ -146,7 +149,10 @@ class GTATask(Task[torch.Tensor]):
             return base
 
         # sparsify
-        if self.method.sparsification_method and self.method.sparsification_method != SparsificationMethod.consensus_ta:
+        if (
+            self.method.sparsification_method
+            and self.method.sparsification_method != SparsificationMethod.consensus_ta
+        ):
             for tv_info in tvs:
                 kwargs = {}
                 if "gamma" in tv_info:
@@ -199,9 +205,9 @@ class GTATask(Task[torch.Tensor]):
         ):
             lambda_factor = tvs[0]["lambda"]
             mixed_delta *= lambda_factor
-            
+
         if (
-            self.method.sparsification_method== SparsificationMethod.consensus_ta
+            self.method.sparsification_method == SparsificationMethod.consensus_ta
             or self.method.sparsification_method == SparsificationMethod.consensus_ties
         ):
             for tv_info in tvs:

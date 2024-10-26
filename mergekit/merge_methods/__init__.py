@@ -93,7 +93,7 @@ def get(method: str) -> MergeMethod:
             default_normalize=False,
             default_rescale=True,
         )
-    
+
     elif method == "consensus_ta":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=None,
@@ -101,7 +101,7 @@ def get(method: str) -> MergeMethod:
             default_normalize=False,
             default_rescale=False,
         )
-    
+
     elif method == "consensus_ties":
         return GeneralizedTaskArithmeticMerge(
             consensus_method=ConsensusMethod.sum,
