@@ -24,8 +24,11 @@ from typing_extensions import Literal
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
-from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.base import (
+    ConfigParameterDef,
+    MergeMethod,
+    MergeTensorInput,
+)
 from mergekit.sparsify import SparsificationMethod, sparsify
 
 
@@ -63,12 +66,25 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
                     default_value=0.01,
                 )
             )
+        if self.sparsification_method == SparsificationMethod.rank_magnitude_sampling:
+            res.append(
+                ConfigParameterDef(
+                    name="epsilon",
+                    default_value=0.15,
+                )
+            )
+            res.append(
+                ConfigParameterDef(
+                    name="lambda",
+                    default_value=1.0,
+                )
+            )
         return res
 
     def make_task(
         self,
         output_weight: WeightInfo,
-        tensors: GatherTensors,
+        tensors: MergeTensorInput,
         base_model: Optional[ModelReference],
         parameters: ImmutableMap[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
@@ -87,7 +103,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
 
 class GTATask(Task[torch.Tensor]):
     method: GeneralizedTaskArithmeticMerge
-    tensors: GatherTensors
+    tensors: MergeTensorInput
     base_model: ModelReference
     weight_info: WeightInfo
     tensor_parameters: ImmutableMap[ModelReference, Any]
@@ -122,6 +138,9 @@ class GTATask(Task[torch.Tensor]):
                 kwargs = {}
                 if "gamma" in tv_info:
                     kwargs["gamma"] = tv_info["gamma"]
+
+                if "epsilon" in tv_info:
+                    kwargs["epsilon"] = tv_info["epsilon"]
 
                 tv_info["delta"] = sparsify(
                     tv_info["delta"],
@@ -158,6 +177,13 @@ class GTATask(Task[torch.Tensor]):
 
         if self.normalize:
             mixed_delta /= divisor
+
+        if (
+            self.method.sparsification_method
+            == SparsificationMethod.rank_magnitude_sampling
+        ):
+            lambda_factor = tvs[0]["lambda"]
+            mixed_delta *= lambda_factor
 
         return (base + mixed_delta).to(base.dtype)
 

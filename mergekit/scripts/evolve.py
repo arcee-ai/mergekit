@@ -15,6 +15,7 @@
 
 import logging
 import os
+import time
 from typing import List, Optional
 
 import click
@@ -125,6 +126,12 @@ from mergekit.options import MergeOptions
     default=False,
     help="Evaluate models at 4-bit precision",
 )
+@click.option(
+    "--force-population-size",
+    type=int,
+    default=None,
+    help="Force a specific initial population size for CMA-ES",
+)
 def main(
     genome_config_path: str,
     max_fevals: int,
@@ -149,6 +156,7 @@ def main(
     timeout: Optional[float],
     load_in_8bit: bool,
     load_in_4bit: bool,
+    force_population_size: Optional[int],
 ):
     config = EvolMergeConfiguration.model_validate(
         yaml.safe_load(open(genome_config_path, "r", encoding="utf-8"))
@@ -347,12 +355,15 @@ def main(
         return [-x["score"] for x in res]  # maximize
 
     try:
+        cma_opts = {"maxfevals": max_fevals, "timeout": timeout}
+        if force_population_size is not None:
+            cma_opts["popsize"] = force_population_size
         xbest, es = cma.fmin2(
             None,
             parallel_objective=parallel_evaluate,
             x0=x0,
             sigma0=sigma0,
-            options={"maxfevals": max_fevals, "timeout": timeout},
+            options=cma_opts,
             callback=progress_callback,
         )
         xbest_cost = es.result.fbest
@@ -362,6 +373,9 @@ def main(
     print("!!! OPTIMIZATION COMPLETE !!!")
     print(f"Best cost: {xbest_cost:.4f}")
     print()
+
+    # pause for a bit to let any CUDA-using processes clean up
+    time.sleep(1.0)
 
     # save the best merge configuration using original model references
     genome_pretty = ModelGenome(config.genome, trust_remote_code=trust_remote_code)
