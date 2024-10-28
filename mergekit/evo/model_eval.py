@@ -1,15 +1,18 @@
 import pandas as pd
+import numpy as np
 
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score
 from transformers import pipeline
 from datasets import load_dataset
 
 
 def eval_task(pipe, task):
 
-    if task == 'sst2_pt':
+    if task == 'sentiment_pt':
         targets=['positivo', 'negativo']
-        data_val = load_dataset('csv', data_files='data/maritaca-ai_sst2_pt.csv')
+        data_val = load_dataset('csv', data_files='data/maritaca-ai_sst2_imdb_pt.csv')
+        indices = np.random.randint(0, data_val.shape[0], 500)
+        data_val = data_val.select(indices)
         vals = data_val['train'].map(
             lambda x: pipe(
                 x['text_fillmask'],
@@ -26,10 +29,16 @@ def eval_task(pipe, task):
             average='binary'
         )
 
+        acc = accuracy_score(
+            df['sentiment'].replace('positivo', 1).replace('negativo', 0),
+            df['token_str'].replace('positivo', 1).replace('negativo', 0),
+        )
+
         results = {
             'sst2_pt': {
                 'score': score, 
                 'f1-score': f1,
+                'accuracy': acc,
                 'alias': 'sst2_pt'
             }
         }
@@ -37,16 +46,10 @@ def eval_task(pipe, task):
         return results
 
 
-
 def fillmask_evaluator(
         merged_path,
         task
 ):
-
-    tokenizer_kwargs = {
-        'truncation':True,
-        'max_length':512
-    }
 
     fill_mask = pipeline(
         task="fill-mask",
