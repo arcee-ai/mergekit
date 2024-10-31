@@ -24,6 +24,9 @@
     "layer_templates": {
         "weights": [
             {
+                "name": "h.${layer_index}.attn.bias"
+            },
+            {
                 "name": "h.${layer_index}.attn.c_attn.weight"
             },
             {
