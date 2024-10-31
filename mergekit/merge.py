@@ -58,7 +58,7 @@ def run_merge(
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
-    arch_info = load_model_architecture(merge_config, options)
+    arch_info = _load_arch_info(merge_config, options)
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
@@ -275,13 +275,15 @@ def _update_config_vocab(
         )
 
 
-def load_model_architecture(merge_config, options):
+def _load_arch_info(merge_config, options):
     model_arch_info = [
         get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
         for m in merge_config.referenced_models()
     ]
+
+    # Check if any of the models failed to load architecture info
     if any(a is False for a in model_arch_info):
-        # Attempt to load the architecture automatically if it's not specified
+        # Attempt to load the architecture automatically
         model_arch_info = [
             AutomaticArchitectureInfo(
                 arch_name=source_model.model.path,

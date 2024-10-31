@@ -202,26 +202,13 @@ def _template_substitution(
     return TemplateWithArithmetic(template).substitute(substitutions)
 
 
-class AutomaticArchitectureInfo(ArchitectureInfo, BaseModel):
-    arch_name: str = Field(default="")
-    parameter_names: List[str] = Field(default_factory=list)
-    layered_parameter_names: Dict[str, List[str]] = Field(default_factory=dict)
+def _hierarchy(names, layer_prefix=r"\.\d+\.") -> Dict[str, List[str]]:
+    hierarchy = defaultdict(list)
 
-    def __init__(self, arch_name: str, parameter_names: List[str]):
-        super().__init__()
+    # Regular expression to match layers (denoted by .{integer}. by default)
+    layer_pattern = re.compile(layer_prefix)
 
-        self.arch_name = arch_name
-        self.parameter_names = parameter_names
-        self.layered_parameter_names = self._hierarchy(self.parameter_names)
-        # We could further inspect layered_parameter_names to split out pre and post weights
-
-    def _hierarchy(self, names):
-        # Initialize a dictionary to hold the hierarchical structure
-        hierarchy = defaultdict(list)
-
-        # Regular expression to match layers (denoted by .{integer}.)
-        layer_pattern = re.compile(r"\.\d+\.")
-
+    if names:
         for name in names:
             # Find the layer part of the string (e.g., 'model.layers.0.')
             match = layer_pattern.search(name)
@@ -235,15 +222,32 @@ class AutomaticArchitectureInfo(ArchitectureInfo, BaseModel):
             else:
                 hierarchy[name].append("")
 
-        return hierarchy
+    return hierarchy
+
+
+class AutomaticArchitectureInfo(ArchitectureInfo, BaseModel):
+    arch_name: str = Field(default="")
+    parameter_names: List[str] = Field(default_factory=list)
+    layered_parameter_names: Dict[str, List[str]] = Field(default_factory=dict)
+
+    def __init__(self, arch_name: str, parameter_names: List[str]):
+        super().__init__()
+
+        self.arch_name = arch_name
+        self.parameter_names = parameter_names
+        self.layered_parameter_names = _hierarchy(self.parameter_names)
 
     def name(self) -> str:
         return self.arch_name
 
     def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        # AutomaticArchitectureInfo places all parameters into layer_weights, rather than pre/post weights
+        # Since many models do not have a clear distinction between pre/post weights
         return []
 
     def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        # AutomaticArchitectureInfo places all parameters into layer_weights, rather than pre/post weights
+        # Since many models do not have a clear distinction between pre/post weights
         return []
 
     def layer_weights(
@@ -259,6 +263,7 @@ class AutomaticArchitectureInfo(ArchitectureInfo, BaseModel):
         return True
 
     def num_layers(self, config: PretrainedConfig) -> int:
+        # Note lack of pre/post weights distinction means 'model.layer.i' may not correspond to the ith layer
         return len(self.layered_parameter_names)
 
 
