@@ -11,11 +11,9 @@ def eval_task(pipe, task):
 
     if task == 'sentiment_pt':
         targets=['positivo', 'negativo']
-        data_val = load_dataset('csv', data_files='data/maritaca-ai_sst2_imdb_pt.csv')
-        indices = random.sample(range(0, data_val.shape['train'][0]), 500)
-        data_val = data_val['train'].select(indices)
+        data_val = load_dataset('csv', data_files='data/maritaca-ai_sst2_pt.csv')
         tokenizer_kwargs = {"truncation": True, "max_length":512}
-        vals = data_val.map(
+        vals = data_val['train'].map(
             lambda x: pipe(
                 x['text_fillmask'],
                 top_k=1,
