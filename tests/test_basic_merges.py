@@ -137,6 +137,26 @@ class TestBasicMerges:
         )
         run_and_check_merge(config)
 
+    def test_della_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="della",
+            base_model=model_c,
+            params={"density": 0.7, "epsilon": 0.15, "lambda": 1.0},
+        )
+        run_and_check_merge(config)
+
+    def test_pcb_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="pcb",
+            base_model=model_c,
+            params={"density": 0.8, "weight": 1.0},
+        )
+        run_and_check_merge(config)
+
     def test_model_stock_filterwise_merge(self, model_a, model_b, model_c):
         config = self.two_model_config(
             model_b,
