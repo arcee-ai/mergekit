@@ -20,7 +20,7 @@ import os
 import shutil
 from collections import Counter
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import tqdm
 import transformers
@@ -31,6 +31,7 @@ from mergekit._data import chat_templates
 from mergekit.architecture import (
     ArchitectureInfo,
     AutomaticArchitectureInfo,
+    _infer_architecture_info,
     get_architecture_info,
 )
 from mergekit.card import generate_card
@@ -276,75 +277,25 @@ def _update_config_vocab(
 
 
 def _load_arch_info(merge_config, options):
+    """
+    Loads architecture information, handling cases where models lack predefined architecture info.
+    """
     model_arch_info = [
         get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
         for m in merge_config.referenced_models()
     ]
 
-    # Check if any of the models failed to load architecture info
-    if any(a is False for a in model_arch_info):
-        # Attempt to load the architecture automatically
-        model_arch_info = [
-            AutomaticArchitectureInfo(
-                arch_name=source_model.model.path,
-                parameter_names=_get_model_parameter_names(source_model.model.path),
-            )
-            for source_model in merge_config.referenced_models()
-        ]
-        if not all(
-            a.all_weights(None) == model_arch_info[0].all_weights(None)
-            for a in model_arch_info[1:]
-        ):
-            raise RuntimeError(
-                "AutomaticArchitectureInfo only supports models with the same architecture"
-            )
-    else:
+    if not any(a is False for a in model_arch_info):
         if not options.allow_crimes and not all(
             a == model_arch_info[0] for a in model_arch_info[1:]
         ):
             raise RuntimeError(
                 "Must specify --allow-crimes to attempt to mix different architectures"
             )
+    else:
+        model_arch_info = _infer_architecture_info(merge_config)
 
     return model_arch_info[0]
-
-
-def _get_model_parameter_names(repo_id: str) -> list:
-    """
-    Get the parameter names of a model from a Hugging Face repo or local directory.
-
-    This function checks if the model is available locally or in the Hugging Face cache.
-    If the model is not available, it attempts to download it. If the download fails,
-    it raises an error. Once the model is resolved, it returns the list of tensor paths.
-
-    :param repo_id: The model's repo ID, URL, or local directory path.
-    :return: A list of parameter names.
-    """
-    # Try to resolve the model directory, either locally or by downloading
-    model_dir = _resolve_model_directory(repo_id)
-
-    # Attempt to get the tensor paths from the resolved directory
-    return list(ShardedTensorIndex.from_disk(str(model_dir)).tensor_paths.keys())
-
-
-def _resolve_model_directory(repo_id: str) -> Path:
-    """
-    Resolve the model directory either from a local path, URL, or by downloading from Hugging Face.
-
-    :param repo_id: The model's repo ID, URL, or local directory path.
-    :return: The path to the resolved model directory.
-    """
-    if Path(repo_id).is_dir():
-        # If it's a local directory, return the path
-        return Path(repo_id)
-
-    try:
-        # Use Hugging Face snapshot_download to check cache or download the model
-        return Path(snapshot_download(repo_id))
-    except HfHubHTTPError:
-        raise ValueError(f"Model {repo_id} not found on Hugging Face Hub.")
-    except Exception as e:
-        raise ValueError(f"Error locating model {repo_id}: {e}")
 
 
 __all__ = ["MergeOptions", "run_merge"]
