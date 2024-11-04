@@ -572,7 +572,6 @@ def _get_model_parameter_names(repo_id: str) -> list:
     return list(ShardedTensorIndex.from_disk(str(model_dir)).tensor_paths.keys())
 
 
-
 def _resolve_model_directory(repo_id: str) -> Path:
     """
     Resolve the model directory either from a local path, URL, or by downloading from Hugging Face.
