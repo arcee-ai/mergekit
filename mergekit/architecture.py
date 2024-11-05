@@ -601,7 +601,6 @@ def _infer_architecture_info(merge_config):
         parameter_names = param_names[0]
         prefix_tracker = {}
     else:
-
         # Pair param_names with referenced models and sort by length
         paired_list = list(zip(param_names, merge_config.referenced_models()))
         paired_list.sort(key=lambda x: len(x[0]), reverse=True)
