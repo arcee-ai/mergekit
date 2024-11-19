@@ -499,6 +499,7 @@ def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
 
 def strip_prefix(name: str, prefixes: List[str]) -> str:
     """Remove any prefix in prefixes from the start of the name."""
+    prefixes = [prefixes] if isinstance(prefixes, str) else prefixes
     for prefix in prefixes:
         if name.startswith(prefix + "."):
             return name[len(prefix) + 1 :]
@@ -608,6 +609,16 @@ def _infer_architecture_info(merge_config):
 
         prefixes = find_prefixes_for_alignment(param_names)
         common_names = find_common_ordered_names(param_names, prefixes)
+
+        if not common_names:
+            raise ValueError(
+                "Could not resolve model architecture automatically. No common parameter names found."
+            )
+
+        if len(common_names) != len(param_names[0]):
+            warnings.warn(
+                f"Merging {len(common_names)} common parameters, out of {len(param_names[0])} total. Run fill_missing_params.py script after merge."
+            )
 
         prefix_tracker = {
             model.model.path: f"{prefix}." if prefix else ""

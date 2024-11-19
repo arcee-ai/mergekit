@@ -276,7 +276,9 @@ def _update_config_vocab(
         )
 
 
-def _load_arch_info(merge_config, options):
+def _load_arch_info(
+    merge_config: MergeConfiguration, options: MergeOptions
+) -> ArchitectureInfo:
     """
     Loads architecture information, handling cases where models lack predefined architecture info.
     """
