@@ -181,6 +181,8 @@ def main(
                 cosine_similarity=cosine_similarity,
                 name=lm_head_info.name,
             )
+        else:
+            new_lm_head = None
 
     # Save out the new model
     LOG.info(f"Saving new model to {out_path}")
@@ -198,6 +200,10 @@ def main(
             tensor = cache.get(model).get_tensor(
                 weight_info.name, aliases=weight_info.aliases
             )
+        if tensor is None:
+            if weight_info.optional:
+                continue
+            report_issue(f"Could not load weight tensor {weight_info.name}", error=True)
         writer.save_tensor(weight_info.name, tensor, clone=merge_options.clone_tensors)
     writer.finalize()
 
