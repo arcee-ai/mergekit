@@ -207,7 +207,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                 tokenizer_donor = self.genome.definition.base_model
                 if tokenizer_donor is None:
                     logging.warning(
-                        f"Base model not set, using tokenizer from first model in genome"
+                        "Base model not set, using tokenizer from first model in genome"
                     )
                     tokenizer_donor = self.genome.definition.models[0]
                 tok = transformers.AutoTokenizer.from_pretrained(
