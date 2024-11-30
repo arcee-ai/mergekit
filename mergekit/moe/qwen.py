@@ -26,7 +26,7 @@ from transformers.models.qwen2_moe import Qwen2MoeConfig
 
 from mergekit.architecture import QWEN2_INFO
 from mergekit.moe.arch import MoEOutputArchitecture
-from mergekit.moe.common import initialize_io, noise_and_scale, select_dtype
+from mergekit.moe.common import copy_tensor_out, initialize_io, select_dtype
 from mergekit.moe.config import MoEMergeConfig
 from mergekit.options import MergeOptions
 
@@ -137,29 +137,25 @@ class QwenMoE(MoEOutputArchitecture):
                         ".mlp.", f".mlp.experts.{expert_idx}."
                     )
                     expert_loader = loaders.get(expert.source_model)
-                    tensor = expert_loader.get_tensor(
-                        weight_info.name, aliases=weight_info.aliases
-                    )
-                    tensor = noise_and_scale(
-                        tensor, expert, is_residual="down_proj" in tensor_name
-                    )
-                    writer.save_tensor(
-                        expert_name,
-                        tensor.to(dtype=out_dtype),
+                    copy_tensor_out(
+                        weight_info,
+                        expert_loader,
+                        writer,
+                        expert=expert,
+                        is_residual="down_proj" in tensor_name,
+                        output_name=expert_name,
+                        out_dtype=out_dtype,
                         clone=merge_options.clone_tensors,
                     )
 
-                shared_tensor = shared_loader.get_tensor(
-                    weight_info.name, aliases=weight_info.aliases
-                )
-                shared_tensor = noise_and_scale(
-                    shared_tensor,
-                    shared_def,
+                copy_tensor_out(
+                    weight_info,
+                    shared_loader,
+                    writer,
+                    expert=shared_def,
                     is_residual="down_proj" in tensor_name,
-                )
-                writer.save_tensor(
-                    tensor_name.replace(".mlp.", ".mlp.shared_expert."),
-                    shared_tensor.to(dtype=out_dtype),
+                    output_name=tensor_name.replace(".mlp.", ".mlp.shared_expert."),
+                    out_dtype=out_dtype,
                     clone=merge_options.clone_tensors,
                 )
             else:
@@ -180,6 +176,8 @@ class QwenMoE(MoEOutputArchitecture):
                             else out_cfg.num_attention_heads
                         )
                         tensor = torch.zeros(num_heads * head_dim, dtype=out_dtype)
+                    elif weight_info.optional:
+                        continue
                     else:
                         raise
 

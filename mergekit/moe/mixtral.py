@@ -22,7 +22,7 @@ import transformers
 
 from mergekit.architecture import MISTRAL_INFO, WeightInfo
 from mergekit.moe.arch import MoEOutputArchitecture
-from mergekit.moe.common import initialize_io, noise_and_scale, select_dtype
+from mergekit.moe.common import copy_tensor_out, initialize_io, select_dtype
 from mergekit.moe.config import MoEMergeConfig
 from mergekit.options import MergeOptions
 
@@ -145,24 +145,22 @@ class MixtralMoE(MoEOutputArchitecture):
                 for expert_index, expert in enumerate(config.experts):
                     expert_name = tensor_name.replace("{expert_idx}", str(expert_index))
                     expert_loader = loaders.get(expert.source_model)
-                    tensor = expert_loader.get_tensor(
-                        weight_info.name, aliases=weight_info.aliases
-                    )
-                    tensor = noise_and_scale(
-                        tensor, expert, is_residual="down_proj" in tensor_name
-                    )
-                    writer.save_tensor(
-                        expert_name,
-                        tensor.to(dtype=out_dtype),
+                    copy_tensor_out(
+                        weight_info,
+                        expert_loader,
+                        writer,
+                        expert=expert,
+                        out_dtype=out_dtype,
+                        output_name=expert_name,
                         clone=merge_options.clone_tensors,
+                        is_residual="down_proj" in tensor_name,
                     )
             else:
-                tensor = base_loader.get_tensor(
-                    tensor_name, aliases=weight_info.aliases
-                )
-                writer.save_tensor(
-                    tensor_name,
-                    tensor.to(dtype=out_dtype),
+                copy_tensor_out(
+                    weight_info,
+                    base_loader,
+                    writer,
+                    out_dtype=out_dtype,
                     clone=merge_options.clone_tensors,
                 )
 

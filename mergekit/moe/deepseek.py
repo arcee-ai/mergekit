@@ -24,7 +24,7 @@ import transformers
 
 from mergekit.architecture import get_architecture_info
 from mergekit.moe.arch import MoEOutputArchitecture
-from mergekit.moe.common import initialize_io, noise_and_scale, select_dtype
+from mergekit.moe.common import copy_tensor_out, initialize_io, select_dtype
 from mergekit.moe.config import MoEMergeConfig
 from mergekit.options import MergeOptions
 
@@ -148,39 +148,36 @@ class DeepseekMoE(MoEOutputArchitecture):
                         ".mlp.", f".mlp.experts.{expert_idx}."
                     )
                     expert_loader = loaders.get(expert.source_model)
-                    tensor = expert_loader.get_tensor(
-                        weight_info.name, aliases=weight_info.aliases
-                    )
-                    tensor = noise_and_scale(
-                        tensor, expert, is_residual="down_proj" in tensor_name
-                    )
-                    writer.save_tensor(
-                        expert_name,
-                        tensor.to(dtype=out_dtype),
+                    copy_tensor_out(
+                        weight_info,
+                        expert_loader,
+                        writer,
+                        expert=expert,
+                        is_residual="down_proj" in tensor_name,
+                        output_name=expert_name,
+                        out_dtype=out_dtype,
                         clone=merge_options.clone_tensors,
                     )
 
                 if shared_def is not None:
-                    shared_tensor = shared_loader.get_tensor(
-                        weight_info.name, aliases=weight_info.aliases
-                    )
-                    shared_tensor = noise_and_scale(
-                        shared_tensor,
-                        shared_def,
+                    copy_tensor_out(
+                        weight_info,
+                        shared_loader,
+                        writer,
+                        expert=shared_def,
                         is_residual="down_proj" in tensor_name,
-                    )
-                    writer.save_tensor(
-                        tensor_name.replace(".mlp.", ".mlp.shared_experts."),
-                        shared_tensor.to(dtype=out_dtype),
+                        output_name=tensor_name.replace(
+                            ".mlp.", ".mlp.shared_experts."
+                        ),
+                        out_dtype=out_dtype,
                         clone=merge_options.clone_tensors,
                     )
             else:
-                tensor = base_loader.get_tensor(
-                    tensor_name, aliases=weight_info.aliases
-                )
-                writer.save_tensor(
-                    tensor_name,
-                    tensor.to(dtype=out_dtype),
+                copy_tensor_out(
+                    weight_info,
+                    base_loader,
+                    writer,
+                    out_dtype=out_dtype,
                     clone=merge_options.clone_tensors,
                 )
 
