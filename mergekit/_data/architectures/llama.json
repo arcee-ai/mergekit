@@ -74,7 +74,10 @@
             "name": "lm_head.weight",
             "input_space": "running_residual",
             "is_embed": true,
-            "optional": true
+            "optional": true,
+            "tied_names": [
+                "model.embed_tokens.weight"
+            ]
         }
     ]
 }

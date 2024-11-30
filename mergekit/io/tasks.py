@@ -67,12 +67,15 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
     device: Optional[str] = None
     optional: bool = False
     aliases: Optional[Tuple[str, ...]] = None
+    tied_names: Optional[Tuple[str, ...]] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {}
 
     def _resolve_name(self, loader: LazyTensorLoader) -> Optional[str]:
-        all_names = [self.tensor] + list(self.aliases or [])
+        all_names = (
+            [self.tensor] + list(self.aliases or []) + list(self.tied_names or [])
+        )
         for name in all_names:
             if name in loader.index.tensor_paths:
                 return name
@@ -120,6 +123,7 @@ class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
                 device=self.device,
                 optional=wi.optional,
                 aliases=wi.aliases,
+                tied_names=wi.tied_names,
             )
             for (model, wi) in self.weight_info.items()
         }

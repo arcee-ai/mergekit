@@ -40,7 +40,8 @@
         {
             "name": "vocab_projector.weight",
             "is_embed": true,
-            "aliases": [
+            "optional": true,
+            "tied_names": [
                 "distilbert.embeddings.word_embeddings.weight"
             ]
         },

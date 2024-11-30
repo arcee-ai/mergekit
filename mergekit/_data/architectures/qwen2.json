@@ -16,7 +16,8 @@
         {
             "name": "lm_head.weight",
             "is_embed": true,
-            "aliases": [
+            "optional": true,
+            "tied_names": [
                 "model.embed_tokens.weight"
             ]
         }

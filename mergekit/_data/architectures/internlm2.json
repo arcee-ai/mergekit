@@ -16,7 +16,8 @@
         {
             "name": "output.weight",
             "is_embed": true,
-            "aliases": [
+            "optional": true,
+            "tied_names": [
                 "model.tok_embeddings.weight"
             ]
         }

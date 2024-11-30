@@ -44,7 +44,8 @@
         },
         {
             "name": "cls.predictions.decoder.weight",
-            "aliases": [
+            "optional": true,
+            "tied_names": [
                 "bert.embeddings.word_embeddings.weight"
             ],
             "is_embed": true
