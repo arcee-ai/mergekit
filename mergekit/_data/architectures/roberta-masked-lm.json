@@ -8,7 +8,8 @@
             "name": "roberta.embeddings.position_embeddings.weight"
         },
         {
-            "name": "roberta.embeddings.word_embeddings.weight"
+            "name": "roberta.embeddings.word_embeddings.weight",
+            "is_embed": true
         },
         {
             "name": "roberta.embeddings.token_type_embeddings.weight"
@@ -43,7 +44,9 @@
         },
         {
             "name": "lm_head.decoder.weight",
-            "aliases": [
+            "is_embed": true,
+            "optional": true,
+            "tied_names": [
                 "roberta.embeddings.word_embeddings.weight"
             ]
         }
