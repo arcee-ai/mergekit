@@ -182,12 +182,15 @@ class MergePlanner:
         tensor_input_task = gather_tensors
         if self._tokenizer_task and weight.is_embed:
             token_cfg = {}
+            pad_to_multiple = None
             if cfg_reader.config.tokenizer:
                 token_cfg = cfg_reader.config.tokenizer.tokens
+                pad_to_multiple = cfg_reader.config.tokenizer.pad_to_multiple_of
             tensor_input_task = PermutedEmbeddings(
                 gather_tensors=gather_tensors,
                 tokenizer_task=self._tokenizer_task,
                 tokens=token_cfg,
+                pad_to_multiple_of=pad_to_multiple,
                 base_model=base_model,
             )
 
