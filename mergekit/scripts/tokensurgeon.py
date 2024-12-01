@@ -147,26 +147,42 @@ def main(
     )
 
     if lm_head_info:
-        old_lm_head = cache.get(model).get_tensor(
-            lm_head_info.name, aliases=lm_head_info.aliases, device=device
-        )
-        donor_lm_head = cache.get(donor).get_tensor(
-            donor_lm_head_info.name, aliases=donor_lm_head_info.aliases, device=device
-        )
+        try:
+            old_lm_head = cache.get(model).get_tensor(
+                lm_head_info.name, aliases=lm_head_info.aliases, device=device
+            )
+        except KeyError:
+            if lm_head_info.optional:
+                logging.info(f"LM head tensor {lm_head_info.name} not found, skipping")
+            else:
+                report_issue(
+                    f"Could not load LM head tensor {lm_head_info.name}",
+                    error=True,
+                )
+            old_lm_head = None
 
-        LOG.info("Computing new lm_head embeddings")
-        new_lm_head = get_embeddings(
-            old_lm_head,
-            donor_lm_head,
-            old_vocab,
-            new_vocab,
-            common_tokens,
-            accept_prefix=True,
-            k=k,
-            barycentric=barycentric,
-            cosine_similarity=cosine_similarity,
-            name=lm_head_info.name,
-        )
+        if old_lm_head is not None:
+            donor_lm_head = cache.get(donor).get_tensor(
+                donor_lm_head_info.name,
+                aliases=donor_lm_head_info.aliases,
+                device=device,
+            )
+
+            LOG.info("Computing new lm_head embeddings")
+            new_lm_head = get_embeddings(
+                old_lm_head,
+                donor_lm_head,
+                old_vocab,
+                new_vocab,
+                common_tokens,
+                accept_prefix=True,
+                k=k,
+                barycentric=barycentric,
+                cosine_similarity=cosine_similarity,
+                name=lm_head_info.name,
+            )
+        else:
+            new_lm_head = None
 
     # Save out the new model
     LOG.info(f"Saving new model to {out_path}")
@@ -184,6 +200,10 @@ def main(
             tensor = cache.get(model).get_tensor(
                 weight_info.name, aliases=weight_info.aliases
             )
+        if tensor is None:
+            if weight_info.optional:
+                continue
+            report_issue(f"Could not load weight tensor {weight_info.name}", error=True)
         writer.save_tensor(weight_info.name, tensor, clone=merge_options.clone_tensors)
     writer.finalize()
 
