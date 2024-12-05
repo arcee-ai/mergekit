@@ -14,6 +14,11 @@
   - [Chat Template Configuration](#chat-template-configuration)
   - [Examples](#examples)
 - [Merge Methods](#merge-methods)
+- [LoRA extraction](#lora-extraction)
+- [Mixture of Experts merging](#mixture-of-experts-merging)
+- [Evolutionary merge methods](#evolutionary-merge-methods)
+- [Merge in the Cloud](#-merge-in-the-cloud-)
+- [Citation](#citation)
 
 ## Why Merge Models?
 
