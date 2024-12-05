@@ -22,9 +22,10 @@ def run_and_check_merge(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         run_merge(config, out_path=tmpdir, options=MergeOptions())
-        assert os.path.exists(
-            os.path.join(tmpdir, index_json_name)
-        ), "No index file for merge"
+        index_path = os.path.join(tmpdir, index_json_name)
+        index_exists = os.path.exists(index_path)
+        single_shard_exists = os.path.exists(index_path.replace(".index.json", ""))
+        assert index_exists or single_shard_exists, "No model produced by merge"
         assert os.path.exists(
             os.path.join(tmpdir, "config.json")
         ), "No config json produced by merge"
