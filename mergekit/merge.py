@@ -28,12 +28,7 @@ from huggingface_hub import snapshot_download
 from huggingface_hub.utils import HfHubHTTPError
 
 from mergekit._data import chat_templates
-from mergekit.architecture import (
-    ArchitectureInfo,
-    AutomaticArchitectureInfo,
-    _infer_architecture_info,
-    get_architecture_info,
-)
+from mergekit.architecture import ArchitectureInfo, ArchitectureInfoUtils
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
@@ -283,7 +278,9 @@ def _load_arch_info(
     Loads architecture information, handling cases where models lack predefined architecture info.
     """
     model_arch_info = [
-        get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
+        ArchitectureInfoUtils.get_architecture_info(
+            m.config(trust_remote_code=options.trust_remote_code)
+        )
         for m in merge_config.referenced_models()
     ]
 
@@ -295,7 +292,7 @@ def _load_arch_info(
                 "Must specify --allow-crimes to attempt to mix different architectures"
             )
     else:
-        model_arch_info = _infer_architecture_info(merge_config)
+        model_arch_info = ArchitectureInfoUtils.infer_architecture_info(merge_config)
 
     return model_arch_info[0]
 

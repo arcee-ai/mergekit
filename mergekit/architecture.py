@@ -498,132 +498,73 @@ def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
     return False
 
 
-def strip_prefix(name: str, prefixes: List[str]) -> str:
-    """Remove any prefix in prefixes from the start of the name."""
-    prefixes = [prefixes] if not isinstance(prefixes, list) else prefixes
-    for prefix in prefixes:
-        if name.startswith(prefix + "."):
-            return name[len(prefix) + 1 :]
-    return name
+class ArchitectureInfoUtils:
+    """Functions for inferring architecture information from a merge configuration."""
 
+    @staticmethod
+    def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
+        if len(config.architectures) != 1:
+            raise RuntimeError("More than one architecture in config?")
 
-def is_ordered_sublist_with_prefix(
-    list1: List[str], list2: List[str], prefixes: List[str]
-) -> bool:
-    """
-    Check if list2 is a sublist of list1, after optional prefix removal from list1.
-    """
-    stripped_list1 = [strip_prefix(name, prefixes) for name in list1]
+        arch_name = config.architectures[0]
 
-    try:
-        start_index = stripped_list1.index(list2[0])
-        stripped_list1 = stripped_list1[start_index : start_index + len(list2)]
-        if stripped_list1 != list2:
+        if arch_name == MixtralTensorNames.ARCHITECTURE_NAME:
+            return MixtralTensorNames.from_config(config)
+
+        if arch_name not in NAME_TO_ARCH:
+            warnings.warn(
+                f"Unsupported architecture {arch_name}, attempting automatic architecture generation"
+            )
             return False
-        return True
-    except (ValueError, IndexError) as e:
-        logging.error(f"Failed to find common parameter names between models: {e}")
+
+        candidates = list(NAME_TO_ARCH[arch_name])
+        if len(candidates) == 1:
+            return candidates[0]
+
+        for c in candidates:
+            if c.definition.expected_model_type == config.model_type:
+                return c
+
+        warnings.warn(
+            f"Unsupported model_type {config.model_type} for architecture {arch_name}"
+        )
         return False
 
+    @staticmethod
+    def infer_architecture_info(merge_config):
+        """Infer architecture info and prefixes for alignment."""
+        param_names = [
+            ParameterNamesUtils.get_model_parameter_names(source_model.model.path)
+            for source_model in merge_config.referenced_models()
+        ]
+        base_model = merge_config.base_model
 
-def find_prefix_and_check_sublist(list1: List[str], list2: List[str]) -> Optional[str]:
-    """
-    Attempts to find a prefix from elements in list1 that makes list2 an ordered sublist of list1.
-    """
-    assert len(list1) >= len(list2), "params name list1 can't be shorter than list2"
-
-    possible_prefixes = {item.split(".")[0] for item in list2 if "." in item}
-    possible_prefixes = [""] + list(possible_prefixes)
-
-    for prefix in possible_prefixes:
-        if is_ordered_sublist_with_prefix(list1, list2, [prefix]):
-            return prefix
-
-    return None
-
-
-def find_prefixes_for_alignment(param_names: List[List[str]]) -> List[str]:
-    """Determine prefixes needed to align parameter names in order of the longest list."""
-    prefixes = [""]
-    for i in range(1, len(param_names)):
-        assert len(param_names[0]) >= len(
-            param_names[i]
-        ), "params name list1 can't be shorter than list2"
-        if param_names[0] != param_names[i]:
-            prefix = find_prefix_and_check_sublist(param_names[0], param_names[i])
-            if prefix is None:
-                raise ValueError("Could not resolve model architecture automatically.")
-        else:
-            prefix = ""
-        prefixes.append(prefix)
-    return prefixes
-
-
-def find_common_ordered_names(
-    param_names: List[List[str]], prefixes: List[str]
-) -> List[str]:
-    """Identify and return common parameter names across all models, ensuring correct order."""
-    common_names = set(param_names[0])
-    for i in range(1, len(param_names)):
-        prefix = f"{prefixes[i]}." if prefixes[i] else ""
-        common_names.intersection_update({prefix + name for name in param_names[i]})
-    return [name for name in param_names[0] if name in common_names]
-
-
-def _get_model_parameter_names(repo_id: str) -> list:
-    """
-    Get the parameter names of a model from a Hugging Face repo or local directory.
-    """
-    model_dir = _resolve_model_directory(repo_id)
-    return list(ShardedTensorIndex.from_disk(str(model_dir)).tensor_paths.keys())
-
-
-def _resolve_model_directory(repo_id: str) -> Path:
-    """
-    Resolve the model directory either from a local path, URL, or by downloading from Hugging Face.
-    """
-    if Path(repo_id).is_dir():
-        return Path(repo_id)
-
-    try:
-        return Path(snapshot_download(repo_id))
-    except HfHubHTTPError:
-        raise ValueError(f"Model {repo_id} not found on Hugging Face Hub.")
-    except Exception as e:
-        raise ValueError(f"Error locating model {repo_id}: {e}")
-
-
-def _infer_architecture_info(merge_config):
-    """
-    Infers and returns architecture info, including parameter names and prefixes for alignment.
-    """
-    param_names = [
-        _get_model_parameter_names(source_model.model.path)
-        for source_model in merge_config.referenced_models()
-    ]
-
-    if all(param_names[0] == param_names[i] for i in range(1, len(param_names))):
-        arch_name = merge_config.referenced_models()[0].model.path
-        parameter_names = param_names[0]
-        prefix_tracker = {}
-    else:
-        # Pair param_names with referenced models and sort by length
         paired_list = list(zip(param_names, merge_config.referenced_models()))
         paired_list.sort(key=lambda x: len(x[0]), reverse=True)
+        for i, (_, model_name) in enumerate(paired_list):
+            if model_name == base_model:
+                paired_list.insert(0, paired_list.pop(i))
+                break
         param_names, referenced_models = zip(*paired_list)
+        print(f"Base model selected: {referenced_models[0].model.path}")
 
-        prefixes = find_prefixes_for_alignment(param_names)
-        common_names = find_common_ordered_names(param_names, prefixes)
-
-        if not common_names:
-            raise ValueError(
-                "Could not resolve model architecture automatically. No common parameter names found."
+        prefixes = [""]
+        for i in range(1, len(param_names)):
+            assert len(param_names[0]) >= len(
+                param_names[i]
+            ), f"params name list0 can't be shorter than list{i}"
+            prefixes.append(
+                ParameterNamesUtils.find_prefix(param_names[0], param_names[i])
             )
 
-        if len(common_names) != len(param_names[0]):
-            warnings.warn(
-                f"Merging {len(common_names)} common parameters, out of {len(param_names[0])} total. Run fill_missing_params.py script after merge."
-            )
+        common_names = ParameterNamesUtils.find_common_ordered_names(
+            param_names, prefixes
+        )
+
+        ArchitectureInfoUtils.log_info(common_names, param_names, referenced_models)
+
+        if not common_names or any([p is None for p in prefixes]):
+            raise ValueError("Could not resolve model architecture automatically.")
 
         prefix_tracker = {
             model.model.path: f"{prefix}." if prefix else ""
@@ -633,10 +574,182 @@ def _infer_architecture_info(merge_config):
         arch_name = referenced_models[0].model.path
         parameter_names = common_names
 
-    return [
-        AutomaticArchitectureInfo(
-            arch_name=arch_name,
-            parameter_names=parameter_names,
-            prefix_tracker=prefix_tracker,
+        return [
+            AutomaticArchitectureInfo(
+                arch_name=arch_name,
+                parameter_names=parameter_names,
+                prefix_tracker=prefix_tracker,
+            )
+        ]
+
+    @staticmethod
+    def log_info(common_names, param_names, referenced_models):
+        for i in range(1, len(param_names)):
+            prefix, case_message = ParameterNamesUtils.report_names_similarity(
+                param_names[0], param_names[i]
+            )
+            logging.info(
+                f"Model {referenced_models[i].model.path}: \
+                    \n  {f'Best prefix found: {prefix}' if prefix else 'No prefix found'}\
+                    \n  {case_message.replace('MODEL_ID', referenced_models[i].model.path)}"
+            )
+
+        if len(common_names) != len(param_names[0]):
+            warnings.warn(
+                f"Merging {len(common_names)}/{len(param_names[0])} base model parameters. \
+                \n Base model selected: {referenced_models[0].model.path} \
+                \n Run 'fill_missing_params.py base_model_dir merge_output_dir' after merge to fill in missing params from base model."
+            )
+
+        if len(common_names) < 0.3 * len(param_names[0]):
+            warnings.warn(
+                f"Not many common parameters found. Are you sure you are merging the correct models?"
+            )
+
+
+class ParameterNamesUtils:
+    """Utility functions for handling parameter names."""
+
+    @staticmethod
+    def resolve_model_directory(repo_id: str) -> Path:
+        """Resolve the model directory (local or Hugging Face Hub)."""
+        if Path(repo_id).is_dir():
+            return Path(repo_id)
+
+        return Path(snapshot_download(repo_id))
+
+    @staticmethod
+    def get_model_parameter_names(repo_id: str) -> List[str]:
+        """Get parameter names of a model from a Hugging Face repo or local directory."""
+        model_dir = ParameterNamesUtils.resolve_model_directory(repo_id)
+        return list(ShardedTensorIndex.from_disk(str(model_dir)).tensor_paths.keys())
+
+    @staticmethod
+    def strip_prefix(name: str, prefix: str) -> str:
+        """Remove a single prefix from the start of a name."""
+        if prefix != "" and name.startswith(prefix + "."):
+            return name[len(prefix) + 1 :]
+        return name
+
+    @staticmethod
+    def find_prefix(list1: List[str], list2: List[str]) -> Optional[str]:
+        """
+        Find a prefix in list1 that, after removal, makes list2 an ordered sublist.
+        """
+        assert len(list1) >= len(list2), "params name list1 can't be shorter than list2"
+
+        possible_prefixes = {item.split(".")[0] for item in list1 if "." in item}
+        possible_prefixes = [""] + list(possible_prefixes)
+
+        prefix_matches = {}
+        best_prefix = ""  # Default to no prefix
+        for prefix in possible_prefixes:
+            stripped_list1 = [
+                ParameterNamesUtils.strip_prefix(item, prefix) for item in list1
+            ]
+            prefix_matches[prefix] = len(
+                [item for item in list2 if item in stripped_list1]
+            )
+
+        if max(prefix_matches.values()) > prefix_matches[""]:
+            best_prefix = max(prefix_matches, key=prefix_matches.get)
+
+        return best_prefix
+
+    @staticmethod
+    def find_common_ordered_names(
+        param_names: List[List[str]], prefixes: List[str]
+    ) -> List[str]:
+        """Identify and return common parameter names across all models, ensuring correct order. Also account for prefix."""
+        common_names = set(param_names[0])
+        for i in range(1, len(param_names)):
+            prefix = f"{prefixes[i]}." if prefixes[i] else ""
+            common_names.intersection_update({prefix + name for name in param_names[i]})
+        return [name for name in param_names[0] if name in common_names]
+
+    @staticmethod
+    def are_common_params_ordered(list1: List[str], list2: List[str]) -> bool:
+        """
+        Check if common elements of list2 maintain their relative order in list1.
+        """
+        common_params = set(list1).intersection(set(list2))
+        last_index = -1
+
+        for param in list2:
+            if param in common_params:
+                current_index = list1.index(param)
+                if current_index < last_index:
+                    return False
+                last_index = current_index
+        return True
+
+    @staticmethod
+    def ordered_sublist(list1: List[str], list2: List[str]) -> bool:
+        """
+        Check if list2 is a contiguous ordered sublist of list1.
+        """
+        n, m = len(list1), len(list2)
+
+        for i in range(n - m + 1):
+            if list1[i : i + m] == list2:
+                return True
+        return False
+
+    @staticmethod
+    def report_names_similarity(
+        base_names: List[str], other_names: List[str]
+    ) -> Tuple[Optional[str], str]:
+        """
+        Analyze similarity between parameter names of two models and identify shared prefixes.
+
+        Returns:
+            best_prefix (str): Best matching prefix for parameter names.
+            case_message (str): Explanation of the structural relationship.
+        """
+        possible_prefixes = {""}
+        possible_prefixes.update(
+            {item.split(".")[0] for item in base_names if "." in item}
         )
-    ]
+
+        prefixes_subset_overlap = {}
+        best_prefix = None
+        case_message = "No common parameter names found for any prefix"
+
+        for prefix in possible_prefixes:
+            base_names_stripped = [
+                ParameterNamesUtils.strip_prefix(name, prefix) for name in base_names
+            ]
+
+            if ParameterNamesUtils.ordered_sublist(
+                base_names_stripped, other_names
+            ):
+                return prefix, "All params in model have exact match in base model."
+
+            intersection = set(base_names_stripped).intersection(set(other_names))
+            prefixes_subset_overlap[prefix] = intersection
+
+        if prefixes_subset_overlap:
+            best_prefix = max(
+                prefixes_subset_overlap, key=lambda x: len(prefixes_subset_overlap[x])
+            )
+            base_names_stripped = [
+                ParameterNamesUtils.strip_prefix(name, best_prefix)
+                for name in base_names
+            ]
+
+            overlap = len(prefixes_subset_overlap[best_prefix])
+            ordered = ParameterNamesUtils.are_common_params_ordered(
+                base_names_stripped, other_names
+            )
+            mismatched = [
+                item for item in other_names if item not in base_names_stripped
+            ]
+            mismatched = "\n    ".join(mismatched)
+            case_message = (
+                f"{overlap}/{len(other_names)} ({100 * overlap / len(other_names):.2f}%) "
+                f"of model parameters are in the base model. \n"
+                f"  Name ordering is {'preserved' if ordered else 'not preserved'}.\n"
+                f"  Missing parameters:\n    {mismatched}"
+            )
+
+        return best_prefix, case_message
