@@ -250,8 +250,9 @@ A quick overview of the currently supported merge methods:
 | [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)                                            | `breadcrumbs`        | ✅          | ✅              |
 | [Model Breadcrumbs](https://arxiv.org/abs/2312.06795) + [TIES](https://arxiv.org/abs/2306.01708) | `breadcrumbs_ties`   | ✅          | ✅              |
 | [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅          | ✅              |
-| [DELLA](https://arxiv.org/abs/2406.11617)                                                  | `della`        | ✅          | ✅              |
-| [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                                  | `della_linear`        | ✅          | ✅              |
+| NuSLERP                                                                                          | `nuslerp`            | ❌          | ✅              |
+| [DELLA](https://arxiv.org/abs/2406.11617)                                                        | `della`              | ✅          | ✅              |
+| [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)    | `della_linear`       | ✅          | ✅              |
 
 ### Linear
 
@@ -312,6 +313,18 @@ Uses some neat geometric properties of fine tuned models to compute good weights
 Parameters:
 
 - `filter_wise`: if true, weight calculation will be per-row rather than per-tensor. Not recommended.
+
+### NuSLERP
+
+Spherically interpolate between parameters, but with more options and more sensical configuration! Does not require a base model, but can use one to do spherical interpolation of task vectors. Only works with either two models or two plus a base model.
+
+Parameters:
+
+- `weight`: relative weighting of a given tensor
+- `nuslerp_flatten`: set to false to do row-wise/column-wise interpolation instead of treating tensors as vectors
+- `nuslerp_row_wise`: SLERP row vectors instead of column vectors
+
+To replicate the behavior of the original `slerp` method, set `weight` to `1-t` and `t` for your first and second model respectively.
 
 ### [DELLA](https://arxiv.org/abs/2406.11617)
 
