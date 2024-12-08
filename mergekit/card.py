@@ -118,6 +118,9 @@ def method_md(merge_method: str) -> str:
         "dare_ties": "[DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)",
         "dare_linear": "linear [DARE](https://arxiv.org/abs/2311.03099)",
         "model_stock": "[Model Stock](https://arxiv.org/abs/2403.19522)",
+        "della": "[DELLA](https://arxiv.org/abs/2406.11617)",
+        "della_linear": "linear [DELLA](https://arxiv.org/abs/2406.11617)",
+        "nuslerp": "NuSLERP",
     }
     return methods.get(merge_method, merge_method)
 
