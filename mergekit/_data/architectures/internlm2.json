@@ -1,0 +1,51 @@
+{
+    "model_type": "internlm2",
+    "architectures": [
+        "InternLM2ForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "model.tok_embeddings.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "model.norm.weight"
+        },
+        {
+            "name": "output.weight",
+            "is_embed": true,
+            "optional": true,
+            "tied_names": [
+                "model.tok_embeddings.weight"
+            ]
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "model.layers.${layer_index}.attention_norm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.ffn_norm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.attention.wqkv.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.attention.wo.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.feed_forward.w1.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.feed_forward.w2.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.feed_forward.w3.weight"
+            }
+        ]
+    }
+}

@@ -1,0 +1,82 @@
+{
+  "model_type": "solar",
+  "architectures": [
+    "SolarForCausalLM"
+  ],
+  "pre_weights": [
+    {
+      "name": "model.embed_tokens.weight",
+      "is_embed": true,
+      "output_space": "running_residual"
+    }
+  ],
+  "num_layers_config_key": "num_hidden_layers",
+  "layer_templates": {
+    "weights": [
+      {
+        "name": "model.layers.${layer_index}.input_layernorm.weight",
+        "input_space": "running_residual"
+      },
+      {
+        "name": "model.layers.${layer_index}.self_attn.k_proj.weight",
+        "input_space": "running_residual",
+        "output_space": "attn_qk_${layer_index}",
+        "head_split": "output",
+        "is_kq": true
+      },
+      {
+        "name": "model.layers.${layer_index}.self_attn.q_proj.weight",
+        "input_space": "running_residual",
+        "output_space": "attn_qk_${layer_index}",
+        "head_split": "output",
+        "is_kq": true
+      },
+      {
+        "name": "model.layers.${layer_index}.self_attn.v_proj.weight",
+        "input_space": "running_residual",
+        "output_space": "attn_v_${layer_index}",
+        "head_split": "output"
+      },
+      {
+        "name": "model.layers.${layer_index}.self_attn.o_proj.weight",
+        "input_space": "attn_v_${layer_index}",
+        "output_space": "running_residual",
+        "head_split": "input"
+      },
+      {
+        "name": "model.layers.${layer_index}.post_attention_layernorm.weight",
+        "input_space": "running_residual"
+      },
+      {
+        "name": "model.layers.${layer_index}.mlp.gate_proj.weight",
+        "input_space": "running_residual",
+        "output_space": "up_${layer_index}"
+      },
+      {
+        "name": "model.layers.${layer_index}.mlp.up_proj.weight",
+        "input_space": "running_residual",
+        "output_space": "up_${layer_index}"
+      },
+      {
+        "name": "model.layers.${layer_index}.mlp.down_proj.weight",
+        "input_space": "up_${layer_index}",
+        "output_space": "running_residual"
+      }
+    ]
+  },
+  "post_weights": [
+    {
+      "name": "model.norm.weight",
+      "input_space": "running_residual"
+    },
+    {
+      "name": "lm_head.weight",
+      "input_space": "running_residual",
+      "is_embed": true,
+      "optional": true,
+      "tied_names": [
+        "model.lm_head.weight"
+      ]
+    }
+  ]
+}
