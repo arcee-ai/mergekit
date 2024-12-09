@@ -121,7 +121,7 @@ Assigns an actor to each GPU in your cluster and guarantees merges and evaluatio
 
 #### `buffered`
 
-Maintains a buffer of tasks scheduled to ensure that there is always a model mergign or ready to evaluate for each gpu. Allows for concurrent merging and evaluation of models on the same GPU if enough VRAM is available. Only suitable for a single-node setup or when `--storage-path` points to a fast shared filesystem.
+Maintains a buffer of tasks scheduled to ensure that there is always a model merging or ready to evaluate for each GPU. Allows for concurrent merging and evaluation of models on the same GPU if enough VRAM is available. Only suitable for a single-node setup or when `--storage-path` points to a fast shared filesystem.
 
 #### `serial`
 

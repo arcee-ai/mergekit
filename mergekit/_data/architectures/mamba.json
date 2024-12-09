@@ -16,7 +16,10 @@
         {
             "name": "lm_head.weight",
             "is_embed": true,
-            "aliases": ["backbone.embeddings.weight"]
+            "optional": true,
+            "tied_names": [
+                "backbone.embeddings.weight"
+            ]
         }
     ],
     "num_layers_config_key": "num_hidden_layers",

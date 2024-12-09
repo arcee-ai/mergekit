@@ -49,6 +49,8 @@ class WeightInfo(BaseModel, frozen=True):
             Indicates whether the weight can be omitted from a model.
         aliases (Optional[List[str]]):
             List of alternative names for the weight, if applicable.
+        tied_names (Optional[List[str]]):
+            List of names for weights that are tied to this weight, if applicable.
         force_dtype (Optional[str]):
             Mandatory dtype for the weight, if applicable.
     """
@@ -58,7 +60,9 @@ class WeightInfo(BaseModel, frozen=True):
     input_space: Optional[str] = None
     output_space: Optional[str] = None
     optional: bool = False
+    tied: bool = False
     aliases: Optional[Tuple[str, ...]] = None
+    tied_names: Optional[Tuple[str, ...]] = None
     force_dtype: Optional[str] = None
     head_split: Literal[None, "input", "output"] = None
     is_kq: Optional[bool] = False
@@ -720,9 +724,7 @@ class ParameterNamesUtils:
                 ParameterNamesUtils.strip_prefix(name, prefix) for name in base_names
             ]
 
-            if ParameterNamesUtils.ordered_sublist(
-                base_names_stripped, other_names
-            ):
+            if ParameterNamesUtils.ordered_sublist(base_names_stripped, other_names):
                 return prefix, "All params in model have exact match in base model."
 
             intersection = set(base_names_stripped).intersection(set(other_names))
