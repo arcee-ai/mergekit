@@ -18,21 +18,29 @@ import importlib.resources
 import logging
 import os
 import shutil
+import warnings
 from collections import Counter
-from typing import Optional
+from pathlib import Path
+from typing import List, Optional
 
 import tqdm
 import transformers
+from huggingface_hub import snapshot_download
+from huggingface_hub.utils import HfHubHTTPError
 
 from mergekit._data import chat_templates
-from mergekit.architecture import ArchitectureInfo, get_architecture_info
+from mergekit.architecture import ArchitectureInfo, ArchitectureInfoUtils
 from mergekit.card import generate_card
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
+from mergekit.io.lazy_tensor_loader import ShardedTensorIndex
 from mergekit.io.tasks import LoaderCache
 from mergekit.options import MergeOptions
 from mergekit.plan import MergePlanner
 from mergekit.tokenizer import TokenizerInfo
+
+# Overwritten by the environment variable HF_HOME if set
+HF_HOME_DEFAULT = "~/.cache/huggingface"
 
 
 def run_merge(
@@ -47,16 +55,7 @@ def run_merge(
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
-    model_arch_info = [
-        get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
-        for m in merge_config.referenced_models()
-    ]
-    if not options.allow_crimes:
-        if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
-            raise RuntimeError(
-                "Must specify --allow-crimes to attempt to mix different architectures"
-            )
-    arch_info = model_arch_info[0]
+    arch_info = _load_arch_info(merge_config, options)
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
@@ -278,6 +277,34 @@ def _update_config_vocab(
             "Unable to set vocabulary size in output config - you may need to manually correct it.",
             exc_info=e,
         )
+
+
+def _load_arch_info(
+    merge_config: MergeConfiguration, options: MergeOptions
+) -> ArchitectureInfo:
+    """
+    Loads architecture information, handling cases where models lack predefined architecture info.
+    """
+    model_arch_info = [
+        ArchitectureInfoUtils.get_architecture_info(
+            m.config(trust_remote_code=options.trust_remote_code)
+        )
+        for m in merge_config.referenced_models()
+    ]
+
+    if all(a is not None for a in model_arch_info):
+        if not options.allow_crimes and not all(
+            a == model_arch_info[0] for a in model_arch_info[1:]
+        ):
+            raise RuntimeError(
+                "Must specify --allow-crimes to attempt to mix different architectures"
+            )
+        return model_arch_info[0]
+    else:
+        warnings.warn("Attempting Automatic Merge.")
+        model_arch_info = ArchitectureInfoUtils.infer_architecture_info(merge_config)
+
+    return model_arch_info
 
 
 __all__ = ["MergeOptions", "run_merge"]

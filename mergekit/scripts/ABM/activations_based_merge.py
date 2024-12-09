@@ -8,7 +8,7 @@ import torch
 import tqdm
 from transformers import AutoTokenizer
 
-from mergekit.architecture import get_architecture_info
+from mergekit.architecture import ArchitectureInfoUtils
 from mergekit.common import ModelReference, dtype_from_name
 from mergekit.io.tasks import LoaderCache
 from mergekit.io.tensor_writer import TensorWriter
@@ -62,7 +62,7 @@ def main(
     )
 
     model_config = model.config(trust_remote_code=merge_options.trust_remote_code)
-    model_arch_info = get_architecture_info(
+    model_arch_info = ArchitectureInfoUtils.get_architecture_info(
         model.config(trust_remote_code=merge_options.trust_remote_code)
     )
 

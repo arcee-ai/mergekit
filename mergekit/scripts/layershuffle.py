@@ -19,7 +19,7 @@ from typing import List
 import click
 import yaml
 
-from mergekit.architecture import get_architecture_info
+from mergekit.architecture import ArchitectureInfoUtils
 from mergekit.common import ModelReference
 from mergekit.config import (
     InputSliceDefinition,
@@ -76,7 +76,7 @@ def main(
     models = [ModelReference.parse(m) for m in model]
 
     m0_cfg = models[0].config()
-    arch_info = get_architecture_info(m0_cfg)
+    arch_info = ArchitectureInfoUtils.get_architecture_info(m0_cfg)
     total_num_layers = arch_info.num_layers(m0_cfg)
 
     out_slices: List[OutputSliceDefinition] = []
