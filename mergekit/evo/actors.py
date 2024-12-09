@@ -35,7 +35,7 @@ except ImportError:
     vllm = None
 
 
-from mergekit.architecture import ConfiguredArchitectureInfo, get_architecture_info
+from mergekit.architecture import ArchitectureInfoUtils, ConfiguredArchitectureInfo
 from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
@@ -144,7 +144,9 @@ class InMemoryMergeEvaluator(MergeActorBase):
         super().__init__(*args, vllm=vllm, **kwargs)
 
     def _maybe_init_model(self, config: MergeConfiguration):
-        ai = get_architecture_info(self.genome._input_config_example)
+        ai = ArchitectureInfoUtils.get_architecture_info(
+            self.genome._input_config_example
+        )
         cfg_out = _model_out_config(
             config,
             ai,

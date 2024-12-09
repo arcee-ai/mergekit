@@ -11,7 +11,7 @@ from transformers import (
     LlavaForConditionalGeneration,
 )
 
-from mergekit.architecture import ArchitectureInfoUtils, get_architecture_info
+from mergekit.architecture import ArchitectureInfoUtils
 from mergekit.config import MergeConfiguration
 from mergekit.io.lazy_tensor_loader import LazyTensorLoader, ShardedTensorIndex
 from mergekit.merge import MergeOptions, run_merge
@@ -50,9 +50,9 @@ def run_and_check_merge(
         if check_tensors:
             model_config = AutoConfig.from_pretrained(tmpdir)
             if auto_arch:
-                arch_info = ArchitectureInfoUtils.infer_architecture_info(config)[0]
+                arch_info = ArchitectureInfoUtils.infer_architecture_info(config)
             else:
-                arch_info = get_architecture_info(model_config)
+                arch_info = ArchitectureInfoUtils.get_architecture_info(model_config)
 
             index = ShardedTensorIndex.from_disk(tmpdir)
             for weight_info in arch_info.all_weights(model_config):

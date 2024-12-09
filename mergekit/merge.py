@@ -18,6 +18,7 @@ import importlib.resources
 import logging
 import os
 import shutil
+import warnings
 from collections import Counter
 from pathlib import Path
 from typing import List, Optional
@@ -291,17 +292,19 @@ def _load_arch_info(
         for m in merge_config.referenced_models()
     ]
 
-    if not any(a is False for a in model_arch_info):
+    if all(a is not None for a in model_arch_info):
         if not options.allow_crimes and not all(
             a == model_arch_info[0] for a in model_arch_info[1:]
         ):
             raise RuntimeError(
                 "Must specify --allow-crimes to attempt to mix different architectures"
             )
+        return model_arch_info[0]
     else:
+        warnings.warn("Attempting Automatic Merge.")
         model_arch_info = ArchitectureInfoUtils.infer_architecture_info(merge_config)
 
-    return model_arch_info[0]
+    return model_arch_info
 
 
 __all__ = ["MergeOptions", "run_merge"]

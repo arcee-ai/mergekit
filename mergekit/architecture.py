@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
 from huggingface_hub import snapshot_download
-from huggingface_hub.utils import HfHubHTTPError
 from pydantic import BaseModel, Field
 from transformers import PretrainedConfig
 from typing_extensions import Literal
@@ -473,40 +472,12 @@ MISTRAL_INFO = _load_json_arch("mistral.json")
 QWEN2_INFO = _load_json_arch("qwen2.json")
 
 
-def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
-    if len(config.architectures) != 1:
-        raise RuntimeError("More than one architecture in config?")
-
-    arch_name = config.architectures[0]
-
-    if arch_name == MixtralTensorNames.ARCHITECTURE_NAME:
-        return MixtralTensorNames.from_config(config)
-
-    if arch_name not in NAME_TO_ARCH:
-        warnings.warn(
-            f"Unsupported architecture {arch_name}, attempting automatic architecture generation"
-        )
-        return False
-
-    candidates = list(NAME_TO_ARCH[arch_name])
-    if len(candidates) == 1:
-        return candidates[0]
-
-    for c in candidates:
-        if c.definition.expected_model_type == config.model_type:
-            return c
-
-    warnings.warn(
-        f"Unsupported model_type {config.model_type} for architecture {arch_name}"
-    )
-    return False
-
-
 class ArchitectureInfoUtils:
     """Functions for inferring architecture information from a merge configuration."""
 
     @staticmethod
-    def get_architecture_info(config: PretrainedConfig) -> ArchitectureInfo:
+    def get_architecture_info(config: PretrainedConfig) -> Optional[ArchitectureInfo]:
+        """Get architecture info from an existing model config."""
         if len(config.architectures) != 1:
             raise RuntimeError("More than one architecture in config?")
 
@@ -515,28 +486,30 @@ class ArchitectureInfoUtils:
         if arch_name == MixtralTensorNames.ARCHITECTURE_NAME:
             return MixtralTensorNames.from_config(config)
 
-        if arch_name not in NAME_TO_ARCH:
-            warnings.warn(
-                f"Unsupported architecture {arch_name}, attempting automatic architecture generation"
-            )
-            return False
+        if arch_name in NAME_TO_ARCH:
+            candidates = list(NAME_TO_ARCH[arch_name])
+            if len(candidates) == 1:
+                return candidates[0]
 
-        candidates = list(NAME_TO_ARCH[arch_name])
-        if len(candidates) == 1:
-            return candidates[0]
+            for c in candidates:
+                if c.definition.expected_model_type == config.model_type:
+                    return c
 
-        for c in candidates:
-            if c.definition.expected_model_type == config.model_type:
-                return c
-
-        warnings.warn(
-            f"Unsupported model_type {config.model_type} for architecture {arch_name}"
-        )
-        return False
+        warnings.warn(f"No architecture config available for: {arch_name}.")
+        return None
 
     @staticmethod
-    def infer_architecture_info(merge_config):
-        """Infer architecture info and prefixes for alignment."""
+    def infer_architecture_info(merge_config) -> AutomaticArchitectureInfo:
+        """
+        Infer architecture info and prefixes for alignment.
+        Prefixes typically denote where a model is used as a subcomponent of another model.
+        e.g., [layer.0, layer.1, ...] and []'vision_tower.layer.0', vision_tower.layer.1', ...]
+            inferring ßprefix = 'vision_tower' is required to align the two models.
+
+        Usage:
+            Similar to `get_architecture_info`, but requires a merge configuration object rather than a model config.
+            This is so the common parameter names between all models can be inferred.
+        """
         param_names = [
             ParameterNamesUtils.get_model_parameter_names(source_model.model.path)
             for source_model in merge_config.referenced_models()
@@ -550,7 +523,7 @@ class ArchitectureInfoUtils:
                 paired_list.insert(0, paired_list.pop(i))
                 break
         param_names, referenced_models = zip(*paired_list)
-        print(f"Base model selected: {referenced_models[0].model.path}")
+        logging.info(f"Base model selected: {referenced_models[0].model.path}")
 
         prefixes = [""]
         for i in range(1, len(param_names)):
@@ -578,13 +551,11 @@ class ArchitectureInfoUtils:
         arch_name = referenced_models[0].model.path
         parameter_names = common_names
 
-        return [
-            AutomaticArchitectureInfo(
-                arch_name=arch_name,
-                parameter_names=parameter_names,
-                prefix_tracker=prefix_tracker,
-            )
-        ]
+        return AutomaticArchitectureInfo(
+            arch_name=arch_name,
+            parameter_names=parameter_names,
+            prefix_tracker=prefix_tracker,
+        )
 
     @staticmethod
     def log_info(common_names, param_names, referenced_models):

@@ -22,7 +22,7 @@ import torch
 import tqdm
 import transformers
 
-from mergekit.architecture import get_architecture_info
+from mergekit.architecture import ArchitectureInfoUtils
 from mergekit.moe.arch import MoEOutputArchitecture
 from mergekit.moe.common import copy_tensor_out, initialize_io, select_dtype
 from mergekit.moe.config import MoEMergeConfig
@@ -138,7 +138,7 @@ class DeepseekMoE(MoEOutputArchitecture):
         loaders, base_loader, writer = initialize_io(config, out_path, merge_options)
         shared_loader = loaders.get(shared_def.source_model) if shared_def else None
         for weight_info in tqdm.tqdm(
-            get_architecture_info(base_cfg).all_weights(base_cfg),
+            ArchitectureInfoUtils.get_architecture_info(base_cfg).all_weights(base_cfg),
             desc="Weights",
         ):
             tensor_name = weight_info.name
