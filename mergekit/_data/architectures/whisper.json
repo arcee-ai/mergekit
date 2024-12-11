@@ -1,0 +1,189 @@
+{
+    "model_type": "whisper",
+    "architectures": [
+        "WhisperForConditionalGeneration"
+    ],
+    "pre_weights": [
+        {
+            "name": "model.encoder.conv1.weight"
+        },
+        {
+            "name": "model.encoder.conv1.bias"
+        },
+        {
+            "name": "model.encoder.conv2.weight"
+        },
+        {
+            "name": "model.encoder.conv2.bias"
+        },
+        {
+            "name": "model.encoder.embed_positions.weight"
+        },
+        {
+            "name": "model.decoder.embed_tokens.weight"
+        },
+        {
+            "name": "model.decoder.embed_positions.weight"
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "model.encoder.layer_norm.weight"
+        },
+        {
+            "name": "model.encoder.layer_norm.bias"
+        },
+        {
+            "name": "model.decoder.layer_norm.weight"
+        },
+        {
+            "name": "model.decoder.layer_norm.bias"
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "model.encoder.layers.${layer_index}.self_attn.k_proj.weight"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.self_attn.v_proj.weight"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.self_attn.v_proj.bias"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.self_attn.q_proj.weight"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.self_attn.q_proj.bias"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.self_attn.out_proj.weight"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.self_attn.out_proj.bias"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.self_attn_layer_norm.weight"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.self_attn_layer_norm.bias"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.fc1.weight"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.fc1.bias"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.fc2.weight"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.fc2.bias"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.final_layer_norm.weight"
+            },
+            {
+                "name": "model.encoder.layers.${layer_index}.final_layer_norm.bias"
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.self_attn.k_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.self_attn.v_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.self_attn.v_proj.bias",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.self_attn.q_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.self_attn.q_proj.bias",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.self_attn.out_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.self_attn.out_proj.bias",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.self_attn_layer_norm.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.self_attn_layer_norm.bias",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.encoder_attn.k_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.encoder_attn.v_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.encoder_attn.v_proj.bias",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.encoder_attn.q_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.encoder_attn.q_proj.bias",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.encoder_attn.out_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.encoder_attn.out_proj.bias",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.encoder_attn_layer_norm.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.encoder_attn_layer_norm.bias",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.fc1.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.fc1.bias",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.fc2.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.fc2.bias",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.final_layer_norm.weight",
+                "optional": true
+            },
+            {
+                "name": "model.decoder.layers.${layer_index}.final_layer_norm.bias",
+                "optional": true
+            }
+        ]
+    }
+}
