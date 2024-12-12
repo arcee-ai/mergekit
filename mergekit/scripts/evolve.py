@@ -115,6 +115,18 @@ from mergekit.options import MergeOptions
     help="Maximum time to run the optimization in seconds",
 )
 @click.option(
+    "--load-in-8bit",
+    is_flag=True,
+    default=False,
+    help="Evaluate models at 8-bit precision",
+)
+@click.option(
+    "--load-in-4bit",
+    is_flag=True,
+    default=False,
+    help="Evaluate models at 4-bit precision",
+)
+@click.option(
     "--force-population-size",
     type=int,
     default=None,
@@ -142,6 +154,8 @@ def main(
     save_final_model: bool,
     reshard: bool,
     timeout: Optional[float],
+    load_in_8bit: bool,
+    load_in_4bit: bool,
     force_population_size: Optional[int],
 ):
     config = EvolMergeConfiguration.model_validate(
@@ -149,6 +163,29 @@ def main(
     )
 
     check_for_naughty_config(config, allow=allow_benchmark_tasks)
+
+    if load_in_4bit and load_in_8bit:
+        raise ValueError("Cannot load models in both 4-bit and 8-bit")
+
+    if load_in_4bit or load_in_8bit:
+        if vllm:
+            raise ValueError("Cannot use vLLM with 4-bit or 8-bit models")
+        if in_memory:
+            raise ValueError("Cannot use in-memory mode with 4-bit or 8-bit models")
+        try:
+            import bitsandbytes
+        except ImportError:
+            raise RuntimeError("bitsandbytes is not installed")
+
+        bnb_config = transformers.BitsAndBytesConfig(
+            load_in_8bit=load_in_8bit,
+            load_in_4bit=load_in_4bit,
+            bnb_4bit_compute_dtype="bfloat16",
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
+    else:
+        bnb_config = None
 
     if use_wandb:
         if not wandb:
@@ -235,6 +272,7 @@ def main(
         model_storage_path=os.path.join(storage_path, "merged"),
         batch_size=batch_size,
         task_search_path=task_search_path,
+        quantization_config=bnb_config,
     )
 
     x0 = genome.initial_genotype(random=config.random_init).view(-1).numpy()
