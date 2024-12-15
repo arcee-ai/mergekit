@@ -21,13 +21,16 @@ from torch._tensor import Tensor
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.io.tasks import GatherTensors
-from mergekit.merge_methods.base import ConfigParameterDef, MergeMethod
+from mergekit.merge_methods.base import (
+    ConfigParameterDef,
+    MergeMethod,
+    MergeTensorInput,
+)
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 class NuSlerpTask(Task[torch.Tensor]):
-    gather_tensors: GatherTensors
+    gather_tensors: MergeTensorInput
     tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
     weight_info: WeightInfo
     row_wise: bool
@@ -114,7 +117,7 @@ class NuSlerpMerge(MergeMethod):
         self,
         *,
         output_weight: WeightInfo,
-        tensors: GatherTensors,
+        tensors: MergeTensorInput,
         base_model: Optional[ModelReference],
         parameters: ImmutableMap[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
