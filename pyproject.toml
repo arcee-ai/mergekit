@@ -48,6 +48,7 @@ mergekit-moe = "mergekit.scripts.moe:main"
 mergekit-tokensurgeon = "mergekit.scripts.tokensurgeon:main"
 mergekit-extract-lora = "mergekit.scripts.extract_lora:main"
 mergekit-evolve = "mergekit.scripts.evolve:main"
+mergekit-pytorch = "mergekit.scripts.merge_raw_pytorch:main"
 
 [tool.setuptools]
 packages = [

@@ -14,8 +14,9 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
+import torch
 from pydantic import BaseModel
 from typing_extensions import TypeAlias
 
@@ -25,7 +26,25 @@ from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
 from mergekit.tokenizer import PermutedEmbeddings
 
-MergeTensorInput: TypeAlias = Union[GatherTensors, PermutedEmbeddings]
+
+class TensorDictWrapper(Task[Dict[ModelReference, torch.Tensor]]):
+    tensors: ImmutableMap[ModelReference, Task[torch.Tensor]]
+
+    def arguments(self) -> Dict[str, Task]:
+        return {
+            k.model_dump_json(
+                exclude_none=True, exclude_defaults=True, round_trip=True
+            ): v
+            for k, v in self.tensors.items()
+        }
+
+    def execute(self, **kwargs) -> Dict[ModelReference, torch.Tensor]:
+        return {ModelReference.model_validate_json(k): v for k, v in kwargs.items()}
+
+
+MergeTensorInput: TypeAlias = Union[
+    GatherTensors, PermutedEmbeddings, TensorDictWrapper
+]
 
 
 class ConfigParameterDef(BaseModel):
