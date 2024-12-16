@@ -22,6 +22,7 @@ import yaml
 from huggingface_hub.utils import HFValidationError
 from yaml.nodes import SequenceNode as SequenceNode
 
+from mergekit import merge_methods
 from mergekit.config import MergeConfiguration, ModelReference
 
 CARD_TEMPLATE = """---
@@ -110,19 +111,15 @@ def method_md(merge_method: str) -> str:
     Args:
         merge_method: A string indicating the merge method used.
     """
-    methods = {
-        "linear": "[linear](https://arxiv.org/abs/2203.05482)",
-        "ties": "[TIES](https://arxiv.org/abs/2306.01708)",
-        "slerp": "SLERP",
-        "task_arithmetic": "[task arithmetic](https://arxiv.org/abs/2212.04089)",
-        "dare_ties": "[DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)",
-        "dare_linear": "linear [DARE](https://arxiv.org/abs/2311.03099)",
-        "model_stock": "[Model Stock](https://arxiv.org/abs/2403.19522)",
-        "della": "[DELLA](https://arxiv.org/abs/2406.11617)",
-        "della_linear": "linear [DELLA](https://arxiv.org/abs/2406.11617)",
-        "nuslerp": "NuSLERP",
-    }
-    return methods.get(merge_method, merge_method)
+    try:
+        method = merge_methods.get(merge_method)
+    except RuntimeError:
+        return merge_method
+    ref_url = method.reference_url()
+    name = method.pretty_name() or method.name()
+    if ref_url and ref_url.strip():
+        return f"[{name}]({ref_url})"
+    return name
 
 
 def maybe_link_hf(path: str) -> str:
