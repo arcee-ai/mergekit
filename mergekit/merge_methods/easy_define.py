@@ -13,24 +13,24 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+import inspect
+import typing
 from typing import Any, ClassVar, Dict, List, Optional
 
-from pydantic import Field
 import pydantic
 import torch
+from pydantic import Field
 from typing_extensions import Callable
-import typing
-import inspect
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.merge_methods.registry import REGISTERED_MERGE_METHODS
 from mergekit.merge_methods.base import (
     ConfigParameterDef,
     MergeMethod,
     MergeTensorInput,
 )
+from mergekit.merge_methods.registry import REGISTERED_MERGE_METHODS
 
 STANDARD_KWARGS = {"output_weight", "base_model"}
 

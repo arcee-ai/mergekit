@@ -1,6 +1,8 @@
-from mergekit.merge_methods.easy_define import merge_method
-import torch
 from typing import List, Optional
+
+import torch
+
+from mergekit.merge_methods.easy_define import merge_method
 
 
 @merge_method(
