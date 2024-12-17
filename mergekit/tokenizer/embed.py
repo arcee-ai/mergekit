@@ -33,6 +33,7 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
     gather_tensors: GatherTensors
     tokenizer_task: BuildTokenizer
     tokens: Optional[ImmutableMap[str, TokenEmbeddingConfig]]
+    pad_to_multiple_of: Optional[int]
     base_model: Optional[ModelReference]
 
     def arguments(self) -> Dict[str, Task]:
@@ -51,6 +52,10 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
 
         vocab = tokenizer.get_vocab()
         vocab_size = len(vocab)
+        if self.pad_to_multiple_of and vocab_size % self.pad_to_multiple_of:
+            vocab_size = (
+                vocab_size // self.pad_to_multiple_of + 1
+            ) * self.pad_to_multiple_of
         embed_size = tensors[models[0]].shape[1]
         assert all(
             t.shape[1] == embed_size for t in tensors.values()
@@ -59,7 +64,7 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
         dtype = tensors[models[0]].dtype
         device = tensors[models[0]].device
 
-        token_configs = dict(**self.tokens) or {}
+        token_configs = dict(**(self.tokens or {}))
         tokens_to_average = self.assign_embedding_sources(
             permutations, models, vocab, token_configs
         )
@@ -105,6 +110,11 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
                     logging.error(
                         f"No embedding for token {repr(token)} in model {model}!"
                     )
+
+            if vocab_size > len(vocab):
+                # as suggested by https://nlp.stanford.edu/~johnhew/vocab-expansion.html
+                avg_embed = torch.mean(new_embed[: len(vocab), :], dim=0)
+                new_embed[len(vocab) :, :] = avg_embed
             result[model] = new_embed
 
         return result

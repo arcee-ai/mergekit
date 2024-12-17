@@ -139,7 +139,10 @@ class MergePlanner:
             any_weight = False
             for model, w_in in zip(models, weights_in):
                 index = LoaderCache().get(model).index
-                if w_in.name in index.tensor_paths:
+                if any(
+                    name in index.tensor_paths
+                    for name in [w_in.name] + (w_in.aliases or [])
+                ):
                     any_weight = True
                     break
 
@@ -179,12 +182,15 @@ class MergePlanner:
         tensor_input_task = gather_tensors
         if self._tokenizer_task and weight.is_embed:
             token_cfg = {}
+            pad_to_multiple = None
             if cfg_reader.config.tokenizer:
                 token_cfg = cfg_reader.config.tokenizer.tokens
+                pad_to_multiple = cfg_reader.config.tokenizer.pad_to_multiple_of
             tensor_input_task = PermutedEmbeddings(
                 gather_tensors=gather_tensors,
                 tokenizer_task=self._tokenizer_task,
                 tokens=token_cfg,
+                pad_to_multiple_of=pad_to_multiple,
                 base_model=base_model,
             )
 
