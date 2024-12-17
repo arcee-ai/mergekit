@@ -42,6 +42,7 @@ def get(method: str) -> MergeMethod:
             sparsification_method=None,
             default_normalize=False,
             default_rescale=False,
+            default_swapping=False,
         )
     elif method == "ties":
         return GeneralizedTaskArithmeticMerge(
@@ -49,6 +50,7 @@ def get(method: str) -> MergeMethod:
             sparsification_method=SparsificationMethod.magnitude,
             default_normalize=True,
             default_rescale=False,
+            default_swapping=False,
         )
     elif method == "dare_ties":
         return GeneralizedTaskArithmeticMerge(
@@ -56,6 +58,7 @@ def get(method: str) -> MergeMethod:
             sparsification_method=SparsificationMethod.random,
             default_normalize=False,
             default_rescale=True,
+            default_swapping=False,
         )
     elif method == "dare_linear":
         return GeneralizedTaskArithmeticMerge(
@@ -63,6 +66,31 @@ def get(method: str) -> MergeMethod:
             sparsification_method=SparsificationMethod.random,
             default_normalize=False,
             default_rescale=True,
+            default_swapping=False,
+        )
+    elif method == "task_swapping":
+        return GeneralizedTaskArithmeticMerge(
+            consensus_method=None,
+            sparsification_method=None,
+            default_normalize=False,
+            default_rescale=False,
+            default_swapping=True,
+        )
+    elif method == "task_swapping_ties":
+        return GeneralizedTaskArithmeticMerge(
+            consensus_method=ConsensusMethod.sum,
+            sparsification_method=SparsificationMethod.magnitude,
+            default_normalize=True,
+            default_rescale=False,
+            default_swapping=True,
+        )
+    elif method == "task_swapping_dare_ties":
+        return GeneralizedTaskArithmeticMerge(
+            consensus_method=ConsensusMethod.sum,
+            sparsification_method=SparsificationMethod.rescaled_random,
+            default_normalize=False,
+            default_rescale=True,
+            default_swapping=True,
         )
     elif method == "breadcrumbs":
         return GeneralizedTaskArithmeticMerge(
