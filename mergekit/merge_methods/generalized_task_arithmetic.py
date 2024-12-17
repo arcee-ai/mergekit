@@ -154,8 +154,7 @@ class GTATask(Task[torch.Tensor]):
                 if "epsilon" in tv_info:
                     kwargs["epsilon"] = tv_info["epsilon"]
 
-
-                tv_info["delta"] = sparsify(
+                tv_info["sparsified_delta"] = sparsify(
                     tv_info["delta"],
                     density=tv_info["density"],
                     method=self.method.sparsification_method,
