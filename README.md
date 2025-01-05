@@ -242,6 +242,7 @@ A quick overview of the currently supported merge methods:
 | ------------------------------------------------------------------------------------------------ | -------------------- | ----------- | --------------- |
 | Linear ([Model Soups](https://arxiv.org/abs/2203.05482))                                         | `linear`             | ✅          | ❌              |
 | SLERP                                                                                            | `slerp`              | ❌          | ✅              |
+| Nearswap                                                                                         | `nearswap`           | ❌          | ✅              |
 | [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                              | `task_arithmetic`    | ✅          | ✅              |
 | [TIES](https://arxiv.org/abs/2306.01708)                                                         | `ties`               | ✅          | ✅              |
 | [DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)                | `dare_ties`          | ✅          | ✅              |
@@ -270,6 +271,14 @@ Spherically interpolate the parameters of two models. One must be set as `base_m
 Parameters:
 
 - `t` - interpolation factor. At `t=0` will return `base_model`, at `t=1` will return the other one.
+
+### Nearswap
+
+Interpolates base model with secondary model if similarity is below t. Accepts two models.
+
+Parameters:
+
+- `t` - similarity threshold
 
 ### [Task Arithmetic](https://arxiv.org/abs/2212.04089)
 
