@@ -100,7 +100,7 @@ def lerp(
 
 
 def NearSwap(
-    t: Union[float, np.ndarray],
+    t: float,
     v0: Union[np.ndarray, torch.Tensor],
     v1: Union[np.ndarray, torch.Tensor],
 ):
