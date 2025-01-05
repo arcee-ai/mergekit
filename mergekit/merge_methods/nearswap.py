@@ -68,10 +68,6 @@ class NearSwapTask(Task[torch.Tensor]):
             .to(prepped_tensors[0].device)
         )
 
-    def group_label(self) -> Optional[str]:
-        return self.gather_tensors.group_label()
-
-
 class NearSwapMerge(MergeMethod):
     def parameters(self) -> List[ConfigParameterDef]:
         return [ConfigParameterDef(name="t", required=True)]
@@ -122,12 +118,13 @@ def NearSwap(
     if not isinstance(v1, np.ndarray):
         is_torch = True
         v1 = v1.detach().cpu().float().numpy()
-    lweight = np.absolute(v0-v1)
+    lweight = np.absolute(v0 - v1)
     lweight = np.nan_to_num(lweight, nan=1.0, posinf=1.0, neginf=1.0)
     np.clip(lweight, a_min=0.0, a_max=1.0, out=lweight)
-    res = lerp(lweight,v0,v1)
+    res = lerp(lweight, v0, v1)
 
     return maybe_torch(res, is_torch)
+
 
 def maybe_torch(v: np.ndarray, is_torch: bool):
     if is_torch:
