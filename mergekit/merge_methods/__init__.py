@@ -19,6 +19,7 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
     GeneralizedTaskArithmeticMerge,
     SparsificationMethod,
 )
+from mergekit.merge_methods.nearswap import NearSwapMerge
 from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.model_stock import ModelStockMerge
 from mergekit.merge_methods.nuslerp import NuSlerpMerge
@@ -32,6 +33,8 @@ def get(method: str) -> MergeMethod:
         return LinearMerge()
     elif method == "slerp":
         return SlerpMerge()
+    elif method == "nearswap":
+        return NearSwapMerge()
     elif method == "nuslerp":
         return NuSlerpMerge()
     elif method == "passthrough":
