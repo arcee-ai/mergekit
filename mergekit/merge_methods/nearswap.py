@@ -42,6 +42,8 @@ class NearSwapTask(Task[torch.Tensor]):
         return {"tensors": self.gather_tensors}
 
     def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
+        if self.t == 0:
+            raise RuntimeError("Threshold cannot be zero")
         if len(tensors) == 1:
             return list(tensors.values())[0]
         elif len(tensors) != 2:
@@ -107,16 +109,27 @@ def NearSwap(
 
     From: https://huggingface.co/alchemonaut/QuartetAnemoi-70B-t0.0001
     Args:
-        t (float/np.ndarray): Float value between 0.0 and 1.0
+        t (float/np.ndarray): Non zero float
         v0 (np.ndarray): Starting vector
         v1 (np.ndarray): Final vector
     Returns:
         v2 (np.ndarray): Model with interpolated weights below t
     """
+    is_torch = False
+    if not isinstance(v0, np.ndarray):
+        is_torch = True
+        v0 = v0.detach().cpu().float().numpy()
+    if not isinstance(v1, np.ndarray):
+        is_torch = True
+        v1 = v1.detach().cpu().float().numpy()
     lweight = np.absolute(v0-v1)
-    lweight = t / lweight
     lweight = np.nan_to_num(lweight, nan=1.0, posinf=1.0, neginf=1.0)
     np.clip(lweight, a_min=0.0, a_max=1.0, out=lweight)
     res = lerp(lweight,v0,v1)
 
-    return res
+    return maybe_torch(res, is_torch)
+
+def maybe_torch(v: np.ndarray, is_torch: bool):
+    if is_torch:
+        return torch.from_numpy(v)
+    return v
