@@ -19,9 +19,9 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
     GeneralizedTaskArithmeticMerge,
     SparsificationMethod,
 )
-from mergekit.merge_methods.nearswap import NearSwapMerge
 from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.model_stock import ModelStockMerge
+from mergekit.merge_methods.nearswap import NearSwapMerge
 from mergekit.merge_methods.nuslerp import NuSlerpMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.slerp import SlerpMerge

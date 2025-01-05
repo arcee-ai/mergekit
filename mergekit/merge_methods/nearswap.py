@@ -68,6 +68,7 @@ class NearSwapTask(Task[torch.Tensor]):
             .to(prepped_tensors[0].device)
         )
 
+
 class NearSwapMerge(MergeMethod):
     def parameters(self) -> List[ConfigParameterDef]:
         return [ConfigParameterDef(name="t", required=True)]
