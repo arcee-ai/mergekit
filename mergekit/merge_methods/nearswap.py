@@ -114,6 +114,4 @@ def nearswap(t: float, v0: torch.Tensor, v1: torch.Tensor) -> torch.Tensor:
     lweight = torch.clamp(lweight, min=0.0, max=1.0)
 
     # Linearly interpolate between v0 and v1
-    out = lweight * v1 + (1 - lweight) * v0
-
-    return out
+    return lweight * v0 + (1 - lweight) * v1
