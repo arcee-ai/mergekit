@@ -95,6 +95,8 @@ def nearswap(t: float, v0: torch.Tensor, v1: torch.Tensor) -> torch.Tensor:
     """
     NearSwap implementation using PyTorch.
 
+    Adapted from: https://huggingface.co/alchemonaut/QuartetAnemoi-70B-t0.0001
+
     Parameters:
         t (float): The sameness threshold.
         v0 (torch.Tensor): Weights from the base model.
