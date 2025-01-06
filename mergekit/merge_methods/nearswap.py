@@ -1,4 +1,4 @@
-# Copyright (C) 2025 Gordon Freeman
+# Copyright (C) 2025 Charles Goddard
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -15,7 +15,6 @@
 
 from typing import Any, Dict, List, Optional, Union
 
-import numpy as np
 import torch
 
 from mergekit.architecture import WeightInfo
@@ -42,12 +41,14 @@ class NearSwapTask(Task[torch.Tensor]):
         return {"tensors": self.gather_tensors}
 
     def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
-        if self.t == 0:
-            raise RuntimeError("Threshold cannot be zero")
+        if self.t <= 0:
+            raise RuntimeError(f"Threshold cannot be <= zero, got {self.t}")
         if len(tensors) == 1:
             return list(tensors.values())[0]
         elif len(tensors) != 2:
-            raise RuntimeError("Nearswap merge expects exactly two models")
+            raise RuntimeError(
+                f"Nearswap merge expects exactly two models, got {len(tensors)}"
+            )
         elif self.base_model not in tensors:
             raise RuntimeError("Base model not in input tensors")
 
@@ -59,7 +60,7 @@ class NearSwapTask(Task[torch.Tensor]):
         rectify_embed_sizes(self.weight_info, prepped_tensors)
 
         return (
-            NearSwap(
+            nearswap(
                 self.t,
                 prepped_tensors[0],
                 prepped_tensors[1],
@@ -90,44 +91,27 @@ class NearSwapMerge(MergeMethod):
         )
 
 
-def lerp(
-    t: float, v0: Union[np.ndarray, torch.Tensor], v1: Union[np.ndarray, torch.Tensor]
-) -> Union[np.ndarray, torch.Tensor]:
-    return (1 - t) * v0 + t * v1
-
-
-def NearSwap(
-    t: float,
-    v0: Union[np.ndarray, torch.Tensor],
-    v1: Union[np.ndarray, torch.Tensor],
-):
+def nearswap(t: float, v0: torch.Tensor, v1: torch.Tensor) -> torch.Tensor:
     """
-    Interpolates base model with secondary model if the distance between base and secondary model is below t
+    NearSwap implementation using PyTorch.
 
-    From: https://huggingface.co/alchemonaut/QuartetAnemoi-70B-t0.0001
-    Args:
-        t (float/np.ndarray): Non zero float
-        v0 (np.ndarray): Starting vector
-        v1 (np.ndarray): Final vector
+    Parameters:
+        t (float): The sameness threshold.
+        v0 (torch.Tensor): Weights from the base model.
+        v1 (torch.Tensor): Weights from the secondary model.
+
     Returns:
-        v2 (np.ndarray): Model with interpolated weights below t
+        torch.Tensor: Resulting interpolated weights.
     """
-    is_torch = False
-    if not isinstance(v0, np.ndarray):
-        is_torch = True
-        v0 = v0.detach().cpu().float().numpy()
-    if not isinstance(v1, np.ndarray):
-        is_torch = True
-        v1 = v1.detach().cpu().float().numpy()
-    lweight = np.absolute(v0 - v1)
-    lweight = np.nan_to_num(lweight, nan=1.0, posinf=1.0, neginf=1.0)
-    np.clip(lweight, a_min=0.0, a_max=1.0, out=lweight)
-    res = lerp(lweight, v0, v1)
+    # Compute the absolute difference
+    lweight = torch.abs(v0 - v1)
 
-    return maybe_torch(res, is_torch)
+    # Compute the interpolation factor
+    lweight = t / lweight
+    lweight = torch.nan_to_num(lweight, nan=1.0, posinf=1.0, neginf=1.0)
+    lweight = torch.clamp(lweight, min=0.0, max=1.0)
 
+    # Linearly interpolate between v0 and v1
+    out = lweight * v1 + (1 - lweight) * v0
 
-def maybe_torch(v: np.ndarray, is_torch: bool):
-    if is_torch:
-        return torch.from_numpy(v)
-    return v
+    return out
