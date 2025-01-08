@@ -215,7 +215,7 @@ def get_model_tensor(loader: LazyTensorLoader, name: str) -> torch.Tensor:
     except KeyError as e:
         # Some models like Llama 3.2 1B have tied embedding and output layers, so we need to retry
         if name == "lm_head.weight":
-            return loader.get_tensor("embed_tokens.weight")
+            return loader.get_tensor("model.embed_tokens.weight")
 
 def extract_lora(
     module_details: List[Tuple[str, str]],
