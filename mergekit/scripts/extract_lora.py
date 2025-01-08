@@ -209,6 +209,14 @@ def validate_and_combine_details(
     return module_details, base_model_embedding_size, finetuned_model_embedding_size
 
 
+def get_model_tensor(loader: LazyTensorLoader, name: str) -> torch.Tensor:
+    try:
+        return loader.get_tensor(name)
+    except KeyError as e:
+        # Some models like Llama 3.2 1B have tied embedding and output layers, so we need to retry
+        if name == "lm_head.weight":
+            return loader.get_tensor("embed_tokens.weight")
+
 def extract_lora(
     module_details: List[Tuple[str, str]],
     base_model_ref: ModelReference,
@@ -241,8 +249,8 @@ def extract_lora(
     ranks = {}
 
     for module_type, module_name in tqdm(module_details):
-        base_weight = base_loader.get_tensor(f"{module_name}.weight")
-        finetuned_weight = finetuned_loader.get_tensor(f"{module_name}.weight")
+        base_weight = get_model_tensor(base_loader, f"{module_name}.weight")
+        finetuned_weight = get_model_tensor(finetuned_loader, f"{module_name}.weight")
 
         if module_type == "to_save":
             lora_weights[
