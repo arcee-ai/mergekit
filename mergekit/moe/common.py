@@ -35,7 +35,7 @@ def initialize_io(
     base_model = config.base_model
     loaders: Dict[ModelReference, LazyTensorLoader] = {}
     for model in tqdm.tqdm(
-        [base_model] + [e.source_model for e in config.experts], desc="Warm up loaders"
+        [base_model] + [e.source_model for e in config.shared_experts] + [e.source_model for e in config.experts], desc="Warm up loaders"
     ):
         loaders[model] = model.lazy_loader(
             cache_dir=merge_options.transformers_cache,

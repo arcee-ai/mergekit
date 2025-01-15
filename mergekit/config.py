@@ -31,7 +31,7 @@ class ConditionalParameter(BaseModel):
 
 
 ParameterSetting: TypeAlias = Union[
-    ConditionalParameter, List[ConditionalParameter], ScalarOrGradient
+    ConditionalParameter, List[ConditionalParameter], ScalarOrGradient, str
 ]
 
 
@@ -97,17 +97,19 @@ class MergeConfiguration(BaseModel):
     out_dtype: Optional[str] = None
 
     def referenced_models(self) -> List[ModelReference]:
-        models = set()
-        if self.base_model:
-            models.add(self.base_model)
+        models = []
+        if self.base_model and self.base_model not in models:
+            models.append(self.base_model)
         if self.models:
             for model_in in self.models:
-                models.add(model_in.model)
+                if model_in.model not in models:
+                    models.append(model_in.model)
         if self.slices:
             for s in self.slices:
                 for src in s.sources:
-                    models.add(src.model)
-        return list(models)
+                    if src.model not in models:
+                        models.append(src.model)
+        return models
 
     @model_validator(mode="after")
     def validate_inputs(self):

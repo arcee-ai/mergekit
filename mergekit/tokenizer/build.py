@@ -16,7 +16,8 @@
 import json
 import logging
 import tempfile
-from typing import Dict, List, Optional, Tuple, Union
+from collections import OrderedDict
+from typing import Dict, List, Optional, Tuple, Union, OrderedDict
 
 import tokenizers
 import tokenizers.models
@@ -110,7 +111,7 @@ def get_stripped_tokenizer(
 
 def build_union_tokenizer(
     base_tok: transformers.PreTrainedTokenizerBase,
-    tokenizers: Dict[ModelReference, transformers.PreTrainedTokenizerBase],
+    tokenizers: OrderedDict[ModelReference, transformers.PreTrainedTokenizerBase],
     trust_remote_code: bool = False,
 ) -> transformers.PreTrainedTokenizerBase:
     out_added_tokens = {}
@@ -199,7 +200,8 @@ def build_tokenizer(
 
     # load all tokenizers
     logging.info("Loading tokenizers")
-    tokenizers = {base_model: tokenizer_base}
+    tokenizers = OrderedDict()
+    tokenizers[base_model] = tokenizer_base
     for model in referenced_models:
         if model == base_model:
             continue

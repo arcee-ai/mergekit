@@ -29,15 +29,23 @@ from mergekit.merge_methods.base import (
 class PassthroughMergeTask(Task[torch.Tensor]):
     gather_tensors: MergeTensorInput
     tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
+    forward: Optional[str] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
     def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
-        if len(tensors) != 1:
-            raise RuntimeError("Passthrough merge expects exactly one tensor")
 
-        model, tensor = list(tensors.items())[0]
+        if self.forward:
+            for model, tensor in tensors.items():
+                if model.model.path == self.forward:
+                    break
+        else:
+            if len(tensors) != 1:
+               raise RuntimeError("Passthrough merge expects exactly one tensor")
+            
+            model, tensor = list(tensors.items())[0]
+            
         scale = self.tensor_parameters[model].data.get("scale", None)
         if scale is not None:
             tensor = tensor * scale
@@ -49,6 +57,10 @@ class PassthroughMergeTask(Task[torch.Tensor]):
 
 
 class PassthroughMerge(MergeMethod):
+
+    def parameters(self) -> List[ConfigParameterDef]:
+        return [ConfigParameterDef(name="forward", required=False, default_value=None)]
+
     def tensor_parameters(self) -> List[ConfigParameterDef]:
         return [ConfigParameterDef(name="scale", required=False, default_value=None)]
 
@@ -56,9 +68,11 @@ class PassthroughMerge(MergeMethod):
         self,
         *,
         tensors: MergeTensorInput,
+        parameters: Dict[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         **kwargs,
     ) -> Task:
         return PassthroughMergeTask(
-            gather_tensors=tensors, tensor_parameters=tensor_parameters
+            gather_tensors=tensors, tensor_parameters=tensor_parameters,
+            forward=parameters["forward"],
         )

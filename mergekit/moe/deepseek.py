@@ -118,7 +118,7 @@ class DeepseekMoE(MoEOutputArchitecture):
         router_weights: List[torch.Tensor],
         shared_router_weights: Optional[List[torch.Tensor]] = None,
     ):
-        base_model = config.base_model
+        base_model = config.shared_experts[0].source_model
         base_cfg = base_model.config(trust_remote_code=merge_options.trust_remote_code)
 
         out_dtype = select_dtype(config, base_cfg)
@@ -175,7 +175,7 @@ class DeepseekMoE(MoEOutputArchitecture):
             else:
                 copy_tensor_out(
                     weight_info,
-                    base_loader,
+                    shared_loader,
                     writer,
                     out_dtype=out_dtype,
                     clone=merge_options.clone_tensors,

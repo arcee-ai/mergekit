@@ -42,7 +42,7 @@ def build(
     if is_bad_config(config, allow_all_same=allow_all_same):
         sys.exit(1)
 
-    base_model = config.base_model
+    base_model = config.shared_experts[0].source_model
     out_arch = select_output_arch(config, merge_options, verbose=verbose)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
