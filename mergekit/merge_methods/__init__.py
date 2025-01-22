@@ -23,6 +23,7 @@ from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.model_stock import ModelStockMerge
 from mergekit.merge_methods.nuslerp import NuSlerpMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
+from mergekit.merge_methods.sce import SCEMerge
 from mergekit.merge_methods.slerp import SlerpMerge
 from mergekit.merge_methods.tokenizer_permute import TokenizerPermutationMerge
 
@@ -112,6 +113,9 @@ def get(method: str) -> MergeMethod:
             default_normalize=True,
             default_rescale=False,
         )
+
+    elif method == "sce":
+        return SCEMerge()
     raise RuntimeError(f"Unimplemented merge method {method}")
 
 
@@ -119,6 +123,7 @@ __all__ = [
     "MergeMethod",
     "get",
     "LinearMerge",
+    "SCEMerge",
     "SlerpMerge",
     "PassthroughMerge",
     "GeneralizedTaskArithmeticMerge",
