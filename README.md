@@ -239,7 +239,7 @@ Several examples of merge configurations are available in [`examples/`](examples
 A quick overview of the currently supported merge methods:
 
 | Method                                                                                           | `merge_method` value | Multi-Model | Uses base model |
-| ------------------------------------------------------------------------------------------------ | -------------------- | ----------- | --------------- |
+|--------------------------------------------------------------------------------------------------|----------------------| ----------- | --------------- |
 | Linear ([Model Soups](https://arxiv.org/abs/2203.05482))                                         | `linear`             | ✅          | ❌              |
 | SLERP                                                                                            | `slerp`              | ❌          | ✅              |
 | [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                              | `task_arithmetic`    | ✅          | ✅              |
@@ -253,6 +253,7 @@ A quick overview of the currently supported merge methods:
 | NuSLERP                                                                                          | `nuslerp`            | ❌          | ✅              |
 | [DELLA](https://arxiv.org/abs/2406.11617)                                                        | `della`              | ✅          | ✅              |
 | [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)    | `della_linear`       | ✅          | ✅              |
+| [SCE](https://arxiv.org/abs/2408.07990)                                                          | `sce`                | ✅          | ✅              |
 
 ### Linear
 
@@ -335,6 +336,14 @@ Parameters: same as [Linear](#linear), plus:
 - `density` - fraction of weights in differences from the base model to retain
 - `epsilon` - maximum change in drop probability based on magnitude. Drop probabilities assigned will range from `density - epsilon` to `density + epsilon`. (When selecting values for `density` and `epsilon`, ensure that the range of probabilities falls within 0 to 1)
 - `lambda` - scaling factor for the final merged delta parameters before merging with the base parameters.
+
+### [SCE](https://arxiv.org/abs/2408.07990)
+
+Building upon TIES, SCE introduces adaptive matrix-level merging weights based on parameter variances. SCE first selects the top-k% elements from each parameter matrix that exhibit high variance across all delta parameters. Following this selection, SCE calculates matrix-level merging weights based on the sum of squares of elements in the delta parameters. Finally, it erases minority elements, a step similar to the sign election process in TIES.
+
+Parameters: 
+
+- `select_topk` - fraction of elements with the highest variance in the delta parameters to retain.
 
 ## LoRA extraction
 
