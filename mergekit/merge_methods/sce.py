@@ -69,16 +69,12 @@ class SCETask(Task[torch.Tensor]):
         return {"tensors": self.tensors}
 
     def execute(
-            self,
-            tensors: Dict[ModelReference, torch.Tensor],
-            **_kwargs,
+        self,
+        tensors: Dict[ModelReference, torch.Tensor],
+        **_kwargs,
     ) -> torch.Tensor:
         # collect task vectors
-        tvs, base = get_task_vectors(
-            self.weight_info,
-            self.base_model,
-            tensors
-        )
+        tvs, base = get_task_vectors(self.weight_info, self.base_model, tensors)
         if not tvs:
             return base
 
@@ -93,9 +89,7 @@ class SCETask(Task[torch.Tensor]):
 
         # Calculate matrix level merging coefficient
         weights = get_sce_weight(deltas)
-        weights = torch.tensor(
-            weights, dtype=deltas.dtype, device=deltas.device
-        )
+        weights = torch.tensor(weights, dtype=deltas.dtype, device=deltas.device)
         while len(deltas.shape) > len(weights.shape):
             weights.unsqueeze_(-1)
 
@@ -118,7 +112,7 @@ class SCETask(Task[torch.Tensor]):
 def get_task_vectors(
     weight_info: WeightInfo,
     base_model: ModelReference,
-    tensors: ImmutableMap[ModelReference, torch.Tensor]
+    tensors: ImmutableMap[ModelReference, torch.Tensor],
 ) -> Tuple[List[Dict[str, Any]], torch.Tensor]:
     keys = list(tensors.keys())
     base = tensors[base_model]
@@ -198,7 +192,7 @@ def get_sce_mask(
 
 def get_sce_weight(deltas):
     # Calculate the squared sum of each delta and normalize by the number of elements
-    weights = [torch.sum(delta ** 2).item() / delta.numel() for delta in deltas]
+    weights = [torch.sum(delta**2).item() / delta.numel() for delta in deltas]
 
     # Normalize the weights
     sum_weights = sum(weights)
