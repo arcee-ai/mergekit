@@ -29,9 +29,7 @@ from mergekit.merge_methods.base import (
 )
 
 
-
 class SCEMerge(MergeMethod, BaseModel, frozen=True):
-
     def parameters(self) -> List[ConfigParameterDef]:
         return [
             ConfigParameterDef(name="int8_mask", required=False, default_value=False),
