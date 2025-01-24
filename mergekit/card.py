@@ -121,6 +121,7 @@ def method_md(merge_method: str) -> str:
         "della": "[DELLA](https://arxiv.org/abs/2406.11617)",
         "della_linear": "linear [DELLA](https://arxiv.org/abs/2406.11617)",
         "nuslerp": "NuSLERP",
+        "sce": "[SCE](https://arxiv.org/abs/2408.07990)",
     }
     return methods.get(merge_method, merge_method)
 
