@@ -62,6 +62,7 @@ class MergeActorBase:
         vllm: bool = False,
         batch_size: Optional[int] = None,
         task_manager: Optional[lm_eval.tasks.TaskManager] = None,
+        quantization_config: Optional[transformers.BitsAndBytesConfig] = None,
     ):
         self.config = config
         self.genome = genome
@@ -72,6 +73,7 @@ class MergeActorBase:
         self.vllm = vllm
         self.batch_size = batch_size
         self.task_manager = task_manager
+        self.quantization_config = quantization_config
 
         if config.shuffle:
             monkeypatch_lmeval_shuffle()
@@ -105,6 +107,9 @@ class OnDiskMergeEvaluator(MergeActorBase):
             logging.error("Model merge failed")
             return {"score": None, "results": None}
 
+        kwargs = {}
+        if self.quantization_config is not None:
+            kwargs["quantization_config"] = self.quantization_config
         logging.info(f"Model merged to {merged_path}")
         return evaluate_model(
             merged_path,
@@ -114,6 +119,7 @@ class OnDiskMergeEvaluator(MergeActorBase):
             vllm=self.vllm,
             batch_size=self.batch_size,
             task_manager=self.task_manager,
+            **kwargs,
         )
 
 

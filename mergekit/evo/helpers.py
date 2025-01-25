@@ -67,6 +67,7 @@ def evaluate_model(
     vllm: bool,
     batch_size: Optional[int] = None,
     task_manager: Optional[lm_eval.tasks.TaskManager] = None,
+    **kwargs,
 ) -> dict:
     # monkeypatch_tqdm()
     monkeypatch_lmeval_vllm()
@@ -74,6 +75,7 @@ def evaluate_model(
         model_args = {
             "pretrained": merged_path,
             "dtype": "bfloat16",
+            **kwargs,
         }
         if vllm:
             model_args["gpu_memory_utilization"] = 0.8
