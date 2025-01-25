@@ -125,7 +125,7 @@ class LinearMergeTask(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs) -> torch.Tensor:
         # Implementation using weight info and tensor parameters
         ...
 
@@ -134,7 +134,7 @@ class LinearMerge(MergeMethod):
         return "linear"
         
     def parameters(self) -> List[ConfigParameterDef]:
-        return [ConfigParameterDef("normalize", required=False, default=True)]
+        return [ConfigParameterDef("normalize", required=False, default_value=True)]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
         return [ConfigParameterDef("weight", required=True)]
@@ -146,6 +146,7 @@ class LinearMerge(MergeMethod):
         tensors: MergeTensorInput,
         parameters: ImmutableMap[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
+        base_model: Optional[ModelReference],
         **kwargs,
     ) -> Task:
         return LinearMergeTask(
