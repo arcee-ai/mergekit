@@ -16,6 +16,7 @@
 from typing import Any, Dict, List, Optional
 
 import torch
+from typing_extensions import override
 
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
@@ -49,6 +50,13 @@ class PassthroughMergeTask(Task[torch.Tensor]):
 
 
 class PassthroughMerge(MergeMethod):
+    def name(self) -> str:
+        return "passthrough"
+
+    @override
+    def pretty_name(self) -> Optional[str]:
+        return "Passthrough"
+
     def tensor_parameters(self) -> List[ConfigParameterDef]:
         return [ConfigParameterDef(name="scale", required=False, default_value=None)]
 

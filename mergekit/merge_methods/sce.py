@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from pydantic import BaseModel
+from typing_extensions import override
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
@@ -30,6 +31,17 @@ from mergekit.merge_methods.base import (
 
 
 class SCEMerge(MergeMethod, BaseModel, frozen=True):
+    def name(self) -> str:
+        return "sce"
+
+    @override
+    def pretty_name(self) -> str:
+        return "SCE"
+
+    @override
+    def reference_url(self) -> str:
+        return "https://arxiv.org/abs/2408.07990"
+
     def parameters(self) -> List[ConfigParameterDef]:
         return [
             ConfigParameterDef(name="int8_mask", required=False, default_value=False),
