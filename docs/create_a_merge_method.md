@@ -1,8 +1,12 @@
 # Creating Custom Merge Methods
 
-This guide explains how to create custom model merging algorithms using mergekit's decorator-based API.
+This guide explains two approaches to creating custom model merging algorithms in mergekit:
 
-## Simple Example: Average Merge
+## 1. Decorator-based API (Recommended)
+
+For most use cases, the `@merge_method` decorator provides a concise way to define merge logic.
+
+### Example: Average Merge
 
 ```python
 from mergekit.merge_methods import merge_method
@@ -25,7 +29,7 @@ def average_merge(
     return sum(t * w for t, w in zip(tensors, weights))
 ```
 
-This would enable merge configurations like:
+This enables merge configurations like:
 ```yaml
 merge_method: average
 parameters:
@@ -34,69 +38,82 @@ tensor_parameters:
   weights: [0.3, 0.7]
 ```
 
+### Key Features:
+- **Automatic parameter handling** - Type annotations define config options
+- **Base model support** - Optional `base_tensor` parameter
+- **Validation** - Built-in type checking and error reporting
+
+## 2. Class-based API (Advanced)
+
+For complex merges requiring explicit control, implement `MergeMethod` and `Task`:
+
+### Example: Linear Merge
+
+```python
+from mergekit.merge_methods.base import MergeMethod, ConfigParameterDef
+from mergekit.graph import Task
+
+class LinearMergeTask(Task[torch.Tensor]):
+    def execute(self, tensors: list[torch.Tensor], weights: list[float]) -> torch.Tensor:
+        return sum(t * w for t,w in zip(tensors, weights))
+
+class LinearMerge(MergeMethod):
+    def parameters(self) -> list[ConfigParameterDef]:
+        return [ConfigParameterDef("normalize", required=False, default=True)]
+        
+    def make_task(self, tensors: list[torch.Tensor], parameters: dict) -> Task:
+        return LinearMergeTask(tensors, parameters)
+```
+
+### When to Use This Approach:
+- Need direct control over tensor loading/permutation
+- Require custom task dependencies
+- Implementing complex weight calculations
+- Handling non-standard model architectures
+
 ## Parameter Types
 
-### Scalar Parameters
-- Defined as `float`, `int`, or `bool` types
-- Configured in top-level `parameters` section
-- Example: `normalize` in above example
+| Type          | Decorator Annotation | Class-based Equivalent       |
+|---------------|----------------------|------------------------------|
+| Scalar        | `float`/`int`/`bool` | `ConfigParameterDef`         |
+| Tensor        | `list[float]`        | Per-model `tensor_parameters`|
+| Base Model    | `base_tensor` param  | `base_model` reference       |
 
-### Tensor Parameters
-- Defined as `list[float]` or `list[int]`
-- Configured per-model in `parameters` section
-- Automatically collected in model order
-- Example: `weights` in above example
+## Key Implementation Details
 
-## Advanced Usage
+For class-based merges:
+1. Subclass `MergeMethod` and implement:
+   - `make_task()` - Create computation tasks
+   - `parameters()` - Define config options
+   
+2. Create `Task` subclass(es) implementing:
+   - `execute()` - Core merge logic
+   - `arguments()` - Task dependencies
+   - `group_label()` - Execution grouping
 
-### Base Model Handling
-```python
-def merge_with_base(
-    tensors: list[torch.Tensor],
-    base_tensor: torch.Tensor,  # Optional base model tensor
-    strength: float = 0.5
-) -> torch.Tensor:
-    return base_tensor * strength + sum(tensors) * (1-strength)
-```
-
-Two approaches:
-1. Base model first in tensor list (default)
-2. Explicit `base_tensor` parameter
-
-### Input Validation
-```python
-def safe_merge(
-    tensors: list[torch.Tensor],
-    weights: list[float]
-) -> torch.Tensor:
-    if len(tensors) != len(weights):
-        raise ValueError("Weights/tensors count mismatch")
-    
-    if abs(sum(weights) - 1.0) > 1e-6:
-        raise ValueError("Weights must sum to 1.0")
-    
-    return sum(t*w for t,w in zip(tensors, weights))
-```
+For decorator-based merges:
+- Input tensors are automatically normalized
+- Base model handling is automatic
+- Parameter validation happens at config load
+- Tensor permutation handled by framework
 
 ## Built-in Examples
 
 1. **Linear Merge** (`mergekit.merge_methods.linear`)
-   - Basic weighted sum of tensors
-   - Handles parameter normalization
+   - Class-based implementation
+   - Weighted sum with normalization
 
-2. **Multi-SLERP** (`mergekit.merge_methods.multislerp`) 
-   - Hypersphere interpolation
-   - Uses exponential map projection
+2. **Multi-SLERP** (`mergekit.merge_methods.multislerp`)  
+   - Decorator-based hypersphere interpolation
+   - Exponential map projection
 
-## How It Works
+## Choosing an Approach
 
-The `@merge_method` decorator:
-1. Analyzes function signature
-2. Generates configuration classes
-3. Handles tensor loading/permutation
-4. Manages parameter validation
-5. Registers method in mergekit system
+|                      | Decorator | Class-based |
+|----------------------|-----------|-------------|
+| Learning Curve       | Easy      | Moderate    |
+| Flexibility          | Moderate  | High        |
+| Boilerplate          | None      | Some        |
+| Access to Low-Levels | Limited   | Full        |
 
-All boilerplate is handled automatically - focus on the core merge logic!
-
-> **Note:** Input tensors will have matching shapes when your function is called. Mergekit handles dimension mismatches for embeddings and output layers automatically.
+> **Note:** Mergekit automatically handles tensor shape matching for both approaches. Implementations can assume consistent dimensions except when merging embeddings/output layers.
