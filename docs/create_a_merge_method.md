@@ -50,31 +50,74 @@ parameters:
 
 ## 2. Class-based API (Advanced)
 
-For complex merges requiring explicit control, implement `MergeMethod` and `Task`:
+For complex merges requiring explicit control, implement `MergeMethod` and `Task` subclasses:
 
 ### Example: Linear Merge
 
 ```python
 from mergekit.merge_methods.base import MergeMethod, ConfigParameterDef
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
+from mergekit.merge_methods.base import MergeTensorInput
+from mergekit.architecture import WeightInfo
 
 class LinearMergeTask(Task[torch.Tensor]):
-    def execute(self, tensors: list[torch.Tensor], weights: list[float]) -> torch.Tensor:
-        return sum(t * w for t,w in zip(tensors, weights))
+    gather_tensors: MergeTensorInput
+    tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
+    normalize: bool
+    weight_info: WeightInfo
+
+    def arguments(self) -> Dict[str, Task]:
+        return {"tensors": self.gather_tensors}
+
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
+        # Implementation using weight info and tensor parameters
+        ...
 
 class LinearMerge(MergeMethod):
-    def parameters(self) -> list[ConfigParameterDef]:
-        return [ConfigParameterDef("normalize", required=False, default=True)]
+    def name(self) -> str:
+        return "linear"
         
-    def make_task(self, tensors: list[torch.Tensor], parameters: dict) -> Task:
-        return LinearMergeTask(tensors, parameters)
+    def parameters(self) -> List[ConfigParameterDef]:
+        return [ConfigParameterDef("normalize", required=False, default=True)]
+
+    def tensor_parameters(self) -> List[ConfigParameterDef]:
+        return [ConfigParameterDef("weight", required=True)]
+
+    def make_task(
+        self,
+        *,
+        output_weight: WeightInfo,
+        tensors: MergeTensorInput,
+        parameters: ImmutableMap[str, Any],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
+        **kwargs,
+    ) -> Task:
+        return LinearMergeTask(
+            gather_tensors=tensors,
+            tensor_parameters=tensor_parameters,
+            normalize=parameters["normalize"],
+            weight_info=output_weight,
+        )
 ```
 
-### When to Use This Approach:
-- Need direct control over tensor loading/permutation
-- Require custom task dependencies
-- Implementing complex weight calculations
-- Handling non-standard model architectures
+### Key Implementation Details
+For class-based merges:
+1. Subclass `MergeMethod` and implement:
+   - `name()` - Return unique method identifier
+   - `make_task()` - Create computation tasks with proper typing
+   - `parameters()` - Define config options
+   - `tensor_parameters()` - Define per-model tensor parameters
+   
+2. Create `Task` subclass implementing:
+   - `execute()` - Core merge logic with type annotations
+   - `arguments()` - Declare task dependencies
+   - `group_label()` - (Optional) Task grouping for execution
+   - `uses_accelerator()` - Indicate GPU acceleration support
+
+3. Handle tensor parameters through `tensor_parameters` argument to `make_task`
+
+Note on tensor sizes: Implementations can assume consistent dimensions except when merging embeddings/output layers. Use `rectify_embed_sizes` helper when merging embedding layers.
 
 ## Parameter Types
 
@@ -121,4 +164,8 @@ For decorator-based merges:
 | Boilerplate          | None      | Some        |
 | Access to Low-Levels | Limited   | Full        |
 
-> **Note:** Mergekit automatically handles tensor shape matching for both approaches. Implementations can assume consistent dimensions except when merging embeddings/output layers.
+> **Implementation Notes:**
+> - All tensor operations should preserve device/dtype attributes
+> - The first dimension is typically batch dimension and should not be averaged/summed
+> - Use `rectify_embed_sizes` from `mergekit.merge_methods.rectify_embed` when merging embedding layers
+> - Return tensors should match base model dtype unless explicitly converting
