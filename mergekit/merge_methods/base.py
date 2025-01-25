@@ -42,6 +42,16 @@ class MergeMethod(ABC):
         return []
 
     @abstractmethod
+    def name(self) -> str:
+        ...
+
+    def pretty_name(self) -> Optional[str]:
+        return None
+
+    def reference_url(self) -> Optional[str]:
+        return None
+
+    @abstractmethod
     def make_task(
         self,
         *,

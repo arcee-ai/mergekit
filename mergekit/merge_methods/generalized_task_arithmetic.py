@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from pydantic import BaseModel
-from typing_extensions import Literal
+from typing_extensions import Literal, override
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
@@ -42,6 +42,20 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
     sparsification_method: Optional[SparsificationMethod]
     default_normalize: bool
     default_rescale: bool
+    method_name: str
+    method_pretty_name: Optional[str]
+    method_reference_url: Optional[str]
+
+    def name(self) -> str:
+        return self.method_name
+
+    @override
+    def pretty_name(self) -> Optional[str]:
+        return self.method_pretty_name
+
+    @override
+    def reference_url(self) -> Optional[str]:
+        return self.method_reference_url
 
     def parameters(self) -> List[ConfigParameterDef]:
         return [

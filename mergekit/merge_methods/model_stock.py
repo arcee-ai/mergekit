@@ -17,6 +17,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import torch
+from typing_extensions import override
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
@@ -114,6 +115,17 @@ class ModelStockMergeTask(Task[torch.Tensor]):
 
 
 class ModelStockMerge(MergeMethod):
+    def name(self) -> str:
+        return "model_stock"
+
+    @override
+    def pretty_name(self) -> Optional[str]:
+        return "Model Stock"
+
+    @override
+    def reference_url(self):
+        return "https://arxiv.org/abs/2403.19522"
+
     def parameters(self) -> List[ConfigParameterDef]:
         return [
             ConfigParameterDef(name="filter_wise", required=False, default_value=False)
