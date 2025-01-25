@@ -62,6 +62,40 @@ parameters:
 - **Device Management** - Automatic GPU/CPU placement
 - **Base Model Handling** - Presence of optional `base_tensor`/`base_model` parameters determine support for a base model
 
+### Advanced Parameter Handling
+
+The decorator supports three parameter types through type annotations:
+
+1. **Scalar Parameters** (`bool|float|int`):
+   - Defined in top-level `parameters` section
+   - Can be optional or have default values
+   - Example: `normalize: bool = True`
+
+2. **Vector Parameters** (`list[float]|list[int]`):
+   - Configured per-model in their `parameters` section
+   - Will be passed as a list of floats or integers with the same length as `models`
+   - Can be optional or have default values, like scalars
+     - Note that default values must be a single value, not a list!
+   - Example: `weight: List[float]` or `threshold: List[float] = 0.5`
+
+3. **Base Model Handling** (`torch.Tensor`):
+   - Automatic when method has `base_tensor` parameter:
+     * `torch.Tensor` annotation: Requires `base_model` in config
+     * `Optional[torch.Tensor]`: Base model is optional
+   - Without `base_tensor`: Base model is supported only if `base_model` parameter is present, and if so the associated tensor will be placed first in the `tensors` list
+
+Key requirements for decorated functions:
+- Must have `tensors: List[torch.Tensor]` as first parameter
+- Must return a single `torch.Tensor`
+- All parameters must have type annotations
+
+Implementation notes:
+- Base model tensor (if used) is excluded from `tensors` list
+- Decorated functions get automatic:
+  * Parameter validation
+  * Tensor shape alignment
+  * Device placement
+
 ## 2. Class-based API (Advanced)
 
 For complex merges requiring explicit control, implement `MergeMethod` and `Task` subclasses:
