@@ -15,10 +15,10 @@
 
 import logging
 from typing import Any, Dict, List, Optional, Tuple
-from typing_extensions import override
 
 import torch
 from pydantic import BaseModel
+from typing_extensions import override
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
