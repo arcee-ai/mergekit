@@ -1,10 +1,32 @@
-# Creating Custom Merge Methods
+# Extending MergeKit with Custom Merge Methods
 
-This guide explains two approaches to creating custom model merging algorithms in mergekit:
+This guide explains how to create custom model merging algorithms for MergeKit. You'll learn two distinct approaches - choose based on your needs:
 
-## 1. Decorator-based API (Recommended)
+## Choosing an Implementation Approach
 
-For most use cases, the `@merge_method` decorator provides a concise way to define merge logic.
+| Consideration       | Decorator API          | Class-based API       |
+|---------------------|------------------------|-----------------------|
+| Complexity          | Simple                 | Moderate              |
+| Flexibility         | Limited                | Full control          |
+| Access to Base Model| Optional `base_tensor` | Direct via reference  | 
+| Parameter Types     | Scalar/Vector          | Any config structure  |
+| Best For            | Most merges            | Research/Complex ops  |
+
+## 1. Quick Implementation with Decorator API
+
+### When to Use This Approach
+- You want maximum simplicity
+- Your merge logic can be expressed as weighted arithmetic
+- You don't need low-level control over tensor loading
+- You want automatic parameter validation
+
+### Implementation Steps
+1. Define your merge function with type annotations
+2. Add `@merge_method` decorator with metadata
+3. Handle base model optionally via `base_tensor` param
+4. Return merged tensor
+
+### Example: Weighted Average
 
 ### Example: Average Merge
 
@@ -43,10 +65,43 @@ parameters:
   normalize: true
 ```
 
-### Key Features:
-- **Automatic parameter handling** - Type annotations define config options
-- **Base model support** - Optional `base_tensor` parameter
-- **Validation** - Built-in type checking and error reporting
+### Key Features
+- **Type-Driven Config** - Annotations auto-create config schema
+- **Base Model Handling** - First model is base by default
+- **Parameter Validation** - Built-in type checking
+- **Device Management** - Automatic GPU/CPU placement
+
+### Advanced Parameter Handling
+```python
+@merge_method(name="complex_example")
+def complex_merge(
+    tensors: List[torch.Tensor],
+    layer_weight: List[float],  # Per-layer weights
+    temperature: float = 1.0,   # Global scalar 
+    base_tensor: Optional[torch.Tensor] = None
+) -> torch.Tensor:
+    # Mix base tensor (if provided) with others
+    if base_tensor is not None:
+        tensors = [base_tensor] + tensors
+    
+    # Apply temperature scaling
+    weights = torch.softmax(torch.tensor(layer_weight) / temperature, dim=0)
+    return (torch.stack(tensors) * weights.view(-1, 1, 1)).sum(dim=0)
+```
+
+This supports config like:
+```yaml
+merge_method: complex_example
+parameters:
+  temperature: 0.5
+tensor_parameters:
+  layer_weight: [0.2, 0.3, 0.5] 
+```
+
+>> Parameter Types:
+- **Scalar**: Single value (float/int/bool) 
+- **Vector**: Per-layer weights (interpolated automatically)
+- **Base Model**: Optional first input via `base_tensor`
 
 ## 2. Class-based API (Advanced)
 
@@ -145,21 +200,45 @@ For decorator-based merges:
 - Parameter validation happens at config load
 - Tensor permutation handled by framework
 
-## Built-in Examples
+## Testing & Debugging Tips
 
-1. **Linear Merge** (`mergekit.merge_methods.linear`)
-   - Class-based implementation
-   - Weighted sum with normalization
+1. Validate with Small Models:
+```bash
+mergekit-yaml config.yml output --cuda --low-cpu
+```
 
-2. **Multi-SLERP** (`mergekit.merge_methods.multislerp`)  
-   - Decorator-based hypersphere interpolation
-   - Exponential map projection
+2. Profile Execution:
+```bash
+PYTORCH_CUDA_ALLOC_CONF=backend python -m cProfile -o profile.stats your_script.py
+```
 
-## Choosing an Approach
+3. Inspect Intermediate Tensors:
+```python
+class DebugTask(Task):
+    def execute(self, **inputs):
+        print(f"Merging {self.weight_info.name}")
+        for k,v in inputs.items():
+            print(f"{k}: {v.shape} {v.dtype}")
+        return super().execute(**inputs)
+```
 
-|                      | Decorator | Class-based |
-| -------------------- | --------- | ----------- |
-| Learning Curve       | Easy      | Moderate    |
-| Flexibility          | Moderate  | High        |
-| Boilerplate          | None      | Some        |
-| Access to Low-Levels | Limited   | Full        |
+## Reference Implementations
+
+1. **Linear Merge** (`mergekit.merge_methods.linear`):
+   - Simple weighted average
+   - Good starter example
+
+2. **Multi-SLERP** (`mergekit.merge_methods.multislerp`):
+   - Hypersphere interpolation
+   - Complex decorator usage
+
+3. **Generalized Task Arithmetic** (`mergekit.merge_methods.generalized_task_arithmetic`):
+   - Advanced class-based example
+   - Implements TIES/Magnitude pruning
+
+## Next Steps
+
+1. Study existing merge methods
+2. Start with decorator API for simple merges
+3. Use class-based API for research-level techniques
+4. Submit PRs for generally useful methods!
