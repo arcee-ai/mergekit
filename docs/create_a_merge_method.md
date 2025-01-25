@@ -19,13 +19,12 @@ Either approach benefits from MergeKit's underlying task system for resource man
 MergeKit's computational graph infrastructure provides sophisticated resource management that all merge methods inherit:
 
 - **Smart Memory Management**
-  - Automatic tensor lifecycle tracking
-  - Early tensor eviction when no longer needed
+  - Automatic return value lifecycle tracking
+  - Early value eviction when no longer needed
   - Optimized shard loading based on task groups
 
 - **Device Management**
   - Automatic tensor movement between compute and storage devices
-  - Batched device transfers within task groups
   - Support for both CPU and GPU execution
 
 - **Task Scheduling**
