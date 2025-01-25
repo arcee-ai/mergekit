@@ -173,7 +173,11 @@ For class-based merges:
 
 3. Handle tensor parameters through `tensor_parameters` argument to `make_task`
 
-Note on tensor sizes: Implementations can assume consistent dimensions. Should the input tensors have different shapes, the user is doing something profane and will get what they deserve. (Or, you can check if the tensors are embeddings and truncate them to the smallest size. But justice can only be delayed, not denied.)
+Note on tensor sizes:
+- Implementations should validate tensor shapes match except for embeddings
+- Use `rectify_embed_sizes()` helper for embedding layers
+- Raise RuntimeError for unexpected size mismatches
+- Handle device placement with `.to()` if needed
 
 ## Parameter Types
 
