@@ -71,6 +71,15 @@ class NearSwapTask(Task[torch.Tensor]):
 
 
 class NearSwapMerge(MergeMethod):
+    def name(self) -> str:
+        return "nearswap"
+
+    def pretty_name(self) -> Optional[str]:
+        return "NearSwap"
+
+    def reference_url(self) -> Optional[str]:
+        return "https://huggingface.co/alchemonaut/QuartetAnemoi-70B-t0.0001"
+
     def parameters(self) -> List[ConfigParameterDef]:
         return [ConfigParameterDef(name="t", required=True)]
 
