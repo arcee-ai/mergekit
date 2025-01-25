@@ -117,7 +117,7 @@ For class-based merges:
 
 3. Handle tensor parameters through `tensor_parameters` argument to `make_task`
 
-Note on tensor sizes: Implementations can assume consistent dimensions except when merging embeddings/output layers. Use `rectify_embed_sizes` helper when merging embedding layers.
+Note on tensor sizes: Implementations can assume consistent dimensions.
 
 ## Parameter Types
 
@@ -163,9 +163,3 @@ For decorator-based merges:
 | Flexibility          | Moderate  | High        |
 | Boilerplate          | None      | Some        |
 | Access to Low-Levels | Limited   | Full        |
-
-> **Implementation Notes:**
-> - All tensor operations should preserve device/dtype attributes
-> - The first dimension is typically batch dimension and should not be averaged/summed
-> - Use `rectify_embed_sizes` from `mergekit.merge_methods.rectify_embed` when merging embedding layers
-> - Return tensors should match base model dtype unless explicitly converting
