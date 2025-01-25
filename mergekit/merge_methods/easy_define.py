@@ -1,4 +1,4 @@
-# Copyright (C) 2024 Charles O. Goddard
+# Copyright (C) 2025 Arcee AI
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -15,7 +15,7 @@
 
 import inspect
 import typing
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pydantic
 import torch
@@ -168,7 +168,7 @@ def __merge_method(
         if use_base_tensor_arg:
             inner_kwargs["base_tensor"] = base_tensor
             if require_base_tensor and (inner_kwargs["base_tensor"] is None):
-                raise ValueError(f"Base model tensor required but not present")
+                raise ValueError("Base model tensor required but not present")
         for key in parameters:
             inner_kwargs[key.name] = self.parameters[key.name]
         for key in tensor_parameters:

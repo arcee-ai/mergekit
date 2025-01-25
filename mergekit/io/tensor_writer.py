@@ -1,4 +1,4 @@
-# Copyright (C) 2024 Charles O. Goddard
+# Copyright (C) 2025 Arcee AI
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -121,7 +121,7 @@ class TensorWriter:
             json.dump(
                 {
                     "metadata": {
-                        "mergekit_version": "0.0.5.2",
+                        "mergekit_version": "0.0.6",
                         "total_size": self.total_size,
                     },
                     "weight_map": self.weight_map,
