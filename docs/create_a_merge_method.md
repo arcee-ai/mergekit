@@ -4,13 +4,13 @@ This guide explains how to create custom model merging algorithms for MergeKit. 
 
 ## Choosing an Implementation Approach
 
-| Consideration       | Decorator API          | Class-based API       |
-|---------------------|------------------------|-----------------------|
-| Complexity          | Simple                 | Moderate              |
-| Flexibility         | Limited                | Full control          |
-| Access to Base Model| Optional `base_tensor` | Direct via reference  | 
-| Parameter Types     | Scalar/Vector          | Any config structure  |
-| Best For            | Most merges            | Research/Complex ops  |
+| Consideration        | Decorator API          | Class-based API      |
+| -------------------- | ---------------------- | -------------------- |
+| Complexity           | Simple                 | Moderate             |
+| Flexibility          | Limited                | Full control         |
+| Access to Base Model | Optional `base_tensor` | Direct via reference |
+| Parameter Types      | Scalar/Vector          | Any config structure |
+| Best For             | Most merges            | Research/Complex ops |
 
 ## 1. Quick Implementation with Decorator API
 
@@ -172,7 +172,7 @@ For class-based merges:
 
 3. Handle tensor parameters through `tensor_parameters` argument to `make_task`
 
-Note on tensor sizes: Implementations can assume consistent dimensions.
+Note on tensor sizes: Implementations can assume consistent dimensions. Should the input tensors have different shapes, the user is doing something profane and will get what they deserve. (Or, you can check if the tensors are embeddings and truncate them to the smallest size. But justice can only be delayed, not denied.)
 
 ## Parameter Types
 
@@ -203,6 +203,7 @@ class CustomMerge(MergeMethod):
 2. Create Task subclass:
 ```python
 class CustomTask(Task[torch.Tensor]):
+    tensors: MergeTensorInput
     threshold: float
     output_weight: WeightInfo
     
@@ -231,39 +232,11 @@ For `Task`:
 - `group_label()`: Task grouping for execution
 - `uses_accelerator()`: Indicate GPU usage
 
-### Tensor Considerations
-1. Shapes: May differ for embeddings - use `rectify_embed_sizes()`
-2. Devices: Tensors may be on CPU/GPU - use `.to()` if needed
-3. DTypes: Preserve original types unless explicitly converting
-4. Memory: Use `clone()` judiciously for large tensors
-
-## Testing & Debugging Tips
-
-1. Validate with Small Models:
-```bash
-mergekit-yaml config.yml output --cuda --low-cpu
-```
-
-2. Profile Execution:
-```bash
-PYTORCH_CUDA_ALLOC_CONF=backend python -m cProfile -o profile.stats your_script.py
-```
-
-3. Inspect Intermediate Tensors:
-```python
-class DebugTask(Task):
-    def execute(self, **inputs):
-        print(f"Merging {self.weight_info.name}")
-        for k,v in inputs.items():
-            print(f"{k}: {v.shape} {v.dtype}")
-        return super().execute(**inputs)
-```
-
 ## Reference Implementations
 
 1. **Linear Merge** (`mergekit.merge_methods.linear`):
    - Simple weighted average
-   - Good starter example
+   - Good starter example for class-based API
 
 2. **Multi-SLERP** (`mergekit.merge_methods.multislerp`):
    - Hypersphere interpolation
@@ -272,10 +245,3 @@ class DebugTask(Task):
 3. **Generalized Task Arithmetic** (`mergekit.merge_methods.generalized_task_arithmetic`):
    - Advanced class-based example
    - Implements TIES/Magnitude pruning
-
-## Next Steps
-
-1. Study existing merge methods
-2. Start with decorator API for simple merges
-3. Use class-based API for research-level techniques
-4. Submit PRs for generally useful methods!
