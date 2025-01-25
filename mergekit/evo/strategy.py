@@ -25,6 +25,7 @@ import ray
 import ray.util.queue
 import ray.util.scheduling_strategies
 import torch
+import transformers
 
 from mergekit.evo.actors import InMemoryMergeEvaluator, OnDiskMergeEvaluator
 from mergekit.evo.config import EvolMergeConfiguration
@@ -43,6 +44,7 @@ class EvaluationStrategyBase(ABC):
         batch_size: Optional[int] = None,
         task_search_path: Union[str, List[str], None] = None,
         model_storage_path: Optional[str] = None,
+        quantization_config: Optional[transformers.BitsAndBytesConfig] = None,
     ):
         self.config = config
         self.genome = genome
@@ -51,6 +53,7 @@ class EvaluationStrategyBase(ABC):
         self.batch_size = batch_size
         self.task_manager = lm_eval.tasks.TaskManager(include_path=task_search_path)
         self.model_storage_path = model_storage_path
+        self.quantization_config = quantization_config
         if self.model_storage_path:
             os.makedirs(self.model_storage_path, exist_ok=True)
 
@@ -91,6 +94,7 @@ class ActorPoolEvaluationStrategy(EvaluationStrategyBase):
                     vllm=vllm,
                     batch_size=self.batch_size,
                     task_manager=self.task_manager,
+                    quantization_config=self.quantization_config,
                 )
                 for _ in range(self.num_gpus)
             ]
@@ -120,6 +124,7 @@ class BufferedRayEvaluationStrategyActor:
         batch_size: Optional[int] = None,
         task_manager: Optional[lm_eval.tasks.TaskManager] = None,
         model_storage_path: Optional[str] = None,
+        quantization_config: Optional[transformers.BitsAndBytesConfig] = None,
     ):
         self.config = config
         self.genome = genome
@@ -130,6 +135,7 @@ class BufferedRayEvaluationStrategyActor:
         self.batch_size = batch_size
         self.task_manager = task_manager
         self.model_storage_path = model_storage_path
+        self.quantization_config = quantization_config
         self._shutdown = False
 
     async def evaluate_genotype(self, genotype: np.ndarray):
@@ -159,6 +165,9 @@ class BufferedRayEvaluationStrategyActor:
 
                 while merged and len(evaluating) < self.num_gpus:
                     future_result, merged_path = merged.pop()
+                    kwargs = {}
+                    if self.quantization_config is not None:
+                        kwargs["quantization_config"] = self.quantization_config
                     evaluating[
                         evaluate_model_ray.remote(
                             merged_path,
@@ -168,6 +177,7 @@ class BufferedRayEvaluationStrategyActor:
                             vllm=self.vllm,
                             batch_size=self.batch_size,
                             task_manager=self.task_manager,
+                            **kwargs,
                         )
                     ] = future_result
 
@@ -222,6 +232,8 @@ class BufferedRayEvaluationStrategy(EvaluationStrategyBase):
             vllm=vllm,
             num_gpus=self.num_gpus,
             task_manager=self.task_manager,
+            batch_size=self.batch_size,
+            quantization_config=self.quantization_config,
         )
         self.actor.process_queue.remote()
 
@@ -242,6 +254,7 @@ def evaluate_genotype_serial(
     vllm: bool = False,
     batch_size: Optional[int] = None,
     task_manager: Optional[lm_eval.tasks.TaskManager] = None,
+    quantization_config: Optional[transformers.BitsAndBytesConfig] = None,
 ):
     pg = ray.util.placement_group([{"CPU": 1, "GPU": 1}], strategy="STRICT_PACK")
     strat = ray.util.scheduling_strategies.PlacementGroupSchedulingStrategy(
@@ -252,6 +265,9 @@ def evaluate_genotype_serial(
     )
     if not merged_path:
         return {"score": None, "results": None}
+    kwargs = {}
+    if quantization_config is not None:
+        kwargs["quantization_config"] = quantization_config
     res = ray.get(
         evaluate_model_ray.options(scheduling_strategy=strat).remote(
             merged_path,
@@ -261,6 +277,7 @@ def evaluate_genotype_serial(
             vllm=vllm,
             batch_size=batch_size,
             task_manager=task_manager,
+            **kwargs,
         )
     )
     ray.util.remove_placement_group(pg)
@@ -292,6 +309,7 @@ class SerialEvaluationStrategy(EvaluationStrategyBase):
                     vllm=self.vllm,
                     batch_size=self.batch_size,
                     task_manager=self.task_manager,
+                    quantization_config=self.quantization_config,
                 )
                 for x in genotypes
             ]
