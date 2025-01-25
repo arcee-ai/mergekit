@@ -13,29 +13,34 @@ from mergekit.merge_methods import merge_method
 import torch
 
 @merge_method(
-    name="average",
+    name="simple_average",
     pretty_name="Simple Average",
     reference_url="https://example.com/mean-merge"
 )
 def average_merge(
     tensors: list[torch.Tensor],  # Input tensors to merge
-    weights: list[float],         # Per-model weights (tensor parameter)
+    weight: list[float],          # Per-model weights (tensor parameter)
     normalize: bool = True        # Scalar parameter
 ) -> torch.Tensor:
     if normalize:
-        total = sum(weights)
-        weights = [w/total for w in weights]
+        total = sum(weight)
+        weight = [w/total for w in weight]
     
-    return sum(t * w for t, w in zip(tensors, weights))
+    return sum(t * w for t, w in zip(tensors, weight))
 ```
 
 This enables merge configurations like:
 ```yaml
-merge_method: average
+merge_method: simple_average
+models:
+  - model: model1
+    parameters:
+      weight: 0.3
+  - model: model2
+    parameters:
+      weight: 0.7
 parameters:
   normalize: true
-tensor_parameters:
-  weights: [0.3, 0.7]
 ```
 
 ### Key Features:
@@ -73,11 +78,11 @@ class LinearMerge(MergeMethod):
 
 ## Parameter Types
 
-| Type          | Decorator Annotation | Class-based Equivalent       |
-|---------------|----------------------|------------------------------|
-| Scalar        | `float`/`int`/`bool` | `ConfigParameterDef`         |
-| Tensor        | `list[float]`        | Per-model `tensor_parameters`|
-| Base Model    | `base_tensor` param  | `base_model` reference       |
+| Type       | Decorator Annotation | Class-based Equivalent        |
+| ---------- | -------------------- | ----------------------------- |
+| Scalar     | `float`/`int`/`bool` | `ConfigParameterDef`          |
+| Tensor     | `list[float]`        | Per-model `tensor_parameters` |
+| Base Model | `base_tensor` param  | `base_model` reference        |
 
 ## Key Implementation Details
 
@@ -110,7 +115,7 @@ For decorator-based merges:
 ## Choosing an Approach
 
 |                      | Decorator | Class-based |
-|----------------------|-----------|-------------|
+| -------------------- | --------- | ----------- |
 | Learning Curve       | Easy      | Moderate    |
 | Flexibility          | Moderate  | High        |
 | Boilerplate          | None      | Some        |
