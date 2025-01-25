@@ -34,6 +34,7 @@ __all__ = [
     "MergeMethod",
     "get",
     "LinearMerge",
+    "SCEMerge",
     "SlerpMerge",
     "PassthroughMerge",
     "GeneralizedTaskArithmeticMerge",
