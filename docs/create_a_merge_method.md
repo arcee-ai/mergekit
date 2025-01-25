@@ -4,6 +4,21 @@ This guide explains how to create custom model merging algorithms for MergeKit. 
 
 ## Choosing an Implementation Approach
 
+Choose between the two approaches based on your needs:
+
+**Use the Decorator API if you need:**
+* Simple weighted combinations or mathematical operations
+* A single logical step in the merge process
+* Automatic parameter validation and device management
+* Quick implementation without complex dependencies
+
+**Choose the Class-based API when you require:**
+* Full control over the execution graph and tensor routing
+* Multi-stage merge operations with intermediate steps
+* Custom parameter types or complex validation logic
+* Access to weight metadata or model architecture details
+* Specialized hardware handling or accelerator usage
+
 ## 1. Quick Implementation with Decorator API
 
 ### When to Use This Approach
