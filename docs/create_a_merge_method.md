@@ -1,55 +1,76 @@
 # Extending MergeKit with Custom Merge Methods
 
-There are two different ways to implement a custom merge method in MergeKit. For most use cases, the `@merge_method` decorator API is a simple and straightforward way to define a merge method. In situations where more fine-grained control or low-level access is needed, the underlying `MergeMethod` and `Task` classes can be built upon.
+## Overview
 
-## Choosing an Implementation Approach
+MergeKit offers two different paths for implementing custom merge methods:
 
-Choose between the two approaches based on your needs:
+|                        | Decorator API         | Class-based API             |
+| ---------------------- | --------------------- | --------------------------- |
+| **Complexity**         | Simple function-based | Full class implementation   |
+| **Abstraction Level**  | Higher-level          | Lower-level                 |
+| **Parameter Handling** | Automatic validation  | Manual configuration        |
+| **Execution Flow**     | Single-step           | Arbitrary computation graph |
+| **Best For**           | Simple tensor ops     | Complex merge strategies    |
 
-**Use the Decorator API if you need:**
-* A simple, function-based merge method
-* A single logical step in the merge process
-* Automatic parameter validation and device management
-* Quick implementation without complex dependencies
+Either approach benefits from MergeKit's underlying task system for resource management and execution control. The question of which to use largely depends on the complexity of the merge operation and the level of control needed.
 
-**Choose the Class-based API when you require:**
-* Full control over the execution graph and tensor routing
-* Multi-stage merge operations with intermediate steps
-* Custom parameter types or complex validation logic
-* Access to weight metadata or model architecture details
-* Specialized hardware handling or accelerator usage
+### Core Task System Features
 
-## 1. Quick Implementation with Decorator API
+MergeKit's computational graph infrastructure provides sophisticated resource management that all merge methods inherit:
 
-### When to Use This Approach
-- You want maximum simplicity
-- Your merge logic can be expressed as a single PyTorch function
-- You don't need low-level control over the underlying computational graph
-- You want automatic parameter validation
+- **Smart Memory Management**
+  - Automatic tensor lifecycle tracking
+  - Early tensor eviction when no longer needed
+  - Optimized shard loading based on task groups
 
-### Implementation Steps
-1. Define your merge function with type annotations
-2. Add `@merge_method` decorator with metadata
-3. Handle base model optionally via `base_tensor` param
-4. Return merged tensor
+- **Device Management**
+  - Automatic tensor movement between compute and storage devices
+  - Batched device transfers within task groups
+  - Support for both CPU and GPU execution
 
-### Example: Average Merge
+- **Task Scheduling**
+  - Tasks grouped by tensor shard to minimize memory usage
+  - Loads deferred until last possible moment (via priority system)
+  - Execution ordered to optimize shard residency
+
+### Decorator API
+Best for straightforward merge operations that can be expressed as a single tensor transformation. Features:
+- Parameter validation and type checking
+- Configuration schema generation
+- Simplified base model handling
+- Default GPU acceleration opt-in
+
+### Class-based API
+Choose when you need:
+- Multi-stage merge operations
+- Custom computation graphs
+- Direct access to weight metadata
+- Complex parameter types
+- Fine-grained control over execution
+
+## Decorator API Implementation
+
+### Basic Workflow
+1. Define a type-annotated Python function with your merge logic
+2. Add the `@merge_method` decorator with configuration
+3. Register by importing in `mergekit/merge_methods/__init__.py`
+
+### Example: Weighted Average
 
 ```python
 from mergekit.merge_methods.easy_define import merge_method
 from typing import List
 import torch
 
-
 @merge_method(
-    name="simple_average",
-    pretty_name="Simple Average",
-    reference_url="https://example.com/mean-merge",
+    name="weighted_average",
+    pretty_name="Weighted Average",            # Optional: human-readable name
+    reference_url="https://example.com/docs",  # Optional: documentation link
 )
 def average_merge(
-    tensors: List[torch.Tensor],  # Input tensors to merge
-    weight: List[float],  # Per-model weights (tensor parameter)
-    normalize: bool = True,  # Scalar parameter
+    tensors: List[torch.Tensor],  # Required: input tensors
+    weight: List[float],          # Vector parameter (per-model)
+    normalize: bool = True,       # Scalar parameter with default
 ) -> torch.Tensor:
     if normalize:
         total = sum(weight)
@@ -58,9 +79,9 @@ def average_merge(
     return sum(t * w for t, w in zip(tensors, weight))
 ```
 
-This enables merge configurations like:
+This enables configurations like:
 ```yaml
-merge_method: simple_average
+merge_method: weighted_average
 models:
   - model: model1
     parameters:
@@ -72,160 +93,77 @@ parameters:
   normalize: true
 ```
 
-### Key Features
-- **Type-Driven Config** - Annotations auto-create config schema
-- **Parameter Validation** - Built-in type checking
-- **Device Management** - Automatic GPU/CPU placement
-- **Base Model Handling** - Presence of optional `base_tensor`/`base_model` parameters determine support for a base model
+### Parameter Types and Handling
 
-### Advanced Parameter Handling
+The decorator supports three parameter categories:
 
-The decorator supports three parameter types through type annotations:
-
-1. **Scalar Parameters** (`bool|float|int`):
+1. **Scalar Parameters**
+   - Types: `bool`, `float`, or `int`
    - Defined in top-level `parameters` section
-   - Can be optional or have default values
+   - Without defaults they become required parameters
    - Example: `normalize: bool = True`
 
-2. **Vector Parameters** (`list[float]|list[int]`):
+2. **Vector Parameters**
+   - Types: `List[float]` or `List[int]` only
    - Configured per-model in their `parameters` section
-   - Will be passed as a list of floats or integers with the same length as `models`
-   - Can be optional or have default values, like scalars
-     - Note that default values must be a single value, not a list!
-   - Example: `weight: List[float]` or `threshold: List[float] = 0.5`
+   - Default values must be single numbers, not lists, as they are broadcasted
+   - Example: `weights: List[float]`
 
-3. **Base Model Handling** (`torch.Tensor`):
-   - Automatic when method has `base_tensor` parameter:
-     * `torch.Tensor` annotation: Requires `base_model` in config
-     * `Optional[torch.Tensor]`: Base model is optional
-     * Base model tensor will be excluded from `tensors` list when `base_tensor` parameter is present
-   - Without `base_tensor`: Base model is supported only if `base_model` parameter is present, and if so the associated tensor will be placed first in the `tensors` list
+3. **Base Model Integration**
+   - Via `base_tensor` parameter annotation:
+     * `torch.Tensor`: Base model required
+     * `Optional[torch.Tensor]`: Base model optional
+   - Without `base_tensor`: Base model tensor goes first in `tensors` list if present
 
-Key requirements for decorated functions:
-- Must have `tensors: List[torch.Tensor]` as first parameter
-- Must return a single `torch.Tensor`
-- All parameters must have type annotations
+## Class-based API
 
-### Registering Decorated Functions
+For complex merges requiring granular control, implement `MergeMethod` and `Task` classes:
 
-Decorated functions are automatically registered with MergeKit when the module is imported. To make your method available, add an import statement to `mergekit/merge_methods/__init__.py`:
-
-```python
-import mergekit.merge_methods.my_module
-```
-
-## 2. Class-based API (Advanced)
-
-For complex merges requiring explicit control, implement `MergeMethod` and `Task` subclasses:
-
-### Example: Linear Merge
+### Example Implementation
 
 ```python
 from mergekit.merge_methods.base import MergeMethod, ConfigParameterDef
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
-from mergekit.merge_methods.base import MergeTensorInput
-from mergekit.architecture import WeightInfo
+from typing import Any, Dict, List
 
 
-class LinearMergeTask(Task[torch.Tensor]):
+class CustomMergeTask(Task[torch.Tensor]):
     gather_tensors: MergeTensorInput
-    tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
-    normalize: bool
+    parameters: ImmutableMap[str, Any]
     weight_info: WeightInfo
 
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    def execute(
-        self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs
-    ) -> torch.Tensor:
-        # Implementation using weight info and tensor parameters
-        ...
+    def priority(self) -> int:
+        return 1  # Optional: higher priority = earlier execution
+
+    def group_label(self) -> str:
+        return self.weight_info.name  # Optional: modify task grouping
+
+    def uses_accelerator(self) -> bool:
+        return True  # Enable GPU acceleration
+
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
+        # Implementation using weight info and parameters
+        result = ...
+        return result
 
 
-class LinearMerge(MergeMethod):
-    def name(self) -> str:
-        return "linear"
-
-    @override
-    def pretty_name(self) -> str:
-        return "Linear"
-
-    @override
-    def reference_url(self) -> str:
-        return "https://example.com/linear-merge"
-
-    def parameters(self) -> List[ConfigParameterDef]:
-        return [ConfigParameterDef("normalize", required=False, default_value=True)]
-
-    def tensor_parameters(self) -> List[ConfigParameterDef]:
-        return [ConfigParameterDef("weight", required=True)]
-
-    def make_task(
-        self,
-        *,
-        output_weight: WeightInfo,
-        tensors: MergeTensorInput,
-        parameters: ImmutableMap[str, Any],
-        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
-        **kwargs,
-    ) -> Task:
-        return LinearMergeTask(
-            gather_tensors=tensors,
-            tensor_parameters=tensor_parameters,
-            normalize=parameters["normalize"],
-            weight_info=output_weight,
-        )
-```
-
-### Key Implementation Details
-For class-based merges:
-1. Subclass `MergeMethod` and implement:
-   - `name()` - Unique method identifier, lowercase snake_case
-   - `pretty_name()` - Human-readable name
-   - `reference_url()` - URL for method documentation, if applicable
-   - `make_task()` - Create computation tasks with proper typing
-   - `parameters()` - Define config options
-   - `tensor_parameters()` - Define per-model tensor parameters
-
-2. Create `Task` subclass implementing:
-   - `execute()` - Core merge logic with type annotations
-   - `arguments()` - Declare task dependencies
-   - `group_label()` - (Optional) Task grouping for execution
-   - `uses_accelerator()` - Indicate GPU acceleration support
-
-3. Handle tensor parameters through `tensor_parameters` argument to `make_task`
-
-Note on tensor sizes: Implementations can assume consistent dimensions. Should the input tensors have different shapes, the user is doing something profane and will get what they deserve. (Or, you can check if the tensors are embeddings and truncate them to the smallest size. But justice can only be delayed, not denied.)
-
-### Parameter Types
-
-| Type       | Decorator Annotation | Class-based Equivalent                      |
-| ---------- | -------------------- | ------------------------------------------- |
-| Scalar     | `float`/`int`/`bool` | `ConfigParameterDef` in `parameters`        |
-| Tensor     | `list[float]`        | `ConfigParameterDef` in `tensor_parameters` |
-| Base Model | `base_tensor` param  | `base_model` reference                      |
-
-### Implementation Steps
-
-1. Subclass `MergeMethod`:
-```python
 class CustomMerge(MergeMethod):
     def name(self) -> str:
-        return "custom"
+        return "custom_merge"
 
-    @override
     def pretty_name(self) -> str:
         return "Custom Merge"
 
-    @override
     def reference_url(self) -> str:
-        return "https://example.com/custom-merge"
+        return "https://example.com/custom"
 
     def parameters(self) -> List[ConfigParameterDef]:
         return [
-            ConfigParameterDef("threshold", float, required=False, default_value=0.375)
+            ConfigParameterDef("threshold", float, required=False, default_value=0.5)
         ]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
@@ -240,61 +178,60 @@ class CustomMerge(MergeMethod):
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         **kwargs,
     ) -> Task:
-        return CustomTask(
-            output_weight=output_weight,
-            tensors=tensors,
-            weights=ImmutableMap(
-                data={
-                    ref: params["weight"] for ref, params in tensor_parameters.items()
-                }
-            ),
-            threshold=parameters["threshold"],
+        return CustomMergeTask(
+            gather_tensors=tensors,
+            parameters=parameters,
+            weight_info=output_weight,
         )
 ```
 
-2. Create Task subclass:
-```python
-class CustomTask(Task[torch.Tensor]):
-    tensors: MergeTensorInput
-    threshold: float
-    output_weight: WeightInfo
-    weights: ImmutableMap[ModelReference, float]
+### Task Scheduling System
 
-    def arguments(self) -> Dict[str, Task]:
-        return {"tensors": self.tensors}
+The class-based API provides fine-grained control over execution:
 
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
-        # Merge logic here
-        merged = ...
-        return merged.clamp(-self.threshold, self.threshold)
+- **Priority Control**: Override `priority()` to influence execution order within groups
+- **Task Grouping**: Use `group_label()` to batch similar operations
+- **Resource Management**:
+  - Automatic tensor lifecycle tracking
+  - Memory optimization via early tensor eviction
+  - Smart device placement for computation vs storage
+- **Computation Graph**: Build complex flows by connecting multiple tasks
 
-    def group_label(self) -> str:
-        return self.output_weight.name
-```
+### Implementation Requirements
 
-### Registering Class-based Methods
+1. Task Class:
+   - Must implement `execute()` with proper type annotations
+   - Must implement `arguments()` to declare dependencies
+   - Optionally override `priority()`, `group_label()`, `uses_accelerator()`
 
-To make class-based methods available for use, add an instance of the `MergeMethod` subclass to `STATIC_MERGE_METHODS` in `mergekit/merge_methods/registry.py`:
+2. Method Class:
+   - Must implement core methods: `name()`, `make_task()`
+   - Optional methods: `pretty_name()`, `reference_url()`
+   - Define parameters via `parameters()` and `tensor_parameters()`
+
+### Registration
+
+Add class-based methods to `STATIC_MERGE_METHODS` in `mergekit/merge_methods/registry.py`:
 
 ```python
 from mergekit.merge_methods.my_module import CustomMerge
 
 STATIC_MERGE_METHODS: List[MergeMethod] = [
-    ...
     CustomMerge(),
+    # other methods...
 ]
 ```
 
 ## Reference Implementations
 
 1. **Linear Merge** (`mergekit.merge_methods.linear`):
-   - Simple weighted average
-   - Good starter example for class-based API
+   - Basic weighted averaging
+   - Good example of class-based implementation
 
 2. **Multi-SLERP** (`mergekit.merge_methods.multislerp`):
    - Hypersphere interpolation
-   - Complex decorator usage
+   - Complex decorator usage example
 
-3. **Generalized Task Arithmetic** (`mergekit.merge_methods.generalized_task_arithmetic`):
-   - Advanced class-based example
-   - Implements TIES/Magnitude pruning
+3. **Task Arithmetic** (`mergekit.merge_methods.task_arithmetic`):
+   - Advanced graph-based implementation
+   - TIES/Magnitude pruning example
