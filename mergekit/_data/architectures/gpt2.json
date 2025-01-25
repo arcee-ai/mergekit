@@ -5,59 +5,116 @@
     ],
     "pre_weights": [
         {
-            "name": "wte.weight",
-            "is_embed": true
+            "name": "transformer.wte.weight",
+            "is_embed": true,
+            "aliases": [
+                "wte.weight"
+            ]
         },
         {
-            "name": "wpe.weight"
+            "name": "transformer.wpe.weight",
+            "aliases": [
+                "wpe.weight"
+            ]
         }
     ],
     "post_weights": [
         {
-            "name": "ln_f.weight"
+            "name": "transformer.ln_f.weight",
+            "aliases": [
+                "ln_f.weight"
+            ]
         },
         {
-            "name": "ln_f.bias"
+            "name": "transformer.ln_f.bias",
+            "aliases": [
+                "ln_f.bias"
+            ]
+        },
+        {
+            "name": "lm_head.weight",
+            "is_embed": true,
+            "optional": true,
+            "tied_names": [
+                "transformer.wte.weight",
+                "wte.weight"
+            ]
         }
     ],
     "num_layers_config_key": "n_layer",
     "layer_templates": {
         "weights": [
             {
-                "name": "h.${layer_index}.attn.c_attn.weight"
+                "name": "transformer.h.${layer_index}.attn.c_attn.weight",
+                "aliases": [
+                    "h.${layer_index}.attn.c_attn.weight"
+                ]
             },
             {
-                "name": "h.${layer_index}.attn.c_attn.bias"
+                "name": "transformer.h.${layer_index}.attn.c_attn.bias",
+                "aliases": [
+                    "h.${layer_index}.attn.c_attn.bias"
+                ]
             },
             {
-                "name": "h.${layer_index}.attn.c_proj.weight"
+                "name": "transformer.h.${layer_index}.attn.c_proj.weight",
+                "aliases": [
+                    "h.${layer_index}.attn.c_proj.weight"
+                ]
             },
             {
-                "name": "h.${layer_index}.attn.c_proj.bias"
+                "name": "transformer.h.${layer_index}.attn.c_proj.bias",
+                "aliases": [
+                    "h.${layer_index}.attn.c_proj.bias"
+                ]
             },
             {
-                "name": "h.${layer_index}.ln_1.weight"
+                "name": "transformer.h.${layer_index}.ln_1.weight",
+                "aliases": [
+                    "h.${layer_index}.ln_1.weight"
+                ]
             },
             {
-                "name": "h.${layer_index}.ln_1.bias"
+                "name": "transformer.h.${layer_index}.ln_1.bias",
+                "aliases": [
+                    "h.${layer_index}.ln_1.bias"
+                ]
             },
             {
-                "name": "h.${layer_index}.ln_2.weight"
+                "name": "transformer.h.${layer_index}.ln_2.weight",
+                "aliases": [
+                    "h.${layer_index}.ln_2.weight"
+                ]
             },
             {
-                "name": "h.${layer_index}.ln_2.bias"
+                "name": "transformer.h.${layer_index}.ln_2.bias",
+                "aliases": [
+                    "h.${layer_index}.ln_2.bias"
+                ]
             },
             {
-                "name": "h.${layer_index}.mlp.c_proj.weight"
+                "name": "transformer.h.${layer_index}.mlp.c_proj.weight",
+                "aliases": [
+                    "h.${layer_index}.mlp.c_proj.weight"
+                ]
             },
             {
-                "name": "h.${layer_index}.mlp.c_proj.bias"
+                "name": "transformer.h.${layer_index}.mlp.c_proj.bias",
+                "aliases": [
+                    "h.${layer_index}.mlp.c_proj.bias"
+                ]
             },
             {
-                "name": "h.${layer_index}.mlp.c_fc.weight"
+                "name": "transformer.h.${layer_index}.mlp.c_fc.weight",
+                "aliases": [
+                    "h.${layer_index}.mlp.c_fc.weight"
+                ]
             },
             {
-                "name": "h.${layer_index}.mlp.c_fc.bias"
+                "name": "transformer.h.${layer_index}.mlp.c_fc.bias",
+                "aliases": [
+                    "h.${layer_index}.mlp.c_fc.bias"
+                ]
             }
         ]
     }
