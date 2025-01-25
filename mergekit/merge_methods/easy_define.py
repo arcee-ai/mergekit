@@ -243,6 +243,79 @@ def merge_method(
     reference_url: Optional[str] = None,
     pretty_name: Optional[str] = None,
 ) -> Callable:
+    """Decorator for registering custom model merging algorithms.
+
+    Enables creation of new merge algorithms that can be specified in merge configurations
+    and executed through mergekit's processing pipeline. Handles parameter validation, task
+    creation, and registration in the mergekit system.
+
+    Args:
+        name: Unique identifier for the merge method (lowercase, snake_case recommended)
+        reference_url: Optional URL to paper/documentation explaining the method (used in generated READMEs)
+        pretty_name: Human-readable display name (used in generated READMEs)
+
+    Returns:
+        A decorator that registers the function as a merge method implementation
+
+    Notes:
+        The decorated function must meet these requirements:
+        - First parameter must be `tensors: List[torch.Tensor]`
+        - Must return a single `torch.Tensor`
+        - All parameters must have type annotations
+
+        Key behavioral considerations:
+
+        *Base Model Handling:*
+        - If the method includes a `base_tensor` parameter:
+            * `torch.Tensor` annotation: Requires `base_model` in config, receives its tensor
+            * `Optional[torch.Tensor]` annotation: `base_model` optional, `None` if not provided
+            * Non-base model tensors passed in `tensors` list
+        - Without `base_tensor` parameter:
+            * Base model tensor (if specified) will be first in `tensors` list
+
+        *Parameter Types:*
+        - Standard parameters (auto-populated):
+            * `base_tensor`: Tensor from base model (type determines requirement)
+            * `output_weight`: WeightInfo with output configuration
+            * `base_model`: ModelReference if using base model logic
+        - Scalar parameters (global config):
+            * `float`, `int`, or `bool` types specified in top-level `parameters`
+        - Tensor parameters (per-model weights):
+            * Annotated as `List[float]` or `List[int]`
+            * Configured per-model in their `parameters` section
+            * Collected into lists ordered by input models
+
+    Example:
+        ```python
+        @merge_method(
+            name="average",
+            pretty_name="Simple Average",
+            reference_url="https://example.com/mean-merge"
+        )
+        def average_merge(
+            tensors: List[torch.Tensor],  # Input tensors to merge
+            weights: List[float],         # Per-model weights (tensor parameter)
+            normalize: bool = True        # Scalar parameter
+        ) -> torch.Tensor:
+            if normalize:
+                weights = [w / sum(weights) for w in weights]
+            return sum(t * w for t, w in zip(tensors, weights))
+        ```
+
+        This would enable merge configurations like:
+        ```yaml
+        merge_method: average
+        parameters:
+          normalize: true
+        tensor_parameters:
+          weights: [0.3, 0.7]
+        ```
+
+    Raises:
+        ValueError: If function signature doesn't meet requirements
+        TypeError: For invalid parameter annotations
+    """
+
     def _wrap(func: Callable) -> Callable:
         return __merge_method(func, name, reference_url, pretty_name)
 
