@@ -81,7 +81,9 @@ def decompose_delta_weight(
 
 
 def get_model_details(
-    model_id: str, skip_undecomposable: bool
+    model_id: str,
+    skip_undecomposable: bool,
+    modules_to_save: Optional[List[str]] = None,
 ) -> List[Tuple[str, str, torch.Size]]:
     """
     Retrieve architectural details of a given pre-trained model.
@@ -100,9 +102,14 @@ def get_model_details(
     )
 
     module_details = []
+    modules_to_save = set(modules_to_save or [])
 
     for name, module in pretrained_model.named_modules():
-        if module == pretrained_model.get_input_embeddings():
+        if name in modules_to_save or (
+            "." in name and name.split(".")[-1] in modules_to_save
+        ):
+            module_details.append(("to_save", name, module.weight.size()))
+        elif module == pretrained_model.get_input_embeddings():
             # if isinstance(module, torch.nn.Embedding):
             module_details.append(("embedding", name, module.weight.size()))
         elif module == pretrained_model.get_output_embeddings():
@@ -142,6 +149,7 @@ def validate_and_combine_details(
     finetuned_model_id: str,
     skip_undecomposable: bool,
     extend_vocab: bool,
+    modules_to_save: Optional[List[str]] = None,
 ) -> List[Tuple[str, str]]:
     """
     Validate and combine details from a base model and a fine-tuned model.
@@ -152,8 +160,12 @@ def validate_and_combine_details(
     :return: A list of tuples with the type and name of the validated/combined model layers
     """
 
-    base_model_details = get_model_details(base_model_id, skip_undecomposable)
-    finetuned_model_details = get_model_details(finetuned_model_id, skip_undecomposable)
+    base_model_details = get_model_details(
+        base_model_id, skip_undecomposable, modules_to_save=modules_to_save
+    )
+    finetuned_model_details = get_model_details(
+        finetuned_model_id, skip_undecomposable, modules_to_save=modules_to_save
+    )
 
     module_details = []
 
@@ -350,6 +362,9 @@ def reconstruct_invocation(args: Dict[str, Any]) -> str:
         invocation += f" --device={args['device']}"
     if args.get("verbose"):
         invocation += " --verbose"
+    if args.get("modules_to_save"):
+        for module in args["modules_to_save"]:
+            invocation += f" --modules-to-save {module}"
 
     return invocation
 
@@ -518,6 +533,13 @@ def save_model_and_config(
 @click.option(
     "--verbose", "-v", type=bool, is_flag=True, default=False, help="Verbose logging"
 )
+@click.option(
+    "--modules-to-save",
+    type=str,
+    multiple=True,
+    default=[],
+    help="List of module names to preserve at full precision",
+)
 def main(
     finetuned_model: str,
     base_model: str,
@@ -529,6 +551,7 @@ def main(
     model_name: str,
     device: str,
     verbose: bool,
+    modules_to_save: List[str],
 ) -> None:
     """
     Decomposes delta weights between a base model and a finetuned model, saving a PEFT model to the specified output path.
@@ -551,6 +574,7 @@ def main(
         "no_lazy_unpickle": no_lazy_unpickle,
         "skip_undecomposable": skip_undecomposable,
         "verbose": verbose,
+        "modules_to_save": modules_to_save or None,
     }
 
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
