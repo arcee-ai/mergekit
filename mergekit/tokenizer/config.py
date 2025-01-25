@@ -49,3 +49,4 @@ class TokenEmbeddingConfig(BaseModel, frozen=True):
 class TokenizerConfig(BaseModel, frozen=True):
     source: Union[ModelReference, Literal["union"], Literal["base"]] = "union"
     tokens: Optional[Dict[str, TokenEmbeddingConfig]] = None
+    pad_to_multiple_of: Optional[int] = None

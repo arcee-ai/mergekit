@@ -99,6 +99,45 @@ class TestBasicMerges:
         config.parameters = {"t": 0.35}
         run_and_check_merge(config)
 
+    def test_nearswap_merge(self, model_a, model_b):
+        config = self.two_model_config(
+            model_a, model_b, merge_method="nearswap", base_model=model_a
+        )
+        config.parameters = {"t": 0.0001}
+        run_and_check_merge(config)
+
+    def test_nuslerp_merges(self, model_a, model_b, model_c):
+        for base_model in [None, model_c]:
+            for row_wise in [False, True]:
+                for flatten in [False, True]:
+                    print(
+                        f"Testing nuslerp with row_wise={row_wise}, flatten={flatten}, base_model={base_model}"
+                    )
+                    run_and_check_merge(
+                        self.two_model_config(
+                            model_a,
+                            model_b,
+                            merge_method="nuslerp",
+                            base_model=base_model,
+                            params={
+                                "nuslerp_row_wise": row_wise,
+                                "nuslerp_flatten": flatten,
+                            },
+                        )
+                    )
+
+        # test weights that sum to zero
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="nuslerp",
+            base_model=model_c,
+            params={"nuslerp_row_wise": False, "nuslerp_flatten": False},
+        )
+        config.models[0].parameters["weight"] = -0.5
+        config.models[1].parameters["weight"] = 0.5
+        run_and_check_merge(config)
+
     def test_task_arithmetic_merge(self, model_a, model_b, model_c):
         config = self.two_model_config(
             model_a, model_b, merge_method="task_arithmetic", base_model=model_c
@@ -118,6 +157,15 @@ class TestBasicMerges:
             merge_method="ties",
             base_model=model_c,
             params={"density": 0.3},
+        )
+        run_and_check_merge(config)
+
+    def test_multislerp_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="multislerp",
+            base_model=model_c,
         )
         run_and_check_merge(config)
 

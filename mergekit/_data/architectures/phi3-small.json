@@ -12,8 +12,9 @@
     "post_weights": [
         {
             "name": "lm_head.weight",
-            "is_embed":true,
-            "aliases": [
+            "is_embed": true,
+            "optional": true,
+            "tied_names": [
                 "model.embed_tokens.weight"
             ]
         },

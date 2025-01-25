@@ -7,7 +7,7 @@ import pytest
 import tokenizers
 import torch
 from common import make_picollama, run_and_check_merge
-from transformers import LlamaTokenizerFast, PreTrainedTokenizerBase
+from transformers import LlamaConfig, LlamaTokenizerFast, PreTrainedTokenizerBase
 
 from mergekit.config import InputModelDefinition, MergeConfiguration
 from mergekit.io import LazyTensorLoader
@@ -269,6 +269,36 @@ class TestTokenizerMerges:
             ), "Token _tok_21 should be == model_base <s>"
 
         run_and_check_merge(config, validate=_check_embed)
+
+    def test_pad_to_multiple_of(self, model_chatml: str):
+        config = self.make_config(
+            [model_chatml],
+            base_model=model_chatml,
+            merge_method="linear",
+            tokenizer_config=TokenizerConfig(
+                source="base",
+                pad_to_multiple_of=16,
+            ),
+        )
+        real_vocab_size = 64 + 2
+        padded_size = (real_vocab_size // 16 + 1) * 16
+
+        def _check_result(model_path: str):
+            cfg = LlamaConfig.from_pretrained(model_path)
+            assert (
+                cfg.vocab_size == padded_size
+            ), f"Expected vocab size {padded_size}, got {cfg.vocab_size}"
+            check_tokenizer(
+                expected_size=real_vocab_size,
+                must_contain=["<|im_start|>", "<|im_end|>"],
+            )(model_path)
+
+            emb_out = ModelEmbeddings(model_path)
+            assert (
+                emb_out.embed_tokens.shape[0] == padded_size
+            ), "Embedding size mismatch"
+
+        run_and_check_merge(config, validate=_check_result)
 
     def make_config(
         self,
