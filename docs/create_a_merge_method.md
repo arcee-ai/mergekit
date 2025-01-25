@@ -182,23 +182,60 @@ Note on tensor sizes: Implementations can assume consistent dimensions.
 | Tensor     | `list[float]`        | Per-model `tensor_parameters` |
 | Base Model | `base_tensor` param  | `base_model` reference        |
 
-## Key Implementation Details
+### Implementation Steps
 
-For class-based merges:
-1. Subclass `MergeMethod` and implement:
-   - `make_task()` - Create computation tasks
-   - `parameters()` - Define config options
-   
-2. Create `Task` subclass(es) implementing:
-   - `execute()` - Core merge logic
-   - `arguments()` - Task dependencies
-   - `group_label()` - Execution grouping
+1. Subclass `MergeMethod`:
+```python
+class CustomMerge(MergeMethod):
+    def name(self) -> str: return "custom"
+    
+    def parameters(self) -> List[ConfigParameterDef]:
+        return [ConfigParameterDef("threshold", float, required=True)]
+    
+    def make_task(self, output_weight, tensors, parameters, **kwargs) -> Task:
+        return CustomTask(
+            output_weight=output_weight,
+            tensors=tensors,
+            threshold=parameters["threshold"]
+        )
+```
 
-For decorator-based merges:
-- Input tensors are automatically normalized
-- Base model handling is automatic
-- Parameter validation happens at config load
-- Tensor permutation handled by framework
+2. Create Task subclass:
+```python
+class CustomTask(Task[torch.Tensor]):
+    threshold: float
+    output_weight: WeightInfo
+    
+    def arguments(self) -> Dict[str, Task]:
+        return {"tensors": self.tensors}
+    
+    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
+        # Merge logic here
+        merged = ...
+        return merged.clamp(-self.threshold, self.threshold)
+    
+    def group_label(self) -> str:
+        return self.output_weight.name
+```
+
+### Key Methods to Implement
+
+For `MergeMethod`:
+- `name()`: Return unique identifier
+- `parameters()`: List of config parameters
+- `make_task()`: Factory for task instances
+
+For `Task`:
+- `arguments()`: Declare input dependencies
+- `execute()`: Core computation logic
+- `group_label()`: Task grouping for execution
+- `uses_accelerator()`: Indicate GPU usage
+
+### Tensor Considerations
+1. Shapes: May differ for embeddings - use `rectify_embed_sizes()`
+2. Devices: Tensors may be on CPU/GPU - use `.to()` if needed
+3. DTypes: Preserve original types unless explicitly converting
+4. Memory: Use `clone()` judiciously for large tensors
 
 ## Testing & Debugging Tips
 
