@@ -4,20 +4,12 @@ This guide explains how to create custom model merging algorithms for MergeKit. 
 
 ## Choosing an Implementation Approach
 
-| Consideration        | Decorator API          | Class-based API      |
-| -------------------- | ---------------------- | -------------------- |
-| Complexity           | Simple                 | Moderate             |
-| Flexibility          | Limited                | Full control         |
-| Access to Base Model | Optional `base_tensor` | Direct via reference |
-| Parameter Types      | Scalar/Vector          | Any config structure |
-| Best For             | Most merges            | Research/Complex ops |
-
 ## 1. Quick Implementation with Decorator API
 
 ### When to Use This Approach
 - You want maximum simplicity
-- Your merge logic can be expressed as weighted arithmetic
-- You don't need low-level control over tensor loading
+- Your merge logic can be expressed as a single PyTorch function
+- You don't need low-level control over the underlying computational graph
 - You want automatic parameter validation
 
 ### Implementation Steps
@@ -26,12 +18,11 @@ This guide explains how to create custom model merging algorithms for MergeKit. 
 3. Handle base model optionally via `base_tensor` param
 4. Return merged tensor
 
-### Example: Weighted Average
-
 ### Example: Average Merge
 
 ```python
-from mergekit.merge_methods import merge_method
+from mergekit.merge_methods.easy_define import merge_method
+from typing import List
 import torch
 
 @merge_method(
@@ -40,8 +31,8 @@ import torch
     reference_url="https://example.com/mean-merge"
 )
 def average_merge(
-    tensors: list[torch.Tensor],  # Input tensors to merge
-    weight: list[float],          # Per-model weights (tensor parameter)
+    tensors: List[torch.Tensor],  # Input tensors to merge
+    weight: List[float],          # Per-model weights (tensor parameter)
     normalize: bool = True        # Scalar parameter
 ) -> torch.Tensor:
     if normalize:
@@ -67,41 +58,9 @@ parameters:
 
 ### Key Features
 - **Type-Driven Config** - Annotations auto-create config schema
-- **Base Model Handling** - First model is base by default
 - **Parameter Validation** - Built-in type checking
 - **Device Management** - Automatic GPU/CPU placement
-
-### Advanced Parameter Handling
-```python
-@merge_method(name="complex_example")
-def complex_merge(
-    tensors: List[torch.Tensor],
-    layer_weight: List[float],  # Per-layer weights
-    temperature: float = 1.0,   # Global scalar 
-    base_tensor: Optional[torch.Tensor] = None
-) -> torch.Tensor:
-    # Mix base tensor (if provided) with others
-    if base_tensor is not None:
-        tensors = [base_tensor] + tensors
-    
-    # Apply temperature scaling
-    weights = torch.softmax(torch.tensor(layer_weight) / temperature, dim=0)
-    return (torch.stack(tensors) * weights.view(-1, 1, 1)).sum(dim=0)
-```
-
-This supports config like:
-```yaml
-merge_method: complex_example
-parameters:
-  temperature: 0.5
-tensor_parameters:
-  layer_weight: [0.2, 0.3, 0.5] 
-```
-
->> Parameter Types:
-- **Scalar**: Single value (float/int/bool) 
-- **Vector**: Per-layer weights (interpolated automatically)
-- **Base Model**: Optional first input via `base_tensor`
+- **Base Model Handling** - Presence of optional `base_tensor`/`base_model` parameters determine support for a base model
 
 ## 2. Class-based API (Advanced)
 
@@ -146,7 +105,6 @@ class LinearMerge(MergeMethod):
         tensors: MergeTensorInput,
         parameters: ImmutableMap[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
-        base_model: Optional[ModelReference],
         **kwargs,
     ) -> Task:
         return LinearMergeTask(
@@ -173,11 +131,7 @@ For class-based merges:
 
 3. Handle tensor parameters through `tensor_parameters` argument to `make_task`
 
-Note on tensor sizes:
-- Implementations should validate tensor shapes match except for embeddings
-- Use `rectify_embed_sizes()` helper for embedding layers
-- Raise RuntimeError for unexpected size mismatches
-- Handle device placement with `.to()` if needed
+Note on tensor sizes: Implementations can assume consistent dimensions. Should the input tensors have different shapes, the user is doing something profane and will get what they deserve. (Or, you can check if the tensors are embeddings and truncate them to the smallest size. But justice can only be delayed, not denied.)
 
 ## Parameter Types
 
