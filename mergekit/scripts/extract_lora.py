@@ -102,6 +102,8 @@ def get_model_details(
         model_id, state_dict={}, device_map="meta"
     )
 
+    vocab_size = pretrained_model.get_input_embeddings().weight.shape[0]
+
     module_details = []
     modules_to_save = set(modules_to_save or [])
 
@@ -142,7 +144,7 @@ def get_model_details(
             else:
                 logging.info(f"Skipping undecomposable module '{name}'.")
 
-    return module_details
+    return module_details, vocab_size
 
 
 def validate_and_combine_details(
@@ -151,7 +153,7 @@ def validate_and_combine_details(
     skip_undecomposable: bool,
     extend_vocab: bool,
     modules_to_save: Optional[List[str]] = None,
-) -> List[Tuple[str, str]]:
+) -> Tuple[List[Tuple[str, str]], int, int]:
     """
     Validate and combine details from a base model and a fine-tuned model.
 
@@ -161,17 +163,14 @@ def validate_and_combine_details(
     :return: A list of tuples with the type and name of the validated/combined model layers
     """
 
-    base_model_details = get_model_details(
+    base_model_details, base_vocab_size = get_model_details(
         base_model_id, skip_undecomposable, modules_to_save=modules_to_save
     )
-    finetuned_model_details = get_model_details(
+    finetuned_model_details, finetuned_vocab_size = get_model_details(
         finetuned_model_id, skip_undecomposable, modules_to_save=modules_to_save
     )
 
     module_details = []
-
-    base_model_embedding_size = None
-    finetuned_model_embedding_size = None
 
     for i, (base_layer, finetuned_layer) in enumerate(
         zip(base_model_details, finetuned_model_details)
@@ -185,12 +184,6 @@ def validate_and_combine_details(
         assert (
             base_name == finetuned_name
         ), f"Layer name mismatch: {base_name} != {finetuned_name}"
-
-        if base_type == "embedding":
-            base_model_embedding_size = base_size[0]
-
-        if finetuned_type == "embedding":
-            finetuned_model_embedding_size = finetuned_size[0]
 
         # Fine-tuned models with added vocab will have have their extra rows truncated unless `extend_vocab` is specified
         if base_type != "to_save" and finetuned_size[0] > base_size[0]:
@@ -219,7 +212,7 @@ def validate_and_combine_details(
 
         module_details.append((base_type, base_name))
 
-    return module_details, base_model_embedding_size, finetuned_model_embedding_size
+    return module_details, base_vocab_size, finetuned_vocab_size
 
 
 def build_wi_map(base_model_ref: ModelReference, trust_remote_code: bool = False):
@@ -288,6 +281,7 @@ def extract_lora(
     extend_vocab: bool,
     no_lazy_unpickle: bool,
     device: Optional[str],
+    trust_remote_code: bool = False,
 ) -> Tuple[Dict[str, torch.Tensor], Dict[str, int]]:
     """
     Process module details to decompose weights and generate LoRA weights and ranks.
@@ -311,13 +305,14 @@ def extract_lora(
     lora_weights = {}
     ranks = {}
 
-    wi_map = build_wi_map(base_model_ref)
+    wi_map = build_wi_map(base_model_ref, trust_remote_code)
 
     for module_type, module_name in tqdm(module_details):
         base_weight, finetuned_weight = load_weights(
             wi_map, base_loader, finetuned_loader, module_name
         )
         if base_weight is None and finetuned_weight is None:
+            logging.info(f"[{module_type}] {module_name}: optional weight not found")
             continue
 
         if module_type == "to_save":
@@ -605,6 +600,11 @@ def save_model_and_config(
     default=[],
     help="Save the specified module(s) at full rank",
 )
+@click.option(
+    "--trust-remote-code/--no-trust-remote-code",
+    default=False,
+    help="Trust remote code when loading model configurations",
+)
 def main(
     finetuned_model: str,
     base_model: str,
@@ -617,6 +617,7 @@ def main(
     device: str,
     verbose: bool,
     modules_to_save: List[str],
+    trust_remote_code: bool,
 ) -> None:
     """
     Decomposes delta weights between a base model and a finetuned model, saving a PEFT model to the specified output path.
@@ -651,15 +652,17 @@ def main(
 
     (
         module_details,
-        base_model_embedding_size,
-        finetuned_model_embedding_size,
+        base_vocab_size,
+        finetuned_vocab_size,
     ) = validate_and_combine_details(
-        ModelReference.parse(base_model).model.path,
-        ModelReference.parse(finetuned_model).model.path,
+        base_model_ref.model.path,
+        finetuned_model_ref.model.path,
         skip_undecomposable,
         extend_vocab,
         modules_to_save=modules_to_save,
     )
+    logging.info(f"Base model vocab size: {base_vocab_size}")
+    logging.info(f"Finetuned model vocab size: {finetuned_vocab_size}")
 
     lora_weights, ranks = extract_lora(
         module_details,
@@ -669,13 +672,14 @@ def main(
         extend_vocab,
         no_lazy_unpickle,
         device,
+        trust_remote_code,
     )
 
     save_model_and_config(
         lora_weights,
         ranks,
-        finetuned_model_embedding_size > base_model_embedding_size and extend_vocab,
-        finetuned_model_embedding_size if extend_vocab else base_model_embedding_size,
+        finetuned_vocab_size > base_vocab_size and extend_vocab,
+        finetuned_vocab_size if extend_vocab else base_vocab_size,
         module_details,
         invocation_args,
     )
