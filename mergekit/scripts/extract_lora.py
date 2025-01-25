@@ -257,9 +257,9 @@ def extract_lora(
         finetuned_weight = finetuned_loader.get_tensor(f"{module_name}.weight")
 
         if module_type == "to_save":
-            lora_weights[
-                f"base_model.model.{module_name}.weight"
-            ] = finetuned_weight.to("cpu").contiguous()
+            lora_weights[f"base_model.model.{module_name}.weight"] = (
+                finetuned_weight.to("cpu").contiguous()
+            )
 
             logging.info(
                 f"[{module_type}] {module_name}: output_dims=({finetuned_weight.shape})"
@@ -296,12 +296,12 @@ def extract_lora(
                     base_weight.T, finetuned_weight.T, max_rank, device=device
                 )
 
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_embedding_A"
-                ] = lora_embedding_A.to("cpu").contiguous()
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_embedding_B"
-                ] = lora_embedding_B.to("cpu").contiguous()
+                lora_weights[f"base_model.model.{module_name}.lora_embedding_A"] = (
+                    lora_embedding_A.to("cpu").contiguous()
+                )
+                lora_weights[f"base_model.model.{module_name}.lora_embedding_B"] = (
+                    lora_embedding_B.to("cpu").contiguous()
+                )
 
                 ranks[module_name] = lora_embedding_A.shape[0]
 
@@ -316,12 +316,12 @@ def extract_lora(
                     base_weight, finetuned_weight, max_rank, device=device
                 )
 
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_A.weight"
-                ] = lora_A.to("cpu").contiguous()
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_B.weight"
-                ] = lora_B.to("cpu").contiguous()
+                lora_weights[f"base_model.model.{module_name}.lora_A.weight"] = (
+                    lora_A.to("cpu").contiguous()
+                )
+                lora_weights[f"base_model.model.{module_name}.lora_B.weight"] = (
+                    lora_B.to("cpu").contiguous()
+                )
 
                 ranks[module_name] = lora_A.shape[0]
 
@@ -364,7 +364,7 @@ def reconstruct_invocation(args: Dict[str, Any]) -> str:
         invocation += " --verbose"
     if args.get("modules_to_save"):
         for module in args["modules_to_save"]:
-            invocation += f" --modules-to-save {module}"
+            invocation += f" --save-module={module}"
 
     return invocation
 
@@ -534,11 +534,12 @@ def save_model_and_config(
     "--verbose", "-v", type=bool, is_flag=True, default=False, help="Verbose logging"
 )
 @click.option(
-    "--modules-to-save",
+    "--save-module",
+    "modules_to_save",
     type=str,
     multiple=True,
     default=[],
-    help="List of module names to preserve at full precision",
+    help="Save the specified module(s) at full rank",
 )
 def main(
     finetuned_model: str,
