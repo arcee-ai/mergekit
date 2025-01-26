@@ -31,12 +31,13 @@ def get_architecture_info(config: PretrainedConfig) -> ModelArchitecture:
         raise RuntimeError("More than one architecture in config?")
     arch_name = config.architectures[0]
 
-    if decoder := get_decoder_only_arch(arch_name, config=config):
-        return ModelArchitecture(
-            modules={"decoder": ModuleDefinition(architecture=decoder)}
-        )
+    decoder = get_decoder_only_arch(arch_name, config=config)
+    if decoder is None:
+        raise RuntimeError(f"Unsupported architecture {arch_name}")
 
-    raise RuntimeError(f"Unsupported architecture {arch_name}")
+    return ModelArchitecture(
+        modules={"decoder": ModuleDefinition(architecture=decoder)}
+    )
 
 
 __all__ = [

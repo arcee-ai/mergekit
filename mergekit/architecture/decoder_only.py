@@ -234,7 +234,8 @@ def get_decoder_only_arch(
         return MixtralTensorNames.from_config(config)
 
     if arch_name not in NAME_TO_ARCH:
-        raise RuntimeError(f"Unsupported architecture {arch_name}")
+        print(f"Unsupported architecture {arch_name}")
+        return None
 
     candidates = list(NAME_TO_ARCH[arch_name])
     if len(candidates) == 1:
@@ -243,3 +244,5 @@ def get_decoder_only_arch(
     for c in candidates:
         if c.definition.expected_model_type == config.model_type:
             return c
+
+    return None

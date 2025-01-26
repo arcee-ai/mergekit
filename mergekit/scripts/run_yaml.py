@@ -38,18 +38,22 @@ def main(
 ):
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
-    with open(config_file, "r", encoding="utf-8") as file:
-        config_source = file.read()
+    try:
+        with open(config_file, "r", encoding="utf-8") as file:
+            config_source = file.read()
 
-    merge_config: MergeConfiguration = MergeConfiguration.model_validate(
-        yaml.safe_load(config_source)
-    )
-    run_merge(
-        merge_config,
-        out_path,
-        options=merge_options,
-        config_source=config_source,
-    )
+        merge_config: MergeConfiguration = MergeConfiguration.model_validate(
+            yaml.safe_load(config_source)
+        )
+        run_merge(
+            merge_config,
+            out_path,
+            options=merge_options,
+            config_source=config_source,
+        )
+    except RuntimeError as e:
+        logging.error(f"RuntimeError: {e}")
+        exit(1)
 
 
 if __name__ == "__main__":
