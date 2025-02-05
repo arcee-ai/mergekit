@@ -11,7 +11,7 @@ from safetensors.torch import save_file
 from torch.utils.data import DataLoader
 from transformers import AutoModel, AutoTokenizer, DefaultDataCollator
 
-from mergekit.architecture import _template_substitution, get_architecture_info
+from mergekit.architecture import ArchitectureInfoUtils, _template_substitution
 from mergekit.common import ModelReference
 
 logging.basicConfig(level=logging.INFO)
@@ -130,7 +130,7 @@ def main(
     model = ModelReference.model_validate(model_path)
 
     model_config = model.config()
-    model_arch_info = get_architecture_info(model_config)
+    model_arch_info = ArchitectureInfoUtils.get_architecture_info(model_config)
 
     _json = model_arch_info.definition
 

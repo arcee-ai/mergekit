@@ -8,7 +8,7 @@ import safetensors.torch
 import scipy
 import torch
 
-from mergekit.architecture import _template_substitution, get_architecture_info
+from mergekit.architecture import ArchitectureInfoUtils, _template_substitution
 from mergekit.common import ModelReference
 
 
@@ -147,7 +147,7 @@ def main(model1_ft, model2_ft, model_path, out_path, absval, device):
 
     model_config = model.config()
 
-    model_arch_info = get_architecture_info(model_config)
+    model_arch_info = ArchitectureInfoUtils.get_architecture_info(model_config)
 
     _json = model_arch_info.definition
 

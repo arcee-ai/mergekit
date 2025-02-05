@@ -1,17 +1,5 @@
 # Copyright (C) 2025 Arcee AI
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# SPDX-License-Identifier: BUSL-1.1
 
 import json
 import logging
@@ -28,6 +16,8 @@ from typing_extensions import Literal
 from mergekit.common import ModelPath, ModelReference
 from mergekit.graph import Task
 
+logger = logging.getLogger(__name__)
+
 
 def get_vocab_size(model_path: ModelPath, trust_remote_code: bool) -> Optional[int]:
     try:
@@ -38,7 +28,7 @@ def get_vocab_size(model_path: ModelPath, trust_remote_code: bool) -> Optional[i
         )
         return cfg.vocab_size
     except Exception as e:
-        logging.warning(f"Unable to get vocab size for {model_path}", exc_info=e)
+        logger.warning(f"Unable to get vocab size for {model_path}", exc_info=e)
 
     return None
 
@@ -128,7 +118,7 @@ def build_union_tokenizer(
         vocab = tokenizer.get_vocab()
         for tok, idx in vocab.items():
             if idx >= vocab_size:
-                logging.warning(
+                logger.warning(
                     f"Token {repr(tok)} present in {str(model)} tokenizer but >= vocab_size"
                 )
                 continue
@@ -146,7 +136,7 @@ def build_union_tokenizer(
 
             if tok in out_added_tokens:
                 if (out_added_tokens[tok] != info) and tok not in warned_added_tokens:
-                    logging.warning(
+                    logger.warning(
                         f"Token '{tok}' added with multiple different settings, using first"
                     )
                     warned_added_tokens.add(tok)
@@ -198,7 +188,7 @@ def build_tokenizer(
     )
 
     # load all tokenizers
-    logging.info("Loading tokenizers")
+    logger.info("Loading tokenizers")
     tokenizers = {base_model: tokenizer_base}
     for model in referenced_models:
         if model == base_model:
@@ -211,14 +201,14 @@ def build_tokenizer(
                 trust_remote_code=trust_remote_code,
             )
         except Exception as e:
-            logging.error(e)
-            logging.warning(
+            logger.error(e)
+            logger.warning(
                 f"Unable to load tokenizer for {model}. Assuming same as {base_model}."
             )
             continue
         tokenizers[model] = model_tok
 
-    logging.info("Building output tokenizer")
+    logger.info("Building output tokenizer")
     # build final vocabulary
     if isinstance(tokenizer_source, ModelReference):
         tokenizer_out = transformers.AutoTokenizer.from_pretrained(
@@ -241,7 +231,7 @@ def build_tokenizer(
 
     vocab_out = tokenizer_out.get_vocab()
 
-    logging.info("Building permutations")
+    logger.info("Building permutations")
     permutations = {}
     for model in (
         pbar := tqdm.tqdm(referenced_models, desc="Building tokenizer permutations")
@@ -264,7 +254,7 @@ def build_tokenizer(
 
             orig_idx = model_vocab[tok]
             if orig_idx >= vocab_size:
-                logging.warning(
+                logger.warning(
                     f"{model} token {repr(tok)} has index {orig_idx}>{vocab_size-1} (padding?)"
                 )
                 continue

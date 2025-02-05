@@ -45,6 +45,9 @@
     "layer_templates": {
         "weights": [
             {
+                "name": "h.${layer_index}.attn.bias"
+            },
+            {
                 "name": "transformer.h.${layer_index}.attn.c_attn.weight",
                 "aliases": [
                     "h.${layer_index}.attn.c_attn.weight"
