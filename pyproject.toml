@@ -6,8 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "mergekit"
 description = "Tools for merging pre-trained large language models"
 readme = "README.md"
-license = { text = "LGPL-3.0-or-later" }
-version = "0.0.6"
+license = { text = "BUSL-1.1" }
+version = "0.1.0"
 authors = [{ name = "Charles Goddard", email = "chargoddard@gmail.com" }]
 dependencies = [
     "torch>=2.0.0",
@@ -47,6 +47,7 @@ mergekit-moe = "mergekit.scripts.moe:main"
 mergekit-tokensurgeon = "mergekit.scripts.tokensurgeon:main"
 mergekit-extract-lora = "mergekit.scripts.extract_lora:main"
 mergekit-evolve = "mergekit.scripts.evolve:main"
+mergekit-pytorch = "mergekit.scripts.merge_raw_pytorch:main"
 
 [tool.setuptools]
 packages = [

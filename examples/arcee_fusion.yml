@@ -1,0 +1,6 @@
+models:
+  - model: model_a
+  - model: model_b
+merge_method: arcee_fusion
+base_model: model_a
+dtype: bfloat16
