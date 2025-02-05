@@ -20,7 +20,6 @@ class TensorWriter:
     weight_map = Dict[str, str]
     current_shard: Dict[str, torch.Tensor]
     current_shard_size: int
-    total_size: int
     safe_serialization: bool
     lock: threading.Lock
 
@@ -39,7 +38,6 @@ class TensorWriter:
         self.weight_map = {}
         self.current_shard = {}
         self.current_shard_size = 0
-        self.total_size = 0
         self.lock = threading.Lock()
 
     def save_tensor(self, name: str, tensor: torch.Tensor, clone: bool = False):
@@ -57,7 +55,6 @@ class TensorWriter:
                 self._flush_current_shard()
 
             self.current_shard[name] = tensor
-            self.total_size += tensor_size
             self.current_shard_size += tensor_size
 
     def _flush_current_shard(self):
@@ -120,10 +117,7 @@ class TensorWriter:
             ) as file:
                 json.dump(
                     {
-                        "metadata": {
-                            "mergekit_version": "0.1.0",
-                            "total_size": self.total_size,
-                        },
+                        "metadata": { "mergekit_version": "0.1.0", },
                         "weight_map": self.weight_map,
                     },
                     file,
