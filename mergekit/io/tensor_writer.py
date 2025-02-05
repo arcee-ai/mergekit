@@ -1,25 +1,16 @@
 # Copyright (C) 2025 Arcee AI
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# SPDX-License-Identifier: BUSL-1.1
 
 import json
 import logging
 import os
+import threading
 from typing import Dict
 
 import safetensors
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 class TensorWriter:
@@ -31,6 +22,7 @@ class TensorWriter:
     current_shard_size: int
     total_size: int
     safe_serialization: bool
+    lock: threading.Lock
 
     def __init__(
         self,
@@ -48,30 +40,31 @@ class TensorWriter:
         self.current_shard = {}
         self.current_shard_size = 0
         self.total_size = 0
+        self.lock = threading.Lock()
 
     def save_tensor(self, name: str, tensor: torch.Tensor, clone: bool = False):
         if not tensor.is_contiguous():
             tensor = tensor.contiguous()
-
-        tensor_size = tensor.numel() * tensor.element_size()
-        if (
-            self.current_shard
-            and self.current_shard_size + tensor_size > self.max_shard_size
-        ):
-            self.flush_current_shard()
-
         if clone:
             tensor = tensor.clone()
 
-        self.current_shard[name] = tensor
-        self.total_size += tensor_size
-        self.current_shard_size += tensor_size
+        tensor_size = tensor.numel() * tensor.element_size()
+        with self.lock:
+            if (
+                self.current_shard
+                and self.current_shard_size + tensor_size > self.max_shard_size
+            ):
+                self._flush_current_shard()
 
-    def flush_current_shard(self):
+            self.current_shard[name] = tensor
+            self.total_size += tensor_size
+            self.current_shard_size += tensor_size
+
+    def _flush_current_shard(self):
         if not self.current_shard:
             return
 
-        logging.info(f"Writing shard #{self.shards_written+1} to disk")
+        logger.info(f"Writing shard #{self.shards_written+1} to disk")
 
         prefix, extension = self._get_name_components()
         shard_name = f"{prefix}-{self.shards_written+1}.{extension}"
@@ -90,44 +83,51 @@ class TensorWriter:
         self.shards_written = self.shards_written + 1
 
     def finalize(self):
-        self.flush_current_shard()
+        with self.lock:
+            self._flush_current_shard()
 
-        logging.info("Finalizing shard names")
+            logger.info("Finalizing shard names")
 
-        prefix, extension = self._get_name_components()
+            prefix, extension = self._get_name_components()
 
-        # standardize shard names to hf format
-        total_shards = self.shards_written
-        name_remap = {}
-        for idx in range(total_shards):
-            name_remap[
-                f"{prefix}-{idx+1}.{extension}"
-            ] = f"{prefix}-{idx+1:05d}-of-{total_shards:05d}.{extension}"
+            # standardize shard names to hf format
+            total_shards = self.shards_written
+            name_remap = {}
+            for idx in range(total_shards):
+                name_remap[
+                    f"{prefix}-{idx+1}.{extension}"
+                ] = f"{prefix}-{idx+1:05d}-of-{total_shards:05d}.{extension}"
 
-        for old_name, new_name in name_remap.items():
-            os.rename(
-                os.path.join(self.out_path, old_name),
-                os.path.join(self.out_path, new_name),
-            )
+            if total_shards < 2:
+                name_remap[f"{prefix}-1.{extension}"] = f"{prefix}.{extension}"
 
-        for key in self.weight_map:
-            self.weight_map[key] = name_remap[self.weight_map[key]]
+            for old_name, new_name in name_remap.items():
+                os.rename(
+                    os.path.join(self.out_path, old_name),
+                    os.path.join(self.out_path, new_name),
+                )
 
-        with open(
-            os.path.join(self.out_path, f"{prefix}.{extension}.index.json"),
-            "w",
-            encoding="utf-8",
-        ) as file:
-            json.dump(
-                {
-                    "metadata": {
-                        "mergekit_version": "0.0.6",
-                        "total_size": self.total_size,
+            if total_shards < 2:
+                return
+
+            for key in self.weight_map:
+                self.weight_map[key] = name_remap[self.weight_map[key]]
+
+            with open(
+                os.path.join(self.out_path, f"{prefix}.{extension}.index.json"),
+                "w",
+                encoding="utf-8",
+            ) as file:
+                json.dump(
+                    {
+                        "metadata": {
+                            "mergekit_version": "0.1.0",
+                            "total_size": self.total_size,
+                        },
+                        "weight_map": self.weight_map,
                     },
-                    "weight_map": self.weight_map,
-                },
-                file,
-            )
+                    file,
+                )
 
     def _get_name_components(self):
         if self.safe_serialization:
@@ -150,7 +150,7 @@ class TensorWriter:
                 and isinstance(e.args[0], str)
                 and "share memory" in e.args[0]
             ):
-                logging.warning(
+                logger.warning(
                     "Your model has duplicated tensors but the --clone-tensors "
                     "flag is not set."
                 )

@@ -1,17 +1,5 @@
 # Copyright (C) 2025 Arcee AI
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# SPDX-License-Identifier: BUSL-1.1
 
 import functools
 import typing
@@ -40,6 +28,7 @@ class MergeOptions(BaseModel):
     safe_serialization: bool = True
     quiet: bool = False
     read_to_gpu: bool = False
+    multi_gpu: bool = False
 
 
 OPTION_HELP = {
@@ -58,6 +47,7 @@ OPTION_HELP = {
     "safe_serialization": "Save output in safetensors. Do this, don't poison the world with more pickled models.",
     "quiet": "Suppress progress bars and other non-essential output",
     "read_to_gpu": "Read model weights directly to GPU",
+    "multi_gpu": "Use multi-gpu parallel graph execution engine",
 }
 
 
