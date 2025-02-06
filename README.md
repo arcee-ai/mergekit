@@ -17,7 +17,7 @@
 - [LoRA extraction](#lora-extraction)
 - [Mixture of Experts merging](#mixture-of-experts-merging)
 - [Evolutionary merge methods](#evolutionary-merge-methods)
-- [Merge in the Cloud](#-merge-in-the-cloud-)
+- [Development](#development)
 - [Citation](#citation)
 
 ## Why Merge Models?
@@ -46,25 +46,14 @@ Key features of `mergekit` include:
 - [LORA extraction](#lora-extraction)
 - [Evolutionary merge methods](#evolutionary-merge-methods)
 
-🌐 GUI Launch Alert 🤗 - We are excited to announce the launch of a mega-GPU backed graphical user interface for mergekit in Arcee! This GUI simplifies the merging process, making it more accessible to a broader audience. Check it out and contribute at the [Arcee App](https://app.arcee.ai). There is also a [Hugging Face Space](https://huggingface.co/mergekit-community) with limited amounts of GPUs.
-
 ## Installation
 
 ```sh
-git clone https://github.com/arcee-ai/mergekit.git
+git clone https://github.com/allura-org/mergekit.git
 cd mergekit
 
 pip install -e .  # install the package and make scripts available
 ```
-
-If the above fails with the error of:
-
-```
-ERROR: File "setup.py" or "setup.cfg" not found. Directory cannot be installed in editable mode:
-(A "pyproject.toml" file was found, but editable mode currently requires a setuptools-based build.)
-```
-
-You may need to upgrade pip to > 21.3 with the command `python3 -m pip install --upgrade pip`
 
 ## Usage
 
@@ -372,33 +361,21 @@ The `mergekit-moe` script supports merging multiple dense models into a mixture 
 
 See [`docs/evolve.md`](docs/evolve.md) for details.
 
-## ✨ Merge in the Cloud ✨
+## Development
 
-We host merging on Arcee's cloud GPUs - you can launch a cloud merge in the [Arcee App](https://app.arcee.ai). Or through python - grab an ARCEE_API_KEY:
-
-`export ARCEE_API_KEY=<your-api-key>`
-`pip install -q arcee-py`
-
-```python
-import arcee
-arcee.merge_yaml("bio-merge","./examples/bio-merge.yml")
+The Allura fork is developed using Hatch and UV. My recommended setup:
+```sh
+# after installing uv:
+uv tool install hatch
+hatch test # run tests
+hatch run lint # run ruff
+hatch run format # run ruff format
+hatch run mergekit-yaml examples/bio-merge.yml ./bio-merge --cuda # run a test merge
 ```
-
-Check your merge status at the [Arcee App](https://app.arcee.ai)
-
-When complete, either deploy your merge:
-
-```python
-arcee.start_deployment("bio-merge", merging="bio-merge")
-```
-
-Or download your merge:
-
-`!arcee merging download bio-merge`
 
 ## Citation
 
-If you find `mergekit` useful in your research, please consider citing the [paper](https://aclanthology.org/2024.emnlp-industry.36/):
+If you find `mergekit` useful in your research (even our unrelated fork), please consider citing the original [paper](https://aclanthology.org/2024.emnlp-industry.36/):
 
 ```bibtex
 @inproceedings{goddard-etal-2024-arcees,
