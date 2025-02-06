@@ -13,7 +13,6 @@ from mergekit.io import LazyTensorLoader
 from mergekit.tokenizer import TokenizerConfig
 
 
-
 @pytest.fixture(scope="session")
 def model_base(tmp_path_factory):
     model_path = make_picollama(tmp_path_factory.mktemp("model_base"), vocab_size=64)

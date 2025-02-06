@@ -3,14 +3,19 @@ import tempfile
 from typing import Callable, Optional, List, Union
 import json
 
-from transformers import AutoConfig, LlamaConfig, LlamaForCausalLM, PreTrainedTokenizerBase, LlamaTokenizerFast
+from transformers import (
+    AutoConfig,
+    LlamaConfig,
+    LlamaForCausalLM,
+    PreTrainedTokenizerBase,
+    LlamaTokenizerFast,
+)
 import tokenizers
 
 from mergekit.architecture import get_architecture_info
 from mergekit.config import MergeConfiguration
 from mergekit.io.lazy_tensor_loader import LazyTensorLoader, ShardedTensorIndex
 from mergekit.merge import MergeOptions, run_merge
-
 
 
 def make_tokenizer(
@@ -35,6 +40,7 @@ def make_tokenizer(
 
     res.add_tokens(added_tokens)
     return res
+
 
 def run_and_check_merge(
     config: MergeConfiguration,

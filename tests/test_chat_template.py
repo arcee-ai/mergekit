@@ -16,17 +16,20 @@ def check_chat_template(model_path: str, needle: Optional[str] = None):
         f"Expected chat template to contain {needle}"
     )
 
+
 @pytest.fixture(scope="session")
 def model_base(tmp_path_factory):
     model_path = make_picollama(tmp_path_factory.mktemp("model_base"), vocab_size=64)
     make_tokenizer(vocab_size=64, added_tokens=[]).save_pretrained(model_path)
     return model_path
 
+
 @pytest.fixture(scope="session")
 def model_b(tmp_path_factory):
     model_path = make_picollama(tmp_path_factory.mktemp("model_b"), vocab_size=64)
     make_tokenizer(vocab_size=64, added_tokens=[]).save_pretrained(model_path)
     return model_path
+
 
 class TestChatTemplate:
     def test_template_chatml(self, model_base, model_b):

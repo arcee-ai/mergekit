@@ -70,7 +70,6 @@ def __merge_method(
                 bt_param.annotation.__args__ == (torch.Tensor, type(None))
                 or bt_param.annotation.__args__ == (type(None), torch.Tensor)
             )
-
         ):
             require_base_tensor = False
         else:
