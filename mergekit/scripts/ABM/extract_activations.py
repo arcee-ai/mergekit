@@ -1,3 +1,6 @@
+# Partly Copyright (C) 2025 Arcee AI
+# Partly Copyright (C) 2025 Allura-org
+
 import logging
 import os
 from collections import defaultdict

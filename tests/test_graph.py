@@ -1,3 +1,5 @@
+# Partly Copyright (C) 2025 Arcee AI
+# Partly Copyright (C) 2025 Allura-org
 from typing import Any, Dict, Optional
 
 import networkx

@@ -1,3 +1,5 @@
+# Partly Copyright (C) 2025 Arcee AI
+# Partly Copyright (C) 2025 Allura-org
 from typing import Optional
 
 import pytest
