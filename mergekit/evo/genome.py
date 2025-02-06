@@ -58,9 +58,9 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
 
         if self.merge_method == "slerp":
             assert not self.smooth, "smooth is not supported for slerp merge method"
-            assert (
-                not self.filters
-            ), "tensor name filtering is not supported for slerp merge method"
+            assert not self.filters, (
+                "tensor name filtering is not supported for slerp merge method"
+            )
 
         return self
 

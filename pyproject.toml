@@ -28,10 +28,9 @@ dependencies = [
     "scipy",
     "datasets",
 ]
+requires-python = ">=3.10"
 
 [project.optional-dependencies]
-dev = ["black~=24.10.0", "isort~=5.13.2", "pre-commit~=4.1.0"]
-test = ["pytest~=8.3.4"]
 evolve = ["ray", "cma", "lm_eval", "wandb"]
 vllm = ["vllm==0.3.2", "lm_eval[vllm]"]
 
@@ -51,6 +50,16 @@ mergekit-evolve = "mergekit.scripts.evolve:main"
 
 [tool.hatch.envs.default]
 installer = "uv"
+extra-dependencies = [
+    "ruff~=0.9.4",
+    "pre-commit~=4.1.0",
+]
+[tool.hatch.envs.default.extra-scripts]
+lint = "ruff check"
+format = "ruff format"
+
+[tool.hatch.envs.hatch-test]
+extra-dependencies = ["pytest"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -77,10 +86,8 @@ packages = [
 [tool.isort]
 profile = "black"
 
-[tool.black]
+[tool.ruff]
 line-length = 88
-target-version = ['py37']
-include = '\.pyi?$'
 
 [tool.pytest.ini_options]
 minversion = "6.0"

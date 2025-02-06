@@ -130,7 +130,7 @@ def rank_magnitude(
 
     if density <= epsilon or density >= (1 - epsilon):
         raise ValueError(
-            f"Error: density +- epsilon must be in the range (0, 1). density + epsilon = {density+epsilon}, density - epsilon = {density-epsilon}"
+            f"Error: density +- epsilon must be in the range (0, 1). density + epsilon = {density + epsilon}, density - epsilon = {density - epsilon}"
         )
 
     if (tensor.device.type != "cpu") or tensor.dtype == torch.bfloat16:

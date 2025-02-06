@@ -338,9 +338,9 @@ def _load_json_arch(name: str) -> JsonArchitectureInfo:
     )
 
 
-def _load_all_architectures() -> (
-    Tuple[List[JsonArchitectureInfo], Dict[str, List[JsonArchitectureInfo]]]
-):
+def _load_all_architectures() -> Tuple[
+    List[JsonArchitectureInfo], Dict[str, List[JsonArchitectureInfo]]
+]:
     architectures: List[JsonArchitectureInfo] = []
     for f in importlib.resources.contents(mergekit._data.architectures):
         if f.lower().endswith(".json"):

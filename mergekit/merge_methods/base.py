@@ -42,8 +42,7 @@ class MergeMethod(ABC):
         return []
 
     @abstractmethod
-    def name(self) -> str:
-        ...
+    def name(self) -> str: ...
 
     def pretty_name(self) -> Optional[str]:
         return None
@@ -60,5 +59,4 @@ class MergeMethod(ABC):
         parameters: ImmutableMap[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         base_model: Optional[ModelReference],
-    ) -> Task:
-        ...
+    ) -> Task: ...

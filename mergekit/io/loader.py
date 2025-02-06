@@ -26,12 +26,10 @@ class TensorLoader(ABC):
     """Base class for (potentially lazy) tensor loaders."""
 
     @abstractmethod
-    def get_tensor(self, key: str) -> torch.Tensor:
-        ...
+    def get_tensor(self, key: str) -> torch.Tensor: ...
 
     @abstractmethod
-    def keys(self) -> Sequence[str]:
-        ...
+    def keys(self) -> Sequence[str]: ...
 
     @classmethod
     def get(

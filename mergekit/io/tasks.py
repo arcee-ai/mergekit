@@ -71,7 +71,7 @@ def _normalized_shard_name(path: str) -> int:
     name = name.lower().replace("pytorch_model", "model")
     if m := shard_name_re.search(name):
         frac = int(m.group(1)) / int(m.group(2))
-        name = f"model-{int(frac*100):03d}pct"
+        name = f"model-{int(frac * 100):03d}pct"
     return name
 
 

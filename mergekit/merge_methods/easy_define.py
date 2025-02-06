@@ -179,7 +179,7 @@ def __merge_method(
 
     tt_fields["execute"] = _execute
 
-    tt_name = f"{name.title().replace(' ','')}MergeTask"
+    tt_name = f"{name.title().replace(' ', '')}MergeTask"
     tt_cls = pydantic.create_model(tt_name, __base__=Task[torch.Tensor], **tt_fields)
 
     mm_fields = {}
@@ -232,7 +232,7 @@ def __merge_method(
 
     mm_fields["parameters"] = _parameters
 
-    mm_name = f"{name.title().replace(' ','')}MergeMethod"
+    mm_name = f"{name.title().replace(' ', '')}MergeMethod"
     mm_cls = type(mm_name, (MergeMethod,), mm_fields)
     REGISTERED_MERGE_METHODS[name] = mm_cls()
     return func

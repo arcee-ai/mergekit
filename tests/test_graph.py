@@ -60,9 +60,9 @@ class TestExecutorClass:
         # Testing initialization with single task
         task = create_mock_task("task1")
         executor = Executor([task])
-        assert executor.targets == [
-            task
-        ], "Executor did not initialize with correct targets"
+        assert executor.targets == [task], (
+            "Executor did not initialize with correct targets"
+        )
 
     def test_executor_empty_list(self):
         list(Executor([]).run())
@@ -72,9 +72,9 @@ class TestExecutorClass:
         task1 = create_mock_task("task1", result=1)
         task2 = create_mock_task("task2", result=2, dependencies={"task1": task1})
         executor = Executor([task2])
-        assert (
-            len(executor._make_schedule([task2])) == 2
-        ), "Schedule should include two tasks"
+        assert len(executor._make_schedule([task2])) == 2, (
+            "Schedule should include two tasks"
+        )
 
     def test_executor_dependency_building(self):
         # Testing dependency building
@@ -90,9 +90,9 @@ class TestExecutorClass:
         task2 = create_mock_task("task2", result=20, dependencies={"task1": task1})
         executor = Executor([task2])
         results = list(executor.run())
-        assert (
-            len(results) == 1 and results[0][1] == 20
-        ), "Executor run did not yield correct results"
+        assert len(results) == 1 and results[0][1] == 20, (
+            "Executor run did not yield correct results"
+        )
 
     def test_executor_execute(self):
         # Testing execute method for side effects
@@ -109,12 +109,12 @@ class TestExecutorClass:
         executor = Executor([task3])
 
         schedule = executor._make_schedule([task3])
-        assert schedule.index(task1) < schedule.index(
-            task2
-        ), "Task1 should be scheduled before Task2"
-        assert schedule.index(task2) < schedule.index(
-            task3
-        ), "Task2 should be scheduled before Task3"
+        assert schedule.index(task1) < schedule.index(task2), (
+            "Task1 should be scheduled before Task2"
+        )
+        assert schedule.index(task2) < schedule.index(task3), (
+            "Task2 should be scheduled before Task3"
+        )
 
 
 class TestExecutorGroupLabel:
@@ -168,9 +168,9 @@ class TestExecutorGroupLabel:
         ]
         group2_index = scheduled_labels.index("group2")
 
-        assert (
-            group1_indices[-1] > group2_index
-        ), "Task with the same group label but later dependency was not scheduled after different group label"
+        assert group1_indices[-1] > group2_index, (
+            "Task with the same group label but later dependency was not scheduled after different group label"
+        )
 
 
 class TestExecutorSingleExecution:
@@ -185,9 +185,9 @@ class TestExecutorSingleExecution:
         Executor([task3]).execute()
 
         assert shared_task in EXECUTION_COUNTS, "Dependency not executed"
-        assert (
-            EXECUTION_COUNTS[shared_task] == 1
-        ), "Shared dependency should be executed exactly once"
+        assert EXECUTION_COUNTS[shared_task] == 1, (
+            "Shared dependency should be executed exactly once"
+        )
 
 
 class CircularTask(Task):

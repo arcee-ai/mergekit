@@ -13,9 +13,9 @@ def check_chat_template(model_path: str, needle: Optional[str] = None):
     if needle is None:
         assert not tokenizer.chat_template, "Expected no chat template"
         return
-    assert (
-        tokenizer.chat_template and needle in tokenizer.chat_template
-    ), f"Expected chat template to contain {needle}"
+    assert tokenizer.chat_template and needle in tokenizer.chat_template, (
+        f"Expected chat template to contain {needle}"
+    )
 
 
 class TestChatTemplate:

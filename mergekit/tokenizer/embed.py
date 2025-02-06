@@ -57,9 +57,9 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
                 vocab_size // self.pad_to_multiple_of + 1
             ) * self.pad_to_multiple_of
         embed_size = tensors[models[0]].shape[1]
-        assert all(
-            t.shape[1] == embed_size for t in tensors.values()
-        ), "Embedding sizes must match"
+        assert all(t.shape[1] == embed_size for t in tensors.values()), (
+            "Embedding sizes must match"
+        )
 
         dtype = tensors[models[0]].dtype
         device = tensors[models[0]].device
@@ -167,20 +167,20 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
             pass
         elif isinstance(cfg.source, ModelTokenEmbedding):
             model = cfg.source.model
-            assert (
-                model in permutations
-            ), f"Model {model} referenced but not part of merge"
+            assert model in permutations, (
+                f"Model {model} referenced but not part of merge"
+            )
             p = permutations[model]
             src_token_id = cfg.source.token_id
             if src_token_id is None:
                 src_token = cfg.source.token
-                assert (
-                    src_token in tokenizer_info.original_vocabs[model]
-                ), f"Token {repr(src_token)} not found in model {model}"
+                assert src_token in tokenizer_info.original_vocabs[model], (
+                    f"Token {repr(src_token)} not found in model {model}"
+                )
                 src_token_id = tokenizer_info.original_vocabs[model][src_token]
-            assert (
-                src_token_id >= 0 and src_token_id < tensors[model].shape[0]
-            ), f"Token ID {src_token_id} out of range for model {model}"
+            assert src_token_id >= 0 and src_token_id < tensors[model].shape[0], (
+                f"Token ID {src_token_id} out of range for model {model}"
+            )
             embed = tensors[model][src_token_id]
         elif isinstance(cfg.source, ModelReference):
             model = cfg.source

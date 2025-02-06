@@ -22,12 +22,12 @@ def run_and_check_merge(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         run_merge(config, out_path=tmpdir, options=MergeOptions())
-        assert os.path.exists(
-            os.path.join(tmpdir, index_json_name)
-        ), "No index file for merge"
-        assert os.path.exists(
-            os.path.join(tmpdir, "config.json")
-        ), "No config json produced by merge"
+        assert os.path.exists(os.path.join(tmpdir, index_json_name)), (
+            "No index file for merge"
+        )
+        assert os.path.exists(os.path.join(tmpdir, "config.json")), (
+            "No config json produced by merge"
+        )
 
         if check_nan:
             # check for NaN in output

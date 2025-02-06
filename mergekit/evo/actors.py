@@ -269,9 +269,9 @@ class InMemoryMergeEvaluator(MergeActorBase):
 
         model = self.model.model
         if vllm is not None and isinstance(model, vllm.LLM):
-            assert (
-                model.llm_engine.parallel_config.world_size == 1
-            ), "Must be single GPU"
+            assert model.llm_engine.parallel_config.world_size == 1, (
+                "Must be single GPU"
+            )
             worker = model.llm_engine.driver_worker
             model = worker.model_runner.model
         param_dict = dict(model.named_parameters())

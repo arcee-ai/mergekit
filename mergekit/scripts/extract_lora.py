@@ -43,12 +43,12 @@ def low_rank_decomposition(
     :param max_rank: The maximum rank of the decomposition
     :return: A tuple of tensors (L, R)
     """
-    assert (
-        weight.dim() == 2
-    ), f"Only support 2D matrix, but input has {weight.dim()} dimensions."
-    assert (
-        max_rank >= 1
-    ), f"Maximum rank must be a positive integer, but input max_rank={max_rank}."
+    assert weight.dim() == 2, (
+        f"Only support 2D matrix, but input has {weight.dim()} dimensions."
+    )
+    assert max_rank >= 1, (
+        f"Maximum rank must be a positive integer, but input max_rank={max_rank}."
+    )
 
     dtype = weight.dtype
 
@@ -79,9 +79,9 @@ def decompose_delta_weight(
     :param device: The device to perform computation on
     :return: A tuple of tensors (L, R)
     """
-    assert (
-        base_weight.size() == finetuned_weight.size()
-    ), f"Mismatched dimensions: {base_weight.size()} != {finetuned_weight.size()}"
+    assert base_weight.size() == finetuned_weight.size(), (
+        f"Mismatched dimensions: {base_weight.size()} != {finetuned_weight.size()}"
+    )
 
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -193,18 +193,18 @@ def validate_and_combine_details(
         base_type, base_name, base_size = base_layer
         finetuned_type, finetuned_name, finetuned_size = finetuned_layer
 
-        assert (
-            base_type == finetuned_type
-        ), f"Layer type mismatch: {base_type} != {finetuned_type}"
-        assert (
-            base_name == finetuned_name
-        ), f"Layer name mismatch: {base_name} != {finetuned_name}"
+        assert base_type == finetuned_type, (
+            f"Layer type mismatch: {base_type} != {finetuned_type}"
+        )
+        assert base_name == finetuned_name, (
+            f"Layer name mismatch: {base_name} != {finetuned_name}"
+        )
 
         # Fine-tuned models with added vocab will have have their extra rows truncated unless `extend_vocab` is specified
         if base_type != "to_save" and finetuned_size[0] > base_size[0]:
-            assert (
-                base_size[1] == finetuned_size[1]
-            ), f"Column dimension mismatch in layer '{base_name}': {base_size} != {finetuned_size}"
+            assert base_size[1] == finetuned_size[1], (
+                f"Column dimension mismatch in layer '{base_name}': {base_size} != {finetuned_size}"
+            )
 
             if base_type == "embedding" or base_type == "output":
                 if not extend_vocab:
@@ -221,9 +221,9 @@ def validate_and_combine_details(
                 )
 
         elif base_type != "to_save":
-            assert (
-                base_size == finetuned_size
-            ), f"Dimension mismatch in layer '{base_name}': {base_size} != {finetuned_size}"
+            assert base_size == finetuned_size, (
+                f"Dimension mismatch in layer '{base_name}': {base_size} != {finetuned_size}"
+            )
 
         module_details.append((base_type, base_name))
 
@@ -331,9 +331,9 @@ def extract_lora(
             continue
 
         if module_type == "to_save":
-            lora_weights[
-                f"base_model.model.{module_name}.weight"
-            ] = finetuned_weight.to("cpu").contiguous()
+            lora_weights[f"base_model.model.{module_name}.weight"] = (
+                finetuned_weight.to("cpu").contiguous()
+            )
 
             logging.info(
                 f"[{module_type}] {module_name}: output_dims=({finetuned_weight.shape})"
@@ -370,12 +370,12 @@ def extract_lora(
                     base_weight.T, finetuned_weight.T, max_rank, device=device
                 )
 
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_embedding_A"
-                ] = lora_embedding_A.to("cpu").contiguous()
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_embedding_B"
-                ] = lora_embedding_B.to("cpu").contiguous()
+                lora_weights[f"base_model.model.{module_name}.lora_embedding_A"] = (
+                    lora_embedding_A.to("cpu").contiguous()
+                )
+                lora_weights[f"base_model.model.{module_name}.lora_embedding_B"] = (
+                    lora_embedding_B.to("cpu").contiguous()
+                )
 
                 ranks[module_name] = lora_embedding_A.shape[0]
 
@@ -390,12 +390,12 @@ def extract_lora(
                     base_weight, finetuned_weight, max_rank, device=device
                 )
 
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_A.weight"
-                ] = lora_A.to("cpu").contiguous()
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_B.weight"
-                ] = lora_B.to("cpu").contiguous()
+                lora_weights[f"base_model.model.{module_name}.lora_A.weight"] = (
+                    lora_A.to("cpu").contiguous()
+                )
+                lora_weights[f"base_model.model.{module_name}.lora_B.weight"] = (
+                    lora_B.to("cpu").contiguous()
+                )
 
                 ranks[module_name] = lora_A.shape[0]
 
