@@ -53,7 +53,6 @@ Key features of `mergekit` include:
 - Piecewise assembly of language models from layers ("Frankenmerging")
 - [Mixture of Experts merging](#mixture-of-experts-merging)
 - [LORA extraction](#lora-extraction)
-- [Evolutionary merge methods](#evolutionary-merge-methods)
 
 ## Installation
 
