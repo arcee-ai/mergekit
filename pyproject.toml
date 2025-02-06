@@ -56,6 +56,7 @@ extra-dependencies = [
 ]
 [tool.hatch.envs.default.extra-scripts]
 lint = "ruff check"
+lint-fix = "ruff check --fix --unsafe-fixes"
 format = "ruff format"
 
 [tool.hatch.envs.hatch-test]

@@ -197,13 +197,19 @@ def main(
     space_to_input_weights = {}
     for k, v in space_to_input_weight_templates.items():
         for j in range(num_layers):
-            f = lambda x: _template_substitution(x, num_layers=num_layers, layer_idx=j)
+
+            def f(x):
+                return _template_substitution(x, num_layers=num_layers, layer_idx=j)
+
             space_to_input_weights[f(k)] = [f(_v) for _v in v]
 
     space_to_output_weights = {}
     for k, v in space_to_output_weight_templates.items():
         for j in range(num_layers):
-            f = lambda x: _template_substitution(x, num_layers=num_layers, layer_idx=j)
+
+            def f(x):
+                return _template_substitution(x, num_layers=num_layers, layer_idx=j)
+
             space_to_output_weights[f(k)] = [f(_v) for _v in v]
 
     # ================== Load model, tokenizer for inference and prepare dataset ==================
@@ -219,21 +225,25 @@ def main(
     tokenize_function = None
     if chat_template:
         logging.info("Using chat template for inference")
-        tokenize_function = lambda x: tokenizer.apply_chat_template(
-            x,
-            padding="longest",
-            max_length=max_length,
-            truncation=True,
-            return_dict=True,
-        )
+
+        def tokenize_function(x):
+            return tokenizer.apply_chat_template(
+                x,
+                padding="longest",
+                max_length=max_length,
+                truncation=True,
+                return_dict=True,
+            )
     else:
         logging.info("Using default tokenizer (no chat template) for inference")
-        tokenize_function = lambda x: tokenizer(
-            x,
-            padding="longest",
-            max_length=max_length,
-            truncation=True,
-        )
+
+        def tokenize_function(x):
+            return tokenizer(
+                x,
+                padding="longest",
+                max_length=max_length,
+                truncation=True,
+            )
 
     model.eval()
     model.to(device)

@@ -94,7 +94,7 @@ def add_merge_options(f: Callable) -> Callable:
             field_type = ShardSizeParamType()
 
         arg_name = field_name.replace("_", "-")
-        if field_type == bool:
+        if field_type is bool:
             arg_str = f"--{arg_name}/--no-{arg_name}"
         else:
             arg_str = f"--{arg_name}"

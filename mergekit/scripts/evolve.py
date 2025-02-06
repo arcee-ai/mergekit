@@ -18,6 +18,7 @@ import os
 import time
 from typing import List, Optional
 
+import importlib
 import click
 import cma
 import numpy as np
@@ -172,9 +173,7 @@ def main(
             raise ValueError("Cannot use vLLM with 4-bit or 8-bit models")
         if in_memory:
             raise ValueError("Cannot use in-memory mode with 4-bit or 8-bit models")
-        try:
-            import bitsandbytes
-        except ImportError:
+        if importlib.util.find_spec("bitsandbytes") is None:
             raise RuntimeError("bitsandbytes is not installed")
 
         bnb_config = transformers.BitsAndBytesConfig(

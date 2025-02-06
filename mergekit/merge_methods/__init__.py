@@ -1,4 +1,5 @@
-# Copyright (C) 2025 Arcee AI
+# Partly Copyright (C) 2025 Arcee AI
+# Partly Copyright (C) 2025 Allura-org
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -13,7 +14,8 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
-import mergekit.merge_methods.multislerp
+# TODO: why is this here?
+# import mergekit.merge_methods.multislerp
 from mergekit.merge_methods.base import MergeMethod
 from mergekit.merge_methods.generalized_task_arithmetic import (
     GeneralizedTaskArithmeticMerge,

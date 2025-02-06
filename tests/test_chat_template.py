@@ -1,8 +1,6 @@
 from typing import Optional
 
 from common import run_and_check_merge
-from test_basic_merges import model_b
-from test_tokenizer import model_base
 from transformers import AutoTokenizer
 
 from mergekit.config import InputModelDefinition, MergeConfiguration
