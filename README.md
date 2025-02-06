@@ -26,6 +26,8 @@ This fork is a work in progress. Here are some of the breaking changes we've mad
 - `bakllama` and `mergekit-legacy` have been removed. if someone can give me a real (not fake) use for them then they will be added back.
 - `mergekit-evolve` has been removed. if anyone can give me a real reason why it should remain a wart tacked onto the rest of mergekit instead of an out-of-tree tool that depends on mergekit, I'll reconsider.
 - `nuslerp` has been renamed to `slerp` (and the original `slerp` has been removed), and it now supports using the parameter `t` (SLERP behavior) OR tensor parameter `weight` (NuSLERP behavior) to specify the weighting of a given tensor.
+- moved from `black` and `isort` to `ruff` for formatting, as well as enabling linting for the whole package.
+- moved from `setuptools` to `hatch` for building and distributing the package.
 
 ## Why Merge Models?
 

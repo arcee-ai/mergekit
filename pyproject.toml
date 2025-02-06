@@ -83,9 +83,6 @@ packages = [
     "mergekit._data.chat_templates",
 ]
 
-[tool.isort]
-profile = "black"
-
 [tool.ruff]
 line-length = 88
 
