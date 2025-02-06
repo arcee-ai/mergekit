@@ -78,24 +78,6 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
         method_pretty_name="Model Breadcrumbs with TIES",
         method_reference_url="https://arxiv.org/abs/2312.06795",
     ),
-    GeneralizedTaskArithmeticMerge(
-        consensus_method=ConsensusMethod.sum,
-        sparsification_method=SparsificationMethod.rank_magnitude_sampling,
-        default_normalize=True,
-        default_rescale=True,
-        method_name="della",
-        method_pretty_name="DELLA",
-        method_reference_url="https://arxiv.org/abs/2406.11617",
-    ),
-    GeneralizedTaskArithmeticMerge(
-        consensus_method=None,
-        sparsification_method=SparsificationMethod.rank_magnitude_sampling,
-        default_normalize=False,
-        default_rescale=True,
-        method_name="della_linear",
-        method_pretty_name="Linear DELLA",
-        method_reference_url="https://arxiv.org/abs/2406.11617",
-    ),
 ]
 
 REGISTERED_MERGE_METHODS: Dict[str, MergeMethod] = {
