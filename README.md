@@ -261,21 +261,21 @@ A quick overview of the currently supported merge methods:
 
 | Method                                                                                           | `merge_method` value | Multi-Model | Uses base model |
 | ------------------------------------------------------------------------------------------------ | -------------------- | ----------- | --------------- |
-| Linear ([Model Soups](https://arxiv.org/abs/2203.05482))                                         | `linear`             | ✅          | ❌              |
-| SLERP                                                                                            | `slerp`              | ❌          | ✅              |
-| Nearswap                                                                                         | `nearswap`           | ❌          | ✅              |
-| [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                              | `task_arithmetic`    | ✅          | ✅              |
-| [TIES](https://arxiv.org/abs/2306.01708)                                                         | `ties`               | ✅          | ✅              |
-| [DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)                | `dare_ties`          | ✅          | ✅              |
-| [DARE](https://arxiv.org/abs/2311.03099) [Task Arithmetic](https://arxiv.org/abs/2212.04089)     | `dare_linear`        | ✅          | ✅              |
-| Passthrough                                                                                      | `passthrough`        | ❌          | ❌              |
-| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)                                            | `breadcrumbs`        | ✅          | ✅              |
-| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795) + [TIES](https://arxiv.org/abs/2306.01708) | `breadcrumbs_ties`   | ✅          | ✅              |
-| [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅          | ✅              |
-| NuSLERP                                                                                          | `nuslerp`            | ❌          | ✅              |
-| [DELLA](https://arxiv.org/abs/2406.11617)                                                        | `della`              | ✅          | ✅              |
-| [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)    | `della_linear`       | ✅          | ✅              |
-| [SCE](https://arxiv.org/abs/2408.07990)                                                          | `sce`                | ✅          | ✅              |
+| Linear ([Model Soups](https://arxiv.org/abs/2203.05482))                                         | `linear`             | ✅           | ❌               |
+| SLERP                                                                                            | `slerp`              | ❌           | ✅               |
+| Nearswap                                                                                         | `nearswap`           | ❌           | ✅               |
+| [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                              | `task_arithmetic`    | ✅           | ✅               |
+| [TIES](https://arxiv.org/abs/2306.01708)                                                         | `ties`               | ✅           | ✅               |
+| [DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)                | `dare_ties`          | ✅           | ✅               |
+| [DARE](https://arxiv.org/abs/2311.03099) [Task Arithmetic](https://arxiv.org/abs/2212.04089)     | `dare_linear`        | ✅           | ✅               |
+| Passthrough                                                                                      | `passthrough`        | ❌           | ❌               |
+| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)                                            | `breadcrumbs`        | ✅           | ✅               |
+| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795) + [TIES](https://arxiv.org/abs/2306.01708) | `breadcrumbs_ties`   | ✅           | ✅               |
+| [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅           | ✅               |
+| NuSLERP                                                                                          | `nuslerp`            | ❌           | ✅               |
+| [DELLA](https://arxiv.org/abs/2406.11617)                                                        | `della`              | ✅           | ✅               |
+| [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)    | `della_linear`       | ✅           | ✅               |
+| [SCE](https://arxiv.org/abs/2408.07990)                                                          | `sce`                | ✅           | ✅               |
 
 ### Linear
 
