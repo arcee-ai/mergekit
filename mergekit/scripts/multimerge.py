@@ -1,0 +1,207 @@
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
+
+import logging
+import os
+from typing import Dict, Set, Union
+
+import click
+import yaml
+
+from mergekit.common import ImmutableMap, ModelReference
+from mergekit.config import MergeConfiguration
+from mergekit.graph import Executor, Task
+from mergekit.merge import run_merge
+from mergekit.options import MergeOptions, add_merge_options
+
+logger = logging.getLogger("multimerge")
+
+
+class MergeModelTask(Task[str]):
+    config_yaml: str
+    name: str
+    input_merges: ImmutableMap[str, "MergeModelTask"]
+    options: MergeOptions
+    out_path: str
+    lazy: bool = True
+
+    def arguments(self):
+        return {str(key): self.input_merges[key] for key in self.input_merges}
+
+    def execute(self, **kwargs):
+        if self.lazy and os.path.exists(os.path.join(self.out_path, "config.json")):
+            logger.info(f"Model already exists at {self.out_path}, skipping")
+            return self.out_path
+
+        logger.info(f"Running merge for {self.name}")
+        cfg = MergeConfiguration.model_validate(yaml.safe_load(self.config_yaml))
+
+        run_merge(
+            cfg,
+            self.out_path,
+            options=self.options,
+        )
+        logger.info(f"Merge complete for {self.name}")
+        return self.out_path
+
+
+@click.command("mergekit-multimerge")
+@click.argument("config_file", type=click.Path(exists=True))
+@click.argument("out_path", type=click.Path())
+@click.option(
+    "--intermediate-dir",
+    "-I",
+    type=click.Path(),
+    required=True,
+    help="Directory to store intermediate merges",
+)
+@click.option(
+    "--verbose", "-v", type=bool, default=False, is_flag=True, help="Verbose logging"
+)
+@click.option(
+    "--lazy/--no-lazy",
+    default=True,
+    help="Skip merges that already exist",
+)
+@add_merge_options
+def main(
+    config_file: str,
+    out_path: str,
+    intermediate_dir: str,
+    verbose: bool,
+    lazy: bool,
+    merge_options: MergeOptions,
+):
+    logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
+    os.makedirs(intermediate_dir, exist_ok=True)
+
+    with open(config_file, "r", encoding="utf-8") as file:
+        config_source = file.read()
+
+    merge_configs, dependencies = load_config(config_source, intermediate_dir)
+    tasks = make_tasks(
+        merge_configs, dependencies, merge_options, intermediate_dir, out_path, lazy
+    )
+
+    executor = Executor(
+        tasks, math_device="cpu", storage_device="cpu"
+    )  # inner executors will handle cuda
+    executor.execute(desc="Merging models")
+
+
+def patched_config(config: MergeConfiguration, merge_names: Set[str], working_dir: str):
+    """Replace instances of intermediate merge names with actual paths.
+
+    Also returns the set of intermediate merge names that were used.
+
+    Args:
+        config: The configuration to patch
+        merge_names: The set of all merge names
+        working_dir: The directory to use as the base for relative paths
+    """
+    used = set()
+
+    def _patch_mr(value: Union[dict, list, str, int, None]):
+        nonlocal used
+        if isinstance(value, list):
+            return [_patch_mr(x) for x in value]
+        elif isinstance(value, dict):
+            if set(value.keys()) == {"model", "lora", "override_architecture"}:
+                # is a ModelReference
+                base = value["model"]["path"]
+                if base in merge_names:
+                    value["model"] = value["model"].copy()
+                    value["model"]["path"] = os.path.join(working_dir, base)
+                    used.add(base)
+            return {k: _patch_mr(v) for k, v in value.items()}
+        elif isinstance(value, str):
+            try:
+                mr = ModelReference.model_validate(value)
+                if mr.model.path in merge_names:
+                    used.add(mr.model.path)
+                    return ModelReference(
+                        model={
+                            "path": os.path.join(working_dir, mr.model.path),
+                            "revision": mr.model.revision,
+                        },
+                        lora=mr.lora,
+                        override_architecture=mr.override_architecture,
+                    ).model_dump()
+            except ValueError:
+                pass
+        return value
+
+    new_dict = _patch_mr(config.model_dump())
+    return MergeConfiguration.model_validate(new_dict), used
+
+
+def make_tasks(
+    merge_configs: Dict[str, MergeConfiguration],
+    dependencies: Dict[str, Set[str]],
+    merge_options: MergeOptions,
+    intermediate_dir: str,
+    out_path: str,
+    lazy: bool,
+):
+    touched = set()
+    tasks = {}
+
+    def _make_task(name: str):
+        nonlocal touched, tasks
+        if name in tasks:
+            return tasks[name]
+        elif name in touched:
+            raise ValueError(f"Circular dependency detected involving {name}")
+        touched.add(name)
+        tasks[name] = MergeModelTask(
+            config_yaml=yaml.dump(
+                merge_configs[name].model_dump(exclude_defaults=True)
+            ),
+            name=name or "final merge",
+            input_merges=ImmutableMap(
+                {dep: _make_task(dep) for dep in dependencies[name]}
+            ),
+            options=merge_options,
+            out_path=(
+                os.path.join(intermediate_dir, name) if name is not None else out_path
+            ),
+            lazy=lazy,
+        )
+        return tasks[name]
+
+    tasks = [_make_task(name) for name in merge_configs.keys()]
+    return tasks
+
+
+def load_config(config_source: str, intermediate_dir: str):
+    docs = list(yaml.safe_load_all(config_source))
+    merge_configs = {}
+    for doc in docs:
+        if "name" in doc:
+            merge_name = doc.pop("name")
+        else:
+            merge_name = None
+        if merge_name in merge_configs:
+            if merge_name is not None:
+                raise ValueError(f"Duplicate merge name {merge_name}")
+            else:
+                raise ValueError(
+                    "Multimerge config must have exactly one unnamed merge"
+                )
+        merge_configs[merge_name] = MergeConfiguration.model_validate(doc)
+    if None not in merge_configs:
+        raise ValueError("Multimerge config must have exactly one unnamed merge")
+
+    merge_names = set(merge_configs.keys())
+    dependencies = {}
+    for merge_name in merge_names:
+        merge_config, used_names = patched_config(
+            merge_configs[merge_name], merge_names, intermediate_dir
+        )
+        merge_configs[merge_name] = merge_config
+        dependencies[merge_name] = used_names
+    return merge_configs, dependencies
+
+
+if __name__ == "__main__":
+    main()
