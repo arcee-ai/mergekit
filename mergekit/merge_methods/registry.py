@@ -96,24 +96,6 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
         method_pretty_name="Linear DELLA",
         method_reference_url="https://arxiv.org/abs/2406.11617",
     ),
-    GeneralizedTaskArithmeticMerge(
-        consensus_method=None,
-        sparsification_method=SparsificationMethod.consensus_ta,
-        default_normalize=False,
-        default_rescale=False,
-        method_name="consensus_ta",
-        method_pretty_name="Consensus Task Arithmetic",
-        method_reference_url="https://arxiv.org/abs/2405.07813",
-    ),
-    GeneralizedTaskArithmeticMerge(
-        consensus_method=ConsensusMethod.sum,
-        sparsification_method=SparsificationMethod.consensus_ties,
-        default_normalize=True,
-        default_rescale=False,
-        method_name="consensus_ties",
-        method_pretty_name="Consensus TIES",
-        method_reference_url="https://arxiv.org/abs/2405.07813",
-    ),
 ]
 
 REGISTERED_MERGE_METHODS: Dict[str, MergeMethod] = {
