@@ -175,6 +175,16 @@ class TestBasicMerges:
         )
         run_and_check_merge(config)
 
+    def test_sce_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="sce",
+            base_model=model_c,
+            params={"select_topk": 0.5},
+        )
+        run_and_check_merge(config)
+
     def test_multislerp_merge(self, model_a, model_b, model_c):
         config = self.two_model_config(
             model_a,
@@ -213,6 +223,16 @@ class TestBasicMerges:
     def test_arcee_fusion_merge(self, model_a, model_b):
         config = self.two_model_config(
             model_a, model_b, merge_method="arcee_fusion", base_model=model_a
+        )
+        run_and_check_merge(config)
+
+    def test_nearswap_merge(self, model_a, model_b):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="nearswap",
+            base_model=model_a,
+            params={"t": 0.0001},
         )
         run_and_check_merge(config)
 
