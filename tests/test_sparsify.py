@@ -43,6 +43,34 @@ class TestMagnitude:
                     sample_tensor.view(-1).shape[0] * density
                 )
 
+    def test_norm_rescale(self, sample_tensor):
+        l1_norm = sample_tensor.abs().sum()
+        l2_norm = sample_tensor.norm()
+        linf_norm = sample_tensor.abs().max()
+
+        normed_l1 = sparsify(
+            sample_tensor,
+            density=0.5,
+            method=SparsificationMethod.magnitude,
+            rescale_norm="l1",
+        )
+        normed_l2 = sparsify(
+            sample_tensor,
+            density=0.5,
+            method=SparsificationMethod.magnitude,
+            rescale_norm="l2",
+        )
+        normed_linf = sparsify(
+            sample_tensor,
+            density=0.5,
+            method=SparsificationMethod.magnitude,
+            rescale_norm="linf",
+        )
+
+        assert torch.isclose(normed_l1.abs().sum(), l1_norm, rtol=0.01)
+        assert torch.isclose(normed_l2.norm(), l2_norm, rtol=0.01)
+        assert torch.isclose(normed_linf.abs().max(), linf_norm, rtol=0.01)
+
 
 class TestBernoulli:
     NUM_ITERATIONS = 1000
@@ -55,7 +83,7 @@ class TestBernoulli:
                 sample_tensor,
                 density=0.5,
                 method=SparsificationMethod.random,
-                rescale=True,
+                rescale_norm="l1",
             )
             avg_abs_sum += rescaled.abs().sum()
         avg_abs_sum /= TestBernoulli.NUM_ITERATIONS
@@ -67,7 +95,7 @@ class TestBernoulli:
             sample_tensor,
             density=0.5,
             method=SparsificationMethod.random,
-            rescale=False,
+            rescale_norm=None,
         )
         assert 0 < torch.count_nonzero(result) <= sample_tensor.view(-1).shape[0]
 
@@ -77,5 +105,5 @@ class TestBernoulli:
                 tensor=sample_tensor.to(dtype=dt).cpu(),
                 density=0.5,
                 method=SparsificationMethod.random,
-                rescale=True,
+                rescale_norm="l1",
             )

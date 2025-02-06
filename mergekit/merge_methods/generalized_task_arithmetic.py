@@ -17,7 +17,7 @@ from mergekit.merge_methods.base import (
     MergeMethod,
     MergeTensorInput,
 )
-from mergekit.sparsify import SparsificationMethod, sparsify
+from mergekit.sparsify import RescaleNorm, SparsificationMethod, sparsify
 
 
 class ConsensusMethod(str, Enum):
@@ -98,7 +98,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             tensor_parameters=tensor_parameters,
             int8_mask=parameters["int8_mask"],
             normalize=parameters["normalize"],
-            rescale=parameters["rescale"],
+            rescale_norm=RescaleNorm.l1 if parameters["rescale"] else None,
             weight_info=output_weight,
         )
 
@@ -111,7 +111,7 @@ class GTATask(Task[torch.Tensor]):
     tensor_parameters: ImmutableMap[ModelReference, Any]
     int8_mask: bool
     normalize: bool
-    rescale: bool
+    rescale_norm: Optional[RescaleNorm]
 
     def uses_accelerator(self) -> bool:
         return True
@@ -148,7 +148,7 @@ class GTATask(Task[torch.Tensor]):
                     tv_info["delta"],
                     density=tv_info["density"],
                     method=self.method.sparsification_method,
-                    rescale=self.rescale,
+                    rescale_norm=self.rescale_norm,
                     **kwargs,
                 )
 

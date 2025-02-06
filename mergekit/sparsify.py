@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 
 from enum import Enum
+from typing import Optional
 
 import torch
 
@@ -13,17 +14,48 @@ class SparsificationMethod(str, Enum):
     rank_magnitude_sampling = "rank_magnitude_sampling"
 
 
-def rescale_sum(tensor: torch.Tensor, mask: torch.Tensor):
-    """Rescales the values to match the original tensor sum."""
-    org_sum = tensor.abs().sum()
-    new_sum = (tensor * mask).abs().sum()
-
-    if org_sum >= 1e-8 and new_sum >= 1e-8:
-        tensor *= org_sum / new_sum
-    return tensor * mask
+class RescaleNorm(str, Enum):
+    l1 = "l1"
+    l2 = "l2"
+    linf = "linf"
 
 
-def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
+def rescaled_masked_tensor(
+    tensor: torch.Tensor,
+    mask: torch.Tensor,
+    norm: Optional[RescaleNorm],
+    eps: float = 1e-7,
+) -> torch.Tensor:
+    """Apply a mask to a tensor and rescale to match the original tensor norm.
+
+    Args:
+        tensor (torch.Tensor): Input tensor.
+        mask (torch.Tensor): Mask to apply.
+        norm (RescaleNorm): Which norm to match (l1, l2, linf).
+        eps (float): Tolerance for small norms to avoid division by zero.
+    """
+    masked = tensor * mask
+    if norm is None:
+        return masked
+    elif norm == RescaleNorm.l1:
+        before_scale = tensor.abs().sum()
+        after_scale = masked.abs().sum()
+    elif norm == RescaleNorm.l2:
+        before_scale = tensor.norm()
+        after_scale = masked.norm()
+    elif norm == RescaleNorm.linf:
+        before_scale = tensor.abs().max()
+        after_scale = masked.abs().max()
+    else:
+        raise NotImplementedError(norm)
+    if before_scale < eps or after_scale < eps:
+        return masked
+    return masked * (before_scale / after_scale)
+
+
+def magnitude(
+    tensor: torch.Tensor, density: float, rescale_norm: Optional[RescaleNorm] = None
+) -> torch.Tensor:
     """Masks out the smallest values, retaining a proportion of `density`."""
     if density >= 1:
         return tensor
@@ -38,16 +70,15 @@ def magnitude(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     topk = torch.argsort(w, descending=True)[:k]
     mask.view(-1)[topk] = 1
 
-    if rescale:
-        res = rescale_sum(tensor, mask)
-    else:
-        res = tensor * mask
-
+    res = rescaled_masked_tensor(tensor, mask, rescale_norm)
     return res
 
 
 def magnitude_outliers(
-    tensor: torch.Tensor, density: float, rescale: bool, gamma: float = 0.01
+    tensor: torch.Tensor,
+    density: float,
+    rescale_norm: Optional[RescaleNorm] = None,
+    gamma: float = 0.01,
 ):
     """Masks out smallest values in addition to large outliers.
 
@@ -81,14 +112,13 @@ def magnitude_outliers(
 
     mask.view(-1)[indices[n_bot:-n_top]] = 1
 
-    if rescale:
-        res = rescale_sum(tensor, mask)
-    else:
-        res = tensor * mask
+    res = rescaled_masked_tensor(tensor, mask, rescale_norm)
     return res
 
 
-def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tensor:
+def bernoulli(
+    tensor: torch.Tensor, density: float, rescale_norm: Optional[RescaleNorm] = None
+) -> torch.Tensor:
     if density >= 1:
         return tensor
 
@@ -101,15 +131,15 @@ def bernoulli(tensor: torch.Tensor, density: float, rescale: bool) -> torch.Tens
     mask = torch.bernoulli(
         torch.full_like(input=tensor, fill_value=density, dtype=work_dtype)
     )
-    res = tensor.to(work_dtype) * mask
-    if rescale:
-        res /= density
-
+    res = rescaled_masked_tensor(tensor.to(work_dtype), mask, rescale_norm)
     return res.to(tensor.dtype)
 
 
 def rank_magnitude(
-    tensor: torch.Tensor, density: float, rescale: bool = True, epsilon: float = 0.05
+    tensor: torch.Tensor,
+    density: float,
+    rescale_norm: Optional[RescaleNorm] = RescaleNorm.l1,
+    epsilon: float = 0.05,
 ) -> torch.Tensor:
     if density >= 1:
         return tensor
@@ -149,11 +179,8 @@ def rank_magnitude(
     final_probabilities = (density - epsilon) + norm_metrics * (2 * epsilon)
 
     mask = torch.bernoulli(final_probabilities).to(work_dtype)
-    res = tensor.to(work_dtype) * mask
 
-    if rescale:
-        res = res / (final_probabilities.to(work_dtype))
-
+    res = rescaled_masked_tensor(tensor.to(work_dtype), mask, rescale_norm)
     return res.squeeze(0)
 
 
@@ -162,16 +189,20 @@ def sparsify(
     density: float,
     method: SparsificationMethod,
     gamma: float = 0,
-    rescale: bool = False,
+    rescale_norm: Optional[RescaleNorm] = None,
     epsilon: float = 0.15,
 ) -> torch.Tensor:
     if method == SparsificationMethod.magnitude:
-        return magnitude(tensor, density=density, rescale=rescale)
+        return magnitude(tensor, density=density, rescale_norm=rescale_norm)
     elif method == SparsificationMethod.random:
-        return bernoulli(tensor, density=density, rescale=rescale)
+        return bernoulli(tensor, density=density, rescale_norm=rescale_norm)
     elif method == SparsificationMethod.magnitude_outliers:
-        return magnitude_outliers(tensor, density=density, rescale=rescale, gamma=gamma)
+        return magnitude_outliers(
+            tensor, density=density, rescale_norm=rescale_norm, gamma=gamma
+        )
     elif method == SparsificationMethod.rank_magnitude_sampling:
-        return rank_magnitude(tensor, density=density, rescale=rescale, epsilon=epsilon)
+        return rank_magnitude(
+            tensor, density=density, rescale_norm=rescale_norm, epsilon=epsilon
+        )
     else:
         raise NotImplementedError(method)
