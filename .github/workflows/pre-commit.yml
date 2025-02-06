@@ -17,13 +17,13 @@ jobs:
 
   pytest:
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
-    name: PyTest
+    name: Test
     needs: [pre-commit]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python_version: ["3.9", "3.10", "3.11"]
+        python_version: ["3.10", "3.11", "3.12"]
     timeout-minutes: 5
 
     steps:
@@ -33,7 +33,7 @@ jobs:
         with:
           python-version: ${{ matrix.python_version }}
           cache: "pip"
-      - name: Install dependencies
-        run: pip3 install -U -e .[test]
-      - name: Run tests
-        run: pytest .
+      - name: Install Hatch
+        uses: pypa/hatch@install
+      - name: Test
+        run: hatch test

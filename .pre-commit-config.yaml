@@ -5,14 +5,14 @@ repos:
       - id: check-added-large-files
       - id: check-yaml
         args: ["--allow-multiple-documents"]
-  - repo: https://github.com/PyCQA/isort
-    rev: 5.12.0
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.9.4
     hooks:
-      - id: isort
-  - repo: https://github.com/psf/black
-    rev: 23.11.0
-    hooks:
-      - id: black
+      # Run the linter.
+      - id: ruff
+      # Run the formatter.
+      - id: ruff-format
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v3.2.0
     hooks:

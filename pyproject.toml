@@ -54,6 +54,7 @@ extra-dependencies = [
     "ruff~=0.9.4",
     "pre-commit~=4.1.0",
 ]
+
 [tool.hatch.envs.default.extra-scripts]
 lint = "ruff check"
 lint-fix = "ruff check --fix --unsafe-fixes"

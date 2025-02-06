@@ -54,7 +54,7 @@ def __merge_method(
         (tensor_param.annotation is None)
         or (not hasattr(tensor_param.annotation, "__origin__"))
         or not (
-            isinstance(tensor_param.annotation, list)
+            tensor_param.annotation.__origin__ is list
             and tensor_param.annotation.__args__ == (torch.Tensor,)
         )
     ):
@@ -65,11 +65,12 @@ def __merge_method(
             require_base_tensor = True
         elif (
             hasattr(bt_param.annotation, "__origin__")
-            and bt_param.annotation.__origin__ == typing.Union
+            and bt_param.annotation.__origin__ is typing.Union
             and (
                 bt_param.annotation.__args__ == (torch.Tensor, type(None))
                 or bt_param.annotation.__args__ == (type(None), torch.Tensor)
             )
+
         ):
             require_base_tensor = False
         else:
@@ -101,7 +102,7 @@ def __merge_method(
                 )
             elif (
                 hasattr(arg_info.annotation, "__origin__")
-                and isinstance(arg_info.annotation, list)
+                and arg_info.annotation.__origin__ is list
                 and arg_info.annotation.__args__[0] in (float, int)
             ):
                 default_value = arg_info.default

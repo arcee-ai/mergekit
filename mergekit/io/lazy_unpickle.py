@@ -31,8 +31,8 @@ from pydantic import BaseModel, PrivateAttr
 ACCEPTABLE_TYPES = {
     ("torch._utils", "_rebuild_tensor_v2"): torch._utils._rebuild_tensor_v2,
     ("collections", "OrderedDict"): collections.OrderedDict,
-    ("numpy.core.multiarray", "scalar"): numpy.core.multiarray.scalar,
-    ("numpy", "dtype"): numpy.core.multiarray.scalar,
+    ("numpy.core.multiarray", "scalar"): numpy._core.multiarray.scalar, # TODO: we shouldn't be pulling in numpy._core
+    ("numpy", "dtype"): numpy._core.multiarray.scalar,
     ("_codecs", "encode"): codecs.encode,
     **{
         ("torch", name): getattr(torch, name)
