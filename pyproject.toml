@@ -1,6 +1,7 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 
 [project]
 name = "mergekit"
@@ -37,7 +38,6 @@ vllm = ["vllm==0.3.2", "lm_eval[vllm]"]
 [project.urls]
 repository = "https://github.com/cg123/mergekit"
 
-
 [project.scripts]
 mergekit-yaml = "mergekit.scripts.run_yaml:main"
 mergekit-mega = "mergekit.scripts.megamerge:main"
@@ -49,7 +49,18 @@ mergekit-tokensurgeon = "mergekit.scripts.tokensurgeon:main"
 mergekit-extract-lora = "mergekit.scripts.extract_lora:main"
 mergekit-evolve = "mergekit.scripts.evolve:main"
 
-[tool.setuptools]
+[tool.hatch.envs.default]
+installer = "uv"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "mergekit/",
+    "examples/",
+    "tests/",
+    "docs/",
+]
+
+[tool.hatch.build.targets.wheel]
 packages = [
     "mergekit",
     "mergekit.io",
@@ -62,12 +73,6 @@ packages = [
     "mergekit._data.architectures",
     "mergekit._data.chat_templates",
 ]
-include-package-data = true
-package-data = { "mergekit._data.architectures" = [
-    "*.json",
-], "mergekit._data.chat_templates" = [
-    "*.jinja",
-] }
 
 [tool.isort]
 profile = "black"
