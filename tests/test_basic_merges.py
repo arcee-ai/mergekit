@@ -117,7 +117,7 @@ class TestBasicMerges:
                         self.two_model_config(
                             model_a,
                             model_b,
-                            merge_method="nuslerp",
+                            merge_method="slerp",
                             base_model=base_model,
                             params={
                                 "nuslerp_row_wise": row_wise,
@@ -130,7 +130,7 @@ class TestBasicMerges:
         config = self.two_model_config(
             model_a,
             model_b,
-            merge_method="nuslerp",
+            merge_method="slerp",
             base_model=model_c,
             params={"nuslerp_row_wise": False, "nuslerp_flatten": False},
         )

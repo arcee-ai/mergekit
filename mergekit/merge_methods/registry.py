@@ -1,4 +1,5 @@
-# Copyright (C) 2025 Arcee AI
+# Partly Copyright (C) 2025 Arcee AI
+# Partly Copyright (C) 2025 Allura-org
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -26,12 +27,10 @@ from mergekit.merge_methods.nearswap import NearSwapMerge
 from mergekit.merge_methods.nuslerp import NuSlerpMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.sce import SCEMerge
-from mergekit.merge_methods.slerp import SlerpMerge
 from mergekit.sparsify import SparsificationMethod
 
 STATIC_MERGE_METHODS: List[MergeMethod] = [
     LinearMerge(),
-    SlerpMerge(),
     NuSlerpMerge(),
     PassthroughMerge(),
     ModelStockMerge(),

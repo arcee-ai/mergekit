@@ -20,6 +20,10 @@
 - [Development](#development)
 - [Citation](#citation)
 
+## Breaking changes
+
+- `nuslerp` has been renamed to `slerp` (and the original `slerp` has been removed), and it now supports using the parameter `t` (SLERP behavior) OR tensor parameter `weight` (NuSLERP behavior) to specify the weighting of a given tensor.
+
 ## Why Merge Models?
 
 Model merging is a powerful technique that allows combining the strengths of different models without the computational overhead of ensembling or the need for additional training. By operating directly in the weight space of models, merging can:
@@ -230,7 +234,7 @@ A quick overview of the currently supported merge methods:
 | Method                                                                                           | `merge_method` value | Multi-Model | Uses base model |
 | ------------------------------------------------------------------------------------------------ | -------------------- | ----------- | --------------- |
 | Linear ([Model Soups](https://arxiv.org/abs/2203.05482))                                         | `linear`             | ✅          | ❌              |
-| SLERP                                                                                            | `slerp`              | ❌          | ✅              |
+| SLERP                                                                                            | `slerp`              | ✅*         | ✅              |
 | Nearswap                                                                                         | `nearswap`           | ❌          | ✅              |
 | [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                              | `task_arithmetic`    | ✅          | ✅              |
 | [TIES](https://arxiv.org/abs/2306.01708)                                                         | `ties`               | ✅          | ✅              |
@@ -240,10 +244,10 @@ A quick overview of the currently supported merge methods:
 | [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)                                            | `breadcrumbs`        | ✅          | ✅              |
 | [Model Breadcrumbs](https://arxiv.org/abs/2312.06795) + [TIES](https://arxiv.org/abs/2306.01708) | `breadcrumbs_ties`   | ✅          | ✅              |
 | [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅          | ✅              |
-| NuSLERP                                                                                          | `nuslerp`            | ❌          | ✅              |
 | [DELLA](https://arxiv.org/abs/2406.11617)                                                        | `della`              | ✅          | ✅              |
 | [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)    | `della_linear`       | ✅          | ✅              |
 | [SCE](https://arxiv.org/abs/2408.07990)                                                          | `sce`                | ✅          | ✅              |
+\* only supports two to three models
 
 ### Linear
 
@@ -256,11 +260,19 @@ Parameters:
 
 ### SLERP
 
-Spherically interpolate the parameters of two models. One must be set as `base_model`.
+Spherically interpolate model parameters with support for both traditional interpolation (`t`) and tensor-specific weighting (`weight`). Works with two models or two task vectors and an optional base model.
 
 Parameters:
 
-- `t` - interpolation factor. At `t=0` will return `base_model`, at `t=1` will return the other one.
+One of the following parameters must be specified:
+
+- `t` - interpolation factor. At `t=0` will return `base_model`, at `t=1` will return the other model. if specified, `weight` will be ignored. (only supports one base model and one non-base model)
+- `weight` - relative weighting of a given tensor. (supports one base model, and either one or two non-base models)
+
+Additionally, the following parameters are supported:
+
+- `nuslerp_flatten`: set to false to do row-wise/column-wise interpolation instead of treating tensors as vectors
+- `nuslerp_row_wise`: SLERP row vectors instead of column vectors
 
 ### Nearswap
 

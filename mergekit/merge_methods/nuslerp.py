@@ -1,4 +1,5 @@
-# Copyright (C) 2025 Arcee AI
+# Partly Copyright (C) 2025 Arcee AI
+# Partly Copyright (C) 2025 Allura-org
 #
 # This software is free software: you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public License as
@@ -13,6 +14,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program. If not, see http://www.gnu.org/licenses/.
 
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import torch
@@ -30,13 +32,20 @@ from mergekit.merge_methods.base import (
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
+class SlerpType(str, Enum):
+    nuslerp = "nuslerp"
+    slerp = "slerp"
+
+
 class NuSlerpTask(Task[torch.Tensor]):
     gather_tensors: MergeTensorInput
     tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
     weight_info: WeightInfo
     row_wise: bool
     flatten: bool
+    slerp_type: SlerpType
     base_model: Optional[ModelReference]
+    t: Optional[float]
 
     def uses_accelerator(self) -> bool:
         return True
@@ -49,24 +58,32 @@ class NuSlerpTask(Task[torch.Tensor]):
             return list(tensors.values())[0]
 
         if self.base_model is not None:
-            if len(tensors) != 3:
-                raise RuntimeError(
-                    "NuSlerp base model can not be one of the two models to merge"
-                )
-            base_tensor = tensors.pop(self.base_model)
+            if self.slerp_type == SlerpType.nuslerp:
+                base_tensor = tensors.pop(self.base_model)
+                if len(tensors) != 2:
+                    raise RuntimeError(
+                        "NuSLERP merge expects exactly two models (plus *optional* base model)"
+                    )
+            elif self.slerp_type == SlerpType.slerp:
+                if len(tensors) != 2:
+                    raise RuntimeError(
+                        "SLERP merge expects exactly one model (plus *required* base model)"
+                    )
+                base_tensor = None  # we handle this case as two regular tensors
         else:
+            if self.slerp_type == SlerpType.slerp:
+                raise RuntimeError("SLERP merge type requires a base model")
             base_tensor = None
 
         keys = list(tensors.keys())
         tensors = [tensors[key] for key in keys]
-        weights = [self.tensor_parameters[key]["weight"] for key in keys]
-
-        if len(tensors) != 2:
-            print(keys)
-            print(self.base_model)
-            raise RuntimeError(
-                "NuSlerp merge expects exactly two models (plus optional base model)"
-            )
+        if self.slerp_type == SlerpType.nuslerp:
+            weights = [self.tensor_parameters[key]["weight"] for key in keys]
+        elif self.slerp_type == SlerpType.slerp:
+            weights = [
+                1 - self.t,
+                self.t,
+            ]  # we should only be able to get to this point if t is set, don't worry abt the Optional[] type
 
         if abs(sum(weights)) < 1e-6:
             # this is fairly arbitrary, but it's more sane than exploding
@@ -98,14 +115,15 @@ class NuSlerpTask(Task[torch.Tensor]):
 
 class NuSlerpMerge(MergeMethod):
     def name(self) -> str:
-        return "nuslerp"
+        return "slerp"
 
     @override
     def pretty_name(self):
-        return "NuSLERP"
+        return "SLERP"
 
     def parameters(self) -> List[ConfigParameterDef]:
         return [
+            ConfigParameterDef(name="t", required=False),
             ConfigParameterDef(
                 name="nuslerp_row_wise",
                 required=False,
@@ -119,7 +137,7 @@ class NuSlerpMerge(MergeMethod):
         ]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
-        return [ConfigParameterDef(name="weight", required=True)]
+        return [ConfigParameterDef(name="weight", required=False)]
 
     def make_task(
         self,
@@ -131,13 +149,24 @@ class NuSlerpMerge(MergeMethod):
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         **_kwargs,
     ) -> Task:
+        has_t = parameters["t"] is not None
+        has_weight = (
+            tensor_parameters[list(tensor_parameters.keys())[0]]["weight"] is not None
+        )
+        if not has_t and not has_weight:
+            raise RuntimeError(
+                "SLERP/NuSLERP merge expects at least one model with a weight or a t parameter"
+            )
+
         return NuSlerpTask(
             gather_tensors=tensors,
             tensor_parameters=tensor_parameters,
             weight_info=output_weight,
+            t=parameters["t"],
             row_wise=parameters["nuslerp_row_wise"],
             flatten=parameters["nuslerp_flatten"],
             base_model=base_model,
+            slerp_type=SlerpType.slerp if has_t else SlerpType.nuslerp,
         )
 
 
