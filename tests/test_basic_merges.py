@@ -236,6 +236,16 @@ class TestBasicMerges:
         )
         run_and_check_merge(config)
 
+    def test_della_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="della",
+            base_model=model_c,
+            params={"density": 0.66, "epsilon": 0.05, "lambda": 0.5},
+        )
+        run_and_check_merge(config)
+
     def two_model_config(
         self,
         model_a,

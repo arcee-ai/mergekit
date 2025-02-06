@@ -71,6 +71,17 @@ class TestMagnitude:
         assert torch.isclose(normed_l2.norm(), l2_norm, rtol=0.01)
         assert torch.isclose(normed_linf.abs().max(), linf_norm, rtol=0.01)
 
+    def test_della_magprune(self, sample_tensor):
+        res = sparsify(
+            sample_tensor,
+            density=0.5,
+            method=SparsificationMethod.della_magprune,
+            epsilon=0.05,
+            rescale_norm="l1",
+        )
+        assert not res.isnan().any(), "NaNs in result tensor"
+        assert not res.isinf().any(), "Infs in result tensor"
+
 
 class TestBernoulli:
     NUM_ITERATIONS = 1000

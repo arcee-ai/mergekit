@@ -4,21 +4,42 @@
 
 ## Contents
 
-- [Why Merge Models?](#why-merge-models)
-- [Features](#features)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Merge Configuration](#merge-configuration)
-  - [Parameter Specification](#parameter-specification)
-  - [Tokenizer Configuration](#tokenizer-configuration)
-  - [Chat Template Configuration](#chat-template-configuration)
-  - [Examples](#examples)
-- [Merge Methods](#merge-methods)
-- [LoRA extraction](#lora-extraction)
-- [Mixture of Experts merging](#mixture-of-experts-merging)
-- [Evolutionary merge methods](#evolutionary-merge-methods)
-- [Merge in the Cloud](#-merge-in-the-cloud-)
-- [Citation](#citation)
+- [mergekit](#mergekit)
+  - [Contents](#contents)
+  - [Why Merge Models?](#why-merge-models)
+  - [Features](#features)
+  - [Installation](#installation)
+  - [Usage](#usage)
+    - [Uploading to Huggingface](#uploading-to-huggingface)
+  - [Merge Configuration](#merge-configuration)
+    - [Parameter Specification](#parameter-specification)
+    - [Tokenizer Configuration](#tokenizer-configuration)
+      - [Modern Configuration (tokenizer)](#modern-configuration-tokenizer)
+        - [Tokenizer Source](#tokenizer-source)
+        - [Token Embedding Handling](#token-embedding-handling)
+        - [Practical Example](#practical-example)
+      - [Legacy Configuration (tokenizer\_source)](#legacy-configuration-tokenizer_source)
+    - [Chat Template Configuration](#chat-template-configuration)
+    - [Examples](#examples)
+  - [Merge Methods](#merge-methods)
+    - [Linear](#linear)
+    - [SLERP](#slerp)
+    - [Nearswap](#nearswap)
+    - [Task Arithmetic](#task-arithmetic)
+    - [TIES](#ties)
+    - [DARE](#dare)
+    - [Passthrough](#passthrough)
+    - [Model Breadcrumbs](#model-breadcrumbs)
+    - [Model Stock](#model-stock)
+    - [NuSLERP](#nuslerp)
+    - [DELLA](#della)
+    - [SCE](#sce)
+  - [LoRA extraction](#lora-extraction)
+    - [Usage](#usage-1)
+  - [Mixture of Experts merging](#mixture-of-experts-merging)
+  - [Evolutionary merge methods](#evolutionary-merge-methods)
+  - [✨ Merge in the Cloud ✨](#-merge-in-the-cloud-)
+  - [Citation](#citation)
 
 ## Why Merge Models?
 
@@ -285,13 +306,14 @@ Parameters:
 
 Computes "task vectors" for each model by subtracting a base model. Merges the task vectors linearly and adds back the base. Works great for models that were fine tuned from a common ancestor. Also a super useful mental framework for several of the more involved merge methods.
 
-Parameters: same as [Linear](#linear)
+Parameters: same as [Linear](#linear), plus:
+- `lambda` - scaling factor applied after weighted sum of task vectors
 
 ### [TIES](https://arxiv.org/abs/2306.01708)
 
 Builds on the task arithmetic framework. Resolves interference between models by sparsifying the task vectors and applying a sign consensus algorithm. Allows you to merge a larger number of models and retain more of their strengths.
 
-Parameters: same as [Linear](#linear), plus:
+Parameters: same as [Task Arithmetic](#task-arithmetic), plus:
 
 - `density` - fraction of weights in differences from the base model to retain
 
@@ -309,7 +331,7 @@ Parameters: same as [TIES](#ties) for `dare_ties`, or [Linear](#linear) for `dar
 
 An extension of task arithmetic that discards both small and extremely large differences from the base model. As with DARE, the Model Breadcrumbs algorithm can be used with (`breadcrumbs_ties`) or without (`breadcrumbs`) the sign consensus algorithm of TIES.
 
-Parameters: same as [Linear](#linear), plus:
+Parameters: same as [Task Arithmetic](#task-arithmetic), plus:
 
 - `density` - fraction of weights in differences from the base model to retain
 - `gamma` - fraction of largest magnitude differences to remove
@@ -340,17 +362,16 @@ To replicate the behavior of the original `slerp` method, set `weight` to `1-t` 
 
 Building upon DARE, DELLA uses adaptive pruning based on parameter magnitudes. DELLA first ranks parameters in each row of delta parameters and assigns drop probabilities inversely proportional to their magnitudes. This allows it to retain more important changes while reducing interference. After pruning, it rescales the remaining parameters similar to [DARE](#dare). DELLA can be used with (`della`) or without (`della_linear`) the sign elect step of TIES
 
-Parameters: same as [Linear](#linear), plus:
+Parameters: same as [Task Arithmetic](#task-arithmetic), plus:
 
 - `density` - fraction of weights in differences from the base model to retain
 - `epsilon` - maximum change in drop probability based on magnitude. Drop probabilities assigned will range from `density - epsilon` to `density + epsilon`. (When selecting values for `density` and `epsilon`, ensure that the range of probabilities falls within 0 to 1)
-- `lambda` - scaling factor for the final merged delta parameters before merging with the base parameters.
 
 ### [SCE](https://arxiv.org/abs/2408.07990)
 
 SCE introduces adaptive matrix-level merging weights based on parameter variances. SCE first selects the top-k% elements from each parameter matrix that exhibit high variance across all delta parameters. Following this selection, SCE calculates matrix-level merging weights based on the sum of squares of elements in the delta parameters. Finally, it erases minority elements, a step similar to the sign election process in TIES.
 
-Parameters:
+Parameters: same as [TIES](#ties), plus:
 
 - `select_topk` - fraction of elements with the highest variance in the delta parameters to retain.
 

@@ -11,6 +11,7 @@ class SparsificationMethod(str, Enum):
     magnitude = "magnitude"
     random = "random"
     magnitude_outliers = "magnitude_outliers"
+    della_magprune = "della_magprune"
 
 
 class RescaleNorm(str, Enum):
@@ -134,11 +135,51 @@ def bernoulli(
     return res.to(tensor.dtype)
 
 
+def della_magprune(
+    tensor: torch.Tensor,
+    density: float,
+    epsilon: float,
+    rescale_norm: Optional[RescaleNorm] = None,
+) -> torch.Tensor:
+    if density >= 1:
+        return tensor
+    if density <= 0:
+        return torch.zeros_like(tensor)
+
+    if density + epsilon >= 1 or density - epsilon <= 0:
+        raise ValueError(
+            "Epsilon must be chosen such that density +/- epsilon is in (0, 1)"
+        )
+
+    work_dtype = (
+        tensor.dtype
+        if tensor.device.type != "cpu" or tensor.dtype == torch.bfloat16
+        else torch.float32
+    )
+
+    if len(tensor.shape) < 2:
+        tensor = tensor.unsqueeze(0)
+    magnitudes = tensor.abs()
+
+    sorted_indices = torch.argsort(magnitudes, dim=1, descending=False)
+    ranks = sorted_indices.argsort(dim=1).to(work_dtype) + 1
+
+    min_ranks = ranks.min(dim=1, keepdim=True).values
+    max_ranks = ranks.max(dim=1, keepdim=True).values
+    rank_norm = ((ranks - min_ranks) / (max_ranks - min_ranks)).clamp(0, 1)
+    probs = (density - epsilon) + rank_norm * 2 * epsilon
+    mask = torch.bernoulli(probs).to(work_dtype)
+
+    res = rescaled_masked_tensor(tensor.to(work_dtype), mask, rescale_norm)
+    return res.view_as(tensor)
+
+
 def sparsify(
     tensor: torch.Tensor,
     density: float,
     method: SparsificationMethod,
     gamma: float = 0,
+    epsilon: float = 0,
     rescale_norm: Optional[RescaleNorm] = None,
 ) -> torch.Tensor:
     if method == SparsificationMethod.magnitude:
@@ -148,6 +189,10 @@ def sparsify(
     elif method == SparsificationMethod.magnitude_outliers:
         return magnitude_outliers(
             tensor, density=density, rescale_norm=rescale_norm, gamma=gamma
+        )
+    elif method == SparsificationMethod.della_magprune:
+        return della_magprune(
+            tensor, density=density, epsilon=epsilon, rescale_norm=rescale_norm
         )
     else:
         raise NotImplementedError(method)

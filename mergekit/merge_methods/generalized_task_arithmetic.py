@@ -54,6 +54,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             ConfigParameterDef(
                 name="rescale", required=False, default_value=self.default_rescale
             ),
+            ConfigParameterDef(name="lambda", required=False, default_value=1.0),
         ]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
@@ -85,6 +86,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             tensor_parameters=tensor_parameters,
             int8_mask=parameters["int8_mask"],
             normalize=parameters["normalize"],
+            lambda_=parameters["lambda"],
             rescale_norm=RescaleNorm.l1 if parameters["rescale"] else None,
             weight_info=output_weight,
         )
@@ -98,6 +100,7 @@ class GTATask(Task[torch.Tensor]):
     tensor_parameters: ImmutableMap[ModelReference, Any]
     int8_mask: bool
     normalize: bool
+    lambda_: float
     rescale_norm: Optional[RescaleNorm]
 
     def uses_accelerator(self) -> bool:
@@ -127,6 +130,9 @@ class GTATask(Task[torch.Tensor]):
                 kwargs = {}
                 if "gamma" in tv_info:
                     kwargs["gamma"] = tv_info["gamma"]
+
+                if "epsilon" in tv_info:
+                    kwargs["epsilon"] = tv_info["epsilon"]
 
                 tv_info["delta"] = sparsify(
                     tv_info["delta"],
@@ -164,6 +170,9 @@ class GTATask(Task[torch.Tensor]):
 
         if self.normalize:
             mixed_delta /= divisor
+
+        if self.lambda_ != 1:
+            mixed_delta *= self.lambda_
 
         return (base + mixed_delta).to(base.dtype)
 
