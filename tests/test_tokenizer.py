@@ -4,14 +4,14 @@ import tempfile
 from typing import Dict, List, Optional, Union
 
 import pytest
-import tokenizers
 import torch
-from common import make_picollama, run_and_check_merge
-from transformers import LlamaConfig, LlamaTokenizerFast, PreTrainedTokenizerBase
+from common import make_picollama, make_tokenizer, run_and_check_merge
+from transformers import LlamaConfig, LlamaTokenizerFast
 
 from mergekit.config import InputModelDefinition, MergeConfiguration
 from mergekit.io import LazyTensorLoader
 from mergekit.tokenizer import TokenizerConfig
+
 
 
 @pytest.fixture(scope="session")
@@ -38,30 +38,6 @@ def model_padded(tmp_path_factory):
         added_tokens=["<UNUSED_0>", "<UNUSED_1>", "<UNUSED_2>", "<UNUSED_3>"],
     ).save_pretrained(model_path)
     return model_path
-
-
-def make_tokenizer(
-    vocab_size: int, added_tokens: List[Union[str, tokenizers.AddedToken]]
-) -> PreTrainedTokenizerBase:
-    tokens = ["<unk>", "<s>", "</s>"] + [f"_tok_{idx}" for idx in range(3, vocab_size)]
-    tokens = tokens[:vocab_size]
-    tok_data = {
-        "version": "1.0",
-        "model": {
-            "type": "BPE",
-            "vocab": dict(zip(tokens, range(vocab_size))),
-            "merges": [],
-        },
-        "added_tokens": [],
-    }
-    tok = tokenizers.Tokenizer.from_str(json.dumps(tok_data))
-    with tempfile.TemporaryDirectory() as p:
-        tok_path = os.path.join(p, "tokenizer.json")
-        tok.save(tok_path)
-        res = LlamaTokenizerFast(tokenizer_file=tok_path)
-
-    res.add_tokens(added_tokens)
-    return res
 
 
 def check_tokenizer(

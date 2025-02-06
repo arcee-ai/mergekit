@@ -1,14 +1,40 @@
 import os
 import tempfile
-from typing import Callable, Optional
+from typing import Callable, Optional, List, Union
+import json
 
-from transformers import AutoConfig, LlamaConfig, LlamaForCausalLM
+from transformers import AutoConfig, LlamaConfig, LlamaForCausalLM, PreTrainedTokenizerBase, LlamaTokenizerFast
+import tokenizers
 
 from mergekit.architecture import get_architecture_info
 from mergekit.config import MergeConfiguration
 from mergekit.io.lazy_tensor_loader import LazyTensorLoader, ShardedTensorIndex
 from mergekit.merge import MergeOptions, run_merge
 
+
+
+def make_tokenizer(
+    vocab_size: int, added_tokens: List[Union[str, tokenizers.AddedToken]]
+) -> PreTrainedTokenizerBase:
+    tokens = ["<unk>", "<s>", "</s>"] + [f"_tok_{idx}" for idx in range(3, vocab_size)]
+    tokens = tokens[:vocab_size]
+    tok_data = {
+        "version": "1.0",
+        "model": {
+            "type": "BPE",
+            "vocab": dict(zip(tokens, range(vocab_size))),
+            "merges": [],
+        },
+        "added_tokens": [],
+    }
+    tok = tokenizers.Tokenizer.from_str(json.dumps(tok_data))
+    with tempfile.TemporaryDirectory() as p:
+        tok_path = os.path.join(p, "tokenizer.json")
+        tok.save(tok_path)
+        res = LlamaTokenizerFast(tokenizer_file=tok_path)
+
+    res.add_tokens(added_tokens)
+    return res
 
 def run_and_check_merge(
     config: MergeConfiguration,
