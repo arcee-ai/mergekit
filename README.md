@@ -325,18 +325,6 @@ Parameters:
 
 - `filter_wise`: if true, weight calculation will be per-row rather than per-tensor. Not recommended.
 
-### NuSLERP
-
-Spherically interpolate between parameters, but with more options and more sensical configuration! Does not require a base model, but can use one to do spherical interpolation of task vectors. Only works with either two models or two plus a base model.
-
-Parameters:
-
-- `weight`: relative weighting of a given tensor
-- `nuslerp_flatten`: set to false to do row-wise/column-wise interpolation instead of treating tensors as vectors
-- `nuslerp_row_wise`: SLERP row vectors instead of column vectors
-
-To replicate the behavior of the original `slerp` method, set `weight` to `1-t` and `t` for your first and second model respectively.
-
 ### [DELLA](https://arxiv.org/abs/2406.11617)
 
 Building upon DARE, DELLA uses adaptive pruning based on parameter magnitudes. DELLA first ranks parameters in each row of delta parameters and assigns drop probabilities inversely proportional to their magnitudes. This allows it to retain more important changes while reducing interference. After pruning, it rescales the remaining parameters similar to [DARE](#dare). DELLA can be used with (`della`) or without (`della_linear`) the sign elect step of TIES
