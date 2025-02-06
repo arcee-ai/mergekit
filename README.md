@@ -16,12 +16,15 @@
 - [Merge Methods](#merge-methods)
 - [LoRA extraction](#lora-extraction)
 - [Mixture of Experts merging](#mixture-of-experts-merging)
-- [Evolutionary merge methods](#evolutionary-merge-methods)
 - [Development](#development)
 - [Citation](#citation)
 
 ## Breaking changes
 
+This fork is a work in progress. Here are some of the breaking changes we've made so far:
+
+- `bakllama` and `mergekit-legacy` have been removed. if someone can give me a real (not fake) use for them then they will be added back.
+- `mergekit-evolve` has been removed. if anyone can give me a real reason why it should remain a wart tacked onto the rest of mergekit instead of an out-of-tree tool that depends on mergekit, I'll reconsider.
 - `nuslerp` has been renamed to `slerp` (and the original `slerp` has been removed), and it now supports using the parameter `t` (SLERP behavior) OR tensor parameter `weight` (NuSLERP behavior) to specify the weighting of a given tensor.
 
 ## Why Merge Models?
@@ -356,10 +359,6 @@ mergekit-extract-lora finetuned_model_id_or_path base_model_id_or_path output_pa
 ## Mixture of Experts merging
 
 The `mergekit-moe` script supports merging multiple dense models into a mixture of experts, either for direct use or for further training. For more details see the [`mergekit-moe` documentation](docs/moe.md).
-
-## Evolutionary merge methods
-
-See [`docs/evolve.md`](docs/evolve.md) for details.
 
 ## Development
 

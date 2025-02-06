@@ -34,7 +34,6 @@ dependencies = [
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-evolve = ["ray", "cma", "lm_eval", "wandb"]
 vllm = ["vllm==0.3.2", "lm_eval[vllm]"]
 
 [project.urls]
@@ -43,13 +42,10 @@ repository = "https://github.com/cg123/mergekit"
 [project.scripts]
 mergekit-yaml = "mergekit.scripts.run_yaml:main"
 mergekit-mega = "mergekit.scripts.megamerge:main"
-mergekit-legacy = "mergekit.scripts.legacy:main"
 mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
-bakllama = "mergekit.scripts.bakllama:main"
 mergekit-moe = "mergekit.scripts.moe:main"
 mergekit-tokensurgeon = "mergekit.scripts.tokensurgeon:main"
 mergekit-extract-lora = "mergekit.scripts.extract_lora:main"
-mergekit-evolve = "mergekit.scripts.evolve:main"
 
 [tool.hatch.envs.default]
 installer = "uv"
