@@ -1,7 +1,6 @@
 # Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: BUSL-1.1
 
-import logging
 import os
 from typing import Generator, List, Optional
 
@@ -187,49 +186,37 @@ def generate_card(
 
 
 def generate_card_lora(
-    base_model_ref: ModelReference,
-    finetuned_model_ref: ModelReference,
+    base_ref: ModelReference,
+    finetuned_ref: ModelReference,
     invocation: str,
-    extended: bool,
-    vocab_size: int,
     name: str,
+    base_vocab_size: Optional[int] = None,
+    final_vocab_size: Optional[int] = None,
 ) -> str:
-    """
-    Generates a markdown card for a merged model configuration.
-
-    Args:
-        config: A MergeConfiguration object.
-        config_yaml: YAML source text of the config.
-        name: An optional name for the model.
-    """
     if not name:
         name = "Untitled LoRA Model (1)"
 
-    hf_bases = list(extract_hf_paths([base_model_ref, finetuned_model_ref]))
+    hf_bases = list(extract_hf_paths([base_ref, finetuned_ref]))
     tags = ["mergekit", "peft"]
 
-    finetuned_ref_md = modelref_md(finetuned_model_ref)
-    basemodel_ref_md = modelref_md(base_model_ref)
+    details = (
+        f"This LoRA adapter was extracted from {modelref_md(finetuned_ref)} "
+        f"and uses {modelref_md(base_ref)} as a base."
+    )
 
-    details = f"This LoRA adapter was extracted from {finetuned_ref_md} and uses {basemodel_ref_md} as a base."
-
-    if extended:
-        details += f"\n\n> [!WARNING]\n> This LoRA adapter has an extended vocabulary. Make sure to call `model.resize_token_embeddings({vocab_size})` before applying the adapter to {basemodel_ref_md}"
-
-    if os.path.isdir(base_model_ref.model.path) or os.path.isdir(
-        finetuned_model_ref.model.path
-    ):
-        logging.warning(
-            "Some model identifiers you provided are directory paths and will appear as such in the model card, you may want to edit it."
+    if base_vocab_size and final_vocab_size and base_vocab_size != final_vocab_size:
+        verb = "extended" if final_vocab_size > base_vocab_size else "reduced"
+        details += (
+            f"\n\n [!WARNING]\n> The vocabulary size has been {verb} from the base "
+            f"model's {base_vocab_size} to {final_vocab_size}. To load this adapter, "
+            f"you must first call `model.resize_token_embeddings({final_vocab_size})`."
         )
 
     return CARD_TEMPLATE_LORA.format(
         metadata=yaml.dump(
-            {"base_model": hf_bases, "tags": tags, "library_name": "transformers"}
+            {"base_model": hf_bases, "tags": tags, "library_name": "peft"}
         ),
         name=name,
         details=details,
-        base_model=base_model_ref.model.path,
-        finetuned_model=finetuned_model_ref.model.path,
         invocation=invocation,
     )

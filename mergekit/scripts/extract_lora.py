@@ -4,596 +4,62 @@
 import json
 import logging
 import os
+import re
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
-import bitsandbytes as bnb
 import click
 import torch
-from peft.tuners.lora import QuantLinear
-from safetensors.torch import save_file
-from tqdm import tqdm
+import torch.nn as nn
+import tqdm
+from pydantic import BaseModel
 from transformers import AutoModelForCausalLM
-from transformers.pytorch_utils import Conv1D
 
-from mergekit.architecture import WeightInfo, get_architecture_info
+from mergekit.architecture import ArchitectureInfoUtils, WeightInfo
 from mergekit.card import generate_card_lora
 from mergekit.common import ModelReference
-from mergekit.io import LazyTensorLoader
-
-
-def low_rank_decomposition(
-    weight: torch.Tensor, max_rank: int
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Decompose a 2D matrix into low-rank matrices L and R using SVD.
-
-    :param weight: The matrix to decompose, of shape (H, W)
-    :param max_rank: The maximum rank of the decomposition
-    :return: A tuple of tensors (L, R)
-    """
-    assert (
-        weight.dim() == 2
-    ), f"Only support 2D matrix, but input has {weight.dim()} dimensions."
-    assert (
-        max_rank >= 1
-    ), f"Maximum rank must be a positive integer, but input max_rank={max_rank}."
-
-    dtype = weight.dtype
-
-    U, S, Vh = torch.linalg.svd(weight.float(), full_matrices=False)
-
-    final_rank = min(min(weight.shape), max_rank)
-
-    # Distribute S to both to improve numerical precision.
-    sqrt_S = torch.sqrt(torch.diag(S[:final_rank]))
-    L = sqrt_S @ Vh[:final_rank, :]
-    R = U[:, :final_rank] @ sqrt_S
-
-    return L.to(dtype), R.to(dtype)
-
-
-def decompose_delta_weight(
-    base_weight: torch.Tensor,
-    finetuned_weight: torch.Tensor,
-    max_rank: int,
-    device: Optional[str] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Decompose the delta weight into low-rank matrices L and R.
-
-    :param new_weight: The updated weight matrix after applying LoRA
-    :param base_weight: The original weight matrix before LoRA
-    :param max_rank: The maximum rank for the low-rank decomposition
-    :param device: The device to perform computation on
-    :return: A tuple of tensors (L, R)
-    """
-    assert (
-        base_weight.size() == finetuned_weight.size()
-    ), f"Mismatched dimensions: {base_weight.size()} != {finetuned_weight.size()}"
-
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    base_weight = base_weight.to(device)
-    finetuned_weight = finetuned_weight.to(device)
-
-    delta_weight = finetuned_weight - base_weight
-
-    L, R = low_rank_decomposition(delta_weight, max_rank)
-
-    return L, R
-
-
-def get_model_details(
-    model_id: str,
-    skip_undecomposable: bool,
-    modules_to_save: Optional[List[str]] = None,
-) -> List[Tuple[str, str, torch.Size]]:
-    """
-    Retrieve architectural details of a given pre-trained model.
-
-    :param model_id: The identifier of the pre-trained model to load
-    :param skip_undecomposable: Skip saving undecomposable modules
-    :return: A list of tuples where each tuple contains:
-             - type: The type of the module ('embedding', 'linear', or 'to_save')
-             - name: The full name of the module
-             - size: The dimensions of the module's weight tensor
-    """
-
-    # Avoid loading weights as we won't need them
-    pretrained_model = AutoModelForCausalLM.from_pretrained(
-        model_id, state_dict={}, device_map="meta"
-    )
-
-    vocab_size = pretrained_model.get_input_embeddings().weight.shape[0]
-
-    module_details = []
-    modules_to_save = set(modules_to_save or [])
-
-    for name, module in pretrained_model.named_modules():
-        if name in modules_to_save or (
-            "." in name and name.split(".")[-1] in modules_to_save
-        ):
-            module_details.append(("to_save", name, module.weight.size()))
-        elif module == pretrained_model.get_input_embeddings():
-            # if isinstance(module, torch.nn.Embedding):
-            module_details.append(("embedding", name, module.weight.size()))
-        elif module == pretrained_model.get_output_embeddings():
-            # if isinstance(module, torch.nn.Embedding):
-            module_details.append(("output", name, module.weight.size()))
-        elif hasattr(module, "weight") and isinstance(module.weight, torch.Tensor):
-            if (
-                # SEE: https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/model.py
-                isinstance(
-                    module,
-                    (
-                        torch.nn.Linear,
-                        torch.nn.Conv2d,
-                        bnb.nn.Linear4bit,
-                        bnb.nn.Linear8bitLt,
-                        QuantLinear,
-                        Conv1D,
-                    ),
-                )
-                or (
-                    "Linear" in module.__class__.__name__
-                    and module.__class__.__name__
-                    not in ("LlamaLinearScalingRotaryEmbedding",)
-                )
-            ):
-                module_details.append(("linear", name, module.weight.size()))
-            elif not skip_undecomposable:
-                module_details.append(("to_save", name, module.weight.size()))
-            else:
-                logging.info(f"Skipping undecomposable module '{name}'.")
-
-    return module_details, vocab_size
-
-
-def validate_and_combine_details(
-    base_model_id: str,
-    finetuned_model_id: str,
-    skip_undecomposable: bool,
-    extend_vocab: bool,
-    modules_to_save: Optional[List[str]] = None,
-) -> Tuple[List[Tuple[str, str]], int, int]:
-    """
-    Validate and combine details from a base model and a fine-tuned model.
-
-    :param base_model_id: The identifier for the base model
-    :param finetuned_model_id: The identifier for the fine-tuned model
-    :param skip_undecomposable: Skip saving undecomposable modules
-    :return: A list of tuples with the type and name of the validated/combined model layers
-    """
-
-    base_model_details, base_vocab_size = get_model_details(
-        base_model_id, skip_undecomposable, modules_to_save=modules_to_save
-    )
-    finetuned_model_details, finetuned_vocab_size = get_model_details(
-        finetuned_model_id, skip_undecomposable, modules_to_save=modules_to_save
-    )
-
-    module_details = []
-
-    for i, (base_layer, finetuned_layer) in enumerate(
-        zip(base_model_details, finetuned_model_details)
-    ):
-        base_type, base_name, base_size = base_layer
-        finetuned_type, finetuned_name, finetuned_size = finetuned_layer
-
-        assert (
-            base_type == finetuned_type
-        ), f"Layer type mismatch: {base_type} != {finetuned_type}"
-        assert (
-            base_name == finetuned_name
-        ), f"Layer name mismatch: {base_name} != {finetuned_name}"
-
-        # Fine-tuned models with added vocab will have have their extra rows truncated unless `extend_vocab` is specified
-        if base_type != "to_save" and finetuned_size[0] > base_size[0]:
-            assert (
-                base_size[1] == finetuned_size[1]
-            ), f"Column dimension mismatch in layer '{base_name}': {base_size} != {finetuned_size}"
-
-            if base_type == "embedding" or base_type == "output":
-                if not extend_vocab:
-                    logging.warning(
-                        f"Finetuned module '{base_name}' will have {finetuned_size[0] - base_size[0]} rows truncated for weight decomposition! To preserve all embeddings, invoke script with --extend-vocab or --save-module={base_name}."
-                    )
-                else:
-                    logging.warning(
-                        f"Base module '{base_name}' will have {finetuned_size[0] - base_size[0]} rows added for weight decomposition. Make sure to call `model.resize_token_embeddings({finetuned_size[0]})` before applying LoRA for inference!"
-                    )
-            else:
-                logging.warning(
-                    f"Finetuned module '{base_name}' will have {finetuned_size[0] - base_size[0]} rows truncated for weight decomposition!"
-                )
-
-        elif base_type != "to_save":
-            assert (
-                base_size == finetuned_size
-            ), f"Dimension mismatch in layer '{base_name}': {base_size} != {finetuned_size}"
-
-        module_details.append((base_type, base_name))
-
-    return module_details, base_vocab_size, finetuned_vocab_size
-
-
-def build_wi_map(base_model_ref: ModelReference, trust_remote_code: bool = False):
-    weight_info_map = {}
-    base_cfg = base_model_ref.config(trust_remote_code=trust_remote_code)
-    try:
-        arch_info = get_architecture_info(base_cfg)
-    except RuntimeError as e:
-        logging.error(
-            f"Failed to load architecture info for model {base_model_ref}: {e}"
-        )
-        return {}
-    for weight_info in arch_info.all_weights(base_cfg):
-        weight_info_map[weight_info.name] = weight_info
-    return weight_info_map
-
-
-def load_weights(
-    wi_map: Dict[str, WeightInfo],
-    base_loader: LazyTensorLoader,
-    finetuned_loader: LazyTensorLoader,
-    module_name: str,
-):
-    optional = False
-    aliases = None
-    tied_names = None
-    if weight_info := wi_map.get(module_name + ".weight"):
-        if weight_info.optional:
-            optional = True
-        if weight_info.aliases:
-            aliases = weight_info.aliases
-        if weight_info.tied_names:
-            tied_names = weight_info.tied_names
-
-    base_weight = base_loader.get_tensor(
-        f"{module_name}.weight", aliases=aliases, raise_on_missing=False
-    )
-    finetuned_weight = finetuned_loader.get_tensor(
-        f"{module_name}.weight", aliases=aliases, raise_on_missing=False
-    )
-    if optional and (base_weight is None and finetuned_weight is None):
-        return None, None
-    if tied_names:
-        if base_weight is None:
-            base_weight = base_loader.get_tensor(
-                f"{module_name}.weight", aliases=tied_names, raise_on_missing=False
-            )
-        if finetuned_weight is None:
-            finetuned_weight = finetuned_loader.get_tensor(
-                f"{module_name}.weight", aliases=tied_names, raise_on_missing=False
-            )
-    if base_weight is None:
-        raise RuntimeError(f"Missing base weight for {module_name}")
-    if finetuned_weight is None:
-        if optional:
-            return None, None
-        raise RuntimeError(f"Missing finetuned weight for {module_name}")
-    return base_weight, finetuned_weight
-
-
-def extract_lora(
-    module_details: List[Tuple[str, str]],
-    base_model_ref: ModelReference,
-    finetuned_model_ref: ModelReference,
-    max_rank: int,
-    extend_vocab: bool,
-    no_lazy_unpickle: bool,
-    device: Optional[str],
-    trust_remote_code: bool = False,
-) -> Tuple[Dict[str, torch.Tensor], Dict[str, int]]:
-    """
-    Process module details to decompose weights and generate LoRA weights and ranks.
-
-    :param module_details: List of module details.
-    :param base_model_ref: Reference to the base model.
-    :param finetuned_model_ref: Reference to the fine-tuned model.
-    :param max_rank: The maximum rank for the low-rank decomposition.
-    :param no_lazy_unpickle: Flag to disable lazy unpickle.
-    :param device: The device to perform computation on.
-    :return: A tuple containing LoRA weights dictionary and ranks dictionary.
-    """
-
-    base_loader = LazyTensorLoader(
-        base_model_ref.tensor_index(), lazy_unpickle=(not no_lazy_unpickle)
-    )
-    finetuned_loader = LazyTensorLoader(
-        finetuned_model_ref.tensor_index(), lazy_unpickle=(not no_lazy_unpickle)
-    )
-
-    lora_weights = {}
-    ranks = {}
-
-    wi_map = build_wi_map(base_model_ref, trust_remote_code)
-
-    for module_type, module_name in tqdm(module_details):
-        base_weight, finetuned_weight = load_weights(
-            wi_map, base_loader, finetuned_loader, module_name
-        )
-        if base_weight is None and finetuned_weight is None:
-            logging.info(f"[{module_type}] {module_name}: optional weight not found")
-            continue
-
-        if module_type == "to_save":
-            lora_weights[
-                f"base_model.model.{module_name}.weight"
-            ] = finetuned_weight.to("cpu").contiguous()
-
-            logging.info(
-                f"[{module_type}] {module_name}: output_dims=({finetuned_weight.shape})"
-            )
-
-        else:
-            if finetuned_weight.shape[0] > base_weight.shape[0]:
-                if extend_vocab:
-                    print(f"Extra tokens found!, module name : {module_name}")
-
-                    new_base_weight = torch.empty(
-                        finetuned_weight.shape, device=base_weight.device
-                    )
-                    new_base_weight.normal_(mean=0.0, std=0.02)
-
-                    # Copy original base_weight values into the new tensor
-                    new_base_weight[: base_weight.shape[0]] = base_weight
-
-                    if module_type == "embedding" or module_type == "output":
-                        lora_weights[
-                            f"base_model.model.{module_name}.base_layer.weight"
-                        ] = new_base_weight.to("cpu").contiguous()
-
-                    base_weight = new_base_weight
-                else:
-                    logging.warning(
-                        f"Finetuned module '{module_name}' will have {finetuned_weight.shape[0] - base_weight.shape[0]} rows truncated for weight decomposition!"
-                    )
-                    finetuned_weight = finetuned_weight[: base_weight.shape[0]]
-
-            if module_type == "embedding":
-                # These need to be transposed for some reason...
-                lora_embedding_A, lora_embedding_B = decompose_delta_weight(
-                    base_weight.T, finetuned_weight.T, max_rank, device=device
-                )
-
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_embedding_A"
-                ] = lora_embedding_A.to("cpu").contiguous()
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_embedding_B"
-                ] = lora_embedding_B.to("cpu").contiguous()
-
-                ranks[module_name] = lora_embedding_A.shape[0]
-
-                logging.info(
-                    f"[{module_type}] {module_name}: final_rank={ranks[module_name]}, "
-                    f"input_dims=({base_weight.shape}), "
-                    f"output_dims=({lora_embedding_A.shape}, {lora_embedding_B.shape})"
-                )
-
-            else:
-                lora_A, lora_B = decompose_delta_weight(
-                    base_weight, finetuned_weight, max_rank, device=device
-                )
-
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_A.weight"
-                ] = lora_A.to("cpu").contiguous()
-                lora_weights[
-                    f"base_model.model.{module_name}.lora_B.weight"
-                ] = lora_B.to("cpu").contiguous()
-
-                ranks[module_name] = lora_A.shape[0]
-
-                logging.info(
-                    f"[{module_type}] {module_name}: final_rank={ranks[module_name]}, "
-                    f"input_dims=({base_weight.shape}), "
-                    f"output_dims=({lora_A.shape}, {lora_B.shape})"
-                )
-
-    return lora_weights, ranks
-
-
-def reconstruct_invocation(args: Dict[str, Any]) -> str:
-    """
-    Reconstruct the command-line invocation string based on the given arguments.
-
-    :param args: A dictionary containing the command arguments with keys matching the parameter names.
-                 Expected keys are 'base_model', 'finetuned_model', 'out_path', 'no_lazy_unpickle',
-                 'skip_undecomposable, 'max_rank', 'model_name', 'device' and 'verbose'.
-    :return: The reconstructed command-line invocation string.
-    """
-
-    # Provide a default value for out_path if it's not in the dictionary
-    out_path = args.get("out_path", "OUTPUT_PATH")
-
-    invocation = f"mergekit-extract-lora {args['finetuned_model']} {args['base_model']} {out_path}"
-    if args.get("no_lazy_unpickle"):
-        invocation += " --no-lazy-unpickle"
-    if args.get("skip_undecomposable"):
-        invocation += " --skip-undecomposable"
-    if args.get("max_rank"):
-        invocation += f" --rank={args['max_rank']}"
-    if args.get("extend_vocab"):
-        invocation += " --extend-vocab"
-    if args.get("model_name"):
-        invocation += f" --model_name={args['model_name']}"
-    if args.get("device"):
-        invocation += f" --device={args['device']}"
-    if args.get("verbose"):
-        invocation += " --verbose"
-    if args.get("modules_to_save"):
-        for module in args["modules_to_save"]:
-            invocation += f" --save-module={module}"
-
-    return invocation
-
-
-def create_peft_config(
-    base_model_name_or_path: str,
-    rank: int,
-    alpha: int,
-    rank_pattern: Dict[str, int],
-    alpha_pattern: Dict[str, int],
-    target_modules: List[str],
-    modules_to_save: List[str],
-) -> Dict[str, Any]:
-    """
-    Create a PEFT (Parameter-Efficient Fine-Tuning) configuration dictionary.
-
-    :param base_model_name_or_path: The path or name of the base model.
-    :param rank: The rank for the low-rank adaptation.
-    :param alpha: The scaling factor for low-rank adaptation.
-    :param rank_pattern: A dictionary specifying rank patterns for different modules.
-    :param alpha_pattern: A dictionary specifying alpha patterns for different modules.
-    :param target_modules: A list of module names to apply the adaptation to.
-    :param modules_to_save: A list of module names to save during the adaptation.
-    :return: A dictionary containing the PEFT configuration.
-    """
-    return {
-        "alpha_pattern": alpha_pattern,
-        "auto_mapping": None,
-        "base_model_name_or_path": base_model_name_or_path,
-        "bias": "none",
-        "fan_in_fan_out": False,
-        "inference_mode": True,
-        "init_lora_weights": True,
-        "layers_pattern": None,
-        "layers_to_transform": None,
-        "loftq_config": {},
-        "lora_alpha": alpha,
-        "lora_dropout": 0,
-        "megatron_config": None,
-        "megatron_core": "megatron.core",
-        "modules_to_save": modules_to_save,
-        "peft_type": "LORA",
-        "r": rank,
-        "rank_pattern": rank_pattern,
-        "revision": None,
-        "target_modules": target_modules,
-        "task_type": "CAUSAL_LM",
-        "use_rslora": False,
-    }
-
-
-def save_model_and_config(
-    lora_weights: Dict[str, torch.Tensor],
-    ranks: Dict[str, int],
-    extended: bool,
-    embedding_size: int,
-    module_details: List[Tuple[str, str]],
-    invocation_args: Dict[str, Any],
-) -> None:
-    """
-    Save the PEFT model and configuration to the specified output path.
-
-    :param lora_weights: The LoRA weights.
-    :param ranks: The ranks of the LoRA weights.
-    :param module_details: Details of the model modules.
-    :param invocation_args: The command-line invocation arguments.
-    """
-
-    base_model_ref = ModelReference.parse(invocation_args["base_model"])
-    finetuned_model_ref = ModelReference.parse(invocation_args["finetuned_model"])
-    out_path = invocation_args["out_path"]
-    model_name = invocation_args["model_name"]
-
-    # Work out the actual final rank and only retain those that were lower.
-    final_max_rank = max(ranks.values())
-    ranks = {k: v for k, v in ranks.items() if v != final_max_rank}
-
-    lora_config = create_peft_config(
-        base_model_name_or_path=base_model_ref.model.path,
-        rank=final_max_rank,
-        alpha=final_max_rank,  # Setting the alpha to the rank value as `peft` will scale the LoRA weights by alpha/r when applying the adapter
-        rank_pattern=ranks,
-        alpha_pattern=ranks,
-        target_modules=list(
-            set(
-                module_name.split(".")[-1]
-                for module_type, module_name in module_details
-                if module_type != "to_save"
-            )
-        ),
-        modules_to_save=list(
-            set(
-                module_name.split(".")[-1]
-                for module_type, module_name in module_details
-                if module_type == "to_save"
-            )
-        ),
-    )
-
-    with open(os.path.join(out_path, "adapter_config.json"), "w") as f:
-        json.dump(lora_config, f, indent=2)
-
-    save_file(lora_weights, os.path.join(out_path, "adapter_model.safetensors"))
-
-    invocation_args.pop("out_path")  # don't include out_path for privacy
-    invocation = reconstruct_invocation(invocation_args)
-
-    card_md = generate_card_lora(
-        base_model_ref=base_model_ref,
-        finetuned_model_ref=finetuned_model_ref,
-        invocation=invocation,
-        extended=extended,
-        vocab_size=embedding_size,
-        name=model_name,
-    )
-
-    with open(os.path.join(out_path, "README.md"), "w", encoding="utf-8") as fp:
-        fp.write(card_md)
-
-    logging.info(f"PEFT LoRA adapters saved to {out_path}")
+from mergekit.graph import Executor, Task
+from mergekit.io.tasks import FinalizeModel, LoadTensor, SaveTensor, TensorWriterTask
+from mergekit.io.tensor_writer import TensorWriter
+from mergekit.multigpu_executor import MultiGPUExecutor
+from mergekit.options import MergeOptions, add_merge_options
+
+logger = logging.getLogger("extract_lora")
 
 
 @click.command("mergekit-extract-lora")
-@click.argument("finetuned_model", type=str)
-@click.argument("base_model", type=str)
-@click.argument("out_path", type=click.Path())
 @click.option(
-    "--no-lazy-unpickle",
-    type=bool,
-    is_flag=True,
-    default=False,
-    help="Disable lazy unpickler (more stable, higher memory usage)",
+    "--model",
+    required=True,
+    help="Fine-tuned model path",
 )
 @click.option(
-    "--skip-undecomposable",
-    type=bool,
-    is_flag=True,
-    default=False,
-    help="Skip saving undecomposable modules in the LoRA",
+    "--base-model",
+    required=True,
+    help="Base model path",
 )
 @click.option(
-    "--rank",
-    "max_rank",
+    "--out-path",
+    required=True,
+    help="Output path for extracted LoRA adapter",
+)
+@click.option(
+    "--max-rank",
     type=int,
-    default=32,
-    help="The maximum rank for the low-rank decomposition",
+    default=128,
+    help="Maximum rank for LoRA decomposition",
 )
 @click.option(
-    "--extend-vocab",
+    "--distribute-scale/--no-distribute-scale",
+    is_flag=True,
+    default=True,
+    help="Distribute scale between A and B matrices",
+)
+@click.option(
+    "--embed-lora/--no-embed-lora",
     is_flag=True,
     default=False,
-    help="Extend vocabulary for models with additional tokens instead of truncating",
-)
-@click.option(
-    "--model_name",
-    type=str,
-    default=None,
-    help="Name of the resulting model (shown in the model card)",
-)
-@click.option(
-    "--device",
-    type=str,
-    default=None,
-    help="PyTorch device to perform SVD computation on",
-)
-@click.option(
-    "--verbose", "-v", type=bool, is_flag=True, default=False, help="Verbose logging"
+    help="Extract LoRA weights for embeddings",
 )
 @click.option(
     "--save-module",
@@ -604,88 +70,472 @@ def save_model_and_config(
     help="Save the specified module(s) at full rank",
 )
 @click.option(
-    "--trust-remote-code/--no-trust-remote-code",
-    default=False,
-    help="Trust remote code when loading model configurations",
+    "--exclude-regex",
+    "-e",
+    "exclude_regexes",
+    type=str,
+    multiple=True,
+    help="Exclude modules matching the specified regex",
 )
+@click.option(
+    "--include-regex",
+    "-i",
+    "include_regexes",
+    type=str,
+    multiple=True,
+    help="Include modules matching the specified regex",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Verbose logging",
+)
+@click.option(
+    "--sv-epsilon",
+    type=float,
+    default=0,
+    help="Threshold for singular values to discard",
+    show_default=True,
+)
+@add_merge_options
 def main(
-    finetuned_model: str,
     base_model: str,
+    model: str,
     out_path: str,
-    no_lazy_unpickle: bool,
-    skip_undecomposable: bool,
     max_rank: int,
-    extend_vocab: bool,
-    model_name: str,
-    device: str,
-    verbose: bool,
+    distribute_scale: bool,
+    embed_lora: bool,
     modules_to_save: List[str],
-    trust_remote_code: bool,
-) -> None:
-    """
-    Decomposes delta weights between a base model and a finetuned model, saving a PEFT model to the specified output path.
+    exclude_regexes: List[str],
+    include_regexes: List[str],
+    verbose: bool,
+    sv_epsilon: float,
+    merge_options: MergeOptions,
+):
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
 
-    \b
-    Arguments:
-    FINETUNED_MODEL - the model ID or path to use as the PEFT extraction target model.
-    BASE_MODEL - the model ID or path to use as the base model.
-    OUT_PATH - the output path where the PEFT model will be saved.
-    """
+    if not modules_to_save:
+        modules_to_save = []
 
-    invocation_args = {
-        "base_model": base_model,
-        "finetuned_model": finetuned_model,
-        "max_rank": max_rank,
-        "extend_vocab": extend_vocab,
-        "device": device,
-        "out_path": out_path,
-        "model_name": model_name,
-        "no_lazy_unpickle": no_lazy_unpickle,
-        "skip_undecomposable": skip_undecomposable,
-        "verbose": verbose,
-        "modules_to_save": modules_to_save or None,
+    base_model_ref = ModelReference.model_validate(base_model)
+    model_ref = ModelReference.model_validate(model)
+    plan_result = plan_extraction(
+        base_model_ref=base_model_ref.merged(
+            cache_dir=merge_options.lora_merge_cache,
+            trust_remote_code=merge_options.trust_remote_code,
+        ),
+        model_ref=model_ref.merged(
+            cache_dir=merge_options.lora_merge_cache,
+            trust_remote_code=merge_options.trust_remote_code,
+        ),
+        modules_to_save=modules_to_save,
+        out_path=out_path,
+        options=merge_options,
+        max_rank=max_rank,
+        distribute_scale=distribute_scale,
+        embed_lora=embed_lora,
+        exclude_regexes=exclude_regexes,
+        include_regexes=include_regexes,
+        sv_epsilon=sv_epsilon,
+    )
+
+    tasks = plan_result.tasks
+    if merge_options.multi_gpu:
+        executor = MultiGPUExecutor(
+            tasks, storage_device="cpu" if not merge_options.low_cpu_memory else None
+        )
+    else:
+        executor = Executor(
+            tasks,
+            math_device="cuda" if merge_options.cuda else "cpu",
+            storage_device="cuda" if merge_options.low_cpu_memory else "cpu",
+        )
+
+    module_real_ranks = {}
+    for task, result in executor.run():
+        if isinstance(task, TaskVectorDecompositionTask):
+            module_real_ranks[task.weight_info.name.removesuffix(".weight")] = result[
+                0
+            ].shape[0]
+
+    real_max_rank = max(module_real_ranks.values())
+    config_dict = make_config_dict(
+        base_ref=base_model_ref,
+        max_rank=real_max_rank,
+        modules_to_save=modules_to_save,
+        target_modules=list(
+            set(key.split(".")[-1] for key in module_real_ranks.keys())
+        ),
+        module_ranks=module_real_ranks,
+    )
+    with open(os.path.join(out_path, "adapter_config.json"), "w") as f:
+        json.dump(config_dict, f, indent=4)
+
+    invocation = " ".join(sys.argv)
+    with open(os.path.join(out_path, "README.md"), "w", encoding="utf-8") as f:
+        f.write(
+            generate_card_lora(
+                base_model_ref,
+                model_ref,
+                invocation,
+                os.path.basename(out_path),
+                base_vocab_size=plan_result.base_vocab_size,
+                final_vocab_size=plan_result.final_vocab_size,
+            )
+        )
+
+    logger.info(f"LoRA adapter extracted to {out_path}")
+
+
+def make_config_dict(
+    base_ref: ModelReference,
+    max_rank: int,
+    modules_to_save: List[str],
+    target_modules: List[str],
+    module_ranks: Dict[str, int],
+):
+    different_ranked = {k: v for k, v in module_ranks.items() if v != max_rank}
+    return {
+        "base_model_name_or_path": base_ref.model.path,
+        "peft_type": "LORA",
+        "use_rslora": False,
+        "target_modules": target_modules,
+        "modules_to_save": modules_to_save,
+        "task_type": "CAUSAL_LM",
+        "r": max_rank,
+        "lora_alpha": max_rank,
+        "rank_pattern": different_ranked,
+        "alpha_pattern": different_ranked,
+        "lora_dropout": 0.0,
+        "fan_in_fan_out": False,
+        "inference_mode": True,
     }
 
-    logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
 
-    os.makedirs(out_path, exist_ok=True)
+class TaskVectorDecompositionTask(Task[Tuple[torch.Tensor, torch.Tensor]]):
+    weight_info: WeightInfo
+    input_task: Task
+    max_rank: int
+    distribute_scale: bool = True
+    transpose: bool = False
+    sv_epsilon: float = 0
 
-    base_model_ref = ModelReference.parse(base_model)
-    finetuned_model_ref = ModelReference.parse(finetuned_model)
+    def arguments(self) -> Dict[str, Any]:
+        return {"task_vector": self.input_task}
 
-    (
-        module_details,
-        base_vocab_size,
-        finetuned_vocab_size,
-    ) = validate_and_combine_details(
+    def execute(self, task_vector: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.transpose:
+            task_vector = task_vector.T
+        u, s, vh = torch.linalg.svd(task_vector, full_matrices=False)
+        rank = min(self.max_rank, s.shape[0])
+        if self.sv_epsilon > 0:
+            rank = min((s > self.sv_epsilon).sum().item(), rank)
+        if self.distribute_scale:
+            sqrt_s = torch.diag(torch.sqrt(s[:rank]))
+            scale_a = sqrt_s
+            scale_b = sqrt_s
+        else:
+            scale_a = torch.diag(s[:rank])
+            scale_b = torch.eye(rank)
+        sqrt_s = torch.diag(torch.sqrt(s[:rank]))
+        weight_a = scale_a @ vh[:rank]
+        weight_b = u[:, :rank] @ scale_b
+
+        return weight_a, weight_b
+
+    def group_label(self) -> Optional[str]:
+        return self.input_task.group_label()
+
+    def uses_accelerator(self):
+        return True
+
+
+class TaskVectorTask(Task[torch.Tensor]):
+    base_tensor: Task
+    model_tensor: Task
+
+    def arguments(self) -> Dict[str, Any]:
+        return {"base": self.base_tensor, "model": self.model_tensor}
+
+    def execute(self, base: torch.Tensor, model: torch.Tensor) -> torch.Tensor:
+        return model - base
+
+    def group_label(self):
+        return max(
+            self.base_tensor.group_label() or "", self.model_tensor.group_label() or ""
+        )
+
+    def uses_accelerator(self):
+        return True
+
+
+class LoRAModuleSaveTask(Task):
+    weight_info: WeightInfo
+    writer_task: TensorWriterTask
+    model_ref: ModelReference
+    decomposition_task: TaskVectorDecompositionTask
+
+    def arguments(self) -> Dict[str, Any]:
+        return {"writer": self.writer_task, "decomp": self.decomposition_task}
+
+    def execute(
+        self, writer: TensorWriter, decomp: Tuple[torch.Tensor, torch.Tensor]
+    ) -> None:
+        weight_a, weight_b = decomp
+        if weight_a is None or weight_b is None:
+            if not self.weight_info.optional:
+                raise RuntimeError(
+                    f"No SVD decomposition for required weight {self.weight_info.name}"
+                )
+            return
+        lora_type = "lora_embedding" if self.weight_info.is_embed else "lora"
+        base_name = self.weight_info.name.removesuffix(".weight")
+        writer.save_tensor(
+            f"base_model.model.{base_name}.{lora_type}_A.weight", weight_a
+        )
+        writer.save_tensor(
+            f"base_model.model.{base_name}.{lora_type}_B.weight", weight_b
+        )
+
+    def priority(self) -> int:
+        return 1000
+
+    def group_label(self) -> Optional[str]:
+        return self.decomposition_task.group_label()
+
+
+def _wi_load(model_ref: ModelReference, weight_info: WeightInfo) -> LoadTensor:
+    return LoadTensor(
+        model=model_ref,
+        tensor=weight_info.name,
+        dtype=weight_info.force_dtype,
+        optional=weight_info.optional,
+        aliases=weight_info.aliases,
+        tied_names=weight_info.tied_names,
+    )
+
+
+class PlanResults(BaseModel):
+    tasks: List[Task]
+    base_vocab_size: int
+    final_vocab_size: int
+
+
+def plan_extraction(
+    base_model_ref: ModelReference,
+    model_ref: ModelReference,
+    modules_to_save: List[str],
+    out_path: str,
+    options: MergeOptions,
+    max_rank: int,
+    distribute_scale: bool = True,
+    embed_lora: bool = False,
+    exclude_regexes: Optional[List[str]] = None,
+    include_regexes: Optional[List[str]] = None,
+    sv_epsilon: float = 0,
+) -> PlanResults:
+    targets = []
+    writer_task = TensorWriterTask(
+        out_path=out_path,
+        override_basename="adapter_model",
+        max_shard_size=-1,
+        safe_serialization=options.safe_serialization,
+    )
+
+    name_to_wi = all_weights_map(model_ref, options)
+    dummy_model = AutoModelForCausalLM.from_pretrained(
+        model_ref.model.path,
+        revision=model_ref.model.revision,
+        trust_remote_code=options.trust_remote_code,
+        device_map="meta",
+        state_dict={},
+    )
+    dummy_base = AutoModelForCausalLM.from_pretrained(
         base_model_ref.model.path,
-        finetuned_model_ref.model.path,
-        skip_undecomposable,
-        extend_vocab,
-        modules_to_save=modules_to_save,
-    )
-    logging.info(f"Base model vocab size: {base_vocab_size}")
-    logging.info(f"Finetuned model vocab size: {finetuned_vocab_size}")
-
-    lora_weights, ranks = extract_lora(
-        module_details,
-        base_model_ref,
-        finetuned_model_ref,
-        max_rank,
-        extend_vocab,
-        no_lazy_unpickle,
-        device,
-        trust_remote_code,
+        revision=base_model_ref.model.revision,
+        trust_remote_code=options.trust_remote_code,
+        device_map="meta",
+        state_dict={},
     )
 
-    save_model_and_config(
-        lora_weights,
-        ranks,
-        finetuned_vocab_size > base_vocab_size and extend_vocab,
-        finetuned_vocab_size if extend_vocab else base_vocab_size,
-        module_details,
-        invocation_args,
+    embed_in = dummy_model.get_input_embeddings()
+    embed_out = dummy_model.get_output_embeddings()
+
+    ft_vocab = embed_in.weight.shape[0]
+    base_vocab = dummy_base.get_input_embeddings().weight.shape[0]
+    if ft_vocab != base_vocab:
+        logger.warning(
+            f"Vocabulary size mismatch: fine-tuned model has {ft_vocab} tokens, base model has {base_vocab} tokens"
+        )
+        logger.warning("Enforcing embeddings in modules_to_save, embed_lora=False")
+        embed_lora = False
+        force_embed_save = True
+    else:
+        force_embed_save = False
+
+    warned_modules = set()
+
+    def _should_extract(name: str) -> bool:
+        if include_regexes and not any(re.search(r, name) for r in include_regexes):
+            return False
+        if any(re.search(r, name) for r in exclude_regexes):
+            return False
+        return True
+
+    for name, module in tqdm.tqdm(
+        list(dummy_model.named_modules()), desc="Planning operations"
+    ):
+        wi = name_to_wi.get(name + ".weight")
+        bias_wi = name_to_wi.get(name + ".bias")
+        if wi is None:
+            if hasattr(module, "weight"):
+                logger.warning(
+                    f"Weight {name} present in model but not in architecture info"
+                )
+                wi = WeightInfo(
+                    name=name + ".weight",
+                    optional=True,
+                    is_embed=isinstance(module, nn.Embedding),
+                )
+            else:
+                continue
+
+        if (force_embed_save and (module == embed_in or module == embed_out)) or (
+            not embed_lora and isinstance(module, nn.Embedding)
+        ):
+            key = name.split(".")[-1]
+            if key not in modules_to_save:
+                logger.warning(f"Adding {key} to modules_to_save")
+                modules_to_save.append(key)
+
+        if name in modules_to_save or (name.split(".")[-1] in modules_to_save):
+            logger.info(f"Planning to save {name} at full rank")
+            targets.extend(plan_module_to_save(model_ref, writer_task, wi, bias_wi))
+        elif _should_extract(name):
+            if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Embedding)):
+                logger.info(f"Planning LoRA extraction for {name}")
+                targets.extend(
+                    plan_lora_module(
+                        base_model_ref,
+                        model_ref,
+                        wi,
+                        bias_wi,
+                        writer_task,
+                        max_rank,
+                        distribute_scale,
+                        transpose=isinstance(module, nn.Embedding),
+                        sv_epsilon=sv_epsilon,
+                    )
+                )
+            else:
+                key = name.split(".")[-1]
+                if key not in warned_modules:
+                    warned_modules.add(key)
+                    generic_name = re.sub(r"\.(\d+)\.", ".N.", name)
+                    logger.warning(
+                        f"{generic_name} has unsupported module type {type(module).__name__} - skipping"
+                    )
+
+    save_tasks = [t for t in targets if isinstance(t, (SaveTensor, LoRAModuleSaveTask))]
+    finalize = FinalizeModel(tensor_save_tasks=save_tasks, writer_task=writer_task)
+    return PlanResults(
+        tasks=targets + [finalize],
+        base_vocab_size=base_vocab,
+        final_vocab_size=ft_vocab,
     )
+
+
+def plan_lora_module(
+    base_model_ref: ModelReference,
+    model_ref: ModelReference,
+    wi: WeightInfo,
+    bias_wi: Optional[WeightInfo],
+    writer_task: TensorWriterTask,
+    max_rank: int,
+    distribute_scale: bool = True,
+    transpose: bool = False,
+    sv_epsilon: float = 0,
+) -> List[Task]:
+    targets = []
+    base_load_task = _wi_load(base_model_ref, wi)
+    model_load_task = _wi_load(model_ref, wi)
+    tv_task = TaskVectorTask(base_tensor=base_load_task, model_tensor=model_load_task)
+    decomp_task = TaskVectorDecompositionTask(
+        weight_info=wi,
+        input_task=tv_task,
+        max_rank=max_rank,
+        distribute_scale=distribute_scale,
+        transpose=transpose,
+        sv_epsilon=sv_epsilon,
+    )
+    targets.append(decomp_task)
+    targets.append(
+        LoRAModuleSaveTask(
+            weight_info=wi,
+            writer_task=writer_task,
+            model_ref=model_ref,
+            decomposition_task=decomp_task,
+        )
+    )
+    if bias_wi is not None:
+        base_bias_load_task = _wi_load(base_model_ref, bias_wi)
+        model_bias_load_task = _wi_load(model_ref, bias_wi)
+        tv_bias_task = TaskVectorTask(
+            base_tensor=base_bias_load_task, model_tensor=model_bias_load_task
+        )
+        base_bias_name = bias_wi.name.removesuffix(".bias")
+        name_out = f"base_model.model.{base_bias_name}.lora_B.bias"
+        targets.append(
+            SaveTensor(
+                tensor_name=name_out,
+                tensor_task=tv_bias_task,
+                writer_task=writer_task,
+                optional=bias_wi.optional,
+                clone=False,
+            )
+        )
+    return targets
+
+
+def plan_module_to_save(
+    model_ref: ModelReference,
+    writer_task: TensorWriterTask,
+    wi: WeightInfo,
+    bias_wi: Optional[WeightInfo],
+):
+    save_tasks = []
+    load_task = _wi_load(model_ref, wi)
+    save_task = SaveTensor(
+        tensor_name=f"base_model.model.{wi.name}",
+        tensor_task=load_task,
+        writer_task=writer_task,
+        optional=wi.optional,
+        clone=False,
+    )
+    save_tasks.append(save_task)
+    if bias_wi is not None:
+        bias_load_task = _wi_load(model_ref, bias_wi)
+        bias_save_task = SaveTensor(
+            tensor_name=f"base_model.model.{bias_wi.name}",
+            tensor_task=bias_load_task,
+            writer_task=writer_task,
+            optional=bias_wi.optional,
+            clone=False,
+        )
+        save_tasks.append(bias_save_task)
+    return save_tasks
+
+
+def all_weights_map(
+    model_ref: ModelReference, options: MergeOptions
+) -> Dict[str, WeightInfo]:
+    name_to_wi = {}
+    model_cfg = model_ref.config(trust_remote_code=options.trust_remote_code)
+    arch_info = ArchitectureInfoUtils.get_architecture_info(model_cfg)
+    for wi in arch_info.all_weights(model_cfg):
+        name_to_wi[wi.name] = wi
+    return name_to_wi
 
 
 if __name__ == "__main__":

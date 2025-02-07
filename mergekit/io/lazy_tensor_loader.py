@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import os.path
+import threading
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -106,11 +107,13 @@ class LazyTensorLoader:
     index: ShardedTensorIndex
     current_shard: Optional[TensorLoader]
     lazy_unpickle: bool
+    lock: threading.Lock
 
     def __init__(self, index: ShardedTensorIndex, lazy_unpickle: bool = True):
         self.index = index
         self.current_shard = None
         self.lazy_unpickle = lazy_unpickle
+        self.lock = threading.Lock()
 
     def get_tensor(
         self,
@@ -125,27 +128,29 @@ class LazyTensorLoader:
                     key = alias
                     break
 
-        if self.current_shard is None or key not in self.current_shard.keys():
-            if key not in self.index.tensor_paths:
-                if raise_on_missing:
-                    raise KeyError(key)
-                return None
+        with self.lock:
+            if self.current_shard is None or key not in self.current_shard.keys():
+                if key not in self.index.tensor_paths:
+                    if raise_on_missing:
+                        raise KeyError(key)
+                    return None
 
-            self.current_shard = None
-            self.current_keys = None
+                self.current_shard = None
+                self.current_keys = None
 
-            shard_file = self.index.tensor_paths[key]
-            shard_full_path = os.path.join(self.index.base_path, shard_file)
-            logging.debug(f"Opening shard {shard_full_path}")
-            self.current_shard = TensorLoader.get(
-                shard_full_path, use_lazy_unpickle=self.lazy_unpickle, device=device
-            )
+                shard_file = self.index.tensor_paths[key]
+                shard_full_path = os.path.join(self.index.base_path, shard_file)
+                logging.debug(f"Opening shard {shard_full_path}")
+                self.current_shard = TensorLoader.get(
+                    shard_full_path, use_lazy_unpickle=self.lazy_unpickle, device=device
+                )
 
-        return self.current_shard.get_tensor(key).to(device)
+            return self.current_shard.get_tensor(key).to(device)
 
     def flush(self):
-        self.current_shard = None
-        self.current_keys = None
+        with self.lock:
+            self.current_shard = None
+            self.current_keys = None
 
     @classmethod
     def from_disk(
