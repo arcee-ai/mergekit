@@ -48,7 +48,7 @@ def build(
         assert all(
             bool(e.positive_prompts) == has_prompts for e in config.shared_experts
         ), "Must specify prompts for all shared experts or none, not a mix"
-        if has_prompts:
+        if has_prompts or config.gate_mode in ("random", "uniform_random"):
             need_gates.extend(config.shared_experts)
 
     gate_vecs = get_gate_params(
