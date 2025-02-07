@@ -3,7 +3,7 @@
 
 import logging
 import os
-from typing import Dict, Set, Tuple, Union
+from typing import Dict, Optional, Set, Tuple, Union
 
 import click
 import yaml
@@ -62,7 +62,12 @@ class MergeModelTask(Task[str]):
 
 @click.command("mergekit-multimerge")
 @click.argument("config_file", type=click.Path(exists=True))
-@click.argument("out_path", type=click.Path())
+@click.option(
+    "--out-path",
+    type=click.Path(),
+    required=False,
+    help="Path to save the final merged model",
+)
 @click.option(
     "--intermediate-dir",
     "-I",
@@ -81,8 +86,8 @@ class MergeModelTask(Task[str]):
 @add_merge_options
 def main(
     config_file: str,
-    out_path: str,
     intermediate_dir: str,
+    out_path: Optional[str],
     verbose: bool,
     lazy: bool,
     merge_options: MergeOptions,
@@ -166,7 +171,7 @@ def make_tasks(
     dependencies: Dict[str, Set[str]],
     merge_options: MergeOptions,
     intermediate_dir: str,
-    out_path: str,
+    out_path: Optional[str],
     lazy: bool,
 ):
     """Build the task dependency graph for the merge recipes."""
@@ -180,9 +185,12 @@ def make_tasks(
         elif name in touched:
             raise ValueError(f"Circular dependency detected involving {name}")
         touched.add(name)
-        merge_out_path = (
-            os.path.join(intermediate_dir, name) if name is not None else out_path
-        )
+        if name is None:
+            if not out_path:
+                raise ValueError("Must specify out_path to include unnamed final merge")
+            merge_out_path = out_path
+        else:
+            merge_out_path = os.path.join(intermediate_dir, name)
         tasks[name] = MergeModelTask(
             config_yaml=yaml.dump(
                 merge_configs[name].model_dump(exclude_defaults=True)
