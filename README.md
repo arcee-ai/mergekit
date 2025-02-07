@@ -382,7 +382,7 @@ Mergekit allows extracting PEFT-compatible low-rank approximations of finetuned 
 ### Usage
 
 ```sh
-mergekit-extract-lora finetuned_model_id_or_path base_model_id_or_path output_path [--no-lazy-unpickle] --rank=desired_rank
+mergekit-extract-lora --model finetuned_model_id_or_path --base-model base_model_id_or_path --out-path output_path [--no-lazy-unpickle] [--cuda] [--max-rank=desired_rank] [--sv-epsilon=tol]
 ```
 
 ## Mixture of Experts merging

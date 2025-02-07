@@ -28,20 +28,20 @@ logger = logging.getLogger("extract_lora")
 
 
 @click.command("mergekit-extract-lora")
-@click.argument(
-    "base_model",
-    "--base-model",
-    help="Path to the base model",
-)
-@click.argument(
-    "model",
+@click.option(
     "--model",
-    help="Path to the model to extract LoRA weights from",
+    required=True,
+    help="Fine-tuned model path",
 )
-@click.argument(
-    "out_path",
+@click.option(
+    "--base-model",
+    required=True,
+    help="Base model path",
+)
+@click.option(
     "--out-path",
-    help="Path to save the extracted LoRA weights",
+    required=True,
+    help="Output path for extracted LoRA adapter",
 )
 @click.option(
     "--max-rank",
@@ -114,6 +114,7 @@ def main(
     merge_options: MergeOptions,
 ):
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
+
     if not modules_to_save:
         modules_to_save = []
 
