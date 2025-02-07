@@ -230,8 +230,6 @@ def load_config(
                     "Multimerge config must have exactly one unnamed merge"
                 )
         merge_configs[merge_name] = MergeConfiguration.model_validate(doc)
-    if None not in merge_configs:
-        raise ValueError("Multimerge config must have exactly one unnamed merge")
 
     merge_names = set(merge_configs.keys())
     dependencies = {}
