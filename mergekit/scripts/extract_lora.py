@@ -4,48 +4,43 @@
 import json
 import logging
 import os
+import re
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import click
-import re
 import torch
 import torch.nn as nn
-import sys
 import tqdm
+from pydantic import BaseModel
 from transformers import AutoModelForCausalLM
 
-from mergekit.architecture import WeightInfo, ArchitectureInfoUtils
+from mergekit.architecture import ArchitectureInfoUtils, WeightInfo
 from mergekit.card import generate_card_lora
 from mergekit.common import ModelReference
-from mergekit.graph import Task, Executor
-from mergekit.multigpu_executor import MultiGPUExecutor
-from mergekit.io.tasks import (
-    SaveTensor,
-    TensorWriterTask,
-    LoadTensor,
-    FinalizeModel,
-)
+from mergekit.graph import Executor, Task
+from mergekit.io.tasks import FinalizeModel, LoadTensor, SaveTensor, TensorWriterTask
 from mergekit.io.tensor_writer import TensorWriter
+from mergekit.multigpu_executor import MultiGPUExecutor
 from mergekit.options import MergeOptions, add_merge_options
-
 
 logger = logging.getLogger("extract_lora")
 
 
 @click.command("mergekit-extract-lora")
-@click.option(
+@click.argument(
+    "base_model",
     "--base-model",
-    required=True,
     help="Path to the base model",
 )
-@click.option(
+@click.argument(
+    "model",
     "--model",
-    required=True,
     help="Path to the model to extract LoRA weights from",
 )
-@click.option(
+@click.argument(
+    "out_path",
     "--out-path",
-    required=True,
     help="Path to save the extracted LoRA weights",
 )
 @click.option(
@@ -96,6 +91,13 @@ logger = logging.getLogger("extract_lora")
     is_flag=True,
     help="Verbose logging",
 )
+@click.option(
+    "--sv-epsilon",
+    type=float,
+    default=0,
+    help="Threshold for singular values to discard",
+    show_default=True,
+)
 @add_merge_options
 def main(
     base_model: str,
@@ -107,8 +109,9 @@ def main(
     modules_to_save: List[str],
     exclude_regexes: List[str],
     include_regexes: List[str],
-    merge_options: MergeOptions,
     verbose: bool,
+    sv_epsilon: float,
+    merge_options: MergeOptions,
 ):
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
     if not modules_to_save:
@@ -116,7 +119,7 @@ def main(
 
     base_model_ref = ModelReference.model_validate(base_model)
     model_ref = ModelReference.model_validate(model)
-    tasks = plan_extraction(
+    plan_result = plan_extraction(
         base_model_ref=base_model_ref.merged(
             cache_dir=merge_options.lora_merge_cache,
             trust_remote_code=merge_options.trust_remote_code,
@@ -133,8 +136,10 @@ def main(
         embed_lora=embed_lora,
         exclude_regexes=exclude_regexes,
         include_regexes=include_regexes,
+        sv_epsilon=sv_epsilon,
     )
 
+    tasks = plan_result.tasks
     if merge_options.multi_gpu:
         executor = MultiGPUExecutor(
             tasks, storage_device="cpu" if not merge_options.low_cpu_memory else None
@@ -153,9 +158,10 @@ def main(
                 0
             ].shape[0]
 
+    real_max_rank = max(module_real_ranks.values())
     config_dict = make_config_dict(
         base_ref=base_model_ref,
-        max_rank=max_rank,
+        max_rank=real_max_rank,
         modules_to_save=modules_to_save,
         target_modules=list(
             set(key.split(".")[-1] for key in module_real_ranks.keys())
@@ -169,7 +175,12 @@ def main(
     with open(os.path.join(out_path, "README.md"), "w", encoding="utf-8") as f:
         f.write(
             generate_card_lora(
-                base_model_ref, model_ref, invocation, os.path.basename(out_path)
+                base_model_ref,
+                model_ref,
+                invocation,
+                os.path.basename(out_path),
+                base_vocab_size=plan_result.base_vocab_size,
+                final_vocab_size=plan_result.final_vocab_size,
             )
         )
 
@@ -207,6 +218,7 @@ class TaskVectorDecompositionTask(Task[Tuple[torch.Tensor, torch.Tensor]]):
     max_rank: int
     distribute_scale: bool = True
     transpose: bool = False
+    sv_epsilon: float = 0
 
     def arguments(self) -> Dict[str, Any]:
         return {"task_vector": self.input_task}
@@ -216,6 +228,8 @@ class TaskVectorDecompositionTask(Task[Tuple[torch.Tensor, torch.Tensor]]):
             task_vector = task_vector.T
         u, s, vh = torch.linalg.svd(task_vector, full_matrices=False)
         rank = min(self.max_rank, s.shape[0])
+        if self.sv_epsilon > 0:
+            rank = min((s > self.sv_epsilon).sum().item(), rank)
         if self.distribute_scale:
             sqrt_s = torch.diag(torch.sqrt(s[:rank]))
             scale_a = sqrt_s
@@ -232,6 +246,9 @@ class TaskVectorDecompositionTask(Task[Tuple[torch.Tensor, torch.Tensor]]):
     def group_label(self) -> Optional[str]:
         return self.input_task.group_label()
 
+    def uses_accelerator(self):
+        return True
+
 
 class TaskVectorTask(Task[torch.Tensor]):
     base_tensor: Task
@@ -247,6 +264,9 @@ class TaskVectorTask(Task[torch.Tensor]):
         return max(
             self.base_tensor.group_label() or "", self.model_tensor.group_label() or ""
         )
+
+    def uses_accelerator(self):
+        return True
 
 
 class LoRAModuleSaveTask(Task):
@@ -295,6 +315,12 @@ def _wi_load(model_ref: ModelReference, weight_info: WeightInfo) -> LoadTensor:
     )
 
 
+class PlanResults(BaseModel):
+    tasks: List[Task]
+    base_vocab_size: int
+    final_vocab_size: int
+
+
 def plan_extraction(
     base_model_ref: ModelReference,
     model_ref: ModelReference,
@@ -306,12 +332,13 @@ def plan_extraction(
     embed_lora: bool = False,
     exclude_regexes: Optional[List[str]] = None,
     include_regexes: Optional[List[str]] = None,
-) -> List[Task]:
+    sv_epsilon: float = 0,
+) -> PlanResults:
     targets = []
     writer_task = TensorWriterTask(
         out_path=out_path,
         override_basename="adapter_model",
-        max_shard_size=options.out_shard_size,
+        max_shard_size=-1,
         safe_serialization=options.safe_serialization,
     )
 
@@ -346,6 +373,8 @@ def plan_extraction(
     else:
         force_embed_save = False
 
+    warned_modules = set()
+
     def _should_extract(name: str) -> bool:
         if include_regexes and not any(re.search(r, name) for r in include_regexes):
             return False
@@ -371,15 +400,12 @@ def plan_extraction(
             else:
                 continue
 
-        if (
-            force_embed_save
-            and (module == embed_in or module == embed_out)
-            or not embed_lora
-            and isinstance(module, nn.Embedding)
+        if (force_embed_save and (module == embed_in or module == embed_out)) or (
+            not embed_lora and isinstance(module, nn.Embedding)
         ):
             key = name.split(".")[-1]
             if key not in modules_to_save:
-                logging.warning(f"Adding {key} to modules_to_save")
+                logger.warning(f"Adding {key} to modules_to_save")
                 modules_to_save.append(key)
 
         if name in modules_to_save or (name.split(".")[-1] in modules_to_save):
@@ -397,16 +423,26 @@ def plan_extraction(
                         writer_task,
                         max_rank,
                         distribute_scale,
+                        transpose=isinstance(module, nn.Embedding),
+                        sv_epsilon=sv_epsilon,
                     )
                 )
             else:
-                logging.warning(
-                    f"{name} has unsupported module type {type(module).__name__} - skipping"
-                )
+                key = name.split(".")[-1]
+                if key not in warned_modules:
+                    warned_modules.add(key)
+                    generic_name = re.sub(r"\.(\d+)\.", ".N.", name)
+                    logger.warning(
+                        f"{generic_name} has unsupported module type {type(module).__name__} - skipping"
+                    )
 
     save_tasks = [t for t in targets if isinstance(t, (SaveTensor, LoRAModuleSaveTask))]
     finalize = FinalizeModel(tensor_save_tasks=save_tasks, writer_task=writer_task)
-    return targets + [finalize]
+    return PlanResults(
+        tasks=targets + [finalize],
+        base_vocab_size=base_vocab,
+        final_vocab_size=ft_vocab,
+    )
 
 
 def plan_lora_module(
@@ -417,6 +453,8 @@ def plan_lora_module(
     writer_task: TensorWriterTask,
     max_rank: int,
     distribute_scale: bool = True,
+    transpose: bool = False,
+    sv_epsilon: float = 0,
 ) -> List[Task]:
     targets = []
     base_load_task = _wi_load(base_model_ref, wi)
@@ -427,7 +465,8 @@ def plan_lora_module(
         input_task=tv_task,
         max_rank=max_rank,
         distribute_scale=distribute_scale,
-        transpose=wi.is_embed,
+        transpose=transpose,
+        sv_epsilon=sv_epsilon,
     )
     targets.append(decomp_task)
     targets.append(

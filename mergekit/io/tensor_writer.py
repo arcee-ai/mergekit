@@ -53,6 +53,7 @@ class TensorWriter:
         with self.lock:
             if (
                 self.current_shard
+                and self.max_shard_size >= 0
                 and self.current_shard_size + tensor_size > self.max_shard_size
             ):
                 self._flush_current_shard()

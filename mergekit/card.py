@@ -1,7 +1,6 @@
 # Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: BUSL-1.1
 
-import logging
 import os
 from typing import Generator, List, Optional
 
@@ -191,6 +190,8 @@ def generate_card_lora(
     finetuned_ref: ModelReference,
     invocation: str,
     name: str,
+    base_vocab_size: Optional[int] = None,
+    final_vocab_size: Optional[int] = None,
 ) -> str:
     if not name:
         name = "Untitled LoRA Model (1)"
@@ -198,7 +199,19 @@ def generate_card_lora(
     hf_bases = list(extract_hf_paths([base_ref, finetuned_ref]))
     tags = ["mergekit", "peft"]
 
-    details = f"This LoRA adapter was extracted from {modelref_md(finetuned_ref)} and uses {modelref_md(base_ref)} as a base."
+    details = (
+        f"This LoRA adapter was extracted from {modelref_md(finetuned_ref)} "
+        f"and uses {modelref_md(base_ref)} as a base."
+    )
+
+    if base_vocab_size and final_vocab_size and base_vocab_size != final_vocab_size:
+        verb = "extended" if final_vocab_size > base_vocab_size else "reduced"
+        details += (
+            f"\n\n [!WARNING]\n> The vocabulary size has been {verb} from the base "
+            f"model's {base_vocab_size} to {final_vocab_size}. To load this adapter, "
+            f"you must first call `model.resize_token_embeddings({final_vocab_size})`."
+        )
+
     return CARD_TEMPLATE_LORA.format(
         metadata=yaml.dump(
             {"base_model": hf_bases, "tags": tags, "library_name": "peft"}
