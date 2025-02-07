@@ -3,7 +3,6 @@
 `mergekit` is a toolkit for merging pre-trained language models. `mergekit` uses an out-of-core approach to perform unreasonably elaborate merges in resource-constrained situations. Merges can be run entirely on CPU or accelerated with as little as 8 GB of VRAM. Many merging algorithms are supported, with more coming as they catch my attention.
 
 ## Contents
-
 - [Why Merge Models?](#why-merge-models)
 - [Features](#features)
 - [Installation](#installation)
@@ -240,21 +239,21 @@ A quick overview of the currently supported merge methods:
 
 | Method                                                                                           | `merge_method` value | Multi-Model | Uses base model |
 | ------------------------------------------------------------------------------------------------ | -------------------- | ----------- | --------------- |
-| Linear ([Model Soups](https://arxiv.org/abs/2203.05482))                                         | `linear`             | ✅          | ❌              |
-| SLERP                                                                                            | `slerp`              | ❌          | ✅              |
-| Nearswap                                                                                         | `nearswap`           | ❌          | ✅              |
-| [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                              | `task_arithmetic`    | ✅          | ✅              |
-| [TIES](https://arxiv.org/abs/2306.01708)                                                         | `ties`               | ✅          | ✅              |
-| [DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)                | `dare_ties`          | ✅          | ✅              |
-| [DARE](https://arxiv.org/abs/2311.03099) [Task Arithmetic](https://arxiv.org/abs/2212.04089)     | `dare_linear`        | ✅          | ✅              |
-| Passthrough                                                                                      | `passthrough`        | ❌          | ❌              |
-| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)                                            | `breadcrumbs`        | ✅          | ✅              |
-| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795) + [TIES](https://arxiv.org/abs/2306.01708) | `breadcrumbs_ties`   | ✅          | ✅              |
-| [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅          | ✅              |
-| NuSLERP                                                                                          | `nuslerp`            | ❌          | ✅              |
-| [DELLA](https://arxiv.org/abs/2406.11617)                                                        | `della`              | ✅          | ✅              |
-| [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)    | `della_linear`       | ✅          | ✅              |
-| [SCE](https://arxiv.org/abs/2408.07990)                                                          | `sce`                | ✅          | ✅              |
+| Linear ([Model Soups](https://arxiv.org/abs/2203.05482))                                         | `linear`             | ✅           | ❌               |
+| SLERP                                                                                            | `slerp`              | ❌           | ✅               |
+| Nearswap                                                                                         | `nearswap`           | ❌           | ✅               |
+| [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                              | `task_arithmetic`    | ✅           | ✅               |
+| [TIES](https://arxiv.org/abs/2306.01708)                                                         | `ties`               | ✅           | ✅               |
+| [DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)                | `dare_ties`          | ✅           | ✅               |
+| [DARE](https://arxiv.org/abs/2311.03099) [Task Arithmetic](https://arxiv.org/abs/2212.04089)     | `dare_linear`        | ✅           | ✅               |
+| Passthrough                                                                                      | `passthrough`        | ❌           | ❌               |
+| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)                                            | `breadcrumbs`        | ✅           | ✅               |
+| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795) + [TIES](https://arxiv.org/abs/2306.01708) | `breadcrumbs_ties`   | ✅           | ✅               |
+| [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅           | ✅               |
+| NuSLERP                                                                                          | `nuslerp`            | ❌           | ✅               |
+| [DELLA](https://arxiv.org/abs/2406.11617)                                                        | `della`              | ✅           | ✅               |
+| [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)    | `della_linear`       | ✅           | ✅               |
+| [SCE](https://arxiv.org/abs/2408.07990)                                                          | `sce`                | ✅           | ✅               |
 
 ### Linear
 
@@ -285,13 +284,14 @@ Parameters:
 
 Computes "task vectors" for each model by subtracting a base model. Merges the task vectors linearly and adds back the base. Works great for models that were fine tuned from a common ancestor. Also a super useful mental framework for several of the more involved merge methods.
 
-Parameters: same as [Linear](#linear)
+Parameters: same as [Linear](#linear), plus:
+- `lambda` - scaling factor applied after weighted sum of task vectors
 
 ### [TIES](https://arxiv.org/abs/2306.01708)
 
 Builds on the task arithmetic framework. Resolves interference between models by sparsifying the task vectors and applying a sign consensus algorithm. Allows you to merge a larger number of models and retain more of their strengths.
 
-Parameters: same as [Linear](#linear), plus:
+Parameters: same as [Task Arithmetic](#task-arithmetic), plus:
 
 - `density` - fraction of weights in differences from the base model to retain
 
@@ -309,7 +309,7 @@ Parameters: same as [TIES](#ties) for `dare_ties`, or [Linear](#linear) for `dar
 
 An extension of task arithmetic that discards both small and extremely large differences from the base model. As with DARE, the Model Breadcrumbs algorithm can be used with (`breadcrumbs_ties`) or without (`breadcrumbs`) the sign consensus algorithm of TIES.
 
-Parameters: same as [Linear](#linear), plus:
+Parameters: same as [Task Arithmetic](#task-arithmetic), plus:
 
 - `density` - fraction of weights in differences from the base model to retain
 - `gamma` - fraction of largest magnitude differences to remove
@@ -340,17 +340,16 @@ To replicate the behavior of the original `slerp` method, set `weight` to `1-t` 
 
 Building upon DARE, DELLA uses adaptive pruning based on parameter magnitudes. DELLA first ranks parameters in each row of delta parameters and assigns drop probabilities inversely proportional to their magnitudes. This allows it to retain more important changes while reducing interference. After pruning, it rescales the remaining parameters similar to [DARE](#dare). DELLA can be used with (`della`) or without (`della_linear`) the sign elect step of TIES
 
-Parameters: same as [Linear](#linear), plus:
+Parameters: same as [Task Arithmetic](#task-arithmetic), plus:
 
 - `density` - fraction of weights in differences from the base model to retain
 - `epsilon` - maximum change in drop probability based on magnitude. Drop probabilities assigned will range from `density - epsilon` to `density + epsilon`. (When selecting values for `density` and `epsilon`, ensure that the range of probabilities falls within 0 to 1)
-- `lambda` - scaling factor for the final merged delta parameters before merging with the base parameters.
 
 ### [SCE](https://arxiv.org/abs/2408.07990)
 
 SCE introduces adaptive matrix-level merging weights based on parameter variances. SCE first selects the top-k% elements from each parameter matrix that exhibit high variance across all delta parameters. Following this selection, SCE calculates matrix-level merging weights based on the sum of squares of elements in the delta parameters. Finally, it erases minority elements, a step similar to the sign election process in TIES.
 
-Parameters:
+Parameters: same as [TIES](#ties), plus:
 
 - `select_topk` - fraction of elements with the highest variance in the delta parameters to retain.
 
@@ -361,7 +360,7 @@ Mergekit allows extracting PEFT-compatible low-rank approximations of finetuned 
 ### Usage
 
 ```sh
-mergekit-extract-lora finetuned_model_id_or_path base_model_id_or_path output_path [--no-lazy-unpickle] --rank=desired_rank
+mergekit-extract-lora --model finetuned_model_id_or_path --base-model base_model_id_or_path --out-path output_path [--no-lazy-unpickle] [--cuda] [--max-rank=desired_rank] [--sv-epsilon=tol]
 ```
 
 ## Mixture of Experts merging

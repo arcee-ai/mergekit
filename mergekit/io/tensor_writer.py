@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import threading
-from typing import Dict
+from typing import Dict, Optional
 
 import safetensors
 import torch
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class TensorWriter:
     out_path: str
+    override_basename: Optional[str]
     max_shard_size: int
     shards_written: int
     weight_map = Dict[str, str]
@@ -28,10 +29,12 @@ class TensorWriter:
         out_path: str,
         max_shard_size: int = 1000 * 1000 * 1000 * 5,
         safe_serialization: bool = True,
+        override_basename: Optional[str] = None,
     ) -> None:
         os.makedirs(out_path, exist_ok=True)
 
         self.out_path = out_path
+        self.override_basename = override_basename
         self.max_shard_size = max_shard_size
         self.safe_serialization = safe_serialization
         self.shards_written = 0
@@ -50,6 +53,7 @@ class TensorWriter:
         with self.lock:
             if (
                 self.current_shard
+                and self.max_shard_size >= 0
                 and self.current_shard_size + tensor_size > self.max_shard_size
             ):
                 self._flush_current_shard()
@@ -126,6 +130,10 @@ class TensorWriter:
                 )
 
     def _get_name_components(self):
+        if self.override_basename:
+            return self.override_basename, (
+                "safetensors" if self.safe_serialization else "bin"
+            )
         if self.safe_serialization:
             return "model", "safetensors"
         return "pytorch_model", "bin"

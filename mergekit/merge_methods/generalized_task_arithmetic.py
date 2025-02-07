@@ -17,7 +17,7 @@ from mergekit.merge_methods.base import (
     MergeMethod,
     MergeTensorInput,
 )
-from mergekit.sparsify import SparsificationMethod, get_tall_mask, sparsify
+from mergekit.sparsify import RescaleNorm, SparsificationMethod, sparsify
 
 
 class ConsensusMethod(str, Enum):
@@ -54,6 +54,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             ConfigParameterDef(
                 name="rescale", required=False, default_value=self.default_rescale
             ),
+            ConfigParameterDef(name="lambda", required=False, default_value=1.0),
         ]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
@@ -66,35 +67,6 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
                 ConfigParameterDef(
                     name="gamma",
                     default_value=0.01,
-                )
-            )
-        if self.sparsification_method == SparsificationMethod.rank_magnitude_sampling:
-            res.append(
-                ConfigParameterDef(
-                    name="epsilon",
-                    default_value=0.15,
-                )
-            )
-            res.append(
-                ConfigParameterDef(
-                    name="lambda",
-                    default_value=1.0,
-                )
-            )
-        if (
-            self.sparsification_method == SparsificationMethod.consensus_ta
-            or self.sparsification_method == SparsificationMethod.consensus_ties
-        ):
-            res.append(
-                ConfigParameterDef(
-                    name="k",
-                    default_value=1,
-                )
-            )
-            res.append(
-                ConfigParameterDef(
-                    name="lambda",
-                    default_value=1.0,
                 )
             )
         return res
@@ -114,7 +86,8 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             tensor_parameters=tensor_parameters,
             int8_mask=parameters["int8_mask"],
             normalize=parameters["normalize"],
-            rescale=parameters["rescale"],
+            lambda_=parameters["lambda"],
+            rescale_norm=RescaleNorm.l1 if parameters["rescale"] else None,
             weight_info=output_weight,
         )
 
@@ -127,7 +100,8 @@ class GTATask(Task[torch.Tensor]):
     tensor_parameters: ImmutableMap[ModelReference, Any]
     int8_mask: bool
     normalize: bool
-    rescale: bool
+    lambda_: float
+    rescale_norm: Optional[RescaleNorm]
 
     def uses_accelerator(self) -> bool:
         return True
@@ -151,10 +125,7 @@ class GTATask(Task[torch.Tensor]):
             return base
 
         # sparsify
-        if (
-            self.method.sparsification_method
-            and self.method.sparsification_method != SparsificationMethod.consensus_ta
-        ):
+        if self.method.sparsification_method:
             for tv_info in tvs:
                 kwargs = {}
                 if "gamma" in tv_info:
@@ -163,17 +134,16 @@ class GTATask(Task[torch.Tensor]):
                 if "epsilon" in tv_info:
                     kwargs["epsilon"] = tv_info["epsilon"]
 
-                tv_info["sparsified_delta"] = sparsify(
+                tv_info["delta"] = sparsify(
                     tv_info["delta"],
                     density=tv_info["density"],
                     method=self.method.sparsification_method,
-                    rescale=self.rescale,
+                    rescale_norm=self.rescale_norm,
                     **kwargs,
                 )
 
-            deltas = torch.stack([tv["sparsified_delta"] for tv in tvs], dim=0)
-        else:
-            deltas = torch.stack([tv["delta"] for tv in tvs], dim=0)
+        deltas = torch.stack([tv["delta"] for tv in tvs], dim=0)
+
         weights = torch.tensor(
             [tv["weight"] for tv in tvs], dtype=deltas.dtype, device=deltas.device
         )
@@ -201,26 +171,8 @@ class GTATask(Task[torch.Tensor]):
         if self.normalize:
             mixed_delta /= divisor
 
-        if (
-            self.method.sparsification_method
-            == SparsificationMethod.rank_magnitude_sampling
-        ):
-            lambda_factor = tvs[0]["lambda"]
-            mixed_delta *= lambda_factor
-
-        if (
-            self.method.sparsification_method == SparsificationMethod.consensus_ta
-            or self.method.sparsification_method == SparsificationMethod.consensus_ties
-        ):
-            for tv_info in tvs:
-                tv_info["tall_mask"] = get_tall_mask(
-                    tv_info["delta"],
-                    tv_info["lambda"],
-                    mixed_delta,
-                )
-            tall_masks = torch.stack([tv["tall_mask"] for tv in tvs], dim=0)
-            consensus_mask = tall_masks.sum(dim=0) >= tvs[0]["k"]
-            mixed_delta = mixed_delta * consensus_mask
+        if self.lambda_ != 1:
+            mixed_delta *= self.lambda_
 
         return (base + mixed_delta).to(base.dtype)
 

@@ -11,10 +11,8 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
 )
 from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.model_stock import ModelStockMerge
-from mergekit.merge_methods.nearswap import NearSwapMerge
 from mergekit.merge_methods.nuslerp import NuSlerpMerge
 from mergekit.merge_methods.passthrough import PassthroughMerge
-from mergekit.merge_methods.sce import SCEMerge
 from mergekit.merge_methods.slerp import SlerpMerge
 from mergekit.sparsify import SparsificationMethod
 
@@ -24,8 +22,6 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
     NuSlerpMerge(),
     PassthroughMerge(),
     ModelStockMerge(),
-    SCEMerge(),
-    NearSwapMerge(),
     ArceeFusionMerge(),
     # generalized task arithmetic methods
     GeneralizedTaskArithmeticMerge(
@@ -84,7 +80,7 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
     ),
     GeneralizedTaskArithmeticMerge(
         consensus_method=ConsensusMethod.sum,
-        sparsification_method=SparsificationMethod.rank_magnitude_sampling,
+        sparsification_method=SparsificationMethod.della_magprune,
         default_normalize=True,
         default_rescale=True,
         method_name="della",
@@ -93,30 +89,12 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
     ),
     GeneralizedTaskArithmeticMerge(
         consensus_method=None,
-        sparsification_method=SparsificationMethod.rank_magnitude_sampling,
+        sparsification_method=SparsificationMethod.della_magprune,
         default_normalize=False,
         default_rescale=True,
         method_name="della_linear",
         method_pretty_name="Linear DELLA",
         method_reference_url="https://arxiv.org/abs/2406.11617",
-    ),
-    GeneralizedTaskArithmeticMerge(
-        consensus_method=None,
-        sparsification_method=SparsificationMethod.consensus_ta,
-        default_normalize=False,
-        default_rescale=False,
-        method_name="consensus_ta",
-        method_pretty_name="Consensus Task Arithmetic",
-        method_reference_url="https://arxiv.org/abs/2405.07813",
-    ),
-    GeneralizedTaskArithmeticMerge(
-        consensus_method=ConsensusMethod.sum,
-        sparsification_method=SparsificationMethod.consensus_ties,
-        default_normalize=True,
-        default_rescale=False,
-        method_name="consensus_ties",
-        method_pretty_name="Consensus TIES",
-        method_reference_url="https://arxiv.org/abs/2405.07813",
     ),
 ]
 
