@@ -227,7 +227,7 @@ def load_config(
                 raise ValueError(f"Duplicate merge name {merge_name}")
             else:
                 raise ValueError(
-                    "Multimerge config must have exactly one unnamed merge"
+                    "Multiple unnamed merge configurations are not supported"
                 )
         merge_configs[merge_name] = MergeConfiguration.model_validate(doc)
 
