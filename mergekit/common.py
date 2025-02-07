@@ -166,6 +166,12 @@ class ModelReference(BaseModel, frozen=True):
 
     @model_serializer()
     def serialize(self):
+        if self.override_architecture is not None:
+            return {
+                "model": self.model,
+                "lora": self.lora,
+                "override_architecture": self.override_architecture,
+            }
         res = str(self)
         if '"' in res or " " in res:
             return self

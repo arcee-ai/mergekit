@@ -3,7 +3,7 @@
 
 import logging
 import os
-from typing import Dict, Set, Union
+from typing import Dict, Set, Tuple, Union
 
 import click
 import yaml
@@ -15,6 +15,14 @@ from mergekit.merge import run_merge
 from mergekit.options import MergeOptions, add_merge_options
 
 logger = logging.getLogger("multimerge")
+
+
+MODEL_CHECK_FILENAMES = [
+    "model.safetensors",
+    "pytorch_model.bin",
+    "model.safetensors.index.json",
+    "pytorch_model.bin.index.json",
+]
 
 
 class MergeModelTask(Task[str]):
@@ -29,7 +37,14 @@ class MergeModelTask(Task[str]):
         return {str(key): self.input_merges[key] for key in self.input_merges}
 
     def execute(self, **kwargs):
-        if self.lazy and os.path.exists(os.path.join(self.out_path, "config.json")):
+        if (
+            self.lazy
+            and os.path.exists(os.path.join(self.out_path, "config.json"))
+            and any(
+                os.path.exists(os.path.join(self.out_path, filename))
+                for filename in MODEL_CHECK_FILENAMES
+            )
+        ):
             logger.info(f"Model already exists at {self.out_path}, skipping")
             return self.out_path
 
@@ -72,6 +87,16 @@ def main(
     lazy: bool,
     merge_options: MergeOptions,
 ):
+    """Execute a set of potentially interdependent merge recipes.
+
+    The configuration file should be a YAML file containing multiple
+    documents, each of which is a merge configuration with the addition
+    of a `name` field.
+
+    The `intermediate_dir` is used to store intermediate merge results.
+    Any merge configuration with a `name` field will be saved to this
+    directory. If an unnamed merge configuration is present, it will be
+    saved to `out_path`."""
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
     os.makedirs(intermediate_dir, exist_ok=True)
 
@@ -113,6 +138,7 @@ def patched_config(config: MergeConfiguration, merge_names: Set[str], working_di
                     value["model"] = value["model"].copy()
                     value["model"]["path"] = os.path.join(working_dir, base)
                     used.add(base)
+                return value
             return {k: _patch_mr(v) for k, v in value.items()}
         elif isinstance(value, str):
             try:
@@ -143,16 +169,20 @@ def make_tasks(
     out_path: str,
     lazy: bool,
 ):
+    """Build the task dependency graph for the merge recipes."""
     touched = set()
     tasks = {}
 
     def _make_task(name: str):
-        nonlocal touched, tasks
+        nonlocal touched, tasks, out_path
         if name in tasks:
             return tasks[name]
         elif name in touched:
             raise ValueError(f"Circular dependency detected involving {name}")
         touched.add(name)
+        merge_out_path = (
+            os.path.join(intermediate_dir, name) if name is not None else out_path
+        )
         tasks[name] = MergeModelTask(
             config_yaml=yaml.dump(
                 merge_configs[name].model_dump(exclude_defaults=True)
@@ -162,9 +192,7 @@ def make_tasks(
                 {dep: _make_task(dep) for dep in dependencies[name]}
             ),
             options=merge_options,
-            out_path=(
-                os.path.join(intermediate_dir, name) if name is not None else out_path
-            ),
+            out_path=merge_out_path,
             lazy=lazy,
         )
         return tasks[name]
@@ -173,7 +201,20 @@ def make_tasks(
     return tasks
 
 
-def load_config(config_source: str, intermediate_dir: str):
+def load_config(
+    config_source: str, intermediate_dir: str
+) -> Tuple[Dict[str, MergeConfiguration], Dict[str, Set[str]]]:
+    """Load the merge configurations from the YAML source.
+
+    Args:
+        config_source: The YAML source to load
+        intermediate_dir: The directory to use for intermediate merges
+
+    Returns:
+        A tuple containing:
+        - A dictionary of merge configurations keyed by name
+        - A dictionary of dependencies keyed by name
+    """
     docs = list(yaml.safe_load_all(config_source))
     merge_configs = {}
     for doc in docs:
