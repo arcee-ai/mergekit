@@ -95,9 +95,9 @@ class TensorWriter:
             total_shards = self.shards_written
             name_remap = {}
             for idx in range(total_shards):
-                name_remap[
-                    f"{prefix}-{idx+1}.{extension}"
-                ] = f"{prefix}-{idx+1:05d}-of-{total_shards:05d}.{extension}"
+                name_remap[f"{prefix}-{idx+1}.{extension}"] = (
+                    f"{prefix}-{idx+1:05d}-of-{total_shards:05d}.{extension}"
+                )
 
             if total_shards < 2:
                 name_remap[f"{prefix}-1.{extension}"] = f"{prefix}.{extension}"
