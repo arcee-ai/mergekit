@@ -13,7 +13,7 @@
 
 Basic command structure:
 ```bash
-mergekit-multi <config.yaml> \ 
+mergekit-multi <config.yaml> \
   --intermediate-dir ./intermediates \
   ([--out-path ./final-merge] | if config has unnamed merge) \
   [options]
@@ -36,7 +36,7 @@ models:
 parameters:
   weight: 0.5
 ---
-name: second-merge 
+name: second-merge
 merge_method: slerp
 base_model: first-merge  # Reference previous merge
 models:
@@ -73,7 +73,7 @@ merge_method: linear
 ...
 ```
 
-## Key Options 
+## Key Options
 
 - `--intermediate-dir`: Directory to store partial merge results
 - `--out-path`: Output path for final merge (only applies when one merge has no `name`)
