@@ -5,6 +5,8 @@ from typing import Callable, Optional
 from transformers import (
     AutoConfig,
     CLIPVisionConfig,
+    GPT2Config,
+    GPT2LMHeadModel,
     LlamaConfig,
     LlamaForCausalLM,
     LlavaConfig,
@@ -77,6 +79,20 @@ def make_picollama(path: str, vocab_size: int = 64):
         num_hidden_layers=2,
     )
     model = LlamaForCausalLM(cfg)
+    model.save_pretrained(path, safe_serialization=True)
+    return str(path)
+
+
+def make_gpt2size(path: str):
+    cfg = GPT2Config(
+        n_ctx=1024,
+        n_embd=768,
+        n_head=12,
+        n_layer=12,
+        n_positions=1024,
+        vocab_size=50257,
+    )
+    model = GPT2LMHeadModel(cfg)
     model.save_pretrained(path, safe_serialization=True)
     return str(path)
 
