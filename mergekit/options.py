@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from mergekit.common import parse_kmb
 
 
-class MergeOptions(BaseModel):
+class MergeOptions(BaseModel, frozen=True):
     allow_crimes: bool = False
     transformers_cache: Optional[str] = None
     lora_merge_cache: Optional[str] = None

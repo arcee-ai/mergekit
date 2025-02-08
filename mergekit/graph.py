@@ -151,6 +151,7 @@ class Executor:
     def run(
         self,
         quiet: bool = False,
+        desc: Optional[str] = None,
     ) -> Iterator[Tuple[Task, Any]]:
         """
         Execute the computed schedule and yield the target values.
@@ -177,7 +178,7 @@ class Executor:
             pbar := tqdm.tqdm(
                 list(enumerate(self.schedule)),
                 disable=quiet,
-                desc="Executing graph",
+                desc=desc or "Executing graph",
             )
         ):
             use_math_device = task.uses_accelerator()
@@ -215,11 +216,11 @@ class Executor:
         del values
         del pbar
 
-    def execute(self) -> None:
+    def execute(self, desc: Optional[str] = None) -> None:
         """
         Execute all tasks and discard results.
         """
-        for task, value in self.run():
+        for task, value in self.run(desc=desc):
             pass
 
     def _move_tensors(
