@@ -8,10 +8,7 @@ from mergekit.merge_methods.base import MergeMethod
 from mergekit.merge_methods.generalized_task_arithmetic import (
     GeneralizedTaskArithmeticMerge,
 )
-from mergekit.merge_methods.linear import LinearMerge
-from mergekit.merge_methods.passthrough import PassthroughMerge
 from mergekit.merge_methods.registry import REGISTERED_MERGE_METHODS
-from mergekit.merge_methods.slerp import SlerpMerge
 
 
 def get(method: str) -> MergeMethod:
@@ -23,10 +20,6 @@ def get(method: str) -> MergeMethod:
 __all__ = [
     "MergeMethod",
     "get",
-    "LinearMerge",
-    "SCEMerge",
-    "SlerpMerge",
-    "PassthroughMerge",
     "GeneralizedTaskArithmeticMerge",
     "REGISTERED_MERGE_METHODS",
 ]

@@ -1,7 +1,7 @@
 from typing import Dict, Optional
 
 import pytest
-from common import make_picollama, make_picoLlaVa, run_and_check_merge
+from common import make_gpt2size, make_picollama, make_picoLlaVa, run_and_check_merge
 from transformers import AutoConfig
 
 from mergekit.config import (
@@ -44,21 +44,26 @@ def vlm_c(tmp_path_factory):
     return make_picoLlaVa(tmp_path_factory.mktemp("vlm_c"))
 
 
+@pytest.fixture(scope="session")
+def gpt2_like(tmp_path_factory):
+    return make_gpt2size(tmp_path_factory.mktemp("gpt2_like"))
+
+
 class TestBasicMerges:
-    def test_gpt2_copy(self):
+    def test_gpt2_copy(self, gpt2_like):
         config = MergeConfiguration(
             merge_method="passthrough",
-            models=[InputModelDefinition(model="gpt2")],
+            models=[InputModelDefinition(model=gpt2_like)],
             dtype="bfloat16",
         )
         run_and_check_merge(config)
 
-    def test_gpt2_stack(self):
+    def test_gpt2_stack(self, gpt2_like):
         config = MergeConfiguration(
             merge_method="passthrough",
             slices=[
                 OutputSliceDefinition(
-                    sources=[InputSliceDefinition(model="gpt2", layer_range=[0, 12])]
+                    sources=[InputSliceDefinition(model=gpt2_like, layer_range=[0, 12])]
                 )
             ]
             * 2,
