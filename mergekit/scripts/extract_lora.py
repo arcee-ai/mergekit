@@ -227,7 +227,11 @@ class TaskVectorDecompositionTask(Task[Tuple[torch.Tensor, torch.Tensor]]):
     def execute(self, task_vector: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.transpose:
             task_vector = task_vector.T
+        orig_dtype = task_vector.dtype
+        # convert to float32 for SVD
+        task_vector = task_vector.to(torch.float32)
         u, s, vh = torch.linalg.svd(task_vector, full_matrices=False)
+        u, s, vh = u.to(orig_dtype), s.to(orig_dtype), vh.to(orig_dtype)
         rank = min(self.max_rank, s.shape[0])
         if self.sv_epsilon > 0:
             rank = min((s > self.sv_epsilon).sum().item(), rank)
