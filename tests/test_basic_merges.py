@@ -109,6 +109,7 @@ class TestBasicMerges:
         run_and_check_merge(config, validate=_check_o_proj)
 
     def test_linear_merge(self, model_a, model_b):
+        assert False, "Broken on purpose"
         config = self.two_model_config(model_a, model_b, merge_method="linear")
         run_and_check_merge(config)
 
