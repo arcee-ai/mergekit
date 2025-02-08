@@ -32,7 +32,7 @@ dependencies = [
 dev = ["black~=24.10.0", "isort~=5.13.2", "pre-commit~=4.1.0"]
 test = ["pytest~=8.3.4"]
 evolve = ["ray", "cma", "lm_eval", "wandb"]
-vllm = ["vllm==0.3.2", "lm_eval[vllm]"]
+vllm = ["vllm==0.7.2", "lm_eval[vllm]"]
 
 [project.urls]
 repository = "https://github.com/cg123/mergekit"
