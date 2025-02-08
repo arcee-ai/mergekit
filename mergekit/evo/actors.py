@@ -39,6 +39,8 @@ from mergekit.merge import _model_out_config
 from mergekit.options import MergeOptions
 from mergekit.plan import MergePlanner
 
+logger = logging.getLogger(__name__)
+
 
 class MergeActorBase:
     def __init__(
@@ -87,18 +89,18 @@ class OnDiskMergeEvaluator(MergeActorBase):
     ) -> dict:
         gc.collect()
         torch.cuda.empty_cache()
-        logging.info("Merging model")
+        logger.info("Merging model")
         merged_path = merge_model(
             genotype, self.genome, self.model_storage_path, self.merge_options
         )
         if not merged_path:
-            logging.error("Model merge failed")
+            logger.error("Model merge failed")
             return {"score": None, "results": None}
 
         kwargs = {}
         if self.quantization_config is not None:
             kwargs["quantization_config"] = self.quantization_config
-        logging.info(f"Model merged to {merged_path}")
+        logger.info(f"Model merged to {merged_path}")
         return evaluate_model(
             merged_path,
             self.config.tasks,
@@ -107,6 +109,8 @@ class OnDiskMergeEvaluator(MergeActorBase):
             vllm=self.vllm,
             batch_size=self.batch_size,
             task_manager=self.task_manager,
+            apply_chat_template=self.config.apply_chat_template,
+            fewshot_as_multiturn=self.config.fewshot_as_multiturn,
             **kwargs,
         )
 
@@ -163,7 +167,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     continue
 
                 if getattr(cfg_out, key) != getattr(self.arch_info.config, key, None):
-                    logging.warn(f"Config key {key} changed, reinitializing model")
+                    logger.warn(f"Config key {key} changed, reinitializing model")
                     different = True
                     break
 
@@ -202,7 +206,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                 del inner_model
                 tokenizer_donor = self.genome.definition.base_model
                 if tokenizer_donor is None:
-                    logging.warning(
+                    logger.warning(
                         "Base model not set, using tokenizer from first model in genome"
                     )
                     tokenizer_donor = self.genome.definition.models[0]
@@ -220,7 +224,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     max_model_len = min(max_model_len or 1024, window_sz)
                 if max_model_len and max_model_len > 8192:
                     max_model_len = 8192
-                    logging.warn(f"Clipping sequence length to {max_model_len}")
+                    logger.warning(f"Clipping sequence length to {max_model_len}")
 
                 mem_util = (
                     0.7 if self.merge_options.cuda else 0.9
@@ -237,13 +241,13 @@ class InMemoryMergeEvaluator(MergeActorBase):
         else:
             self.model = lm_eval.models.huggingface.HFLM(pretrained=inner_model)
         self.arch_info = ConfiguredArchitectureInfo(info=ai, config=cfg_out)
-        logging.info("Model initialized")
+        logger.info("Model initialized")
 
     def evaluate(self, genotype: torch.Tensor) -> dict:
         try:
             config = self.genome.genotype_merge_config(genotype)
         except InvalidGenotypeError as e:
-            logging.error("Invalid genotype", exc_info=e)
+            logger.error("Invalid genotype", exc_info=e)
             return {"score": None, "results": None}
 
         self._maybe_init_model(config)
@@ -262,7 +266,13 @@ class InMemoryMergeEvaluator(MergeActorBase):
             assert (
                 model.llm_engine.parallel_config.world_size == 1
             ), "Must be single GPU"
-            worker = model.llm_engine.driver_worker
+            engine = model.llm_engine
+            if hasattr(engine, "model_executor"):
+                worker = engine.model_executor.worker
+            elif hasattr(engine, "driver_worker"):
+                worker = engine.driver_worker
+            else:
+                raise ValueError("Unknown LLM engine type")
             model = worker.model_runner.model
         param_dict = dict(model.named_parameters())
 
@@ -311,6 +321,8 @@ class InMemoryMergeEvaluator(MergeActorBase):
             limit=self.config.limit,
             task_manager=self.task_manager,
             batch_size=self.batch_size,
+            apply_chat_template=self.config.apply_chat_template,
+            fewshot_as_multiturn=self.config.fewshot_as_multiturn,
         )
 
     def evaluate_genotype(

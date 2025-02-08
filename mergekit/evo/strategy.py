@@ -165,6 +165,8 @@ class BufferedRayEvaluationStrategyActor:
                             vllm=self.vllm,
                             batch_size=self.batch_size,
                             task_manager=self.task_manager,
+                            apply_chat_template=self.config.apply_chat_template,
+                            fewshot_as_multiturn=self.config.fewshot_as_multiturn,
                             **kwargs,
                         )
                     ] = future_result
@@ -265,6 +267,8 @@ def evaluate_genotype_serial(
             vllm=vllm,
             batch_size=batch_size,
             task_manager=task_manager,
+            apply_chat_template=config.apply_chat_template,
+            fewshot_as_multiturn=config.fewshot_as_multiturn,
             **kwargs,
         )
     )

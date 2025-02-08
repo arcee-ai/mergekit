@@ -28,6 +28,8 @@ class EvolMergeConfiguration(BaseModel, frozen=True):
     num_fewshot: Optional[int] = None
     shuffle: bool = False
     random_init: bool = False
+    apply_chat_template: bool = True
+    fewshot_as_multiturn: bool = True
 
 
 NAUGHTY_PREFIXES = [
