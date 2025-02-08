@@ -65,7 +65,7 @@ class MergeModelTask(Task[str]):
 @click.option(
     "--out-path",
     type=click.Path(),
-    required=False,
+    required=False,  # validated later
     help="Path to save the final merged model",
 )
 @click.option(
@@ -101,7 +101,7 @@ def main(
     The `intermediate_dir` is used to store intermediate merge results.
     Any merge configuration with a `name` field will be saved to this
     directory. If an unnamed merge configuration is present, it will be
-    saved to `out_path`."""
+    saved to `out_path` (which is required in this case)."""
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
     os.makedirs(intermediate_dir, exist_ok=True)
 
@@ -109,6 +109,12 @@ def main(
         config_source = file.read()
 
     merge_configs, dependencies = load_config(config_source, intermediate_dir)
+
+    # Validate out_path requirement
+    if None in merge_configs and not out_path:
+        raise click.UsageError(
+            "--out-path is required when configuration contains an unnamed final merge"
+        )
     tasks = make_tasks(
         merge_configs, dependencies, merge_options, intermediate_dir, out_path, lazy
     )
@@ -186,8 +192,7 @@ def make_tasks(
             raise ValueError(f"Circular dependency detected involving {name}")
         touched.add(name)
         if name is None:
-            if not out_path:
-                raise ValueError("Must specify out_path to include unnamed final merge")
+            # out_path validation happens earlier in main()
             merge_out_path = out_path
         else:
             merge_out_path = os.path.join(intermediate_dir, name)
@@ -205,7 +210,11 @@ def make_tasks(
         )
         return tasks[name]
 
-    tasks = [_make_task(name) for name in merge_configs.keys()]
+    # Only create tasks that exist in the config (allow missing None)
+    tasks_to_create = [
+        name for name in merge_configs.keys() if name is not None or out_path
+    ]
+    tasks = [_make_task(name) for name in tasks_to_create]
     return tasks
 
 
