@@ -197,9 +197,7 @@ def make_tasks(
         else:
             merge_out_path = os.path.join(intermediate_dir, name)
         tasks[name] = MergeModelTask(
-            config_yaml=yaml.dump(
-                merge_configs[name].model_dump(exclude_defaults=True)
-            ),
+            config_yaml=merge_configs[name].to_yaml(),
             name=name or "final merge",
             input_merges=ImmutableMap(
                 {dep: _make_task(dep) for dep in dependencies[name]}
