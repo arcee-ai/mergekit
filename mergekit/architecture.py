@@ -434,6 +434,57 @@ class MixtralTensorNames(ArchitectureInfo, BaseModel):
     def has_defined_spaces(self) -> bool:
         return False
 
+class DeepseekV2TensorNames(ArchitectureInfo, BaseModel):
+    ARCHITECTURE_NAME: ClassVar[str] = "DeepseekV2ForCausalLM"
+    num_local_experts: int
+
+    def name(self) -> str:
+        return "DeepseekV2"
+    
+    @classmethod
+    def from_config(cls, config: PretrainedConfig):
+        return DeepseekV2TensorNames(num_local_experts=config.n_routed_experts)
+    
+    def pre_weights(sef, config: PretrainedConfig) -> List[WeightInfo]:
+        return DEEPSEEKV2_INFO.pre_weights(config)
+    
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return DEEPSEEKV2_INFO.post_weights(config)
+    
+    def num_layers_config_key(self) -> str:
+        return DEEPSEEKV2_INFO.num_layers_config_key()
+    
+    def layer_weights(
+            self, index: int, config: PretrainedConfig
+    ) -> Optional[List[WeightInfo]]:
+        num_experts = self.num_local_experts
+        prefix = f"model.layers.{index}"
+        tensor_names = []
+
+        if index > 0:
+            for expert_idx in range(num_experts):
+                for param in ("gate_proj", "up_proj", "down_proj"):
+                    tensor_names.append(
+                        prefix + f".mlp.experts.{expert_idx}.{param}.weight"
+                    )
+            tensor_names.append(prefix + ".mlp.gate.weight")
+
+            tensor_names.append(prefix + ".mlp.shared_experts.gate_proj.weight")
+            tensor_names.append(prefix + ".mlp.shared_experts.up_proj.weight")
+            tensor_names.append(prefix + ".mlp.shared_experts.down_proj.weight")
+
+        res = [WeightInfo(name=name) for name in tensor_names]
+
+        for weight_info in DEEPSEEKV2_INFO.layer_weights(index, config):
+            res.append(weight_info)
+
+        return res
+    
+    def sliceable(self) -> bool:
+        return True
+    
+    def has_defined_spaces(self) -> bool:
+        return False
 
 def _load_json_arch(name: str) -> JsonArchitectureInfo:
     text = importlib.resources.read_text(mergekit._data.architectures, name)
@@ -461,6 +512,7 @@ def _load_all_architectures() -> (
 JSON_ARCHITECTURES, NAME_TO_ARCH = _load_all_architectures()
 MISTRAL_INFO = _load_json_arch("mistral.json")
 QWEN2_INFO = _load_json_arch("qwen2.json")
+DEEPSEEKV2_INFO = _load_json_arch("deepseekv2.json")
 
 
 class ArchitectureInfoUtils:
