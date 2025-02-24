@@ -86,23 +86,11 @@ logger = logging.getLogger("extract_lora")
     help="Include modules matching the specified regex",
 )
 @click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    help="Verbose logging",
-)
-@click.option(
     "--sv-epsilon",
     type=float,
     default=0,
     help="Threshold for singular values to discard",
     show_default=True,
-)
-@click.option(
-    "--num-threads",
-    type=int,
-    help="Number of threads to use for parallel CPU operations",
-    default=None,
 )
 @add_merge_options
 def main(
@@ -115,15 +103,10 @@ def main(
     modules_to_save: List[str],
     exclude_regexes: List[str],
     include_regexes: List[str],
-    verbose: bool,
     sv_epsilon: float,
-    num_threads: Optional[int],
     merge_options: MergeOptions,
 ):
-    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
-    if num_threads is not None:
-        torch.set_num_threads(num_threads)
-        torch.set_num_interop_threads(num_threads)
+    merge_options.apply_global_options()
 
     if not modules_to_save:
         modules_to_save = []

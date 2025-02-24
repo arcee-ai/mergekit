@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: BUSL-1.1
 
 import functools
+import logging
 import typing
 from typing import Any, Callable, Optional, Union
 
 import click
+import torch
+import transformers
 from click.core import Context, Parameter
 from pydantic import BaseModel
 
@@ -26,9 +29,19 @@ class MergeOptions(BaseModel, frozen=True):
     lazy_unpickle: bool = False
     write_model_card: bool = True
     safe_serialization: bool = True
+    verbose: bool = False
     quiet: bool = False
     read_to_gpu: bool = False
     multi_gpu: bool = False
+    num_threads: Optional[int] = None
+
+    def apply_global_options(self):
+        logging.basicConfig(level=logging.INFO if self.verbose else logging.WARNING)
+        if self.random_seed is not None:
+            transformers.trainer_utils.set_seed(self.random_seed)
+        if self.num_threads is not None:
+            torch.set_num_threads(self.num_threads)
+            torch.set_num_interop_threads(self.num_threads)
 
 
 OPTION_HELP = {
@@ -48,6 +61,8 @@ OPTION_HELP = {
     "quiet": "Suppress progress bars and other non-essential output",
     "read_to_gpu": "Read model weights directly to GPU",
     "multi_gpu": "Use multi-gpu parallel graph execution engine",
+    "num_threads": "Number of threads to use for parallel CPU operations",
+    "verbose": "Enable verbose logging",
 }
 
 
@@ -88,10 +103,15 @@ def add_merge_options(f: Callable) -> Callable:
             arg_str = f"--{arg_name}/--no-{arg_name}"
         else:
             arg_str = f"--{arg_name}"
+        param_decls = [arg_str]
+        if field_name == "verbose":
+            param_decls = ["--verbose/--no-verbose", "-v"]
+        if field_name == "num_threads":
+            param_decls = ["--num-threads", "-j"]
 
         help_str = OPTION_HELP.get(field_name, None)
         wrapper = click.option(
-            arg_str,
+            *param_decls,
             type=field_type,
             default=info.default,
             help=help_str,

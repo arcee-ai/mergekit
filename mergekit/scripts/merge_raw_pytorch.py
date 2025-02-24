@@ -223,19 +223,12 @@ def construct_param_dicts(
     is_flag=True,
     help="Merge all tensors present in any input model",
 )
-@click.option(
-    "--num-threads",
-    type=int,
-    help="Number of threads to use for parallel CPU operations",
-    default=None,
-)
 @add_merge_options
 def main(
     config_path: str,
     out_path: str,
     tensor_union: bool,
     tensor_intersection: bool,
-    num_threads: Optional[int],
     merge_options: MergeOptions,
 ):
     """Merge arbitrary PyTorch models.
@@ -243,12 +236,7 @@ def main(
     Uses similar configuration syntax to `mergekit-yaml`, minus the
     `slices` sections. Each input model should be the path on disk to a
     pytorch pickle file or safetensors file."""
-    logging.basicConfig(
-        level=logging.INFO if not merge_options.quiet else logging.WARNING
-    )
-    if num_threads is not None:
-        torch.set_num_threads(num_threads)
-        torch.set_num_interop_threads(num_threads)
+    merge_options.apply_global_options()
 
     with open(config_path, "r", encoding="utf-8") as file:
         config_source = file.read()

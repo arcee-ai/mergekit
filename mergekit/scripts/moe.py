@@ -174,12 +174,6 @@ def select_output_arch(
     is_flag=True,
     help="Really make the questionable model you want.",
 )
-@click.option(
-    "--num-threads",
-    type=int,
-    help="Number of threads to use for parallel CPU operations",
-    default=None,
-)
 @add_merge_options
 def main(
     config_path: str,
@@ -189,14 +183,10 @@ def main(
     device: str,
     verbose: bool,
     i_understand_this_is_not_useful_without_training: bool,
-    num_threads: Optional[int],
     merge_options: MergeOptions,
 ):
     """Create a Mixture of Experts model by combining the pretrained weights of multiple models."""
-    logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
-    if num_threads is not None:
-        torch.set_num_threads(num_threads)
-        torch.set_num_interop_threads(num_threads)
+    merge_options.apply_global_options()
 
     if merge_options.cuda:
         logging.warning(
