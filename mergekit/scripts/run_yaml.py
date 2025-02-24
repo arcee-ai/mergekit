@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: BUSL-1.1
 
 import logging
+from typing import Optional
 
 import click
+import torch
 import yaml
 
 from mergekit.config import MergeConfiguration
@@ -17,14 +19,23 @@ from mergekit.options import MergeOptions, add_merge_options
 @click.option(
     "--verbose", "-v", type=bool, default=False, is_flag=True, help="Verbose logging"
 )
+@click.option(
+    "--num-threads",
+    type=int,
+    help="Number of threads to use for parallel CPU operations",
+    default=None,
+)
 @add_merge_options
 def main(
     merge_options: MergeOptions,
     config_file: str,
     out_path: str,
     verbose: bool,
+    num_threads: Optional[int],
 ):
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
+    if num_threads is not None:
+        torch.set_num_threads(num_threads)
 
     with open(config_file, "r", encoding="utf-8") as file:
         config_source = file.read()

@@ -6,6 +6,7 @@ import os
 from typing import Dict, Optional, Set, Tuple, Union
 
 import click
+import torch
 import yaml
 
 from mergekit.common import ImmutableMap, ModelReference
@@ -83,6 +84,12 @@ class MergeModelTask(Task[str]):
     default=True,
     help="Skip merges that already exist",
 )
+@click.option(
+    "--num-threads",
+    type=int,
+    help="Number of threads to use for parallel CPU operations",
+    default=None,
+)
 @add_merge_options
 def main(
     config_file: str,
@@ -90,6 +97,7 @@ def main(
     out_path: Optional[str],
     verbose: bool,
     lazy: bool,
+    num_threads: Optional[int],
     merge_options: MergeOptions,
 ):
     """Execute a set of potentially interdependent merge recipes.
@@ -103,6 +111,9 @@ def main(
     directory. If an unnamed merge configuration is present, it will be
     saved to `out_path` (which is required in this case)."""
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
+    if num_threads is not None:
+        torch.set_num_threads(num_threads)
+
     os.makedirs(intermediate_dir, exist_ok=True)
 
     with open(config_file, "r", encoding="utf-8") as file:
