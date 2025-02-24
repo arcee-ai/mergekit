@@ -76,9 +76,6 @@ class MergeModelTask(Task[str]):
     help="Directory to store intermediate merges",
 )
 @click.option(
-    "--verbose", "-v", type=bool, default=False, is_flag=True, help="Verbose logging"
-)
-@click.option(
     "--lazy/--no-lazy",
     default=True,
     help="Skip merges that already exist",
@@ -88,7 +85,6 @@ def main(
     config_file: str,
     intermediate_dir: str,
     out_path: Optional[str],
-    verbose: bool,
     lazy: bool,
     merge_options: MergeOptions,
 ):
@@ -102,7 +98,7 @@ def main(
     Any merge configuration with a `name` field will be saved to this
     directory. If an unnamed merge configuration is present, it will be
     saved to `out_path` (which is required in this case)."""
-    logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
+    merge_options.apply_global_options()
     os.makedirs(intermediate_dir, exist_ok=True)
 
     with open(config_file, "r", encoding="utf-8") as file:

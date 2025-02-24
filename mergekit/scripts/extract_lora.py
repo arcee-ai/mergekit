@@ -86,12 +86,6 @@ logger = logging.getLogger("extract_lora")
     help="Include modules matching the specified regex",
 )
 @click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    help="Verbose logging",
-)
-@click.option(
     "--sv-epsilon",
     type=float,
     default=0,
@@ -109,11 +103,10 @@ def main(
     modules_to_save: List[str],
     exclude_regexes: List[str],
     include_regexes: List[str],
-    verbose: bool,
     sv_epsilon: float,
     merge_options: MergeOptions,
 ):
-    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
+    merge_options.apply_global_options()
 
     if not modules_to_save:
         modules_to_save = []
