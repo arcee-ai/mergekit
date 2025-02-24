@@ -6,7 +6,6 @@ import os
 from typing import Dict, Optional, Set, Tuple, Union
 
 import click
-import torch
 import yaml
 
 from mergekit.common import ImmutableMap, ModelReference

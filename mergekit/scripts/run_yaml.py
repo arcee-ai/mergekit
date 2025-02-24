@@ -1,11 +1,8 @@
 # Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: BUSL-1.1
 
-import logging
-from typing import Optional
 
 import click
-import torch
 import yaml
 
 from mergekit.config import MergeConfiguration
