@@ -123,6 +123,7 @@ def main(
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
     if num_threads is not None:
         torch.set_num_threads(num_threads)
+        torch.set_num_interop_threads(num_threads)
 
     if not modules_to_save:
         modules_to_save = []

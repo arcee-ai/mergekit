@@ -113,6 +113,7 @@ def main(
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
     if num_threads is not None:
         torch.set_num_threads(num_threads)
+        torch.set_num_interop_threads(num_threads)
 
     os.makedirs(intermediate_dir, exist_ok=True)
 

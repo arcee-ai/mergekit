@@ -248,6 +248,7 @@ def main(
     )
     if num_threads is not None:
         torch.set_num_threads(num_threads)
+        torch.set_num_interop_threads(num_threads)
 
     with open(config_path, "r", encoding="utf-8") as file:
         config_source = file.read()
