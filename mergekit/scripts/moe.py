@@ -180,12 +180,12 @@ def main(
     load_in_4bit: bool,
     load_in_8bit: bool,
     device: str,
-    merge_options: MergeOptions,
     verbose: bool,
     i_understand_this_is_not_useful_without_training: bool,
+    merge_options: MergeOptions,
 ):
     """Create a Mixture of Experts model by combining the pretrained weights of multiple models."""
-    logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
+    merge_options.apply_global_options()
 
     if merge_options.cuda:
         logging.warning(

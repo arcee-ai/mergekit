@@ -236,6 +236,8 @@ def main(
     Uses similar configuration syntax to `mergekit-yaml`, minus the
     `slices` sections. Each input model should be the path on disk to a
     pytorch pickle file or safetensors file."""
+    merge_options.apply_global_options()
+
     with open(config_path, "r", encoding="utf-8") as file:
         config_source = file.read()
 
