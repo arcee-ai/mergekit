@@ -220,7 +220,9 @@ class TaskVectorDecompositionTask(Task[Tuple[torch.Tensor, torch.Tensor]]):
     def execute(self, task_vector: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.transpose:
             task_vector = task_vector.T
-        u, s, vh = torch.linalg.svd(task_vector, full_matrices=False)
+        u, s, vh = torch.linalg.svd(
+            task_vector.to(dtype=torch.float32), full_matrices=False
+        )
         rank = min(self.max_rank, s.shape[0])
         if self.sv_epsilon > 0:
             rank = min((s > self.sv_epsilon).sum().item(), rank)
@@ -235,7 +237,9 @@ class TaskVectorDecompositionTask(Task[Tuple[torch.Tensor, torch.Tensor]]):
         weight_a = scale_a @ vh[:rank]
         weight_b = u[:, :rank] @ scale_b
 
-        return weight_a, weight_b
+        return weight_a.to(dtype=task_vector.dtype), weight_b.to(
+            dtype=task_vector.dtype
+        )
 
     def group_label(self) -> Optional[str]:
         return self.input_task.group_label()
