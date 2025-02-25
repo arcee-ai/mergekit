@@ -59,7 +59,7 @@ logger = logging.getLogger("extract_lora")
     "--embed-lora/--no-embed-lora",
     is_flag=True,
     default=False,
-    help="Extract LoRA weights for embeddings",
+    help="Extract LoRA weights for embeddings (vs. in modules_to_save)",
 )
 @click.option(
     "--save-module",
@@ -92,6 +92,12 @@ logger = logging.getLogger("extract_lora")
     help="Threshold for singular values to discard",
     show_default=True,
 )
+@click.option(
+    "--skip-undecomposable",
+    is_flag=True,
+    help="Skip saving undecomposable modules",
+    default=False,
+)
 @add_merge_options
 def main(
     base_model: str,
@@ -104,6 +110,7 @@ def main(
     exclude_regexes: List[str],
     include_regexes: List[str],
     sv_epsilon: float,
+    skip_undecomposable: bool,
     merge_options: MergeOptions,
 ):
     merge_options.apply_global_options()
@@ -286,7 +293,7 @@ class LoRAModuleSaveTask(Task):
                     f"No SVD decomposition for required weight {self.weight_info.name}"
                 )
             return
-        lora_type = "lora_embedding" if self.weight_info.is_embed else "lora"
+        lora_type = "lora_embedding" if self.decomposition_task.transpose else "lora"
         base_name = self.weight_info.name.removesuffix(".weight")
         writer.save_tensor(
             f"base_model.model.{base_name}.{lora_type}_A.weight", weight_a
@@ -331,6 +338,7 @@ def plan_extraction(
     exclude_regexes: Optional[List[str]] = None,
     include_regexes: Optional[List[str]] = None,
     sv_epsilon: float = 0,
+    skip_undecomposable: bool = False,
 ) -> PlanResults:
     targets = []
     writer_task = TensorWriterTask(
@@ -361,15 +369,12 @@ def plan_extraction(
 
     ft_vocab = embed_in.weight.shape[0]
     base_vocab = dummy_base.get_input_embeddings().weight.shape[0]
-    if ft_vocab != base_vocab:
+    if ft_vocab != base_vocab and embed_lora:
         logger.warning(
             f"Vocabulary size mismatch: fine-tuned model has {ft_vocab} tokens, base model has {base_vocab} tokens"
         )
         logger.warning("Enforcing embeddings in modules_to_save, embed_lora=False")
         embed_lora = False
-        force_embed_save = True
-    else:
-        force_embed_save = False
 
     warned_modules = set()
 
@@ -398,8 +403,10 @@ def plan_extraction(
             else:
                 continue
 
-        if (force_embed_save and (module == embed_in or module == embed_out)) or (
-            not embed_lora and isinstance(module, nn.Embedding)
+        if (not embed_lora) and (
+            module == embed_in
+            or module == embed_out
+            or isinstance(module, nn.Embedding)
         ):
             key = name.split(".")[-1]
             if key not in modules_to_save:
@@ -427,12 +434,18 @@ def plan_extraction(
                 )
             else:
                 key = name.split(".")[-1]
-                if key not in warned_modules:
-                    warned_modules.add(key)
-                    generic_name = re.sub(r"\.(\d+)\.", ".N.", name)
-                    logger.warning(
-                        f"{generic_name} has unsupported module type {type(module).__name__} - skipping"
+                message = (
+                    f"{key} has unsupported module type {type(module).__name__} - "
+                    + ("skipping" if skip_undecomposable else "saving at full rank")
+                )
+                if not skip_undecomposable:
+                    # into modules_to_save it goes
+                    targets.extend(
+                        plan_module_to_save(model_ref, writer_task, wi, bias_wi)
                     )
+                if key not in warned_modules:
+                    logger.warning(message)
+                    warned_modules.add(key)
 
     save_tasks = [t for t in targets if isinstance(t, (SaveTensor, LoRAModuleSaveTask))]
     finalize = FinalizeModel(tensor_save_tasks=save_tasks, writer_task=writer_task)
