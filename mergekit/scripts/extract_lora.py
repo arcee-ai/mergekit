@@ -293,12 +293,13 @@ class LoRAModuleSaveTask(Task):
                 )
             return
         lora_type = "lora_embedding" if self.decomposition_task.transpose else "lora"
+        lora_suffix = ".weight" if not self.decomposition_task.transpose else ""
         base_name = self.weight_info.name.removesuffix(".weight")
         writer.save_tensor(
-            f"base_model.model.{base_name}.{lora_type}_A.weight", weight_a
+            f"base_model.model.{base_name}.{lora_type}_A{lora_suffix}", weight_a
         )
         writer.save_tensor(
-            f"base_model.model.{base_name}.{lora_type}_B.weight", weight_b
+            f"base_model.model.{base_name}.{lora_type}_B{lora_suffix}", weight_b
         )
 
     def priority(self) -> int:
