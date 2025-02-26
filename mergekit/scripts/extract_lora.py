@@ -403,11 +403,17 @@ def plan_extraction(
             else:
                 continue
 
-        if (not embed_lora) and (
-            module == embed_in
-            or module == embed_out
-            or isinstance(module, nn.Embedding)
+        if (
+            (not embed_lora)
+            and (
+                module == embed_in
+                or module == embed_out
+                or isinstance(module, nn.Embedding)
+            )
+            and not any(re.search(r, name) for r in exclude_regexes or [])
         ):
+            # If embeddings are not explicitly excluded but embed_lora is False,
+            # save them at full rank instead of decomposing
             key = name.split(".")[-1]
             if key not in modules_to_save:
                 logger.warning(f"Adding {key} to modules_to_save")
