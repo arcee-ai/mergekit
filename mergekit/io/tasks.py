@@ -22,6 +22,7 @@ class LoaderCache:
     hf_cache_dir: Optional[str] = None
     lazy_unpickle: bool = False
     trust_remote_code: bool = False
+    lora_merge_dtype: Optional[str] = None
 
     # singleton instance per thread
     _instance = threading.local()
@@ -34,7 +35,9 @@ class LoaderCache:
     def get(self, model: ModelReference) -> LazyTensorLoader:
         if model not in self.loaders:
             merged = model.merged(
-                cache_dir=self.lora_cache_dir, trust_remote_code=self.trust_remote_code
+                cache_dir=self.lora_cache_dir,
+                trust_remote_code=self.trust_remote_code,
+                lora_merge_dtype=self.lora_merge_dtype,
             )
             self.loaders[model] = merged.lazy_loader(
                 cache_dir=self.hf_cache_dir, lazy_unpickle=self.lazy_unpickle
@@ -50,6 +53,7 @@ class LoaderCache:
         self.hf_cache_dir = options.transformers_cache
         self.lazy_unpickle = options.lazy_unpickle
         self.trust_remote_code = options.trust_remote_code
+        self.lora_merge_dtype = options.lora_merge_dtype
 
 
 shard_name_re = re.compile(r"model\-([0-9]+)-of-([0-9]+)")

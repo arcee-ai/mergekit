@@ -50,8 +50,6 @@ class NuSlerpTask(Task[torch.Tensor]):
         weights = [self.tensor_parameters[key]["weight"] for key in keys]
 
         if len(tensors) != 2:
-            print(keys)
-            print(self.base_model)
             raise RuntimeError(
                 "NuSlerp merge expects exactly two models (plus optional base model)"
             )

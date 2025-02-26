@@ -9,8 +9,8 @@ from typing import Any, Callable, Optional, Union
 import click
 import torch
 import transformers
-from click.core import Context, Parameter
-from pydantic import BaseModel
+from click.core import Context, HelpFormatter, Parameter
+from pydantic import BaseModel, model_validator
 
 from mergekit.common import parse_kmb
 
@@ -19,6 +19,7 @@ class MergeOptions(BaseModel, frozen=True):
     allow_crimes: bool = False
     transformers_cache: Optional[str] = None
     lora_merge_cache: Optional[str] = None
+    lora_merge_dtype: Optional[str] = None
     cuda: bool = False
     low_cpu_memory: bool = False
     out_shard_size: int = parse_kmb("5B")
@@ -34,6 +35,7 @@ class MergeOptions(BaseModel, frozen=True):
     read_to_gpu: bool = False
     multi_gpu: bool = False
     num_threads: Optional[int] = None
+    gpu_rich: bool = False
 
     def apply_global_options(self):
         logging.basicConfig(level=logging.INFO if self.verbose else logging.WARNING)
@@ -43,11 +45,21 @@ class MergeOptions(BaseModel, frozen=True):
             torch.set_num_threads(self.num_threads)
             torch.set_num_interop_threads(self.num_threads)
 
+    @model_validator(mode="before")
+    def handle_gpu_rich(cls, value):
+        if isinstance(value, dict) and value.get("gpu_rich"):
+            value["cuda"] = True
+            value["low_cpu_memory"] = True
+            value["read_to_gpu"] = True
+            value["multi_gpu"] = True
+        return value
+
 
 OPTION_HELP = {
     "allow_crimes": "Allow mixing architectures",
     "transformers_cache": "Override storage path for downloaded models",
     "lora_merge_cache": "Path to store merged LORA models",
+    "lora_merge_dtype": "Override dtype when applying LoRAs",
     "cuda": "Perform matrix arithmetic on GPU",
     "low_cpu_memory": "Store results and intermediate values on GPU. Useful if VRAM > RAM",
     "out_shard_size": "Number of parameters per output shard  [default: 5B]",
@@ -63,6 +75,30 @@ OPTION_HELP = {
     "multi_gpu": "Use multi-gpu parallel graph execution engine",
     "num_threads": "Number of threads to use for parallel CPU operations",
     "verbose": "Enable verbose logging",
+    "gpu_rich": "Alias for --cuda --low-cpu-memory --read-to-gpu --multi-gpu",
+}
+
+OPTION_CATEGORIES = {
+    "lora_merge_cache": "Storage",
+    "transformers_cache": "Storage",
+    "out_shard_size": "Output Settings",
+    "copy_tokenizer": "Output Settings",
+    "clone_tensors": "Output Settings",
+    "write_model_card": "Output Settings",
+    "safe_serialization": "Output Settings",
+    "lazy_unpickle": "Performance",
+    "cuda": "Performance",
+    "low_cpu_memory": "Performance",
+    "read_to_gpu": "Performance",
+    "multi_gpu": "Performance",
+    "num_threads": "Performance",
+    "gpu_rich": "Performance",
+    "trust_remote_code": "Dangerous Options",
+    "allow_crimes": "Dangerous Options",
+    "random_seed": "Miscellaneous",
+    "verbose": "Miscellaneous",
+    "quiet": "Miscellaneous",
+    "lora_merge_dtype": "Miscellaneous",
 }
 
 
@@ -104,10 +140,14 @@ def add_merge_options(f: Callable) -> Callable:
         else:
             arg_str = f"--{arg_name}"
         param_decls = [arg_str]
+        kwargs = {}
         if field_name == "verbose":
             param_decls = ["--verbose/--no-verbose", "-v"]
         if field_name == "num_threads":
             param_decls = ["--num-threads", "-j"]
+        if field_name == "gpu_rich":
+            param_decls = ["--gpu-rich"]
+            kwargs["is_flag"] = True
 
         help_str = OPTION_HELP.get(field_name, None)
         wrapper = click.option(
@@ -116,6 +156,28 @@ def add_merge_options(f: Callable) -> Callable:
             default=info.default,
             help=help_str,
             show_default=field_name != "out_shard_size",
+            **kwargs,
         )(wrapper)
 
     return wrapper
+
+
+class PrettyPrintHelp(click.Command):
+    def format_options(self, ctx: Context, formatter: HelpFormatter) -> None:
+        categories = {None: []}
+        for param in ctx.command.params:
+            if param.name in OPTION_CATEGORIES:
+                category = OPTION_CATEGORIES[param.name]
+                if category not in categories:
+                    categories[category] = []
+                categories[category].append(param)
+            else:
+                categories[None].append(param)
+
+        for category, params in categories.items():
+            title = category or "Script Options"
+            opts = [p.get_help_record(ctx) for p in params]
+            opts = [opt for opt in opts if opt is not None]
+            if opts:
+                with formatter.section(title):
+                    formatter.write_dl(opts)

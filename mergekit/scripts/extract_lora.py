@@ -22,12 +22,12 @@ from mergekit.graph import Executor, Task
 from mergekit.io.tasks import FinalizeModel, LoadTensor, SaveTensor, TensorWriterTask
 from mergekit.io.tensor_writer import TensorWriter
 from mergekit.multigpu_executor import MultiGPUExecutor
-from mergekit.options import MergeOptions, add_merge_options
+from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
 logger = logging.getLogger("extract_lora")
 
 
-@click.command("mergekit-extract-lora")
+@click.command("mergekit-extract-lora", cls=PrettyPrintHelp)
 @click.option(
     "--model",
     required=True,
@@ -124,10 +124,12 @@ def main(
         base_model_ref=base_model_ref.merged(
             cache_dir=merge_options.lora_merge_cache,
             trust_remote_code=merge_options.trust_remote_code,
+            lora_merge_dtype=merge_options.lora_merge_dtype,
         ),
         model_ref=model_ref.merged(
             cache_dir=merge_options.lora_merge_cache,
             trust_remote_code=merge_options.trust_remote_code,
+            lora_merge_dtype=merge_options.lora_merge_dtype,
         ),
         modules_to_save=modules_to_save,
         out_path=out_path,
