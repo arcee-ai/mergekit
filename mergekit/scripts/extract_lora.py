@@ -140,6 +140,7 @@ def main(
         exclude_regexes=exclude_regexes,
         include_regexes=include_regexes,
         sv_epsilon=sv_epsilon,
+        skip_undecomposable=skip_undecomposable,
     )
 
     tasks = plan_result.tasks
@@ -448,6 +449,8 @@ def plan_extraction(
                 )
                 if not skip_undecomposable:
                     # into modules_to_save it goes
+                    if key not in modules_to_save:
+                        modules_to_save.append(key)
                     targets.extend(
                         plan_module_to_save(model_ref, writer_task, wi, bias_wi)
                     )
