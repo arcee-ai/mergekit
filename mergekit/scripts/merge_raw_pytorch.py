@@ -18,7 +18,7 @@ from mergekit.graph import Executor, Task
 from mergekit.io import LazyTensorLoader, ShardedTensorIndex
 from mergekit.io.tasks import FinalizeModel, SaveTensor, TensorWriterTask
 from mergekit.merge_methods.base import MergeMethod, TensorDictWrapper
-from mergekit.options import MergeOptions, add_merge_options
+from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
 
 class InputModelDefinition(BaseModel, frozen=True):
@@ -204,7 +204,7 @@ def construct_param_dicts(
     return global_params, tensor_params
 
 
-@click.command("mergekit-pytorch")
+@click.command("mergekit-pytorch", cls=PrettyPrintHelp)
 @click.argument("config_path", type=click.Path(exists=True))
 @click.argument("out_path", type=click.Path())
 @click.option(

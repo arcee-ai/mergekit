@@ -71,7 +71,10 @@ class ModelReference(BaseModel, frozen=True):
     override_architecture: Optional[str] = None
 
     def merged(
-        self, cache_dir: Optional[str] = None, trust_remote_code: bool = False
+        self,
+        cache_dir: Optional[str] = None,
+        trust_remote_code: bool = False,
+        lora_merge_dtype: Optional[str] = None,
     ) -> "ModelReference":
         """Merge the LoRA if applicable and return a reference to the result."""
         if not self.lora:
@@ -95,7 +98,7 @@ class ModelReference(BaseModel, frozen=True):
             model = auto_cls.from_pretrained(
                 self.model.path,
                 revision=self.model.revision,
-                torch_dtype=torch.float16,
+                torch_dtype=dtype_from_name(lora_merge_dtype),
                 low_cpu_mem_usage=True,
                 trust_remote_code=trust_remote_code,
             )
