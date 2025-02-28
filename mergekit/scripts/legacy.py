@@ -8,10 +8,10 @@ import yaml
 
 from mergekit.config import InputModelDefinition, MergeConfiguration
 from mergekit.merge import run_merge
-from mergekit.options import MergeOptions, add_merge_options
+from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
 
-@click.command("mergekit-legacy")
+@click.command("mergekit-legacy", cls=PrettyPrintHelp)
 @click.argument("out_path", type=str)
 @click.option(
     "--merge", "merge", type=str, multiple=True, help="Add a model to the merge"

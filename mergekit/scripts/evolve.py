@@ -382,6 +382,7 @@ def _reshard_model(
     merged = model.merged(
         cache_dir=merge_cache,
         trust_remote_code=trust_remote_code,
+        lora_merge_dtype="bfloat16",
     )
     out_path = os.path.join(
         storage_path,

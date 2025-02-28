@@ -7,10 +7,10 @@ import yaml
 
 from mergekit.config import MergeConfiguration
 from mergekit.merge import run_merge
-from mergekit.options import MergeOptions, add_merge_options
+from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
 
-@click.command("mergekit-yaml")
+@click.command("mergekit-yaml", cls=PrettyPrintHelp)
 @click.argument("config_file")
 @click.argument("out_path")
 @add_merge_options

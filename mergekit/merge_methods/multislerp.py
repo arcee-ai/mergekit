@@ -59,7 +59,6 @@ def multislerp(
 
     mean = (unit_tensors * weights.view(-1, 1)).sum(0)
     mean_norm = torch.norm(mean)
-    print(mean_norm)
     if mean_norm < eps:
         if tensors.shape[0] == 2:
             # fallback to linear interpolation

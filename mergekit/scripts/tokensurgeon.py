@@ -20,12 +20,12 @@ from mergekit.architecture import (
 from mergekit.common import ModelReference
 from mergekit.io import TensorWriter
 from mergekit.io.tasks import LoaderCache
-from mergekit.options import MergeOptions, add_merge_options
+from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
 LOG = logging.getLogger(__name__)
 
 
-@click.command("mergekit-tokensurgeon")
+@click.command("mergekit-tokensurgeon", cls=PrettyPrintHelp)
 @click.argument("model", type=str)
 @click.argument("donor", type=str)
 @click.argument("out_path", type=str)

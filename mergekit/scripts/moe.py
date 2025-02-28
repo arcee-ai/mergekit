@@ -14,7 +14,7 @@ from mergekit.merge import MergeOptions
 from mergekit.moe import ALL_OUTPUT_ARCHITECTURES, MoEOutputArchitecture
 from mergekit.moe.config import MoEMergeConfig, is_bad_config
 from mergekit.moe.router import get_gate_params, warn_degenerate_gates
-from mergekit.options import add_merge_options
+from mergekit.options import PrettyPrintHelp, add_merge_options
 
 
 def build(
@@ -139,7 +139,7 @@ def select_output_arch(
     return candidates[0]
 
 
-@click.command("mergekit-moe")
+@click.command("mergekit-moe", cls=PrettyPrintHelp)
 @click.argument("config_path", type=click.Path(exists=True, dir_okay=False))
 @click.argument("out_path", type=click.Path())
 @click.option(

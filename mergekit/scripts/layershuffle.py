@@ -15,10 +15,10 @@ from mergekit.config import (
     OutputSliceDefinition,
 )
 from mergekit.merge import run_merge
-from mergekit.options import MergeOptions, add_merge_options
+from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
 
-@click.command("mergekit-layershuffle")
+@click.command("mergekit-layershuffle", cls=PrettyPrintHelp)
 @click.argument("out_path", type=str)
 @click.option("--model", "-m", multiple=True, type=str, help="Add a model to the merge")
 @click.option(

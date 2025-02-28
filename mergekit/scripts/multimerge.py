@@ -12,7 +12,7 @@ from mergekit.common import ImmutableMap, ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor, Task
 from mergekit.merge import run_merge
-from mergekit.options import MergeOptions, add_merge_options
+from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
 logger = logging.getLogger("multimerge")
 
@@ -60,7 +60,7 @@ class MergeModelTask(Task[str]):
         return self.out_path
 
 
-@click.command("mergekit-multimerge")
+@click.command("mergekit-multimerge", cls=PrettyPrintHelp)
 @click.argument("config_file", type=click.Path(exists=True))
 @click.option(
     "--out-path",
