@@ -122,7 +122,7 @@ class TensorWriter:
                 json.dump(
                     {
                         "metadata": {
-                            "mergekit_version": "0.1.0",
+                            "mergekit_version": "0.1.1",
                         },
                         "weight_map": self.weight_map,
                     },
