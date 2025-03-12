@@ -265,6 +265,23 @@ class TaskVectorTask(Task[torch.Tensor]):
         return {"base": self.base_tensor, "model": self.model_tensor}
 
     def execute(self, base: torch.Tensor, model: torch.Tensor) -> torch.Tensor:
+        if base is None:
+            logger.error(f"Base tensor is None for {self.base_tensor}")
+            raise ValueError(f"Base tensor is None. Check if the base model was loaded correctly.")
+        
+        if model is None:
+            logger.error(f"Model tensor is None for {self.model_tensor}")
+            raise ValueError(f"Model tensor is None. Check if the fine-tuned model was loaded correctly.")
+        
+        if base.shape != model.shape:
+            logger.warning(f"Shape mismatch: base {base.shape} vs model {model.shape}")
+            if base.numel() == model.numel():
+                logger.info(f"Reshaping base tensor from {base.shape} to {model.shape}")
+                base = base.view(model.shape)
+            else:
+                logger.error(f"Cannot subtract tensors with different shapes: {base.shape} vs {model.shape}")
+                raise ValueError(f"Tensor shape mismatch: {base.shape} vs {model.shape}")
+        
         return model - base
 
     def group_label(self):
@@ -313,6 +330,7 @@ class LoRAModuleSaveTask(Task):
 
 
 def _wi_load(model_ref: ModelReference, weight_info: WeightInfo) -> LoadTensor:
+    logger.info(f"Setting up tensor load for {weight_info.name} from {model_ref.model.path}")
     return LoadTensor(
         model=model_ref,
         tensor=weight_info.name,
@@ -352,20 +370,64 @@ def plan_extraction(
     )
 
     name_to_wi = all_weights_map(model_ref, options)
-    dummy_model = AutoModelForCausalLM.from_pretrained(
-        model_ref.model.path,
-        revision=model_ref.model.revision,
-        trust_remote_code=options.trust_remote_code,
-        device_map="meta",
-        state_dict={},
-    )
-    dummy_base = AutoModelForCausalLM.from_pretrained(
-        base_model_ref.model.path,
-        revision=base_model_ref.model.revision,
-        trust_remote_code=options.trust_remote_code,
-        device_map="meta",
-        state_dict={},
-    )
+    
+    # Check if this is a Whisper model
+    is_whisper = False
+    try:
+        from transformers import WhisperForConditionalGeneration
+        # Try to load with specific Whisper class if available
+        logger.info("Attempting to load models with WhisperForConditionalGeneration")
+        try:
+            dummy_model = WhisperForConditionalGeneration.from_pretrained(
+                model_ref.model.path,
+                revision=model_ref.model.revision,
+                trust_remote_code=options.trust_remote_code,
+                device_map="meta",
+                state_dict={},
+            )
+            dummy_base = WhisperForConditionalGeneration.from_pretrained(
+                base_model_ref.model.path,
+                revision=base_model_ref.model.revision,
+                trust_remote_code=options.trust_remote_code,
+                device_map="meta",
+                state_dict={},
+            )
+            is_whisper = True
+            logger.info("Successfully loaded models as Whisper models")
+        except Exception as e:
+            logger.warning(f"Failed to load as Whisper models: {e}")
+            # Fall back to AutoModelForCausalLM
+            dummy_model = AutoModelForCausalLM.from_pretrained(
+                model_ref.model.path,
+                revision=model_ref.model.revision,
+                trust_remote_code=options.trust_remote_code,
+                device_map="meta",
+                state_dict={},
+            )
+            dummy_base = AutoModelForCausalLM.from_pretrained(
+                base_model_ref.model.path,
+                revision=base_model_ref.model.revision,
+                trust_remote_code=options.trust_remote_code,
+                device_map="meta",
+                state_dict={},
+            )
+    except ImportError:
+        # WhisperForConditionalGeneration not available, use AutoModelForCausalLM
+        logger.info("WhisperForConditionalGeneration not available, using AutoModelForCausalLM")
+        dummy_model = AutoModelForCausalLM.from_pretrained(
+            model_ref.model.path,
+            revision=model_ref.model.revision,
+            trust_remote_code=options.trust_remote_code,
+            device_map="meta",
+            state_dict={},
+        )
+        dummy_base = AutoModelForCausalLM.from_pretrained(
+            base_model_ref.model.path,
+            revision=base_model_ref.model.revision,
+            trust_remote_code=options.trust_remote_code,
+            device_map="meta",
+            state_dict={},
+        )
 
     embed_in = dummy_model.get_input_embeddings()
     embed_out = dummy_model.get_output_embeddings()

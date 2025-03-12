@@ -4,7 +4,10 @@
 
 import click
 import logging
-from typing import List
+from typing import List, Optional
+
+import torch
+from transformers import AutoModelForSpeechSeq2Seq, WhisperForConditionalGeneration
 
 from mergekit.common import ModelReference
 from mergekit.options import MergeOptions, add_merge_options
@@ -79,8 +82,44 @@ def main(
     (text generation) components.
     """
     
+    # Set up logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("extract_whisper_lora")
+    
     # Apply global options
     merge_options.apply_global_options()
+    
+    # Validate models can be loaded before proceeding
+    logger.info(f"Validating models: {model} and {base_model}")
+    try:
+        # Try to load models to verify they're accessible
+        logger.info(f"Loading fine-tuned model: {model}")
+        test_model = WhisperForConditionalGeneration.from_pretrained(
+            model,
+            device_map="auto",
+            torch_dtype=torch.float32,
+            low_cpu_mem_usage=True
+        )
+        logger.info(f"Successfully loaded fine-tuned model with shape: {test_model.get_input_embeddings().weight.shape}")
+        
+        logger.info(f"Loading base model: {base_model}")
+        test_base = WhisperForConditionalGeneration.from_pretrained(
+            base_model,
+            device_map="auto",
+            torch_dtype=torch.float32,
+            low_cpu_mem_usage=True
+        )
+        logger.info(f"Successfully loaded base model with shape: {test_base.get_input_embeddings().weight.shape}")
+        
+        # Free memory
+        del test_model
+        del test_base
+        torch.cuda.empty_cache()
+        
+        logger.info("Model validation successful")
+    except Exception as e:
+        logger.error(f"Failed to load models: {e}")
+        raise ValueError(f"Could not load one or both models: {e}")
     
     # Determine include/exclude patterns based on flags
     include_regexes = []
