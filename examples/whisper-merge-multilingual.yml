@@ -1,0 +1,8 @@
+models:
+  - model: openai/whisper-large-v2  # Base multilingual model
+    parameters:
+      weight: 0.7
+  - model: user/whisper-specialized-french  # French-specialized model
+    parameters:
+      weight: 0.3
+merge_method: slerp 
