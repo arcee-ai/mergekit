@@ -145,6 +145,7 @@ def della_magprune(
         return tensor
     if density <= 0:
         return torch.zeros_like(tensor)
+    orig_shape = tensor.shape
 
     if density + epsilon >= 1 or density - epsilon <= 0:
         raise ValueError(
@@ -171,7 +172,7 @@ def della_magprune(
     mask = torch.bernoulli(probs).to(work_dtype)
 
     res = rescaled_masked_tensor(tensor.to(work_dtype), mask, rescale_norm)
-    return res.view_as(tensor)
+    return res.to(tensor.dtype).reshape(orig_shape)
 
 
 def sparsify(
