@@ -8,9 +8,9 @@ from typing import List
 
 from mergekit.common import ModelReference
 from mergekit.options import MergeOptions, add_merge_options
-from mergekit.scripts.extract_lora import plan_extraction, make_config_dict
+from mergekit.scripts.extract_lora import plan_extraction, make_config_dict, TaskVectorDecompositionTask
 from mergekit.multigpu_executor import MultiGPUExecutor
-from mergekit.graph import Executor, TaskVectorDecompositionTask
+from mergekit.graph import Executor
 
 
 @click.command("mergekit-extract-whisper-lora", cls=click.core.Command)
