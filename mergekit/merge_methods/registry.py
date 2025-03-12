@@ -5,6 +5,7 @@ from typing import Dict, List
 
 from mergekit.merge_methods.arcee_fusion import ArceeFusionMerge
 from mergekit.merge_methods.base import MergeMethod
+from mergekit.merge_methods.encoder_decoder_weighted import EncoderDecoderWeightedMerge
 from mergekit.merge_methods.generalized_task_arithmetic import (
     ConsensusMethod,
     GeneralizedTaskArithmeticMerge,
@@ -23,6 +24,7 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
     PassthroughMerge(),
     ModelStockMerge(),
     ArceeFusionMerge(),
+    EncoderDecoderWeightedMerge(),
     # generalized task arithmetic methods
     GeneralizedTaskArithmeticMerge(
         consensus_method=None,

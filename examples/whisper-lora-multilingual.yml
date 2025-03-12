@@ -1,0 +1,10 @@
+models:
+  - model: openai/whisper-large-v2  # Base model
+    lora: user/whisper-french-lora  # French LoRA adaptation
+    parameters:
+      weight: 0.6
+  - model: openai/whisper-large-v2  # Same base model
+    lora: user/whisper-german-lora  # German LoRA adaptation  
+    parameters:
+      weight: 0.4
+merge_method: slerp 

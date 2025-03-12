@@ -1,0 +1,11 @@
+# Test configuration for encoder-decoder weighted merging with Whisper models
+merge_method: encoder_decoder_weighted
+models:
+  - model: openai/whisper-large-v2  # Base model
+    parameters:
+      encoder_weight: 0.8  # Higher weight for encoder (audio processing)
+      decoder_weight: 0.3  # Lower weight for decoder
+  - model: user/whisper-french  # French-specialized model
+    parameters:
+      encoder_weight: 0.2  # Lower weight for encoder
+      decoder_weight: 0.7  # Higher weight for decoder (text generation) 

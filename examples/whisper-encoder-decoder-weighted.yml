@@ -1,0 +1,10 @@
+models:
+  - model: openai/whisper-large-v2  # Base model with good audio processing
+    parameters:
+      encoder_weight: 0.8  # Prioritize encoder (audio processing)
+      decoder_weight: 0.3
+  - model: user/whisper-specialized  # Specialized model with better text generation
+    parameters:
+      encoder_weight: 0.2
+      decoder_weight: 0.7  # Prioritize decoder (text generation)
+merge_method: encoder_decoder_weighted 
