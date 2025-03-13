@@ -53,7 +53,7 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
 
 
 def get_architecture_info(
-    config: MergeConfiguration, options: MergeOptions
+    config: "MergeConfiguration", options: MergeOptions
 ) -> ModelArchitecture:
     models = config.referenced_models()
     if not models:
