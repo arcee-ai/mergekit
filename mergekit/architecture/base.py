@@ -39,7 +39,10 @@ def _prefix_weight(weight: WeightInfo, prefix: Optional[str] = None) -> WeightIn
         return weight
     return WeightInfo(
         name=prefix + weight.name,
-        **weight.model_dump(exclude={"name"}),
+        aliases=tuple(prefix + alias for alias in weight.aliases or ()) or None,
+        tied_names=tuple(prefix + tied_name for tied_name in weight.tied_names or ())
+        or None,
+        **weight.model_dump(exclude={"name", "aliases", "tied_names"}),
     )
 
 
@@ -138,11 +141,7 @@ class ConfiguredModelArchitecture(BaseModel, frozen=True, arbitrary_types_allowe
     config: PretrainedConfig
 
     def all_weights(self) -> List[WeightInfo]:
-        res = []
-        for module_name, module in self.info.modules.items():
-            for weight_info in module.architecture.all_weights(self.config):
-                res.append(_prefix_weight(weight_info, module.weight_prefix))
-        return res
+        return self.info.all_weights(self.config)
 
     def get_module(self, module_name: str) -> ConfiguredModuleArchitecture:
         return ConfiguredModuleArchitecture(

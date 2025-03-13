@@ -1,9 +1,8 @@
 # Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: BUSL-1.1
 
-
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from transformers import PretrainedConfig
 
@@ -18,8 +17,10 @@ from mergekit.architecture.base import (
 )
 from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.architecture.mixtral import MixtralTensorNames
-from mergekit.config import MergeConfiguration
 from mergekit.options import MergeOptions
+
+if TYPE_CHECKING:
+    from mergekit.config import MergeConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
 
 
 def get_architecture_info(
-    config: MergeConfiguration, options: MergeOptions
+    config: "MergeConfiguration", options: MergeOptions
 ) -> ModelArchitecture:
     models = config.referenced_models()
     if not models:
