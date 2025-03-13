@@ -11,6 +11,7 @@ from mergekit.architecture import (
     ModelArchitecture,
     WeightInfo,
 )
+from mergekit.architecture.base import ConfiguredModelArchitecture
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.config import (
     ConfigReader,
@@ -71,13 +72,19 @@ class MergePlanner:
                 add_tokens=tuple(token_cfg.keys()),
             )
 
-    @lru_cache
-    def _model_module_arch(self, model: ModelReference, module_name: str):
-        module_def = self.arch_info.modules[module_name]
+    def _out_module_arch(self, module: str) -> ConfiguredModuleArchitecture:
+        module_def = self.arch_info.modules[module]
         return ConfiguredModuleArchitecture(
             info=module_def.architecture,
-            config=model.config(trust_remote_code=self.options.trust_remote_code),
+            config=self.out_model_config,
             weight_prefix=module_def.weight_prefix,
+        )
+
+    @lru_cache
+    def _model_arch(self, model: ModelReference):
+        return ConfiguredModelArchitecture(
+            info=self.arch_info,
+            config=model.config(trust_remote_code=self.options.trust_remote_code),
         )
 
     def normalize_config(self):
@@ -236,15 +243,14 @@ class MergePlanner:
         cfg_reader: ConfigReader,
         module_name: str,
     ):
-        module_arch_def = self.arch_info.modules[module_name]
-        weights_out: List[WeightInfo] = module_arch_def.architecture.layer_weights(
+        module_arch = self._out_module_arch(module_name)
+        weights_out: List[WeightInfo] = module_arch.layer_weights(
             index=self._current_module_layers,
-            config=self.out_model_config,
         )
         weights_in: List[List[WeightInfo]] = [
-            self._model_module_arch(s.model, module_name).layer_weights(
-                index=s.layer_range[0] + layer_offset
-            )
+            self._model_arch(s.model)
+            .get_module(module_name)
+            .layer_weights(index=s.layer_range[0] + layer_offset)
             for s in sources
         ]
 
@@ -294,12 +300,10 @@ class MergePlanner:
     def plan_module(self, module_name: str, definition: OutputModuleDefinition):
         self._current_module_layers = 0
 
-        module_arch_def = self.arch_info.modules[module_name]
+        module_arch = self._out_module_arch(module_name)
         config_reader = ConfigReader(config=self.config, t=0, module=definition)
 
-        for weight_info in module_arch_def.architecture.pre_weights(
-            self.out_model_config
-        ):
+        for weight_info in module_arch.pre_weights():
             self.plan_tensor(
                 weight_info,
                 [weight_info] * len(definition.slices[0].sources),
@@ -316,9 +320,7 @@ class MergePlanner:
                 module_name=module_name,
             )
 
-        for weight_info in module_arch_def.architecture.post_weights(
-            self.out_model_config
-        ):
+        for weight_info in module_arch.post_weights():
             self.plan_tensor(
                 weight_info,
                 [weight_info] * len(definition.slices[0].sources),

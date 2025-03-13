@@ -141,11 +141,7 @@ class ConfiguredModelArchitecture(BaseModel, frozen=True, arbitrary_types_allowe
     config: PretrainedConfig
 
     def all_weights(self) -> List[WeightInfo]:
-        res = []
-        for module_name, module in self.info.modules.items():
-            for weight_info in module.architecture.all_weights(self.config):
-                res.append(_prefix_weight(weight_info, module.weight_prefix))
-        return res
+        return self.info.all_weights(self.config)
 
     def get_module(self, module_name: str) -> ConfiguredModuleArchitecture:
         return ConfiguredModuleArchitecture(
