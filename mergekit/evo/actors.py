@@ -17,13 +17,15 @@ import torch
 import transformers
 from transformers.utils import is_flash_attn_2_available
 
+from mergekit.architecture.base import ConfiguredModelArchitecture
+
 try:
     import vllm
 except ImportError:
     vllm = None
 
 
-from mergekit.architecture import ConfiguredModuleArchitecture, arch_info_for_config
+from mergekit.architecture import arch_info_for_config
 from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
@@ -130,7 +132,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
     model: Union[
         lm_eval.models.huggingface.HFLM, lm_eval.models.vllm_causallms.VLLM, None
     ] = None
-    arch_info: Optional[ConfiguredModuleArchitecture] = None
+    arch_info: Optional[ConfiguredModelArchitecture] = None
 
     def __init__(
         self,
@@ -238,8 +240,13 @@ class InMemoryMergeEvaluator(MergeActorBase):
                 )
         else:
             self.model = lm_eval.models.huggingface.HFLM(pretrained=inner_model)
-        self.arch_info = ConfiguredModuleArchitecture(
-            info=ai.modules["default"], config=cfg_out
+        self.arch_info = (
+            ConfiguredModelArchitecture(
+                info=ai,
+                config=cfg_out,
+            )
+            if ai
+            else None
         )
         logger.info("Model initialized")
 
