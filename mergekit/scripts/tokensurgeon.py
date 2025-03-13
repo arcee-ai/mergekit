@@ -271,12 +271,18 @@ def get_embedding_info(
     cfg = model.config(trust_remote_code=options.trust_remote_code)
     arch_info = arch_info_for_config(cfg)
 
+    if len(arch_info.modules) != 1:
+        raise RuntimeError("Model has multiple modules - not supported by tokensurgeon")
+    module_def = next(iter(arch_info.modules.values()))
+
     embed, lm_head = None, None
-    for weight_info in arch_info.all_weights(cfg):
+    for weight_info in module_def.architecture.pre_weights(cfg):
         if weight_info.is_embed:
             if embed is not None:
                 raise RuntimeError("Multiple input embeddings found")
             embed = weight_info
+
+    for weight_info in module_def.architecture.post_weights(cfg):
         if weight_info.is_embed:
             if lm_head is not None:
                 raise RuntimeError("Multiple output embeddings found")
