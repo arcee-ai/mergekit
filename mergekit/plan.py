@@ -96,7 +96,8 @@ class MergePlanner:
         if self.config.slices:
             if len(self.arch_info.modules) != 1:
                 raise RuntimeError(
-                    "Model has multiple modules, must use modules: config syntax"
+                    "Model has multiple modules, must use modules: config syntax "
+                    "to work with slices"
                 )
             module_name = list(self.arch_info.modules.keys())[0]
             self.config.modules = {
