@@ -13,11 +13,10 @@ import torch
 import torch.nn as nn
 import tqdm
 from pydantic import BaseModel
-from transformers import AutoModelForCausalLM
 
 from mergekit.architecture import WeightInfo, arch_info_for_config
 from mergekit.card import generate_card_lora
-from mergekit.common import ModelReference
+from mergekit.common import ModelReference, get_auto_cls
 from mergekit.graph import Executor, Task
 from mergekit.io.tasks import FinalizeModel, LoadTensor, SaveTensor, TensorWriterTask
 from mergekit.io.tensor_writer import TensorWriter
@@ -352,14 +351,15 @@ def plan_extraction(
     )
 
     name_to_wi = all_weights_map(model_ref, options)
-    dummy_model = AutoModelForCausalLM.from_pretrained(
+    auto_cls = get_auto_cls(model_ref.model.path)
+    dummy_model = auto_cls.from_pretrained(
         model_ref.model.path,
         revision=model_ref.model.revision,
         trust_remote_code=options.trust_remote_code,
         device_map="meta",
         state_dict={},
     )
-    dummy_base = AutoModelForCausalLM.from_pretrained(
+    dummy_base = auto_cls.from_pretrained(
         base_model_ref.model.path,
         revision=base_model_ref.model.revision,
         trust_remote_code=options.trust_remote_code,

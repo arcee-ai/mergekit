@@ -16,6 +16,7 @@ from typing import (
     Tuple,
     Union,
     get_args,
+    Protocol,
 )
 
 import huggingface_hub
@@ -118,7 +119,7 @@ class ModelReference(BaseModel, frozen=True):
             os.makedirs(out_path, exist_ok=True)
 
             config = self.config(trust_remote_code)
-            auto_cls = _get_auto_cls(config.architectures[0])
+            auto_cls = get_auto_cls(config.architectures[0])
 
             logging.info(f"Loading {self.model} for merge...")
             model = auto_cls.from_pretrained(
@@ -296,8 +297,62 @@ class ImmutableMap(Generic[T_K, T_V]):
         return self.data.values()
 
 
-def _get_auto_cls(arch_name: str):
+ARCH_NAME_TO_AUTO_CLS = {}
+
+try:
+    import transformers.models.auto.modeling_auto as tf_auto
+except ImportError:
+    tf_auto = None
+
+if tf_auto is not None:
+    for map_name, cls_name in [
+        ("MODEL_MAPPING_NAMES", "AutoModel"),
+        (
+            "MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES",
+            "AutoModelForAudioClassification",
+        ),
+        (
+            "MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES",
+            "AutoModelForImageClassification",
+        ),
+        ("MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES", "AutoModelForSpeechSeq2Seq"),
+        (
+            "MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES",
+            "AutoModelForSequenceClassification",
+        ),
+        (
+            "MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES",
+            "AutoModelForTokenClassification",
+        ),
+        ("MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES", "AutoModelForImageText2Text"),
+        ("MODEL_FOR_TEXT_TO_WAVEFORM_MAPPING_NAMES", "AutoModelForTextToWaveform"),
+        ("MODEL_FOR_MASKED_LM_MAPPING_NAMES", "AutoModelForMaskedLM"),
+        ("MODEL_FOR_CAUSAL_LM_MAPPING_NAMES", "AutoModelForCausalLM"),
+    ]:
+        cls = getattr(transformers, cls_name, None)
+        if cls is None:
+            logging.info(f"Could not find {cls_name} in transformers")
+            continue
+        if hasattr(tf_auto, map_name):
+            name_to_arch_name = getattr(tf_auto, map_name)
+            for arch_name in name_to_arch_name.values():
+                ARCH_NAME_TO_AUTO_CLS[arch_name] = cls
+
+
+class AutoClassProtocol(Protocol):
+    def from_pretrained(
+        self,
+        pretrained_model_name_or_path: str,
+        *model_args,
+        **kwargs,
+    ) -> transformers.PreTrainedModel: ...
+
+
+def get_auto_cls(arch_name: str) -> AutoClassProtocol:
     """Get the AutoModel class for a given architecture name."""
+    if arch_name in ARCH_NAME_TO_AUTO_CLS:
+        return ARCH_NAME_TO_AUTO_CLS[arch_name]
+
     if arch_name.endswith("ForMaskedLM"):
         auto_cls = transformers.AutoModelForMaskedLM
     elif arch_name.endswith("ForSequenceClassification"):
