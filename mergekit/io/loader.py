@@ -1,17 +1,5 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, Sequence
@@ -19,19 +7,22 @@ from typing import Dict, Optional, Sequence
 import safetensors
 import torch
 
-from mergekit.io.lazy_unpickle import DeferredLoad, TorchArchiveReader, torch_lazy_load
+from mergekit.io.lazy_unpickle import (
+    DeferredLoad,
+    LazyUnpickleModule,
+    TorchArchiveReader,
+    torch_lazy_load,
+)
 
 
 class TensorLoader(ABC):
     """Base class for (potentially lazy) tensor loaders."""
 
     @abstractmethod
-    def get_tensor(self, key: str) -> torch.Tensor:
-        ...
+    def get_tensor(self, key: str) -> torch.Tensor: ...
 
     @abstractmethod
-    def keys(self) -> Sequence[str]:
-        ...
+    def keys(self) -> Sequence[str]: ...
 
     @classmethod
     def get(
@@ -61,7 +52,7 @@ class LazyPickleLoader(TensorLoader):
         self.zip_reader = TorchArchiveReader(path)
         self.device = device
         with torch_lazy_load():
-            self.index = torch.load(path)
+            self.index = torch.load(path, pickle_module=LazyUnpickleModule)
 
     def get_tensor(self, key: str) -> torch.Tensor:
         if key not in self.index:

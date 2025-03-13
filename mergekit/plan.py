@@ -1,17 +1,5 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 import logging
 from functools import lru_cache
@@ -19,8 +7,8 @@ from typing import Any, List, Optional, Tuple
 
 from mergekit import merge_methods
 from mergekit.architecture import (
+    ConfiguredModuleArchitecture,
     ModelArchitecture,
-    ModuleConfiguredArchitecture,
     WeightInfo,
 )
 from mergekit.common import ImmutableMap, ModelReference
@@ -86,7 +74,7 @@ class MergePlanner:
     @lru_cache
     def _model_module_arch(self, model: ModelReference, module_name: str):
         module_def = self.arch_info.modules[module_name]
-        return ModuleConfiguredArchitecture(
+        return ConfiguredModuleArchitecture(
             info=module_def.architecture,
             config=model.config(trust_remote_code=self.options.trust_remote_code),
             weight_prefix=module_def.weight_prefix,
@@ -171,7 +159,10 @@ class MergePlanner:
             any_weight = False
             for model, w_in in zip(models, weights_in):
                 index = LoaderCache().get(model).index
-                if w_in.name in index.tensor_paths:
+                if any(
+                    name in index.tensor_paths
+                    for name in [w_in.name] + (w_in.aliases or [])
+                ):
                     any_weight = True
                     break
 
@@ -211,16 +202,18 @@ class MergePlanner:
         tensor_input_task = gather_tensors
         if self._tokenizer_task and weight.is_embed:
             token_cfg = {}
+            pad_to_multiple = None
             if cfg_reader.config.tokenizer:
                 token_cfg = cfg_reader.config.tokenizer.tokens
+                pad_to_multiple = cfg_reader.config.tokenizer.pad_to_multiple_of
             tensor_input_task = PermutedEmbeddings(
                 gather_tensors=gather_tensors,
                 tokenizer_task=self._tokenizer_task,
                 tokens=token_cfg,
+                pad_to_multiple_of=pad_to_multiple,
                 base_model=base_model,
             )
 
-        print(f"output_weight: {repr(weight)} ({type(weight)})")
         tensor_task = tensor_merge_method.make_task(
             output_weight=weight,
             tensors=tensor_input_task,

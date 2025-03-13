@@ -1,17 +1,5 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 import logging
 from enum import Enum
@@ -19,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from pydantic import BaseModel
-from typing_extensions import Literal
+from typing_extensions import Literal, override
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
@@ -29,7 +17,7 @@ from mergekit.merge_methods.base import (
     MergeMethod,
     MergeTensorInput,
 )
-from mergekit.sparsify import SparsificationMethod, sparsify
+from mergekit.sparsify import RescaleNorm, SparsificationMethod, sparsify
 
 
 class ConsensusMethod(str, Enum):
@@ -42,6 +30,20 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
     sparsification_method: Optional[SparsificationMethod]
     default_normalize: bool
     default_rescale: bool
+    method_name: str
+    method_pretty_name: Optional[str]
+    method_reference_url: Optional[str]
+
+    def name(self) -> str:
+        return self.method_name
+
+    @override
+    def pretty_name(self) -> Optional[str]:
+        return self.method_pretty_name
+
+    @override
+    def reference_url(self) -> Optional[str]:
+        return self.method_reference_url
 
     def parameters(self) -> List[ConfigParameterDef]:
         return [
@@ -52,6 +54,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             ConfigParameterDef(
                 name="rescale", required=False, default_value=self.default_rescale
             ),
+            ConfigParameterDef(name="lambda", required=False, default_value=1.0),
         ]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
@@ -64,19 +67,6 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
                 ConfigParameterDef(
                     name="gamma",
                     default_value=0.01,
-                )
-            )
-        if self.sparsification_method == SparsificationMethod.rank_magnitude_sampling:
-            res.append(
-                ConfigParameterDef(
-                    name="epsilon",
-                    default_value=0.15,
-                )
-            )
-            res.append(
-                ConfigParameterDef(
-                    name="lambda",
-                    default_value=1.0,
                 )
             )
         return res
@@ -96,7 +86,8 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             tensor_parameters=tensor_parameters,
             int8_mask=parameters["int8_mask"],
             normalize=parameters["normalize"],
-            rescale=parameters["rescale"],
+            lambda_=parameters["lambda"],
+            rescale_norm=RescaleNorm.l1 if parameters["rescale"] else None,
             weight_info=output_weight,
         )
 
@@ -109,7 +100,8 @@ class GTATask(Task[torch.Tensor]):
     tensor_parameters: ImmutableMap[ModelReference, Any]
     int8_mask: bool
     normalize: bool
-    rescale: bool
+    lambda_: float
+    rescale_norm: Optional[RescaleNorm]
 
     def uses_accelerator(self) -> bool:
         return True
@@ -146,11 +138,12 @@ class GTATask(Task[torch.Tensor]):
                     tv_info["delta"],
                     density=tv_info["density"],
                     method=self.method.sparsification_method,
-                    rescale=self.rescale,
+                    rescale_norm=self.rescale_norm,
                     **kwargs,
                 )
 
         deltas = torch.stack([tv["delta"] for tv in tvs], dim=0)
+
         weights = torch.tensor(
             [tv["weight"] for tv in tvs], dtype=deltas.dtype, device=deltas.device
         )
@@ -178,12 +171,8 @@ class GTATask(Task[torch.Tensor]):
         if self.normalize:
             mixed_delta /= divisor
 
-        if (
-            self.method.sparsification_method
-            == SparsificationMethod.rank_magnitude_sampling
-        ):
-            lambda_factor = tvs[0]["lambda"]
-            mixed_delta *= lambda_factor
+        if self.lambda_ != 1:
+            mixed_delta *= self.lambda_
 
         return (base + mixed_delta).to(base.dtype)
 

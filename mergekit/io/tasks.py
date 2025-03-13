@@ -1,5 +1,9 @@
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
+
 import os
 import re
+import threading
 from typing import Dict, Optional, Tuple
 
 import torch
@@ -18,19 +22,22 @@ class LoaderCache:
     hf_cache_dir: Optional[str] = None
     lazy_unpickle: bool = False
     trust_remote_code: bool = False
+    lora_merge_dtype: Optional[str] = None
 
-    # singleton instance
-    _instance: Optional["LoaderCache"] = None
+    # singleton instance per thread
+    _instance = threading.local()
 
     def __new__(cls) -> "LoaderCache":
-        if cls._instance is None:
-            cls._instance = super(LoaderCache, cls).__new__(cls)
-        return cls._instance
+        if not hasattr(cls._instance, "value"):
+            cls._instance.value = super(LoaderCache, cls).__new__(cls)
+        return cls._instance.value
 
     def get(self, model: ModelReference) -> LazyTensorLoader:
         if model not in self.loaders:
             merged = model.merged(
-                cache_dir=self.lora_cache_dir, trust_remote_code=self.trust_remote_code
+                cache_dir=self.lora_cache_dir,
+                trust_remote_code=self.trust_remote_code,
+                lora_merge_dtype=self.lora_merge_dtype,
             )
             self.loaders[model] = merged.lazy_loader(
                 cache_dir=self.hf_cache_dir, lazy_unpickle=self.lazy_unpickle
@@ -46,6 +53,7 @@ class LoaderCache:
         self.hf_cache_dir = options.transformers_cache
         self.lazy_unpickle = options.lazy_unpickle
         self.trust_remote_code = options.trust_remote_code
+        self.lora_merge_dtype = options.lora_merge_dtype
 
 
 shard_name_re = re.compile(r"model\-([0-9]+)-of-([0-9]+)")
@@ -67,12 +75,15 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
     device: Optional[str] = None
     optional: bool = False
     aliases: Optional[Tuple[str, ...]] = None
+    tied_names: Optional[Tuple[str, ...]] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {}
 
     def _resolve_name(self, loader: LazyTensorLoader) -> Optional[str]:
-        all_names = [self.tensor] + list(self.aliases or [])
+        all_names = (
+            [self.tensor] + list(self.aliases or []) + list(self.tied_names or [])
+        )
         for name in all_names:
             if name in loader.index.tensor_paths:
                 return name
@@ -120,6 +131,7 @@ class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
                 device=self.device,
                 optional=wi.optional,
                 aliases=wi.aliases,
+                tied_names=wi.tied_names,
             )
             for (model, wi) in self.weight_info.items()
         }
@@ -143,6 +155,7 @@ class TensorWriterTask(Task[TensorWriter]):
     out_path: str
     max_shard_size: int
     safe_serialization: bool = True
+    override_basename: Optional[str] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {}
@@ -152,7 +165,11 @@ class TensorWriterTask(Task[TensorWriter]):
             self.out_path,
             max_shard_size=self.max_shard_size,
             safe_serialization=self.safe_serialization,
+            override_basename=self.override_basename,
         )
+
+    def main_thread_only(self):
+        return True
 
 
 class SaveTensor(Task[None]):
@@ -195,15 +212,8 @@ class FinalizeModel(Task[None]):
     def execute(self, writer: TensorWriter, **kwargs) -> None:
         writer.finalize()
 
-
-class BuildStateDict(Task[Dict[str, torch.Tensor]]):
-    tensors: ImmutableMap[WeightInfo, Task[torch.Tensor]]
-
-    def arguments(self) -> Dict[str, Task]:
-        return {str(wi): t for wi, t in self.tensors.items()}
-
-    def execute(self, **kwargs) -> Dict[str, torch.Tensor]:
-        return {str(wi): t for wi, t in self.tensors.items()}
+    def main_thread_only(self):
+        return True
 
 
 class ReturnTensor(Task[torch.Tensor]):

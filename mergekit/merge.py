@@ -1,17 +1,5 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 import importlib
 import importlib.resources
@@ -27,12 +15,16 @@ import transformers
 from mergekit._data import chat_templates
 from mergekit.architecture import ModelArchitecture, get_architecture_info
 from mergekit.card import generate_card
+from mergekit.common import set_config_value
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache
+from mergekit.multigpu_executor import MultiGPUExecutor
 from mergekit.options import MergeOptions
 from mergekit.plan import MergePlanner
 from mergekit.tokenizer import TokenizerInfo
+
+logger = logging.getLogger(__name__)
 
 
 def run_merge(
@@ -47,16 +39,7 @@ def run_merge(
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
-    model_arch_info = [
-        get_architecture_info(m.config(trust_remote_code=options.trust_remote_code))
-        for m in merge_config.referenced_models()
-    ]
-    if not options.allow_crimes:
-        if not all(a == model_arch_info[0] for a in model_arch_info[1:]):
-            raise RuntimeError(
-                "Must specify --allow-crimes to attempt to mix different architectures"
-            )
-    arch_info = model_arch_info[0]
+    arch_info = get_architecture_info(merge_config, options)
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
@@ -78,7 +61,7 @@ def run_merge(
         loader_cache.get(model)
     del pbar
 
-    logging.info("Planning operations")
+    logger.info("Planning operations")
     targets = MergePlanner(
         merge_config,
         arch_info,
@@ -86,11 +69,17 @@ def run_merge(
         out_model_config=cfg_out,
     ).plan_to_disk(out_path=out_path)
 
-    exec = Executor(
-        tasks=targets,
-        math_device="cuda" if options.cuda else "cpu",
-        storage_device="cuda" if options.low_cpu_memory else "cpu",
-    )
+    if options.multi_gpu:
+        exec = MultiGPUExecutor(
+            tasks=targets,
+            storage_device=None if options.low_cpu_memory else "cpu",
+        )
+    else:
+        exec = Executor(
+            tasks=targets,
+            math_device="cuda" if options.cuda else "cpu",
+            storage_device="cuda" if options.low_cpu_memory else "cpu",
+        )
 
     tokenizer = None
     for _task, value in exec.run(quiet=options.quiet):
@@ -98,9 +87,12 @@ def run_merge(
             tokenizer = value.tokenizer
 
     if tokenizer:
-        _update_config_vocab(cfg_out, tokenizer)
+        pad_to_multiple_of = None
+        if merge_config.tokenizer and merge_config.tokenizer.pad_to_multiple_of:
+            pad_to_multiple_of = merge_config.tokenizer.pad_to_multiple_of
+        _update_config_vocab(cfg_out, tokenizer, pad_to_multiple_of=pad_to_multiple_of)
 
-    logging.info("Saving config")
+    logger.info("Saving config")
     cfg_out.save_pretrained(out_path)
 
     if options.write_model_card:
@@ -127,19 +119,32 @@ def run_merge(
                     merge_config, out_path, trust_remote_code=options.trust_remote_code
                 )
             except Exception as e:
-                logging.error(
+                logger.error(
                     "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
                     exc_info=e,
                 )
         elif merge_config.chat_template:
-            logging.warning(
+            logger.warning(
                 "Chat template specified but no tokenizer found. Chat template will not be saved."
             )
 
     if tokenizer:
-        logging.info("Saving tokenizer")
+        logger.info("Saving tokenizer")
         _set_chat_template(tokenizer, merge_config)
         tokenizer.save_pretrained(out_path, safe_serialization=True)
+
+    if getattr(arch_info, "post_fill_parameters", False):
+        from mergekit.scripts.fill_missing_params import copy_and_fill_missing_params
+
+        logging.info(
+            f"Filling missing parameters from base model {arch_info.post_fill_parameters} into new directory"
+        )
+        copy_and_fill_missing_params(
+            base_model_repo_id=arch_info.post_fill_parameters,
+            sub_model_dir=out_path,
+        )
+        logging.info("Deleting initial merge directory: " + out_path)
+        shutil.rmtree(out_path)
 
 
 def _set_chat_template(
@@ -167,13 +172,13 @@ def _set_chat_template(
                 if template:
                     model_templates.append(template.strip())
             except Exception as e:
-                logging.warning(f"Unable to load tokenizer for {model}", exc_info=e)
+                logger.warning(f"Unable to load tokenizer for {model}", exc_info=e)
 
         if not model_templates:
             return
 
         chat_template = Counter(model_templates).most_common(1)[0][0]
-        logging.info(f"Auto-selected chat template: {chat_template}")
+        logger.info(f"Auto-selected chat template: {chat_template}")
 
     elif importlib.resources.is_resource(chat_templates, chat_template + ".jinja"):
         with importlib.resources.open_text(
@@ -202,7 +207,7 @@ def _copy_tokenizer(
             or os.path.exists(os.path.join(donor_model.model.path, "tokenizer.model"))
         )
     ):
-        logging.info(f"Copying tokenizer from {donor_model}")
+        logger.info(f"Copying tokenizer from {donor_model}")
 
         for file_name in [
             "tokenizer_config.json",
@@ -219,7 +224,7 @@ def _copy_tokenizer(
         return
 
     # fallback: try actually loading the tokenizer and saving it
-    logging.info(f"Reserializing tokenizer from {donor_model}")
+    logger.info(f"Reserializing tokenizer from {donor_model}")
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         donor_model.model.path,
         revision=donor_model.model.revision,
@@ -263,9 +268,9 @@ def _model_out_config(
             try:
                 module_info = arch_info.modules[module_name]
                 cfg_key = module_info.architecture.num_layers_config_key()
-                setattr(res, cfg_key, module_layers[module_name])
+                set_config_value(res, cfg_key, module_layers[module_name])
             except Exception as e:
-                logging.warning(
+                logger.warning(
                     f"Unable to set number of layers for module {module_name} in output config "
                     "- you may need to manually correct it.",
                     exc_info=e,
@@ -277,11 +282,15 @@ def _model_out_config(
 def _update_config_vocab(
     config: transformers.PretrainedConfig,
     tokenizer: transformers.PreTrainedTokenizerBase,
+    pad_to_multiple_of: Optional[int] = None,
 ):
+    vocab_size = len(tokenizer.get_vocab())
+    if pad_to_multiple_of and vocab_size % pad_to_multiple_of:
+        vocab_size = vocab_size + pad_to_multiple_of - (vocab_size % pad_to_multiple_of)
     try:
-        config.vocab_size = len(tokenizer.get_vocab())
+        config.vocab_size = vocab_size
     except Exception as e:
-        logging.warning(
+        logger.warning(
             "Unable to set vocabulary size in output config - you may need to manually correct it.",
             exc_info=e,
         )

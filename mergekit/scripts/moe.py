@@ -1,17 +1,5 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 import logging
 import os
@@ -26,7 +14,7 @@ from mergekit.merge import MergeOptions
 from mergekit.moe import ALL_OUTPUT_ARCHITECTURES, MoEOutputArchitecture
 from mergekit.moe.config import MoEMergeConfig, is_bad_config
 from mergekit.moe.router import get_gate_params, warn_degenerate_gates
-from mergekit.options import add_merge_options
+from mergekit.options import PrettyPrintHelp, add_merge_options
 
 
 def build(
@@ -60,7 +48,7 @@ def build(
         assert all(
             bool(e.positive_prompts) == has_prompts for e in config.shared_experts
         ), "Must specify prompts for all shared experts or none, not a mix"
-        if has_prompts:
+        if has_prompts or config.gate_mode in ("random", "uniform_random"):
             need_gates.extend(config.shared_experts)
 
     gate_vecs = get_gate_params(
@@ -151,7 +139,7 @@ def select_output_arch(
     return candidates[0]
 
 
-@click.command("mergekit-moe")
+@click.command("mergekit-moe", cls=PrettyPrintHelp)
 @click.argument("config_path", type=click.Path(exists=True, dir_okay=False))
 @click.argument("out_path", type=click.Path())
 @click.option(
@@ -192,12 +180,12 @@ def main(
     load_in_4bit: bool,
     load_in_8bit: bool,
     device: str,
-    merge_options: MergeOptions,
     verbose: bool,
     i_understand_this_is_not_useful_without_training: bool,
+    merge_options: MergeOptions,
 ):
     """Create a Mixture of Experts model by combining the pretrained weights of multiple models."""
-    logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
+    merge_options.apply_global_options()
 
     if merge_options.cuda:
         logging.warning(

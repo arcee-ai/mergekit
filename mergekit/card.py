@@ -1,19 +1,6 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
-import logging
 import os
 from typing import Generator, List, Optional
 
@@ -22,6 +9,7 @@ import yaml
 from huggingface_hub.utils import HFValidationError
 from yaml.nodes import SequenceNode as SequenceNode
 
+from mergekit import merge_methods
 from mergekit.config import MergeConfiguration, ModelReference
 
 CARD_TEMPLATE = """---
@@ -110,16 +98,15 @@ def method_md(merge_method: str) -> str:
     Args:
         merge_method: A string indicating the merge method used.
     """
-    methods = {
-        "linear": "[linear](https://arxiv.org/abs/2203.05482)",
-        "ties": "[TIES](https://arxiv.org/abs/2306.01708)",
-        "slerp": "SLERP",
-        "task_arithmetic": "[task arithmetic](https://arxiv.org/abs/2212.04089)",
-        "dare_ties": "[DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)",
-        "dare_linear": "linear [DARE](https://arxiv.org/abs/2311.03099)",
-        "model_stock": "[Model Stock](https://arxiv.org/abs/2403.19522)",
-    }
-    return methods.get(merge_method, merge_method)
+    try:
+        method = merge_methods.get(merge_method)
+    except RuntimeError:
+        return merge_method
+    ref_url = method.reference_url()
+    name = method.pretty_name() or method.name()
+    if ref_url and ref_url.strip():
+        return f"[{name}]({ref_url})"
+    return name
 
 
 def maybe_link_hf(path: str) -> str:
@@ -199,49 +186,37 @@ def generate_card(
 
 
 def generate_card_lora(
-    base_model_ref: ModelReference,
-    finetuned_model_ref: ModelReference,
+    base_ref: ModelReference,
+    finetuned_ref: ModelReference,
     invocation: str,
-    extended: bool,
-    vocab_size: int,
     name: str,
+    base_vocab_size: Optional[int] = None,
+    final_vocab_size: Optional[int] = None,
 ) -> str:
-    """
-    Generates a markdown card for a merged model configuration.
-
-    Args:
-        config: A MergeConfiguration object.
-        config_yaml: YAML source text of the config.
-        name: An optional name for the model.
-    """
     if not name:
         name = "Untitled LoRA Model (1)"
 
-    hf_bases = list(extract_hf_paths([base_model_ref, finetuned_model_ref]))
+    hf_bases = list(extract_hf_paths([base_ref, finetuned_ref]))
     tags = ["mergekit", "peft"]
 
-    finetuned_ref_md = modelref_md(finetuned_model_ref)
-    basemodel_ref_md = modelref_md(base_model_ref)
+    details = (
+        f"This LoRA adapter was extracted from {modelref_md(finetuned_ref)} "
+        f"and uses {modelref_md(base_ref)} as a base."
+    )
 
-    details = f"This LoRA adapter was extracted from {finetuned_ref_md} and uses {basemodel_ref_md} as a base."
-
-    if extended:
-        details += f"\n\n> [!WARNING]\n> This LoRA adapter has an extended vocabulary. Make sure to call `model.resize_token_embeddings({vocab_size})` before applying the adapter to {basemodel_ref_md}"
-
-    if os.path.isdir(base_model_ref.model.path) or os.path.isdir(
-        finetuned_model_ref.model.path
-    ):
-        logging.warning(
-            "Some model identifiers you provided are directory paths and will appear as such in the model card, you may want to edit it."
+    if base_vocab_size and final_vocab_size and base_vocab_size != final_vocab_size:
+        verb = "extended" if final_vocab_size > base_vocab_size else "reduced"
+        details += (
+            f"\n\n [!WARNING]\n> The vocabulary size has been {verb} from the base "
+            f"model's {base_vocab_size} to {final_vocab_size}. To load this adapter, "
+            f"you must first call `model.resize_token_embeddings({final_vocab_size})`."
         )
 
     return CARD_TEMPLATE_LORA.format(
         metadata=yaml.dump(
-            {"base_model": hf_bases, "tags": tags, "library_name": "transformers"}
+            {"base_model": hf_bases, "tags": tags, "library_name": "peft"}
         ),
         name=name,
         details=details,
-        base_model=base_model_ref.model.path,
-        finetuned_model=finetuned_model_ref.model.path,
         invocation=invocation,
     )

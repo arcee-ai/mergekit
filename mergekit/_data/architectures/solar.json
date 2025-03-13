@@ -73,7 +73,8 @@
       "name": "lm_head.weight",
       "input_space": "running_residual",
       "is_embed": true,
-      "aliases": [
+      "optional": true,
+      "tied_names": [
         "model.lm_head.weight"
       ]
     }

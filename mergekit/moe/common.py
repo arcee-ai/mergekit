@@ -1,24 +1,14 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
+import logging
 from typing import Dict, Optional, Tuple
 
 import torch
 import tqdm
 import transformers
 
+from mergekit.architecture import WeightInfo
 from mergekit.common import ModelReference, dtype_from_name
 from mergekit.io import LazyTensorLoader, TensorWriter
 from mergekit.merge import MergeOptions
@@ -73,3 +63,31 @@ def noise_and_scale(
     if is_residual and expert.residual_scale is not None:
         tensor = tensor * expert.residual_scale
     return tensor
+
+
+def copy_tensor_out(
+    weight_info: WeightInfo,
+    loader: LazyTensorLoader,
+    writer: TensorWriter,
+    expert: Optional[Expert] = None,
+    is_residual: bool = False,
+    output_name: Optional[str] = None,
+    out_dtype: Optional[torch.dtype] = None,
+    clone: bool = False,
+):
+    out_tensor_name = output_name or weight_info.name
+    try:
+        tensor = loader.get_tensor(weight_info.name, aliases=weight_info.aliases)
+    except KeyError:
+        tensor = None
+    if tensor is None and not weight_info.optional:
+        logging.error(f"Missing weight: {weight_info.name} / {out_tensor_name}")
+        raise KeyError(out_tensor_name)
+
+    if expert:
+        tensor = noise_and_scale(tensor, expert, is_residual=is_residual)
+    writer.save_tensor(
+        out_tensor_name,
+        tensor.to(dtype=out_dtype),
+        clone=clone,
+    )

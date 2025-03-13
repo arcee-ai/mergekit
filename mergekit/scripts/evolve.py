@@ -1,18 +1,7 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
+import importlib.util
 import logging
 import os
 import time
@@ -115,6 +104,18 @@ from mergekit.options import MergeOptions
     help="Maximum time to run the optimization in seconds",
 )
 @click.option(
+    "--load-in-8bit",
+    is_flag=True,
+    default=False,
+    help="Evaluate models at 8-bit precision",
+)
+@click.option(
+    "--load-in-4bit",
+    is_flag=True,
+    default=False,
+    help="Evaluate models at 4-bit precision",
+)
+@click.option(
     "--force-population-size",
     type=int,
     default=None,
@@ -142,6 +143,8 @@ def main(
     save_final_model: bool,
     reshard: bool,
     timeout: Optional[float],
+    load_in_8bit: bool,
+    load_in_4bit: bool,
     force_population_size: Optional[int],
 ):
     config = EvolMergeConfiguration.model_validate(
@@ -149,6 +152,27 @@ def main(
     )
 
     check_for_naughty_config(config, allow=allow_benchmark_tasks)
+
+    if load_in_4bit and load_in_8bit:
+        raise ValueError("Cannot load models in both 4-bit and 8-bit")
+
+    if load_in_4bit or load_in_8bit:
+        if vllm:
+            raise ValueError("Cannot use vLLM with 4-bit or 8-bit models")
+        if in_memory:
+            raise ValueError("Cannot use in-memory mode with 4-bit or 8-bit models")
+        if not importlib.util.find_spec("bitsandbytes"):
+            raise RuntimeError("bitsandbytes is not installed")
+
+        bnb_config = transformers.BitsAndBytesConfig(
+            load_in_8bit=load_in_8bit,
+            load_in_4bit=load_in_4bit,
+            bnb_4bit_compute_dtype="bfloat16",
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
+    else:
+        bnb_config = None
 
     if use_wandb:
         if not wandb:
@@ -235,6 +259,7 @@ def main(
         model_storage_path=os.path.join(storage_path, "merged"),
         batch_size=batch_size,
         task_search_path=task_search_path,
+        quantization_config=bnb_config,
     )
 
     x0 = genome.initial_genotype(random=config.random_init).view(-1).numpy()
@@ -356,6 +381,7 @@ def _reshard_model(
     merged = model.merged(
         cache_dir=merge_cache,
         trust_remote_code=trust_remote_code,
+        lora_merge_dtype="bfloat16",
     )
     out_path = os.path.join(
         storage_path,

@@ -1,22 +1,11 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 import logging
 from typing import Any, Dict, List, Optional
 
 import torch
+from typing_extensions import override
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
@@ -114,6 +103,17 @@ class ModelStockMergeTask(Task[torch.Tensor]):
 
 
 class ModelStockMerge(MergeMethod):
+    def name(self) -> str:
+        return "model_stock"
+
+    @override
+    def pretty_name(self) -> Optional[str]:
+        return "Model Stock"
+
+    @override
+    def reference_url(self):
+        return "https://arxiv.org/abs/2403.19522"
+
     def parameters(self) -> List[ConfigParameterDef]:
         return [
             ConfigParameterDef(name="filter_wise", required=False, default_value=False)

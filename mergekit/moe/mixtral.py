@@ -1,17 +1,5 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 import logging
 from typing import List, Optional
@@ -22,7 +10,7 @@ import transformers
 
 from mergekit.architecture import MISTRAL_INFO, WeightInfo
 from mergekit.moe.arch import MoEOutputArchitecture
-from mergekit.moe.common import initialize_io, noise_and_scale, select_dtype
+from mergekit.moe.common import copy_tensor_out, initialize_io, select_dtype
 from mergekit.moe.config import MoEMergeConfig
 from mergekit.options import MergeOptions
 
@@ -145,24 +133,22 @@ class MixtralMoE(MoEOutputArchitecture):
                 for expert_index, expert in enumerate(config.experts):
                     expert_name = tensor_name.replace("{expert_idx}", str(expert_index))
                     expert_loader = loaders.get(expert.source_model)
-                    tensor = expert_loader.get_tensor(
-                        weight_info.name, aliases=weight_info.aliases
-                    )
-                    tensor = noise_and_scale(
-                        tensor, expert, is_residual="down_proj" in tensor_name
-                    )
-                    writer.save_tensor(
-                        expert_name,
-                        tensor.to(dtype=out_dtype),
+                    copy_tensor_out(
+                        weight_info,
+                        expert_loader,
+                        writer,
+                        expert=expert,
+                        out_dtype=out_dtype,
+                        output_name=expert_name,
                         clone=merge_options.clone_tensors,
+                        is_residual="down_proj" in tensor_name,
                     )
             else:
-                tensor = base_loader.get_tensor(
-                    tensor_name, aliases=weight_info.aliases
-                )
-                writer.save_tensor(
-                    tensor_name,
-                    tensor.to(dtype=out_dtype),
+                copy_tensor_out(
+                    weight_info,
+                    base_loader,
+                    writer,
+                    out_dtype=out_dtype,
                     clone=merge_options.clone_tensors,
                 )
 

@@ -1,17 +1,5 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 import random
 from typing import List
@@ -19,7 +7,7 @@ from typing import List
 import click
 import yaml
 
-from mergekit.architecture import get_architecture_info
+from mergekit.architecture import arch_info_for_config
 from mergekit.common import ModelReference
 from mergekit.config import (
     InputSliceDefinition,
@@ -27,10 +15,10 @@ from mergekit.config import (
     OutputSliceDefinition,
 )
 from mergekit.merge import run_merge
-from mergekit.options import MergeOptions, add_merge_options
+from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
 
-@click.command("mergekit-layershuffle")
+@click.command("mergekit-layershuffle", cls=PrettyPrintHelp)
 @click.argument("out_path", type=str)
 @click.option("--model", "-m", multiple=True, type=str, help="Add a model to the merge")
 @click.option(
@@ -76,7 +64,7 @@ def main(
     models = [ModelReference.parse(m) for m in model]
 
     m0_cfg = models[0].config()
-    arch_info = get_architecture_info(m0_cfg)
+    arch_info = arch_info_for_config(m0_cfg)
     total_num_layers = arch_info.num_layers(m0_cfg)
 
     out_slices: List[OutputSliceDefinition] = []

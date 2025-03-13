@@ -1,17 +1,5 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 import enum
 import logging
@@ -25,19 +13,19 @@ import transformers
 from typing_extensions import TypeAlias
 
 from mergekit.architecture import (
-    ConfiguredArchitectureInfo,
+    ConfiguredModelArchitecture,
     WeightInfo,
-    get_architecture_info,
+    arch_info_for_config,
 )
 from mergekit.common import ModelReference
 from mergekit.io import TensorWriter
 from mergekit.io.tasks import LoaderCache
-from mergekit.options import MergeOptions, add_merge_options
+from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
 LOG = logging.getLogger(__name__)
 
 
-@click.command("mergekit-tokensurgeon")
+@click.command("mergekit-tokensurgeon", cls=PrettyPrintHelp)
 @click.argument("model", type=str)
 @click.argument("donor", type=str)
 @click.argument("out_path", type=str)
@@ -147,26 +135,42 @@ def main(
     )
 
     if lm_head_info:
-        old_lm_head = cache.get(model).get_tensor(
-            lm_head_info.name, aliases=lm_head_info.aliases, device=device
-        )
-        donor_lm_head = cache.get(donor).get_tensor(
-            donor_lm_head_info.name, aliases=donor_lm_head_info.aliases, device=device
-        )
+        try:
+            old_lm_head = cache.get(model).get_tensor(
+                lm_head_info.name, aliases=lm_head_info.aliases, device=device
+            )
+        except KeyError:
+            if lm_head_info.optional:
+                logging.info(f"LM head tensor {lm_head_info.name} not found, skipping")
+            else:
+                report_issue(
+                    f"Could not load LM head tensor {lm_head_info.name}",
+                    error=True,
+                )
+            old_lm_head = None
 
-        LOG.info("Computing new lm_head embeddings")
-        new_lm_head = get_embeddings(
-            old_lm_head,
-            donor_lm_head,
-            old_vocab,
-            new_vocab,
-            common_tokens,
-            accept_prefix=True,
-            k=k,
-            barycentric=barycentric,
-            cosine_similarity=cosine_similarity,
-            name=lm_head_info.name,
-        )
+        if old_lm_head is not None:
+            donor_lm_head = cache.get(donor).get_tensor(
+                donor_lm_head_info.name,
+                aliases=donor_lm_head_info.aliases,
+                device=device,
+            )
+
+            LOG.info("Computing new lm_head embeddings")
+            new_lm_head = get_embeddings(
+                old_lm_head,
+                donor_lm_head,
+                old_vocab,
+                new_vocab,
+                common_tokens,
+                accept_prefix=True,
+                k=k,
+                barycentric=barycentric,
+                cosine_similarity=cosine_similarity,
+                name=lm_head_info.name,
+            )
+        else:
+            new_lm_head = None
 
     # Save out the new model
     LOG.info(f"Saving new model to {out_path}")
@@ -184,13 +188,17 @@ def main(
             tensor = cache.get(model).get_tensor(
                 weight_info.name, aliases=weight_info.aliases
             )
+        if tensor is None:
+            if weight_info.optional:
+                continue
+            report_issue(f"Could not load weight tensor {weight_info.name}", error=True)
         writer.save_tensor(weight_info.name, tensor, clone=merge_options.clone_tensors)
     writer.finalize()
 
     tokenizer.save_pretrained(out_path)
     cfg_out = arch_info.config
     try:
-        cfg_out.vocab_size = tokenizer.vocab_size
+        cfg_out.vocab_size = new_embed.shape[0]
     except AttributeError:
         LOG.error(
             "Could not set vocab size in config.json - you may need to update it manually."
@@ -261,21 +269,18 @@ def get_embedding_info(
 ) -> Tuple[WeightInfo, WeightInfo]:
     """Get WeightInfo for the input and output embeddings of a model."""
     cfg = model.config(trust_remote_code=options.trust_remote_code)
-    arch_info = get_architecture_info(cfg)
+    arch_info = arch_info_for_config(cfg)
 
     embed, lm_head = None, None
-    for weight_info in arch_info.pre_weights(cfg):
+    for weight_info in arch_info.all_weights(cfg):
         if weight_info.is_embed:
             if embed is not None:
                 raise RuntimeError("Multiple input embeddings found")
             embed = weight_info
-
-    for weight_info in arch_info.post_weights(cfg):
         if weight_info.is_embed:
             if lm_head is not None:
                 raise RuntimeError("Multiple output embeddings found")
             lm_head = weight_info
-
     return embed, lm_head
 
 
@@ -568,7 +573,7 @@ def load_tokenizer(
 
 def validate_architecture(
     model: ModelReference, donor: ModelReference, options: MergeOptions
-) -> Tuple[ConfiguredArchitectureInfo, transformers.PretrainedConfig]:
+) -> Tuple[ConfiguredModelArchitecture, transformers.PretrainedConfig]:
     """
     Validate that the architectures of two models match.
 
@@ -576,15 +581,18 @@ def validate_architecture(
     """
     model_cfg = model.config(trust_remote_code=options.trust_remote_code)
     donor_cfg = donor.config(trust_remote_code=options.trust_remote_code)
-    model_arch_info = get_architecture_info(model_cfg)
-    donor_arch_info = get_architecture_info(donor_cfg)
+    model_arch_info = arch_info_for_config(model_cfg)
+    donor_arch_info = arch_info_for_config(donor_cfg)
     if donor_arch_info != model_arch_info:
         report_issue(
             f"Model architectures do not match: {model_arch_info.name()} vs {donor_arch_info.name()}",
             error=not options.allow_crimes,
         )
 
-    return ConfiguredArchitectureInfo(info=model_arch_info, config=model_cfg), donor_cfg
+    return (
+        ConfiguredModelArchitecture(info=model_arch_info, config=model_cfg),
+        donor_cfg,
+    )
 
 
 if __name__ == "__main__":

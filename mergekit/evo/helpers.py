@@ -1,17 +1,5 @@
-# Copyright (C) 2024 Charles O. Goddard
-#
-# This software is free software: you can redistribute it and/or
-# modify it under the terms of the GNU Lesser General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This software is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-# Lesser General Public License for more details.
-#
-# You should have received a copy of the GNU Lesser General Public License
-# along with this program. If not, see http://www.gnu.org/licenses/.
+# Copyright (C) 2025 Arcee AI
+# SPDX-License-Identifier: BUSL-1.1
 
 import logging
 import os
@@ -67,6 +55,7 @@ def evaluate_model(
     vllm: bool,
     batch_size: Optional[int] = None,
     task_manager: Optional[lm_eval.tasks.TaskManager] = None,
+    **kwargs,
 ) -> dict:
     # monkeypatch_tqdm()
     monkeypatch_lmeval_vllm()
@@ -74,6 +63,7 @@ def evaluate_model(
         model_args = {
             "pretrained": merged_path,
             "dtype": "bfloat16",
+            **kwargs,
         }
         if vllm:
             model_args["gpu_memory_utilization"] = 0.8

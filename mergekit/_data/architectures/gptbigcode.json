@@ -21,7 +21,9 @@
         },
         {
             "name": "lm_head.weight",
-            "aliases": [
+            "is_embed": true,
+            "optional": true,
+            "tied_names": [
                 "transformer.wte.weight"
             ]
         }
