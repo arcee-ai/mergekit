@@ -13,10 +13,10 @@ from typing import (
     Iterator,
     Mapping,
     Optional,
+    Protocol,
     Tuple,
     Union,
     get_args,
-    Protocol,
 )
 
 import huggingface_hub
