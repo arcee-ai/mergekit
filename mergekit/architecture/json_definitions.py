@@ -3,21 +3,21 @@
 
 import importlib
 import importlib.resources
-import string
 import json
+import string
 from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 from transformers import PretrainedConfig
 from typing_extensions import Literal
 
+import mergekit._data.architectures
 from mergekit.architecture.base import (
     ModelArchitecture,
     ModuleArchitecture,
-    WeightInfo,
     ModuleDefinition,
+    WeightInfo,
 )
-import mergekit._data.architectures
 
 
 class JsonLayerTemplates(BaseModel, frozen=True):

@@ -42,7 +42,6 @@ def infer_architecture_info(
     }
     if base_model is None:
         base_model = models.pop(0)
-    base_tensor_names = model_tensor_names[base_model]
     all_tensor_names = set().union(*model_tensor_names.values())
     in_all_models = all_tensor_names.intersection(*model_tensor_names.values())
 
@@ -69,7 +68,7 @@ def infer_architecture_info(
     # create a default module with no prefix
     module_prefixes.add("")
 
-    for tensor_name in base_tensor_names:
+    for tensor_name in all_tensor_names:
         if RE_LAYER_INDEX.search(tensor_name):
             continue
         for prefix in module_prefixes:
