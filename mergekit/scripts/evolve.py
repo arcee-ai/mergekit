@@ -127,7 +127,7 @@ def main(
     vllm: bool,
     strategy: str,
     in_memory: bool,
-    storage_path: Optional[str],
+    storage_path: str,
     num_gpus: Optional[int],
     merge_cuda: bool,
     trust_remote_code: bool,
@@ -270,7 +270,7 @@ def main(
         nonlocal xbest, xbest_cost
 
         res = es.result
-        if use_wandb:
+        if use_wandb and run is not None:
             best_params = genome.genotype_to_param_arrays(res.xbest)
             mean_params = genome.genotype_to_param_arrays(res.xfavorite)
             run.log(
@@ -376,7 +376,10 @@ def main(
 
 
 def _reshard_model(
-    model: ModelReference, storage_path: str, merge_cache: str, trust_remote_code: bool
+    model: ModelReference,
+    storage_path: str,
+    merge_cache: Optional[str],
+    trust_remote_code: bool,
 ) -> ModelReference:
     merged = model.merged(
         cache_dir=merge_cache,

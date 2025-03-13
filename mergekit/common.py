@@ -136,7 +136,7 @@ class ModelReference(BaseModel, frozen=True):
             model.save_pretrained(out_path, safe_serialization=True)
             del model
 
-        return ModelReference(model=out_path)
+        return ModelReference(model=ModelPath(path=out_path))
 
     def config(self, trust_remote_code: bool = False) -> PretrainedConfig:
         res = AutoConfig.from_pretrained(
