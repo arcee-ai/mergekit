@@ -1,0 +1,50 @@
+{
+    "model_type": "deepseekv2",
+    "architectures": [
+        "DeepseekV2ForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "model.embed_tokens.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "model.norm.weight"
+        },
+        {
+            "name": "lm_head.weight",
+            "is_embed": true,
+            "aliases": [
+                "model.embed_tokens.weight"
+            ]
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name" : "model.layers.${layer_index}.self_attn.q_proj.weight"
+            },
+            {
+                "name" : "model.layers.${layer_index}.self_attn.kv_a_proj_with_mqa.weight"
+            }, 
+            {
+                "name" : "model.layers.${layer_index}.self_attn.kv_a_layernorm.weight"
+            }, 
+            {
+                "name" : "model.layers.${layer_index}.self_attn.kv_b_proj.weight"
+            }, 
+            {
+                "name" : "model.layers.${layer_index}.self_attn.o_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.input_layernorm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.post_attention_layernorm.weight"
+            }
+        ]
+    }
+}
