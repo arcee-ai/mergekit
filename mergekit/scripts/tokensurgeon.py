@@ -132,6 +132,7 @@ def main(
         barycentric=barycentric,
         cosine_similarity=cosine_similarity,
         name=embed_info.name,
+        log_reconstruction_error=verbosity > 0,
     )
 
     if lm_head_info:
@@ -469,12 +470,14 @@ def get_embeddings(
 
         if log_reconstruction_error:
             # compute reconstruction error in donor_embed space
-            knn_reconstruction_error.append(
-                torch.nn.functional.mse_loss(
-                    (knn_embeddings.T.to(weights.dtype) @ weights).squeeze(),
-                    token_embedding,
-                ).item()
+            reconstructed = (
+                (knn_embeddings.T.to(weights.dtype) @ weights)
+                .squeeze()
+                .to(token_embedding.dtype)
             )
+            diff = token_embedding - reconstructed
+            mse = diff.square().mean().item()
+            knn_reconstruction_error.append(mse)
 
         # Reconstruct the embedding in original_embed space
         res[idx_1] = (e_c_0[indices].T @ weights).squeeze()
@@ -591,7 +594,7 @@ def validate_architecture(
     donor_arch_info = arch_info_for_config(donor_cfg)
     if donor_arch_info != model_arch_info:
         report_issue(
-            f"Model architectures do not match: {model_arch_info.name()} vs {donor_arch_info.name()}",
+            f"Model architectures do not match: {model_arch_info.expected_model_type} vs {donor_arch_info.expected_model_type}",
             error=not options.allow_crimes,
         )
 
