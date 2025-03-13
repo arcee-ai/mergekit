@@ -15,7 +15,7 @@ import tqdm
 from pydantic import BaseModel
 from transformers import AutoModelForCausalLM
 
-from mergekit.architecture import ArchitectureInfoUtils, WeightInfo
+from mergekit.architecture import WeightInfo, arch_info_for_config
 from mergekit.card import generate_card_lora
 from mergekit.common import ModelReference
 from mergekit.graph import Executor, Task
@@ -553,7 +553,7 @@ def all_weights_map(
 ) -> Dict[str, WeightInfo]:
     name_to_wi = {}
     model_cfg = model_ref.config(trust_remote_code=options.trust_remote_code)
-    arch_info = ArchitectureInfoUtils.get_architecture_info(model_cfg)
+    arch_info = arch_info_for_config(model_cfg)
     for wi in arch_info.all_weights(model_cfg):
         name_to_wi[wi.name] = wi
     return name_to_wi

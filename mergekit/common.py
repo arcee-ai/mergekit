@@ -31,6 +31,32 @@ from typing_extensions import TypeVar
 from mergekit.io import LazyTensorLoader, ShardedTensorIndex
 
 
+def set_config_value(config: PretrainedConfig, key: str, value: Any):
+    """Set a value in a PretrainedConfig object."""
+    parts = key.split(".")
+    obj = config
+    for idx, part in enumerate(parts[:-1]):
+        if not hasattr(obj, part):
+            raise RuntimeError(
+                f"Config {config} has no attribute {'.'.join(parts[:idx+1])}"
+            )
+        obj = getattr(obj, part)
+    setattr(obj, parts[-1], value)
+
+
+def get_config_value(config: PretrainedConfig, key: str) -> Any:
+    """Get a value from a PretrainedConfig object."""
+    parts = key.split(".")
+    obj = config
+    for idx, part in enumerate(parts):
+        if not hasattr(obj, part):
+            raise RuntimeError(
+                f"Config {config} has no attribute {'.'.join(parts[:idx+1])}"
+            )
+        obj = getattr(obj, part)
+    return obj
+
+
 class ModelPath(BaseModel, frozen=True):
     path: str
     revision: Optional[str] = None
@@ -110,7 +136,7 @@ class ModelReference(BaseModel, frozen=True):
             model.save_pretrained(out_path, safe_serialization=True)
             del model
 
-        return ModelReference(model=out_path)
+        return ModelReference(model=ModelPath(path=out_path))
 
     def config(self, trust_remote_code: bool = False) -> PretrainedConfig:
         res = AutoConfig.from_pretrained(
