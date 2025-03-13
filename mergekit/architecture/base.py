@@ -39,7 +39,10 @@ def _prefix_weight(weight: WeightInfo, prefix: Optional[str] = None) -> WeightIn
         return weight
     return WeightInfo(
         name=prefix + weight.name,
-        **weight.model_dump(exclude={"name"}),
+        aliases=tuple(prefix + alias for alias in weight.aliases or ()) or None,
+        tied_names=tuple(prefix + tied_name for tied_name in weight.tied_names or ())
+        or None,
+        **weight.model_dump(exclude={"name", "aliases", "tied_names"}),
     )
 
 
