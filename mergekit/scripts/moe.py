@@ -164,9 +164,6 @@ def select_output_arch(
     show_default=True,
 )
 @click.option(
-    "--verbose", "-v", type=bool, default=False, is_flag=True, help="Verbose logging"
-)
-@click.option(
     "--i-understand-this-is-not-useful-without-training",
     type=bool,
     default=False,
@@ -180,7 +177,6 @@ def main(
     load_in_4bit: bool,
     load_in_8bit: bool,
     device: str,
-    verbose: bool,
     i_understand_this_is_not_useful_without_training: bool,
     merge_options: MergeOptions,
 ):
@@ -204,7 +200,7 @@ def main(
         load_in_8bit=load_in_8bit,
         device=device,
         allow_all_same=i_understand_this_is_not_useful_without_training,
-        verbose=verbose,
+        verbose=merge_options.verbose,
     )
 
     if merge_options.write_model_card:
