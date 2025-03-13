@@ -1,18 +1,17 @@
 # Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: BUSL-1.1
 
-import re
-from typing import List, Optional
-from collections import defaultdict
 import logging
-
+import re
+from collections import defaultdict
+from typing import List, Optional
 
 from mergekit.architecture.base import (
+    ModelArchitecture,
     ModuleDefinition,
     WeightInfo,
-    ModelArchitecture,
 )
-from mergekit.architecture.decoder_only import (
+from mergekit.architecture.json_definitions import (
     JsonLayerTemplates,
     JsonModuleArchDef,
     JsonModuleArchitecture,

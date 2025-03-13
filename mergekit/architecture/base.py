@@ -28,8 +28,6 @@ class WeightInfo(BaseModel, frozen=True):
 
     name: str
     is_embed: bool = False
-    input_space: Optional[str] = None
-    output_space: Optional[str] = None
     optional: bool = False
     aliases: Optional[Tuple[str, ...]] = None
     force_dtype: Optional[str] = None
@@ -61,13 +59,6 @@ class ModuleArchitecture(ABC):
         self, index: int, config: PretrainedConfig
     ) -> Optional[List[WeightInfo]]:
         """Return a list of all weights associated with a given layer."""
-        ...
-
-    @abstractmethod
-    def sliceable(self) -> bool:
-        """
-        Return True if the layers of this architecture can be meaningfully sliced.
-        """
         ...
 
     def num_layers_config_key(self) -> str:

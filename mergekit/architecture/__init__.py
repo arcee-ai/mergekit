@@ -16,7 +16,7 @@ from mergekit.architecture.base import (
     ModuleDefinition,
     WeightInfo,
 )
-from mergekit.architecture.load import NAME_TO_ARCH
+from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.architecture.mixtral import MixtralTensorNames
 from mergekit.config import MergeConfiguration
 from mergekit.options import MergeOptions

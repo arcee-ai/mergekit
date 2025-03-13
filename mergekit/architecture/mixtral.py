@@ -10,7 +10,7 @@ from mergekit.architecture.base import (
     ModuleArchitecture,
     WeightInfo,
 )
-from mergekit.architecture.load import NAME_TO_ARCH
+from mergekit.architecture.json_definitions import NAME_TO_ARCH
 
 MISTRAL_INFO = NAME_TO_ARCH["MistralForCausalLM"][0]
 MISTRAL_MODULE_ARCH = MISTRAL_INFO.modules["default"].architecture
@@ -56,6 +56,3 @@ class MixtralTensorNames(ModuleArchitecture, BaseModel):
                 continue
             res.append(weight_info)
         return res
-
-    def sliceable(self) -> bool:
-        return True
