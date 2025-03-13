@@ -1,0 +1,180 @@
+{
+    "kind": "modular",
+    "architectures": [
+        "Gemma3ForConditionalGeneration"
+    ],
+    "model_type": "gemma3",
+    "modules": {
+        "text_decoder": {
+            "weight_prefix": "language_model.",
+            "architecture": {
+                "model_type": "gemma3_text",
+                "architectures": [
+                    "Gemma3ForCausalLM"
+                ],
+                "pre_weights": [
+                    {
+                        "name": "model.embed_tokens.weight",
+                        "is_embed": true
+                    }
+                ],
+                "num_layers_config_key": "text_config.num_hidden_layers",
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "model.layers.${layer_index}.input_layernorm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.q_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.q_norm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.k_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.k_norm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.v_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.o_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.post_attention_layernorm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.pre_feedforward_layernorm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.up_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.gate_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.down_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.post_feedforward_layernorm.weight"
+                        }
+                    ]
+                },
+                "post_weights": [
+                    {
+                        "name": "model.norm.weight"
+                    },
+                    {
+                        "name": "lm_head.weight",
+                        "is_embed": true,
+                        "optional": true,
+                        "tied_names": [
+                            "model.embed_tokens.weight"
+                        ]
+                    }
+                ]
+            }
+        },
+        "multi_modal_projector": {
+            "weight_prefix": "multi_modal_projector.",
+            "architecture": {
+                "model_type": "gemma3_mmproj",
+                "architectures": [],
+                "pre_weights": [
+                    {
+                        "name": "mm_input_projection_weight"
+                    },
+                    {
+                        "name": "mm_soft_emb_norm.weight"
+                    }
+                ],
+                "post_weights": [],
+                "layer_templates": {
+                    "weights": []
+                },
+                "override_num_layers": 0
+            }
+        },
+        "vision_tower": {
+            "weight_prefix": "vision_tower.vision_model.",
+            "architecture": {
+                "model_type": "siglip_vision_model",
+                "architectures": [],
+                "pre_weights": [
+                    {
+                        "name": "embeddings.patch_embedding.bias"
+                    },
+                    {
+                        "name": "embeddings.patch_embedding.weight"
+                    },
+                    {
+                        "name": "embeddings.position_embedding.weight"
+                    }
+                ],
+                "post_weights": [
+                    {
+                        "name": "post_layernorm.bias"
+                    },
+                    {
+                        "name": "post_layernorm.weight"
+                    }
+                ],
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "encoder.layers.${layer_index}.layer_norm1.bias"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.layer_norm1.weight"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.layer_norm2.bias"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.layer_norm2.weight"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.mlp.fc1.bias"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.mlp.fc1.weight"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.mlp.fc2.bias"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.mlp.fc2.weight"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.self_attn.k_proj.bias"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.self_attn.k_proj.weight"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.self_attn.out_proj.bias"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.self_attn.out_proj.weight"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.self_attn.q_proj.bias"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.self_attn.q_proj.weight"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.self_attn.v_proj.bias"
+                        },
+                        {
+                            "name": "encoder.layers.${layer_index}.self_attn.v_proj.weight"
+                        }
+                    ]
+                },
+                "num_layers_config_key": "vision_config.num_hidden_layers"
+            }
+        }
+    }
+}
