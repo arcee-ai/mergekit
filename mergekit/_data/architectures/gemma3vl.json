@@ -4,6 +4,10 @@
         "Gemma3ForConditionalGeneration"
     ],
     "model_type": "gemma3",
+    "tagalong_files": [
+        "preprocessor_config.json",
+        "processor_config.json"
+    ],
     "modules": {
         "text_decoder": {
             "weight_prefix": "language_model.",

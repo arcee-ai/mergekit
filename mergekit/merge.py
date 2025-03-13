@@ -7,7 +7,7 @@ import logging
 import os
 import shutil
 from collections import Counter
-from typing import Optional
+from typing import List, Optional
 
 import tqdm
 import transformers
@@ -112,7 +112,11 @@ def run_merge(
         ) as fp:
             fp.write(config_source)
 
-    if tokenizer is None:
+    if tokenizer is not None:
+        logger.info("Saving tokenizer")
+        _set_chat_template(tokenizer, merge_config)
+        tokenizer.save_pretrained(out_path, safe_serialization=True)
+    else:
         if options.copy_tokenizer:
             try:
                 _copy_tokenizer(
@@ -128,10 +132,12 @@ def run_merge(
                 "Chat template specified but no tokenizer found. Chat template will not be saved."
             )
 
-    if tokenizer:
-        logger.info("Saving tokenizer")
-        _set_chat_template(tokenizer, merge_config)
-        tokenizer.save_pretrained(out_path, safe_serialization=True)
+    _copy_tagalong_files(
+        merge_config,
+        out_path,
+        files=arch_info.tagalong_files or [],
+        trust_remote_code=options.trust_remote_code,
+    )
 
     if getattr(arch_info, "post_fill_parameters", False):
         from mergekit.scripts.fill_missing_params import copy_and_fill_missing_params
@@ -192,6 +198,25 @@ def _set_chat_template(
     tokenizer.chat_template = chat_template
 
 
+def _copy_tagalong_files(
+    merge_config: MergeConfiguration,
+    out_path: str,
+    files: List[str],
+    trust_remote_code: bool = False,
+):
+    donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
+
+    for file_name in files:
+        if os.path.exists(os.path.join(donor_model.model.path, file_name)):
+            logger.info(f"Copying {file_name} from {donor_model}")
+            shutil.copy(
+                os.path.join(donor_model.model.path, file_name),
+                os.path.join(out_path, file_name),
+            )
+
+    return
+
+
 def _copy_tokenizer(
     merge_config: MergeConfiguration, out_path: str, trust_remote_code: bool = False
 ):
@@ -214,6 +239,8 @@ def _copy_tokenizer(
             "special_tokens_map.json",
             "tokenizer.json",
             "tokenizer.model",
+            "added_tokens.json",
+            "merges.txt",
         ]:
             if os.path.exists(os.path.join(donor_model.model.path, file_name)):
                 shutil.copy(
