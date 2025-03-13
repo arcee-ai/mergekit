@@ -246,7 +246,7 @@ class Executor:
     DUMMY_TASK_VALUE = "!!DUMMY!!"
 
     def _make_schedule(self, targets: List[Task]) -> List[Task]:
-        logger.info("Building task schedule")
+        logger.debug(f"Building schedule for {len(targets)} targets")
         self.schedule = []
         self.dependencies = self._build_dependencies(targets)
 
@@ -283,12 +283,14 @@ class Executor:
             )
 
         graph = networkx.DiGraph(edge_tups)
-        res = [
-            t
-            for t in networkx.lexicographical_topological_sort(graph, key=_compare_key)
-            if (t != dummy_index) and (t not in (self.cached_values or {}))
+        return [
+            node_values[idx]
+            for idx in networkx.lexicographical_topological_sort(
+                graph, key=_compare_key
+            )
+            if (idx != dummy_index)
+            and node_values[idx] not in (self.cached_values or {})
         ]
-        return [node_values[idx] for idx in res]
 
     def _build_dependencies(self, targets: List[Task]) -> Dict[Task, Set[Task]]:
         task_dependencies: Dict[Task, Set[Task]] = {}
