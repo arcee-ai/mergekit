@@ -8,7 +8,8 @@ import torch
 import tqdm
 import transformers
 
-from mergekit.architecture import MISTRAL_INFO, WeightInfo
+from mergekit.architecture import WeightInfo
+from mergekit.architecture.mixtral import MISTRAL_INFO
 from mergekit.moe.arch import MoEOutputArchitecture
 from mergekit.moe.common import copy_tensor_out, initialize_io, select_dtype
 from mergekit.moe.config import MoEMergeConfig

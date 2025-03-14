@@ -17,13 +17,15 @@ import torch
 import transformers
 from transformers.utils import is_flash_attn_2_available
 
+from mergekit.architecture.base import ConfiguredModelArchitecture
+
 try:
     import vllm
 except ImportError:
     vllm = None
 
 
-from mergekit.architecture import ArchitectureInfoUtils, ConfiguredArchitectureInfo
+from mergekit.architecture import arch_info_for_config
 from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
@@ -130,7 +132,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
     model: Union[
         lm_eval.models.huggingface.HFLM, lm_eval.models.vllm_causallms.VLLM, None
     ] = None
-    arch_info: Optional[ConfiguredArchitectureInfo] = None
+    arch_info: Optional[ConfiguredModelArchitecture] = None
 
     def __init__(
         self,
@@ -142,9 +144,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
         super().__init__(*args, vllm=vllm, **kwargs)
 
     def _maybe_init_model(self, config: MergeConfiguration):
-        ai = ArchitectureInfoUtils.get_architecture_info(
-            self.genome._input_config_example
-        )
+        ai = arch_info_for_config(self.genome._input_config_example)
         cfg_out = _model_out_config(
             config,
             ai,
@@ -167,7 +167,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     continue
 
                 if getattr(cfg_out, key) != getattr(self.arch_info.config, key, None):
-                    logger.warn(f"Config key {key} changed, reinitializing model")
+                    logger.warning(f"Config key {key} changed, reinitializing model")
                     different = True
                     break
 
@@ -240,7 +240,14 @@ class InMemoryMergeEvaluator(MergeActorBase):
                 )
         else:
             self.model = lm_eval.models.huggingface.HFLM(pretrained=inner_model)
-        self.arch_info = ConfiguredArchitectureInfo(info=ai, config=cfg_out)
+        self.arch_info = (
+            ConfiguredModelArchitecture(
+                info=ai,
+                config=cfg_out,
+            )
+            if ai
+            else None
+        )
         logger.info("Model initialized")
 
     def evaluate(self, genotype: torch.Tensor) -> dict:

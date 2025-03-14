@@ -7,7 +7,7 @@ name = "mergekit"
 description = "Tools for merging pre-trained large language models"
 readme = "README.md"
 license = { text = "BUSL-1.1" }
-version = "0.1.1"
+version = "0.1.2"
 authors = [{ name = "Charles Goddard", email = "chargoddard@gmail.com" }]
 requires-python = ">=3.10"
 dependencies = [
@@ -60,6 +60,7 @@ packages = [
     "mergekit.scripts",
     "mergekit.evo",
     "mergekit.tokenizer",
+    "mergekit.architecture",
     "mergekit._data",
     "mergekit._data.architectures",
     "mergekit._data.chat_templates",

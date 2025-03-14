@@ -50,7 +50,7 @@ class MultiGPUExecutor:
             num_gpus: Number of GPUs to utilize (None = all available)
             storage_device: Device for storing tensors between stages
         """
-        self.results = {}
+        self.results: Dict[Task, Any] = {}
         self.targets = set(tasks)
         self.storage_device = storage_device
 
@@ -140,10 +140,10 @@ class MultiGPUExecutor:
                     )
 
                 for future in concurrent.futures.as_completed(futures):
-                    if future.exception():
+                    if ex := future.exception():
                         self.done_event.set()
                         executor.shutdown(wait=False)
-                        raise future.exception()
+                        raise ex
 
             self.done_event.set()
             progress_thread.join()
@@ -237,7 +237,7 @@ class MultiGPUExecutor:
 
         islands = list(nx.weakly_connected_components(island_graph))
         logger.info(f"Found {len(islands)} islands in parallel task graph")
-        assignments = {}
+        assignments: Dict[torch.device, List[Task]] = {}
         for island in islands:
             # Borrow orderings from original task list
             island_tasks = [t for t in tasks if t in island]

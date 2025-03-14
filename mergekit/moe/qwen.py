@@ -12,11 +12,13 @@ import transformers
 # if the transformers version installed is too old
 from transformers.models.qwen2_moe import Qwen2MoeConfig
 
-from mergekit.architecture import QWEN2_INFO
+from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.moe.arch import MoEOutputArchitecture
 from mergekit.moe.common import copy_tensor_out, initialize_io, select_dtype
 from mergekit.moe.config import MoEMergeConfig
 from mergekit.options import MergeOptions
+
+QWEN2_INFO = NAME_TO_ARCH["Qwen2ForCausalLM"][0]
 
 
 class QwenMoE(MoEOutputArchitecture):

@@ -164,7 +164,7 @@ def add_merge_options(f: Callable) -> Callable:
 
 class PrettyPrintHelp(click.Command):
     def format_options(self, ctx: Context, formatter: HelpFormatter) -> None:
-        categories = {None: []}
+        categories: dict[str, list[Parameter]] = {None: []}
         for param in ctx.command.params:
             if param.name in OPTION_CATEGORIES:
                 category = OPTION_CATEGORIES[param.name]

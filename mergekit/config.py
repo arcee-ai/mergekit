@@ -70,11 +70,24 @@ class OutputSliceDefinition(BaseModel):
     parameters: Optional[Dict[str, ParameterSetting]] = None
 
 
-class MergeConfiguration(BaseModel):
-    merge_method: str
+class OutputModuleDefinition(BaseModel):
     slices: Optional[List[OutputSliceDefinition]] = None
     models: Optional[List[InputModelDefinition]] = None
     parameters: Optional[Dict[str, ParameterSetting]] = None
+
+    @model_validator(mode="after")
+    def validate_inputs(self):
+        if ((not self.slices) and (not self.models)) or (self.slices and self.models):
+            raise RuntimeError("Must specify either output slices or models to merge")
+        return self
+
+
+class MergeConfiguration(BaseModel):
+    modules: Optional[Dict[str, OutputModuleDefinition]] = None
+    slices: Optional[List[OutputSliceDefinition]] = None
+    models: Optional[List[InputModelDefinition]] = None
+
+    merge_method: str
     base_model: Optional[ModelReference] = None
     dtype: Optional[str] = None
     tokenizer_source: Union[Literal["union"], Literal["base"], ModelReference, None] = (
@@ -83,6 +96,7 @@ class MergeConfiguration(BaseModel):
     tokenizer: Optional[TokenizerConfig] = None
     chat_template: Optional[str] = None
     out_dtype: Optional[str] = None
+    parameters: Optional[Dict[str, ParameterSetting]] = None
 
     def referenced_models(self) -> List[ModelReference]:
         models = set()
@@ -95,12 +109,31 @@ class MergeConfiguration(BaseModel):
             for s in self.slices:
                 for src in s.sources:
                     models.add(src.model)
+        if self.modules:
+            for m in self.modules.values():
+                if m.models:
+                    for model_in in m.models:
+                        models.add(model_in.model)
+                if m.slices:
+                    for s in m.slices:
+                        for src in s.sources:
+                            models.add(src.model)
         return list(models)
 
     @model_validator(mode="after")
     def validate_inputs(self):
-        if ((not self.slices) and (not self.models)) or (self.slices and self.models):
-            raise RuntimeError("Must specify either output slices or models to merge")
+        set_ct = 0
+        if self.modules:
+            set_ct += 1
+        if self.slices:
+            set_ct += 1
+        if self.models:
+            set_ct += 1
+
+        if set_ct != 1:
+            raise RuntimeError(
+                "Exactly one of 'models', 'slices', or 'modules' must be present"
+            )
         return self
 
     @model_validator(mode="after")
@@ -121,6 +154,7 @@ class ConfigReader(BaseModel):
     t: float
     tensor_name: Optional[str] = None
     slice_out: Optional[OutputSliceDefinition] = None
+    module: Optional[OutputModuleDefinition] = None
 
     @property
     def base_model(self) -> Optional[ModelReference]:
@@ -137,6 +171,7 @@ class ConfigReader(BaseModel):
             t=self.t,
             tensor_name=self.tensor_name,
             slice_out=slice,
+            module=self.module,
         )
 
     def for_tensor(self, tensor_name: str) -> "ConfigReader":
@@ -145,6 +180,7 @@ class ConfigReader(BaseModel):
             t=self.t,
             tensor_name=tensor_name,
             slice_out=self.slice_out,
+            module=self.module,
         )
 
     def with_t(self, t: float) -> "ConfigReader":
@@ -153,6 +189,16 @@ class ConfigReader(BaseModel):
             t=t,
             tensor_name=self.tensor_name,
             slice_out=self.slice_out,
+            module=self.module,
+        )
+
+    def for_module(self, module: OutputModuleDefinition) -> "ConfigReader":
+        return ConfigReader(
+            config=self.config,
+            t=self.t,
+            tensor_name=self.tensor_name,
+            slice_out=self.slice_out,
+            module=module,
         )
 
     def parameter(
@@ -178,6 +224,15 @@ class ConfigReader(BaseModel):
                 )
                 if value is not None:
                     return value
+
+        if self.module and self.module.parameters and name in self.module.parameters:
+            value = evaluate_setting(
+                self.tensor_name,
+                self.module.parameters[name],
+                self.t,
+            )
+            if value is not None:
+                return value
 
         if self.config.parameters and name in self.config.parameters:
             value = evaluate_setting(

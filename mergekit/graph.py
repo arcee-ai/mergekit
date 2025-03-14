@@ -8,6 +8,7 @@ Classes:
     Executor: Class for scheduling and executing directed acyclic task graphs.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
@@ -18,6 +19,8 @@ from pydantic import BaseModel
 from typing_extensions import Generic, TypeVar
 
 ValueT = TypeVar("ValueT")
+
+logger = logging.getLogger(__name__)
 
 
 class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
@@ -243,20 +246,35 @@ class Executor:
     DUMMY_TASK_VALUE = "!!DUMMY!!"
 
     def _make_schedule(self, targets: List[Task]) -> List[Task]:
+        logger.debug(f"Building schedule for {len(targets)} targets")
         self.schedule = []
         self.dependencies = self._build_dependencies(targets)
+
+        node_indices = {}
+        node_values = []
+
+        # instead of using the actual task objects as nodes in the graph,
+        # use an integer index to avoid reserializing the task objects
+        # inside networkx (slow)
+        def _index(node: Union[Task, str]) -> int:
+            if node not in node_indices:
+                node_indices[node] = len(node_indices)
+                node_values.append(node)
+            return node_indices[node]
 
         edge_tups = []
         for node in self.dependencies:
             for dependency in self.dependencies[node]:
-                edge_tups.append((dependency, node))
+                edge_tups.append((_index(dependency), _index(node)))
 
+        # add edges from a dummy node to each target to guarantee
+        # they will be included in the final schedule
+        dummy_index = _index(Executor.DUMMY_TASK_VALUE)
         for task in targets:
-            # add edges from a dummy node to each target to guarantee
-            # they will be included in the final schedule
-            edge_tups.append((Executor.DUMMY_TASK_VALUE, task))
+            edge_tups.append((dummy_index, _index(task)))
 
-        def _compare_key(task: Union[Task, str]):
+        def _compare_key(node: int) -> Tuple[str, int]:
+            task = node_values[node]
             if task == Executor.DUMMY_TASK_VALUE:
                 return ("", 0)
             return (
@@ -265,13 +283,14 @@ class Executor:
             )
 
         graph = networkx.DiGraph(edge_tups)
-        res = [
-            t
-            for t in networkx.lexicographical_topological_sort(graph, key=_compare_key)
-            if (t != Executor.DUMMY_TASK_VALUE)
-            and (t not in (self.cached_values or {}))
+        return [
+            node_values[idx]
+            for idx in networkx.lexicographical_topological_sort(
+                graph, key=_compare_key
+            )
+            if (idx != dummy_index)
+            and node_values[idx] not in (self.cached_values or {})
         ]
-        return res
 
     def _build_dependencies(self, targets: List[Task]) -> Dict[Task, Set[Task]]:
         task_dependencies: Dict[Task, Set[Task]] = {}

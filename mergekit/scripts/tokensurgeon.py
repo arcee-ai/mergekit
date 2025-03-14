@@ -13,9 +13,9 @@ import transformers
 from typing_extensions import TypeAlias
 
 from mergekit.architecture import (
-    ArchitectureInfoUtils,
-    ConfiguredArchitectureInfo,
+    ConfiguredModelArchitecture,
     WeightInfo,
+    arch_info_for_config,
 )
 from mergekit.common import ModelReference
 from mergekit.io import TensorWriter
@@ -132,6 +132,7 @@ def main(
         barycentric=barycentric,
         cosine_similarity=cosine_similarity,
         name=embed_info.name,
+        log_reconstruction_error=verbosity > 0,
     )
 
     if lm_head_info:
@@ -269,21 +270,24 @@ def get_embedding_info(
 ) -> Tuple[WeightInfo, WeightInfo]:
     """Get WeightInfo for the input and output embeddings of a model."""
     cfg = model.config(trust_remote_code=options.trust_remote_code)
-    arch_info = ArchitectureInfoUtils.get_architecture_info(cfg)
+    arch_info = arch_info_for_config(cfg)
+
+    if len(arch_info.modules) != 1:
+        raise RuntimeError("Model has multiple modules - not supported by tokensurgeon")
+    module_def = next(iter(arch_info.modules.values()))
 
     embed, lm_head = None, None
-    for weight_info in arch_info.pre_weights(cfg):
+    for weight_info in module_def.architecture.pre_weights(cfg):
         if weight_info.is_embed:
             if embed is not None:
                 raise RuntimeError("Multiple input embeddings found")
             embed = weight_info
 
-    for weight_info in arch_info.post_weights(cfg):
+    for weight_info in module_def.architecture.post_weights(cfg):
         if weight_info.is_embed:
             if lm_head is not None:
                 raise RuntimeError("Multiple output embeddings found")
             lm_head = weight_info
-
     return embed, lm_head
 
 
@@ -466,12 +470,14 @@ def get_embeddings(
 
         if log_reconstruction_error:
             # compute reconstruction error in donor_embed space
-            knn_reconstruction_error.append(
-                torch.nn.functional.mse_loss(
-                    (knn_embeddings.T.to(weights.dtype) @ weights).squeeze(),
-                    token_embedding,
-                ).item()
+            reconstructed = (
+                (knn_embeddings.T.to(weights.dtype) @ weights)
+                .squeeze()
+                .to(token_embedding.dtype)
             )
+            diff = token_embedding - reconstructed
+            mse = diff.square().mean().item()
+            knn_reconstruction_error.append(mse)
 
         # Reconstruct the embedding in original_embed space
         res[idx_1] = (e_c_0[indices].T @ weights).squeeze()
@@ -576,7 +582,7 @@ def load_tokenizer(
 
 def validate_architecture(
     model: ModelReference, donor: ModelReference, options: MergeOptions
-) -> Tuple[ConfiguredArchitectureInfo, transformers.PretrainedConfig]:
+) -> Tuple[ConfiguredModelArchitecture, transformers.PretrainedConfig]:
     """
     Validate that the architectures of two models match.
 
@@ -584,15 +590,18 @@ def validate_architecture(
     """
     model_cfg = model.config(trust_remote_code=options.trust_remote_code)
     donor_cfg = donor.config(trust_remote_code=options.trust_remote_code)
-    model_arch_info = ArchitectureInfoUtils.get_architecture_info(model_cfg)
-    donor_arch_info = ArchitectureInfoUtils.get_architecture_info(donor_cfg)
+    model_arch_info = arch_info_for_config(model_cfg)
+    donor_arch_info = arch_info_for_config(donor_cfg)
     if donor_arch_info != model_arch_info:
         report_issue(
-            f"Model architectures do not match: {model_arch_info.name()} vs {donor_arch_info.name()}",
+            f"Model architectures do not match: {model_arch_info.expected_model_type} vs {donor_arch_info.expected_model_type}",
             error=not options.allow_crimes,
         )
 
-    return ConfiguredArchitectureInfo(info=model_arch_info, config=model_cfg), donor_cfg
+    return (
+        ConfiguredModelArchitecture(info=model_arch_info, config=model_cfg),
+        donor_cfg,
+    )
 
 
 if __name__ == "__main__":

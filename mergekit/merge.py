@@ -6,16 +6,16 @@ import importlib.resources
 import logging
 import os
 import shutil
-import warnings
 from collections import Counter
-from typing import Optional
+from typing import List, Optional
 
 import tqdm
 import transformers
 
 from mergekit._data import chat_templates
-from mergekit.architecture import ArchitectureInfo, ArchitectureInfoUtils
+from mergekit.architecture import ModelArchitecture, get_architecture_info
 from mergekit.card import generate_card
+from mergekit.common import set_config_value
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache
@@ -39,7 +39,7 @@ def run_merge(
     if not merge_config.models and not merge_config.slices:
         raise RuntimeError("No output requested")
 
-    arch_info = _load_arch_info(merge_config, options)
+    arch_info = get_architecture_info(merge_config, options)
 
     # initialize loader cache and set options
     loader_cache = LoaderCache()
@@ -112,7 +112,11 @@ def run_merge(
         ) as fp:
             fp.write(config_source)
 
-    if tokenizer is None:
+    if tokenizer is not None:
+        logger.info("Saving tokenizer")
+        _set_chat_template(tokenizer, merge_config)
+        tokenizer.save_pretrained(out_path, safe_serialization=True)
+    else:
         if options.copy_tokenizer:
             try:
                 _copy_tokenizer(
@@ -128,10 +132,12 @@ def run_merge(
                 "Chat template specified but no tokenizer found. Chat template will not be saved."
             )
 
-    if tokenizer:
-        logger.info("Saving tokenizer")
-        _set_chat_template(tokenizer, merge_config)
-        tokenizer.save_pretrained(out_path, safe_serialization=True)
+    _copy_tagalong_files(
+        merge_config,
+        out_path,
+        files=arch_info.tagalong_files or [],
+        trust_remote_code=options.trust_remote_code,
+    )
 
     if getattr(arch_info, "post_fill_parameters", False):
         from mergekit.scripts.fill_missing_params import copy_and_fill_missing_params
@@ -192,6 +198,25 @@ def _set_chat_template(
     tokenizer.chat_template = chat_template
 
 
+def _copy_tagalong_files(
+    merge_config: MergeConfiguration,
+    out_path: str,
+    files: List[str],
+    trust_remote_code: bool = False,
+):
+    donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
+
+    for file_name in files:
+        if os.path.exists(os.path.join(donor_model.model.path, file_name)):
+            logger.info(f"Copying {file_name} from {donor_model}")
+            shutil.copy(
+                os.path.join(donor_model.model.path, file_name),
+                os.path.join(out_path, file_name),
+            )
+
+    return
+
+
 def _copy_tokenizer(
     merge_config: MergeConfiguration, out_path: str, trust_remote_code: bool = False
 ):
@@ -214,6 +239,8 @@ def _copy_tokenizer(
             "special_tokens_map.json",
             "tokenizer.json",
             "tokenizer.model",
+            "added_tokens.json",
+            "merges.txt",
         ]:
             if os.path.exists(os.path.join(donor_model.model.path, file_name)):
                 shutil.copy(
@@ -236,7 +263,7 @@ def _copy_tokenizer(
 
 def _model_out_config(
     config: MergeConfiguration,
-    arch_info: ArchitectureInfo,
+    arch_info: ModelArchitecture,
     trust_remote_code: bool = False,
 ) -> transformers.PretrainedConfig:
     """Return a configuration for the resulting model."""
@@ -249,18 +276,32 @@ def _model_out_config(
     elif config.dtype:
         res.torch_dtype = config.dtype
 
-    if config.slices:
-        try:
-            num_layers = sum(
+    module_layers = {}
+    for module_name in arch_info.modules:
+        if config.modules and module_name in config.modules:
+            module_def = config.modules.get(module_name)
+            module_layers[module_name] = sum(
+                s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+                for s in module_def.slices
+            )
+        elif config.slices:
+            module_layers[module_name] = sum(
                 s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
                 for s in config.slices
             )
-            setattr(res, arch_info.num_layers_config_key(), num_layers)
-        except Exception as e:
-            logger.warning(
-                "Unable to set number of layers in output config - you may need to manually correct it.",
-                exc_info=e,
-            )
+
+    if module_layers:
+        for module_name in module_layers:
+            try:
+                module_info = arch_info.modules[module_name]
+                cfg_key = module_info.architecture.num_layers_config_key()
+                set_config_value(res, cfg_key, module_layers[module_name])
+            except Exception as e:
+                logger.warning(
+                    f"Unable to set number of layers for module {module_name} in output config "
+                    "- you may need to manually correct it.",
+                    exc_info=e,
+                )
 
     return res
 
@@ -280,34 +321,6 @@ def _update_config_vocab(
             "Unable to set vocabulary size in output config - you may need to manually correct it.",
             exc_info=e,
         )
-
-
-def _load_arch_info(
-    merge_config: MergeConfiguration, options: MergeOptions
-) -> ArchitectureInfo:
-    """
-    Loads architecture information, handling cases where models lack predefined architecture info.
-    """
-    model_arch_info = [
-        ArchitectureInfoUtils.get_architecture_info(
-            m.config(trust_remote_code=options.trust_remote_code)
-        )
-        for m in merge_config.referenced_models()
-    ]
-
-    if all(a is not None for a in model_arch_info):
-        if not options.allow_crimes and not all(
-            a == model_arch_info[0] for a in model_arch_info[1:]
-        ):
-            raise RuntimeError(
-                "Must specify --allow-crimes to attempt to mix different architectures"
-            )
-        return model_arch_info[0]
-    else:
-        warnings.warn("Attempting Automatic Merge.")
-        model_arch_info = ArchitectureInfoUtils.infer_architecture_info(merge_config)
-
-    return model_arch_info
 
 
 __all__ = ["MergeOptions", "run_merge"]
