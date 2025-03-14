@@ -334,8 +334,6 @@ def _make_dummy_model(
     auto_cls = get_auto_cls(model_cfg.architectures[0])
     with torch.device("meta"):
         res = auto_cls.from_config(model_cfg, trust_remote_code=trust_remote_code)
-    print(res)
-    print(f"device: {res.device}")
     return res
 
 
