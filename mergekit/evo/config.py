@@ -45,6 +45,7 @@ NAUGHTY_PREFIXES = [
     "bigbench",
     "piqa",
     "openbookqa",
+    "leaderboard",
 ]
 
 
