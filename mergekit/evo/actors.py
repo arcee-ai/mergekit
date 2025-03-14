@@ -99,9 +99,9 @@ class OnDiskMergeEvaluator(MergeActorBase):
             logger.error("Model merge failed")
             return {"score": None, "results": None}
 
-        kwargs = {}
+        model_kwargs = {}
         if self.quantization_config is not None:
-            kwargs["quantization_config"] = self.quantization_config
+            model_kwargs["quantization_config"] = self.quantization_config
         logger.info(f"Model merged to {merged_path}")
         return evaluate_model(
             merged_path,
@@ -113,7 +113,7 @@ class OnDiskMergeEvaluator(MergeActorBase):
             task_manager=self.task_manager,
             apply_chat_template=self.config.apply_chat_template,
             fewshot_as_multiturn=self.config.fewshot_as_multiturn,
-            **kwargs,
+            model_kwargs=model_kwargs,
         )
 
 
