@@ -7,12 +7,12 @@ import os
 import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
-import transformers
 
 import click
 import torch
 import torch.nn as nn
 import tqdm
+import transformers
 from pydantic import BaseModel
 
 from mergekit.architecture import WeightInfo, arch_info_for_config
