@@ -320,6 +320,7 @@ if tf_auto is not None:
             "MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES",
             "AutoModelForSequenceClassification",
         ),
+        ("MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES", "AutoModelForSeq2SeqLM"),
         (
             "MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES",
             "AutoModelForTokenClassification",
