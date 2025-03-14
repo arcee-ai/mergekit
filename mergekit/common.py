@@ -348,6 +348,13 @@ class AutoClassProtocol(Protocol):
         **kwargs,
     ) -> transformers.PreTrainedModel: ...
 
+    def from_config(
+        self,
+        config: transformers.PretrainedConfig,
+        *model_args,
+        **kwargs,
+    ) -> transformers.PreTrainedModel: ...
+
 
 def get_auto_cls(arch_name: str) -> AutoClassProtocol:
     """Get the AutoModel class for a given architecture name."""

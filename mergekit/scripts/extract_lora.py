@@ -323,6 +323,22 @@ def _wi_load(model_ref: ModelReference, weight_info: WeightInfo) -> LoadTensor:
     )
 
 
+def _make_dummy_model(
+    model_ref: ModelReference, trust_remote_code: bool = False
+) -> transformers.PreTrainedModel:
+    model_cfg = transformers.AutoConfig.from_pretrained(
+        model_ref.model.path,
+        revision=model_ref.model.revision,
+        trust_remote_code=trust_remote_code,
+    )
+    auto_cls = get_auto_cls(model_cfg.architectures[0])
+    with torch.device("meta"):
+        res = auto_cls.from_config(model_cfg, trust_remote_code=trust_remote_code)
+    print(res)
+    print(f"device: {res.device}")
+    return res
+
+
 class PlanResults(BaseModel):
     tasks: List[Task]
     base_vocab_size: int
@@ -352,26 +368,8 @@ def plan_extraction(
     )
 
     name_to_wi = all_weights_map(model_ref, options)
-    model_cfg = transformers.AutoConfig.from_pretrained(
-        model_ref.model.path,
-        revision=model_ref.model.revision,
-        trust_remote_code=options.trust_remote_code,
-    )
-    auto_cls = get_auto_cls(model_cfg.architectures[0])
-    dummy_model = auto_cls.from_pretrained(
-        model_ref.model.path,
-        revision=model_ref.model.revision,
-        trust_remote_code=options.trust_remote_code,
-        device_map="meta",
-        state_dict={},
-    )
-    dummy_base = auto_cls.from_pretrained(
-        base_model_ref.model.path,
-        revision=base_model_ref.model.revision,
-        trust_remote_code=options.trust_remote_code,
-        device_map="meta",
-        state_dict={},
-    )
+    dummy_base = _make_dummy_model(base_model_ref, options.trust_remote_code)
+    dummy_model = _make_dummy_model(model_ref, options.trust_remote_code)
 
     embed_in = dummy_model.get_input_embeddings()
     embed_out = dummy_model.get_output_embeddings()
@@ -384,6 +382,7 @@ def plan_extraction(
         )
         logger.warning("Enforcing embeddings in modules_to_save, embed_lora=False")
         embed_lora = False
+    del dummy_base
 
     warned_modules = set()
 
