@@ -199,7 +199,11 @@ def main(
     tokenizer.save_pretrained(out_path)
     cfg_out = arch_info.config
     try:
-        cfg_out.vocab_size = new_embed.shape[0]
+        setattr(
+            cfg_out,
+            arch_info.info.vocab_size_config_key or "vocab_size",
+            new_embed.shape[0],
+        )
     except AttributeError:
         LOG.error(
             "Could not set vocab size in config.json - you may need to update it manually."

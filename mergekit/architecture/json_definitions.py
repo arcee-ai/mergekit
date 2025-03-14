@@ -105,6 +105,7 @@ class JsonModularArchitectureDefinition(BaseModel, frozen=True):
     architectures: List[str]
     expected_model_type: str = Field(alias="model_type")
     tagalong_files: Optional[List[str]] = None
+    vocab_size_config_key: Optional[str] = None
 
 
 class TemplateWithArithmetic(string.Template):
@@ -154,6 +155,7 @@ def _load_architecture_json(name: str) -> ModelArchitecture:
             architectures=parsed.architectures,
             model_type=parsed.expected_model_type,
             tagalong_files=parsed.tagalong_files,
+            vocab_size_config_key=parsed.vocab_size_config_key,
         )
     elif data.get("kind", "module") == "module":
         module = JsonModuleArchitecture(
