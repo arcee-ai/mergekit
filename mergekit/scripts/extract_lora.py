@@ -7,6 +7,7 @@ import os
 import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
+import transformers
 
 import click
 import torch
@@ -351,7 +352,12 @@ def plan_extraction(
     )
 
     name_to_wi = all_weights_map(model_ref, options)
-    auto_cls = get_auto_cls(model_ref.model.path)
+    model_cfg = transformers.AutoConfig.from_pretrained(
+        model_ref.model.path,
+        revision=model_ref.model.revision,
+        trust_remote_code=options.trust_remote_code,
+    )
+    auto_cls = get_auto_cls(model_cfg.architectures[0])
     dummy_model = auto_cls.from_pretrained(
         model_ref.model.path,
         revision=model_ref.model.revision,
