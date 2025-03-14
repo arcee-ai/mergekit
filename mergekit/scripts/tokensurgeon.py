@@ -17,7 +17,7 @@ from mergekit.architecture import (
     WeightInfo,
     arch_info_for_config,
 )
-from mergekit.common import ModelReference
+from mergekit.common import ModelReference, set_config_value
 from mergekit.io import TensorWriter
 from mergekit.io.tasks import LoaderCache
 from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
@@ -199,7 +199,7 @@ def main(
     tokenizer.save_pretrained(out_path)
     cfg_out = arch_info.config
     try:
-        setattr(
+        set_config_value(
             cfg_out,
             arch_info.info.vocab_size_config_key or "vocab_size",
             new_embed.shape[0],

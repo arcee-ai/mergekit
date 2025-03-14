@@ -318,7 +318,9 @@ def _update_config_vocab(
     if pad_to_multiple_of and vocab_size % pad_to_multiple_of:
         vocab_size = vocab_size + pad_to_multiple_of - (vocab_size % pad_to_multiple_of)
     try:
-        setattr(config, arch_info.vocab_size_config_key or "vocab_size", vocab_size)
+        set_config_value(
+            config, arch_info.vocab_size_config_key or "vocab_size", vocab_size
+        )
     except Exception as e:
         logger.warning(
             "Unable to set vocabulary size in output config - you may need to manually correct it.",
