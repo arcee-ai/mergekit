@@ -15,6 +15,7 @@
                         "is_embed": true,
                         "optional": true,
                         "tied_names": [
+                            "shared.weight",
                             "lm_head.weight",
                             "encoder.embed_tokens.weight"
                         ]
@@ -88,6 +89,7 @@
                         "is_embed": true,
                         "optional": true,
                         "tied_names": [
+                            "shared.weight",
                             "lm_head.weight",
                             "decoder.embed_tokens.weight"
                         ]
@@ -142,7 +144,8 @@
                 "architectures": [],
                 "pre_weights": [
                     {
-                        "name": "shared.weight"
+                        "name": "shared.weight",
+                        "is_embed": true
                     }
                 ],
                 "layer_templates": {
@@ -154,6 +157,7 @@
                         "is_embed": true,
                         "optional": true,
                         "tied_names": [
+                            "shared.weight",
                             "encoder.embed_tokens.weight",
                             "decoder.embed_tokens.weight"
                         ]
