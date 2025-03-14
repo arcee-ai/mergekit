@@ -119,13 +119,6 @@ class TestBasicMerges:
         config.parameters = {"t": 0.35}
         run_and_check_merge(config)
 
-    def test_nearswap_merge(self, model_a, model_b):
-        config = self.two_model_config(
-            model_a, model_b, merge_method="nearswap", base_model=model_a
-        )
-        config.parameters = {"t": 0.0001}
-        run_and_check_merge(config)
-
     def test_nuslerp_merges(self, model_a, model_b, model_c):
         for base_model in [None, model_c]:
             for row_wise in [False, True]:

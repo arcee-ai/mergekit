@@ -12,12 +12,12 @@ import click
 import torch
 import torch.nn as nn
 import tqdm
+import transformers
 from pydantic import BaseModel
-from transformers import AutoModelForCausalLM
 
-from mergekit.architecture import ArchitectureInfoUtils, WeightInfo
+from mergekit.architecture import WeightInfo, arch_info_for_config
 from mergekit.card import generate_card_lora
-from mergekit.common import ModelReference
+from mergekit.common import ModelReference, get_auto_cls
 from mergekit.graph import Executor, Task
 from mergekit.io.tasks import FinalizeModel, LoadTensor, SaveTensor, TensorWriterTask
 from mergekit.io.tensor_writer import TensorWriter
@@ -323,6 +323,20 @@ def _wi_load(model_ref: ModelReference, weight_info: WeightInfo) -> LoadTensor:
     )
 
 
+def _make_dummy_model(
+    model_ref: ModelReference, trust_remote_code: bool = False
+) -> transformers.PreTrainedModel:
+    model_cfg = transformers.AutoConfig.from_pretrained(
+        model_ref.model.path,
+        revision=model_ref.model.revision,
+        trust_remote_code=trust_remote_code,
+    )
+    auto_cls = get_auto_cls(model_cfg.architectures[0])
+    with torch.device("meta"):
+        res = auto_cls.from_config(model_cfg, trust_remote_code=trust_remote_code)
+    return res
+
+
 class PlanResults(BaseModel):
     tasks: List[Task]
     base_vocab_size: int
@@ -352,20 +366,8 @@ def plan_extraction(
     )
 
     name_to_wi = all_weights_map(model_ref, options)
-    dummy_model = AutoModelForCausalLM.from_pretrained(
-        model_ref.model.path,
-        revision=model_ref.model.revision,
-        trust_remote_code=options.trust_remote_code,
-        device_map="meta",
-        state_dict={},
-    )
-    dummy_base = AutoModelForCausalLM.from_pretrained(
-        base_model_ref.model.path,
-        revision=base_model_ref.model.revision,
-        trust_remote_code=options.trust_remote_code,
-        device_map="meta",
-        state_dict={},
-    )
+    dummy_base = _make_dummy_model(base_model_ref, options.trust_remote_code)
+    dummy_model = _make_dummy_model(model_ref, options.trust_remote_code)
 
     embed_in = dummy_model.get_input_embeddings()
     embed_out = dummy_model.get_output_embeddings()
@@ -378,6 +380,7 @@ def plan_extraction(
         )
         logger.warning("Enforcing embeddings in modules_to_save, embed_lora=False")
         embed_lora = False
+    del dummy_base
 
     warned_modules = set()
 
@@ -553,7 +556,7 @@ def all_weights_map(
 ) -> Dict[str, WeightInfo]:
     name_to_wi = {}
     model_cfg = model_ref.config(trust_remote_code=options.trust_remote_code)
-    arch_info = ArchitectureInfoUtils.get_architecture_info(model_cfg)
+    arch_info = arch_info_for_config(model_cfg)
     for wi in arch_info.all_weights(model_cfg):
         name_to_wi[wi.name] = wi
     return name_to_wi

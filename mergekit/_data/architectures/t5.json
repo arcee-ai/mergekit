@@ -1,0 +1,170 @@
+{
+    "kind": "modular",
+    "architectures": [
+        "T5ForConditionalGeneration"
+    ],
+    "model_type": "t5",
+    "modules": {
+        "decoder": {
+            "architecture": {
+                "model_type": "",
+                "architectures": [],
+                "pre_weights": [
+                    {
+                        "name": "decoder.embed_tokens.weight",
+                        "is_embed": true,
+                        "optional": true,
+                        "tied_names": [
+                            "shared.weight",
+                            "lm_head.weight",
+                            "encoder.embed_tokens.weight"
+                        ]
+                    }
+                ],
+                "num_layers_config_key": "num_decoder_layers",
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "decoder.block.${layer_index}.layer.0.layer_norm.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.0.SelfAttention.q.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.0.SelfAttention.k.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.0.SelfAttention.v.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.0.SelfAttention.o.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.0.SelfAttention.relative_attention_bias.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.1.EncDecAttention.q.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.1.EncDecAttention.k.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.1.EncDecAttention.v.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.1.EncDecAttention.o.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.1.layer_norm.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.2.DenseReluDense.wi_0.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.2.DenseReluDense.wi_1.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.2.DenseReluDense.wo.weight"
+                        },
+                        {
+                            "name": "decoder.block.${layer_index}.layer.2.layer_norm.weight"
+                        }
+                    ]
+                },
+                "post_weights": [
+                    {
+                        "name": "decoder.final_layer_norm.weight"
+                    }
+                ]
+            }
+        },
+        "encoder": {
+            "architecture": {
+                "model_type": "",
+                "architectures": [],
+                "pre_weights": [
+                    {
+                        "name": "encoder.embed_tokens.weight",
+                        "is_embed": true,
+                        "optional": true,
+                        "tied_names": [
+                            "shared.weight",
+                            "lm_head.weight",
+                            "decoder.embed_tokens.weight"
+                        ]
+                    }
+                ],
+                "num_layers_config_key": "num_hidden_layers",
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "encoder.block.${layer_index}.layer.0.layer_norm.weight"
+                        },
+                        {
+                            "name": "encoder.block.${layer_index}.layer.0.SelfAttention.q.weight"
+                        },
+                        {
+                            "name": "encoder.block.${layer_index}.layer.0.SelfAttention.k.weight"
+                        },
+                        {
+                            "name": "encoder.block.${layer_index}.layer.0.SelfAttention.v.weight"
+                        },
+                        {
+                            "name": "encoder.block.${layer_index}.layer.0.SelfAttention.o.weight"
+                        },
+                        {
+                            "name": "encoder.block.${layer_index}.layer.0.SelfAttention.relative_attention_bias.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "encoder.block.${layer_index}.layer.1.DenseReluDense.wi_0.weight"
+                        },
+                        {
+                            "name": "encoder.block.${layer_index}.layer.1.DenseReluDense.wi_1.weight"
+                        },
+                        {
+                            "name": "encoder.block.${layer_index}.layer.1.DenseReluDense.wo.weight"
+                        },
+                        {
+                            "name": "encoder.block.${layer_index}.layer.1.layer_norm.weight"
+                        }
+                    ]
+                },
+                "post_weights": [
+                    {
+                        "name": "encoder.final_layer_norm.weight"
+                    }
+                ]
+            }
+        },
+        "shared": {
+            "architecture": {
+                "model_type": "",
+                "architectures": [],
+                "pre_weights": [
+                    {
+                        "name": "shared.weight",
+                        "is_embed": true
+                    }
+                ],
+                "layer_templates": {
+                    "weights": []
+                },
+                "post_weights": [
+                    {
+                        "name": "lm_head.weight",
+                        "is_embed": true,
+                        "optional": true,
+                        "tied_names": [
+                            "shared.weight",
+                            "encoder.embed_tokens.weight",
+                            "decoder.embed_tokens.weight"
+                        ]
+                    }
+                ],
+                "override_num_layers": 0
+            }
+        }
+    }
+}
