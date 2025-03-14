@@ -90,7 +90,9 @@ def run_merge(
         pad_to_multiple_of = None
         if merge_config.tokenizer and merge_config.tokenizer.pad_to_multiple_of:
             pad_to_multiple_of = merge_config.tokenizer.pad_to_multiple_of
-        _update_config_vocab(cfg_out, tokenizer, pad_to_multiple_of=pad_to_multiple_of)
+        _update_config_vocab(
+            cfg_out, arch_info, tokenizer, pad_to_multiple_of=pad_to_multiple_of
+        )
 
     logger.info("Saving config")
     cfg_out.save_pretrained(out_path)
@@ -308,6 +310,7 @@ def _model_out_config(
 
 def _update_config_vocab(
     config: transformers.PretrainedConfig,
+    arch_info: ModelArchitecture,
     tokenizer: transformers.PreTrainedTokenizerBase,
     pad_to_multiple_of: Optional[int] = None,
 ):
@@ -315,7 +318,7 @@ def _update_config_vocab(
     if pad_to_multiple_of and vocab_size % pad_to_multiple_of:
         vocab_size = vocab_size + pad_to_multiple_of - (vocab_size % pad_to_multiple_of)
     try:
-        config.vocab_size = vocab_size
+        setattr(config, arch_info.vocab_size_config_key or "vocab_size", vocab_size)
     except Exception as e:
         logger.warning(
             "Unable to set vocabulary size in output config - you may need to manually correct it.",

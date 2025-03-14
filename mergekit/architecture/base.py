@@ -128,6 +128,7 @@ class ModelArchitecture(BaseModel, frozen=True):
     architectures: List[str]
     expected_model_type: str = Field(alias="model_type")
     tagalong_files: Optional[List[str]] = None
+    vocab_size_config_key: Optional[str] = None
 
     def all_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         res = []

@@ -13,7 +13,8 @@ import transformers
 from pydantic import BaseModel
 from typing_extensions import Literal
 
-from mergekit.common import ModelPath, ModelReference
+from mergekit.architecture import arch_info_for_config
+from mergekit.common import ModelPath, ModelReference, get_config_value
 from mergekit.graph import Task
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,8 @@ def get_vocab_size(model_path: ModelPath, trust_remote_code: bool) -> Optional[i
             revision=model_path.revision,
             trust_remote_code=trust_remote_code,
         )
-        return cfg.vocab_size
+        arch_info = arch_info_for_config(cfg)
+        return get_config_value(cfg, arch_info.vocab_size_config_key or "vocab_size")
     except Exception as e:
         logger.warning(f"Unable to get vocab size for {model_path}", exc_info=e)
 

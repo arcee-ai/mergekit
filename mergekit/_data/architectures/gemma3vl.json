@@ -8,6 +8,7 @@
         "preprocessor_config.json",
         "processor_config.json"
     ],
+    "vocab_size_config_key": "text_config.vocab_size",
     "modules": {
         "text_decoder": {
             "weight_prefix": "language_model.",
