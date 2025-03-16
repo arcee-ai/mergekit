@@ -138,7 +138,6 @@ def run_merge(
         merge_config,
         out_path,
         files=arch_info.tagalong_files or [],
-        trust_remote_code=options.trust_remote_code,
     )
 
     if getattr(arch_info, "post_fill_parameters", False):
@@ -204,15 +203,16 @@ def _copy_tagalong_files(
     merge_config: MergeConfiguration,
     out_path: str,
     files: List[str],
-    trust_remote_code: bool = False,
 ):
     donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
+    donor_local_path = donor_model.local_path()
 
     for file_name in files:
-        if os.path.exists(os.path.join(donor_model.model.path, file_name)):
+        fp = os.path.join(donor_local_path, file_name)
+        if os.path.exists(fp):
             logger.info(f"Copying {file_name} from {donor_model}")
             shutil.copy(
-                os.path.join(donor_model.model.path, file_name),
+                fp,
                 os.path.join(out_path, file_name),
             )
 
@@ -223,15 +223,14 @@ def _copy_tokenizer(
     merge_config: MergeConfiguration, out_path: str, trust_remote_code: bool = False
 ):
     donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
+    donor_local_path = donor_model.local_path()
 
     if (
         (not merge_config.chat_template)
-        and os.path.exists(
-            os.path.join(donor_model.model.path, "tokenizer_config.json")
-        )
+        and os.path.exists(os.path.join(donor_local_path, "tokenizer_config.json"))
         and (
-            os.path.exists(os.path.join(donor_model.model.path, "tokenizer.json"))
-            or os.path.exists(os.path.join(donor_model.model.path, "tokenizer.model"))
+            os.path.exists(os.path.join(donor_local_path, "tokenizer.json"))
+            or os.path.exists(os.path.join(donor_local_path, "tokenizer.model"))
         )
     ):
         logger.info(f"Copying tokenizer from {donor_model}")
@@ -244,9 +243,9 @@ def _copy_tokenizer(
             "added_tokens.json",
             "merges.txt",
         ]:
-            if os.path.exists(os.path.join(donor_model.model.path, file_name)):
+            if os.path.exists(os.path.join(donor_local_path, file_name)):
                 shutil.copy(
-                    os.path.join(donor_model.model.path, file_name),
+                    os.path.join(donor_local_path, file_name),
                     os.path.join(out_path, file_name),
                 )
 
@@ -282,21 +281,38 @@ def _model_out_config(
     for module_name in arch_info.modules:
         if config.modules and module_name in config.modules:
             module_def = config.modules.get(module_name)
-            module_layers[module_name] = sum(
-                s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
-                for s in module_def.slices
-            )
+            if module_def and module_def.slices:
+                module_layers[module_name] = sum(
+                    [
+                        s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+                        for s in module_def.slices
+                    ]
+                )
         elif config.slices:
             module_layers[module_name] = sum(
-                s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
-                for s in config.slices
+                [
+                    s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+                    for s in config.slices
+                ]
             )
 
     if module_layers:
         for module_name in module_layers:
+            if module_name not in arch_info.modules:
+                logger.warning(
+                    f"Module {module_name} in config but not in architecture info"
+                )
+                continue
+            module_info = arch_info.modules[module_name]
+            cfg_key = module_info.architecture.num_layers_config_key()
+            if not cfg_key:
+                if module_layers[module_name] > 0:
+                    logger.warning(
+                        f"Module {module_name} has no configuration key for number of layers, "
+                        "but the number of layers is not zero."
+                    )
+                continue
             try:
-                module_info = arch_info.modules[module_name]
-                cfg_key = module_info.architecture.num_layers_config_key()
                 set_config_value(res, cfg_key, module_layers[module_name])
             except Exception as e:
                 logger.warning(

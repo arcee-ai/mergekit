@@ -149,7 +149,7 @@ class ModelReference(BaseModel, frozen=True):
             res.architectures = [self.override_architecture]
         return res
 
-    def tensor_index(self, cache_dir: Optional[str] = None) -> ShardedTensorIndex:
+    def local_path(self, cache_dir: Optional[str] = None) -> str:
         assert self.lora is None
 
         path = self.model.path
@@ -172,8 +172,10 @@ class ModelReference(BaseModel, frozen=True):
                 cache_dir=cache_dir,
                 allow_patterns=patterns,
             )
+        return path
 
-        return ShardedTensorIndex.from_disk(path)
+    def tensor_index(self, cache_dir: Optional[str] = None) -> ShardedTensorIndex:
+        return ShardedTensorIndex.from_disk(self.local_path(cache_dir))
 
     def lazy_loader(
         self, cache_dir: Optional[str] = None, lazy_unpickle: bool = True
