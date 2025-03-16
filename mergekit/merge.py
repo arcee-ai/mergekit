@@ -36,7 +36,7 @@ def run_merge(
     if options.random_seed is not None:
         transformers.trainer_utils.set_seed(options.random_seed)
 
-    if not merge_config.models and not merge_config.slices:
+    if not merge_config.models and not merge_config.slices and not merge_config.modules:
         raise RuntimeError("No output requested")
 
     arch_info = get_architecture_info(merge_config, options)
