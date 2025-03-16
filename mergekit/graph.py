@@ -305,5 +305,6 @@ class Executor:
                 continue
             for _, dep in child.arguments().items():
                 task_dependencies[child].add(dep)
-                to_process.append(dep)
+                if dep not in task_dependencies:
+                    to_process.append(dep)
         return task_dependencies

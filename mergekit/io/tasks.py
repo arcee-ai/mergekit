@@ -179,6 +179,7 @@ class SaveTensor(Task[None]):
     clone: bool
     optional: bool = False
     dtype: Optional[str] = None
+    force_main_thread: bool = False
 
     def arguments(self) -> Dict[str, Task]:
         return {"writer": self.writer_task, "tensor": self.tensor_task}
@@ -188,6 +189,9 @@ class SaveTensor(Task[None]):
 
     def group_label(self) -> Optional[str]:
         return self.tensor_task.group_label()
+
+    def main_thread_only(self):
+        return self.force_main_thread
 
     def execute(self, writer: TensorWriter, tensor: Optional[torch.Tensor]) -> None:
         if tensor is None:
