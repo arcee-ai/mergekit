@@ -76,7 +76,7 @@ def run_merge(
         )
     else:
         exec = Executor(
-            tasks=targets,
+            targets=targets,
             math_device="cuda" if options.cuda else "cpu",
             storage_device="cuda" if options.low_cpu_memory else "cpu",
         )

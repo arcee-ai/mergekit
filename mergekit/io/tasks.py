@@ -7,6 +7,7 @@ import threading
 from typing import Dict, Optional, Tuple
 
 import torch
+from typing_extensions import override
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
@@ -115,6 +116,35 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
         #     return _normalized_shard_name(shard_path)
         # return None
         return name
+
+    @override
+    def __hash__(self):
+        return hash(
+            (
+                "LoadTensor",
+                self.model,
+                self.tensor,
+                self.dtype,
+                self.device,
+                self.optional,
+                self.aliases,
+                self.tied_names,
+            )
+        )
+
+    @override
+    def __eq__(self, other):
+        if not isinstance(other, LoadTensor):
+            return False
+        return (
+            self.model == other.model
+            and self.tensor == other.tensor
+            and self.dtype == other.dtype
+            and self.device == other.device
+            and self.optional == other.optional
+            and self.aliases == other.aliases
+            and self.tied_names == other.tied_names
+        )
 
 
 class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):

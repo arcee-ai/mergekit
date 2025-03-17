@@ -1,8 +1,9 @@
 import enum
 import logging
-from typing import List, Tuple, Dict, Union, Generator
-from typing_extensions import TypeAlias
+from typing import Dict, Generator, List, Tuple, Union
+
 import transformers
+from typing_extensions import TypeAlias
 
 LOG = logging.getLogger(__name__)
 

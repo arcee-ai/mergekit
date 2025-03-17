@@ -21,7 +21,13 @@ import networkx as nx
 import torch
 import tqdm
 
-from .graph import Executor, Task
+from .graph import (
+    Executor,
+    Task,
+    TaskHandle,
+    TaskUniverse,
+    build_schedule,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,43 +56,41 @@ class MultiGPUExecutor:
             num_gpus: Number of GPUs to utilize (None = all available)
             storage_device: Device for storing tensors between stages
         """
-        self.results: Dict[Task, Any] = {}
-        self.targets = set(tasks)
+        self.results: Dict[TaskHandle, Any] = {}
         self.storage_device = storage_device
 
         if num_gpus is None:
             num_gpus = torch.cuda.device_count()
 
-        # Create temp executor to get full schedule
-        temp_exec = Executor(tasks)
-        ordered_tasks = temp_exec._make_schedule(tasks)
-        self.dependencies = temp_exec.dependencies
-        self.total_tasks = len(ordered_tasks)
+        self.universe = TaskUniverse(tasks)
+        self.targets = set([self.universe.get_handle(t) for t in tasks])
+        preliminary_schedule = build_schedule(list(self.targets), {})
+        ordered_handles = preliminary_schedule.tasks
 
-        leading_tasks = self._find_leading_tasks(ordered_tasks)
-        trailing_tasks = self._find_trailing_tasks(ordered_tasks)
-        self.trailing_main_tasks = [t for t in ordered_tasks if t in trailing_tasks]
-        self.leading_main_tasks = [t for t in ordered_tasks if t in leading_tasks]
+        leading_tasks = self._find_leading_tasks(ordered_handles)
+        trailing_tasks = self._find_trailing_tasks(ordered_handles)
+        self.trailing_main_handles = [t for t in ordered_handles if t in trailing_tasks]
+        self.leading_main_handles = [t for t in ordered_handles if t in leading_tasks]
 
-        self.trailing_dependencies = set()
-        for task in self.trailing_main_tasks:
-            self.trailing_dependencies.update(self.dependencies[task])
+        self.trailing_dependencies: Set[TaskHandle] = set()
+        for task_handle in self.trailing_main_handles:
+            self.trailing_dependencies.update(task_handle.arguments().values())
 
-        parallel_tasks = [
+        parallel_handles = [
             t
-            for t in ordered_tasks
+            for t in ordered_handles
             if (t not in trailing_tasks and t not in leading_tasks)
         ]
         logger.info(
-            f"Task breakdown: {len(self.leading_main_tasks)} leading, "
-            f"{len(parallel_tasks)} parallel, "
-            f"{len(self.trailing_main_tasks)} trailing"
+            f"Task breakdown: {len(self.leading_main_handles)} leading, "
+            f"{len(parallel_handles)} parallel, "
+            f"{len(self.trailing_main_handles)} trailing"
         )
-        if any(t.main_thread_only() for t in parallel_tasks):
+        if any(t.task().main_thread_only() for t in parallel_handles):
             raise RuntimeError(
                 "Main-thread-only tasks must be either leading or trailing"
             )
-        self.gpu_assignments = self._assign_islands_to_gpus(parallel_tasks, num_gpus)
+        self.gpu_assignments = self._assign_islands_to_gpus(parallel_handles, num_gpus)
 
         self.task_completion_queue = queue.Queue()
         self.done_event = threading.Event()
@@ -99,25 +103,25 @@ class MultiGPUExecutor:
             Iterator[Tuple[Task, Any]]: Task and result pairs
         """
         with tqdm.tqdm(
-            total=self.total_tasks, disable=quiet, desc="Executing graph"
+            total=len(self.universe.tasks), disable=quiet, desc="Executing graph"
         ) as pbar:
-            if self.leading_main_tasks:
+            if self.leading_main_handles:
                 exec = Executor(
-                    self.leading_main_tasks,
+                    self.leading_main_handles,
                     math_device=self.storage_device or torch.device("cpu"),
                     storage_device=self.storage_device or torch.device("cpu"),
                 )
-                for task, result in exec.run(quiet=True):
+                for task_handle, result in exec._run(quiet=True):
                     pbar.update()
-                    self.results[task] = result
-
-                logger.debug("Leading tasks complete, beginning parallel execution")
+                    self.results[task_handle] = result
 
             def update_progress():
                 while not self.done_event.is_set():
                     try:
-                        task, result = self.task_completion_queue.get(timeout=0.1)
-                        self.results[task] = result
+                        task_handle, result = self.task_completion_queue.get(
+                            timeout=0.1
+                        )
+                        self.results[task_handle] = result
                         pbar.update()
                     except queue.Empty:
                         continue
@@ -128,11 +132,11 @@ class MultiGPUExecutor:
             # Run parallel tasks
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 futures = []
-                for device, island_tasks in self.gpu_assignments.items():
+                for device, island_task_handles in self.gpu_assignments.items():
                     futures.append(
                         executor.submit(
                             self._device_worker,
-                            task_list=island_tasks,
+                            task_list=island_task_handles,
                             cached_values=dict(self.results),
                             device=device,
                             quiet=True,
@@ -148,32 +152,30 @@ class MultiGPUExecutor:
             self.done_event.set()
             progress_thread.join()
 
-            logger.debug("Parallel tasks complete")
-
             # Run main thread tasks
-            if self.trailing_main_tasks:
+            if self.trailing_main_handles:
                 exec = Executor(
-                    self.trailing_main_tasks,
+                    self.trailing_main_handles,
                     math_device=self.storage_device or torch.device("cpu"),
                     storage_device=self.storage_device or torch.device("cpu"),
                     cached_values=dict(self.results),
                 )
-                for task, result in exec.run(quiet=True):
+                for task_handle, result in exec._run(quiet=True):
                     pbar.update()
-                    if task in self.targets:
-                        self.results[task] = result
+                    if task_handle in self.targets:
+                        self.results[task_handle] = result
 
         # Yield final results
-        for task, result in self.results.items():
-            if task in self.targets:
-                yield task, result
+        for task_handle, result in self.results.items():
+            if task_handle in self.targets:
+                yield task_handle.task(), result
 
     def execute(self) -> None:
         """Execute all tasks and discard results"""
         for _ in self.run(quiet=False):
             pass
 
-    def _find_trailing_tasks(self, tasks: List[Task]) -> Set[Task]:
+    def _find_trailing_tasks(self, tasks: List[TaskHandle]) -> Set[TaskHandle]:
         """
         Identify tasks that must execute AFTER parallel GPU tasks complete.
 
@@ -182,22 +184,25 @@ class MultiGPUExecutor:
         - Not have non-trailing dependants
         """
         dependants = defaultdict(set)
-        for task, deps in self.dependencies.items():
-            for dep in deps:
-                dependants[dep].add(task)
+        for task_idx, arg_indices in self.universe.task_arguments.items():
+            for dep_idx in arg_indices.values():
+                dependants[TaskHandle(self.universe, dep_idx)].add(
+                    TaskHandle(self.universe, task_idx)
+                )
 
         trailing_tasks = set()
         to_explore = set([t for t in tasks if not dependants[t]])
         while to_explore:
-            task = to_explore.pop()
+            task_handle = to_explore.pop()
+            task = task_handle.task()
             if not task.main_thread_only():
                 continue
-            if all(d in trailing_tasks for d in dependants[task]):
-                trailing_tasks.add(task)
-                to_explore.update(self.dependencies[task])
+            if all(d in trailing_tasks for d in dependants[task_handle]):
+                trailing_tasks.add(task_handle)
+                to_explore.update(task_handle.arguments().values())
         return trailing_tasks
 
-    def _find_leading_tasks(self, tasks: List[Task]) -> Set[Task]:
+    def _find_leading_tasks(self, tasks: List[TaskHandle]) -> Set[TaskHandle]:
         """Identify tasks that must execute BEFORE parallel GPU tasks.
 
         Leading tasks must:
@@ -205,19 +210,19 @@ class MultiGPUExecutor:
         - Not have non-leading dependencies
         """
         leading_tasks = set()
-        for task in tasks:
+        for task_handle in tasks:
+            task = task_handle.task()
             if not task.main_thread_only():
                 continue
-            if self.dependencies[task] and any(
-                dep not in leading_tasks for dep in self.dependencies[task]
-            ):
+            args = task_handle.arguments()
+            if args and any(dep not in leading_tasks for dep in args.values()):
                 continue
-            leading_tasks.add(task)
+            leading_tasks.add(task_handle)
         return leading_tasks
 
     def _assign_islands_to_gpus(
-        self, tasks: List[Task], num_gpus: int
-    ) -> Dict[torch.device, List[Task]]:
+        self, tasks: List[TaskHandle], num_gpus: int
+    ) -> Dict[torch.device, List[TaskHandle]]:
         """
         Assign task islands to GPUs.
 
@@ -230,14 +235,14 @@ class MultiGPUExecutor:
         island_graph.add_nodes_from(tasks)
 
         # Add edges only between parallel tasks
-        for task in tasks:
-            for dep in self.dependencies[task]:
-                if dep in tasks:
-                    island_graph.add_edge(dep, task)
+        for task_handle in tasks:
+            for dep_handle in task_handle.arguments().values():
+                if dep_handle in tasks:
+                    island_graph.add_edge(dep_handle, task_handle)
 
         islands = list(nx.weakly_connected_components(island_graph))
         logger.info(f"Found {len(islands)} islands in parallel task graph")
-        assignments: Dict[torch.device, List[Task]] = {}
+        assignments: Dict[torch.device, List[int]] = {}
         for island in islands:
             # Borrow orderings from original task list
             island_tasks = [t for t in tasks if t in island]
@@ -252,8 +257,8 @@ class MultiGPUExecutor:
 
     def _device_worker(
         self,
-        task_list: List[Task],
-        cached_values: Dict[Task, Any],
+        task_list: List[TaskHandle],
+        cached_values: Dict[TaskHandle, Any],
         device: torch.device,
         quiet: bool,
     ):
@@ -269,15 +274,18 @@ class MultiGPUExecutor:
         stream = torch.cuda.Stream(device=device)
         with torch.cuda.stream(stream):
             exec = Executor(
-                tasks=task_list,
+                targets=task_list,
                 math_device=device,
                 storage_device=self.storage_device or device,
                 cached_values=cached_values,
             )
             count = 0
-            for task, result in exec.run(quiet=quiet):
+            for task_handle, result in exec._run(quiet=quiet):
                 count += 1
-                if not (task in self.targets or task in self.trailing_dependencies):
+                if not (
+                    task_handle in self.targets
+                    or task_handle in self.trailing_dependencies
+                ):
                     result = None
-                self.task_completion_queue.put((task, result))
+                self.task_completion_queue.put((task_handle, result))
         torch.cuda.synchronize(device=device)
