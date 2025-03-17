@@ -1,21 +1,24 @@
 # Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: BUSL-1.1
 
-from typing import Dict, List, Optional
+import logging
+from typing import Any, Dict, List, Optional
 
 import torch
 import torch.nn.functional as F
 from typing_extensions import override
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ModelReference
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Task
 from mergekit.merge_methods.base import (
     ConfigParameterDef,
     MergeMethod,
     MergeTensorInput,
 )
+from mergekit.merge_methods.generalized_task_arithmetic import get_task_vectors
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
+from mergekit.sparsify import RescaleNorm, rescaled_masked_tensor
 
 
 class DynamicThresholdFusion:
@@ -61,6 +64,11 @@ class ArceeFusionMergeTask(Task[torch.Tensor]):
     gather_tensors: MergeTensorInput
     base_model: ModelReference
     weight_info: WeightInfo
+    tensor_parameters: ImmutableMap[ModelReference, Any]
+    normalize: bool
+    ablations_kl_only: bool
+    ablations_diff_only: bool
+    ablations_randomise: bool
 
     def uses_accelerator(self) -> bool:
         return True
@@ -71,40 +79,92 @@ class ArceeFusionMergeTask(Task[torch.Tensor]):
     def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
         if len(tensors) == 1:
             return list(tensors.values())[0]
-        elif len(tensors) != 2:
-            raise RuntimeError("ArceeFusion merge expects exactly two models")
         elif self.base_model not in tensors:
             raise RuntimeError("Base model not in input tensors")
 
-        [a, b] = list(tensors.items())
-        if a[0] != self.base_model:
-            [a, b] = [b, a]
-        prepped_tensors = [a[1], b[1]]
+        rectify_embed_sizes(self.weight_info, list(tensors.values()))
 
-        rectify_embed_sizes(self.weight_info, prepped_tensors)
-
-        importance_scores = self._compute_importance(
-            prepped_tensors[1], prepped_tensors[0]
-        )
-        dynamic_threshold_fusion = DynamicThresholdFusion()
-        fusion_mask, _threshold = dynamic_threshold_fusion.compute_fusion_mask(
-            importance_scores
+        # Get base model and task vectors
+        base = tensors[self.base_model]
+        task_vectors, base = get_task_vectors(
+            self.weight_info, self.base_model, tensors, self.tensor_parameters
         )
 
-        delta = prepped_tensors[1] - prepped_tensors[0]
-        masked_delta = delta * fusion_mask
-        fused = prepped_tensors[0] + masked_delta
+        fusion_task_vectors = []
+        weights = []
+        for task_vector in task_vectors:
+            delta = task_vector["delta"]
+            weights.append(task_vector["weight"])
 
-        return fused
+            importance_scores = self._compute_importance(
+                delta,
+                base,
+                self.ablations_kl_only,
+                self.ablations_diff_only,
+                self.ablations_randomise,
+            )
+
+            dynamic_threshold_fusion = DynamicThresholdFusion()
+            fusion_mask, _threshold = dynamic_threshold_fusion.compute_fusion_mask(
+                importance_scores
+            )
+
+            rescaled_masked_delta = rescaled_masked_tensor(
+                delta,
+                fusion_mask,
+                RescaleNorm.l1 if self.rescale else None,
+            )
+
+            fusion_task_vectors.append(rescaled_masked_delta)
+
+        if not fusion_task_vectors:
+            return base
+
+        # Stack and weight the task vectors
+        deltas = torch.stack(fusion_task_vectors, dim=0)
+        weights = torch.tensor(weights, dtype=deltas.dtype, device=deltas.device)
+        while len(deltas.shape) > len(weights.shape):
+            weights.unsqueeze_(-1)
+
+        weighted_deltas = deltas * weights
+
+        # Sum the weighted deltas and normalize
+        mixed_delta = weighted_deltas.sum(dim=0)
+        if self.normalize:
+            divisor = weights.sum(dim=0)
+            divisor[divisor.abs() < 1e-8] = 1
+            mixed_delta /= divisor
+
+        return (base + mixed_delta).to(base.dtype)
 
     def _compute_importance(
-        self, params: torch.Tensor, base_params: torch.Tensor, eps: float = 1e-8
+        self,
+        params: torch.Tensor,
+        base_params: torch.Tensor,
+        kl_only: bool,
+        diff_only: bool,
+        randomise: bool,
+        eps: float = 1e-8,
     ) -> torch.Tensor:
         diff = (params - base_params).abs()
+        if randomise:
+            return torch.rand_like(diff)
+
+        if diff_only:
+            return diff
+
         p = F.softmax(params, dim=-1) + eps
         q = F.softmax(base_params, dim=-1) + eps
         kl_div = torch.sum(p * torch.log(p / q), dim=-1)
-        return diff * kl_div.unsqueeze(-1)
+        kl_div = kl_div.unsqueeze(-1)
+
+        if kl_only:
+            return kl_div
+
+        return diff * kl_div
+
+    def group_label(self) -> Optional[str]:
+        return self.gather_tensors.group_label()
 
 
 class ArceeFusionMerge(MergeMethod):
@@ -120,15 +180,41 @@ class ArceeFusionMerge(MergeMethod):
         return "https://arcee.ai"
 
     def parameters(self) -> List[ConfigParameterDef]:
-        return []
+        return [
+            ConfigParameterDef(name="normalize", required=False, default_value=True),
+            ConfigParameterDef(name="rescale", required=False, default_value=True),
+            ConfigParameterDef(
+                name="ablations_kl_only", required=False, default_value=False
+            ),
+            ConfigParameterDef(
+                name="ablations_diff_only", required=False, default_value=False
+            ),
+            ConfigParameterDef(
+                name="ablations_randomise", required=False, default_value=False
+            ),
+        ]
+
+    def tensor_parameters(self) -> List[ConfigParameterDef]:
+        return [
+            ConfigParameterDef(name="weight", required=False, default_value=1.0),
+        ]
 
     def make_task(
         self,
         output_weight: WeightInfo,
         tensors: MergeTensorInput,
         base_model: Optional[ModelReference],
+        parameters: ImmutableMap[str, Any],
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         **kwargs,
     ) -> Task[torch.Tensor]:
         return ArceeFusionMergeTask(
-            gather_tensors=tensors, weight_info=output_weight, base_model=base_model
+            gather_tensors=tensors,
+            weight_info=output_weight,
+            base_model=base_model,
+            tensor_parameters=tensor_parameters,
+            normalize=parameters["normalize"],
+            ablations_kl_only=parameters["ablations_kl_only"],
+            ablations_diff_only=parameters["ablations_diff_only"],
+            ablations_randomise=parameters["ablations_randomise"],
         )
