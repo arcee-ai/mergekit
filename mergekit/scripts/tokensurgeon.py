@@ -4,7 +4,6 @@
 import enum
 import logging
 from typing import Dict, List, Optional, Tuple
-from typing_extensions import override
 
 import click
 import torch
@@ -248,6 +247,9 @@ class MultiIndexedEmbeddingTask(Task[torch.Tensor]):
     def execute(self, embeddings: torch.Tensor):
         return torch.stack([embeddings[i] for i in self.indices], dim=0)
 
+    def main_thread_only(self):
+        return True
+
 
 class ZeroTensorTask(Task[torch.Tensor]):
     shape: Tuple[int, ...]
@@ -273,17 +275,6 @@ class AssembleEmbeddingsTask(Task[torch.Tensor]):
 
     def main_thread_only(self):
         return True
-
-    # this is a dumb hack - override __eq__ and __hash__ because Executor
-    # puts tasks in dicts, and the default pydantic implementations are
-    # slow as hell for this
-    @override
-    def __eq__(self, value):
-        return isinstance(value, AssembleEmbeddingsTask) and self.name == value.name
-
-    @override
-    def __hash__(self):
-        return hash(self.name)
 
 
 class ApproximationMethod(enum.Enum):
