@@ -229,7 +229,7 @@ def build_schedule(
         )
 
     graph = networkx.DiGraph(edge_tups)
-    schedule = [
+    schedule: List[TaskHandle] = [
         node
         for node in networkx.lexicographical_topological_sort(graph, key=_compare_key)
         if (node != dummy_handle) and node not in (cached_values or {})

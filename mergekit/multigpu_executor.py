@@ -131,13 +131,14 @@ class MultiGPUExecutor:
 
             # Run parallel tasks
             with concurrent.futures.ThreadPoolExecutor() as executor:
+                results_snapshot = dict(self.results)
                 futures = []
                 for device, island_task_handles in self.gpu_assignments.items():
                     futures.append(
                         executor.submit(
                             self._device_worker,
                             task_list=island_task_handles,
-                            cached_values=dict(self.results),
+                            cached_values=results_snapshot,
                             device=device,
                             quiet=True,
                         )
@@ -154,6 +155,7 @@ class MultiGPUExecutor:
 
             # Run main thread tasks
             if self.trailing_main_handles:
+                logger.debug("Running trailing tasks on main thread")
                 exec = Executor(
                     self.trailing_main_handles,
                     math_device=self.storage_device or torch.device("cpu"),
