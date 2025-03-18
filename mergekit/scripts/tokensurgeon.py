@@ -94,6 +94,9 @@ class EmbeddingKnnTask(Task[Tuple[torch.Tensor, torch.Tensor]]):
     def uses_accelerator(self):
         return True
 
+    def priority(self):
+        return 10
+
     def execute(self, target: torch.Tensor, common_embeddings: torch.Tensor):
         if self.cosine_similarity:
             distances = 1 - torch.nn.functional.cosine_similarity(
@@ -127,7 +130,9 @@ class BarycentricWeightsTask(Task[torch.Tensor]):
         # Find least squares barycentric weights
         # Constrain sum of weights to 1 by adding a row of 1s
         constraint_row = torch.ones(
-            (1, knn_embeddings.shape[0]), device=target.device
+            (1, knn_embeddings.shape[0]),
+            device=target.device,
+            dtype=knn_embeddings.dtype,
         )  # (1, k)
         knn_e_c = torch.cat([knn_embeddings.T, constraint_row], dim=0)
         e_c = torch.cat(
@@ -139,8 +144,11 @@ class BarycentricWeightsTask(Task[torch.Tensor]):
         # torch.linalg.lstsq doesn't work for rank-deficient matrices on CUDA
         # despite it being explicitly recommended for this use case in the docs
         # so pinv instead
-        weights = torch.linalg.pinv(knn_e_c, rcond=1e-6) @ e_c
-        return weights[:-1]
+        # also upcast to float32 for stability
+        weights = torch.linalg.pinv(knn_e_c.to(torch.float32), rcond=1e-6) @ e_c.to(
+            torch.float32
+        )
+        return weights[:-1].to(target.dtype)
 
 
 class DistanceWeightsTask(Task[torch.Tensor]):
@@ -488,7 +496,10 @@ def plan_embedding(
                 )
                 if options.barycentric:
                     weights_task = BarycentricWeightsTask(
-                        target_tensor=t_donor_embed, knn_task=knn_task
+                        target_tensor=IndexedEmbeddingTask(
+                            embeddings=t_donor_embed, index=idx_out
+                        ),
+                        knn_task=knn_task,
                     )
                 else:
                     weights_task = DistanceWeightsTask(knn_task=knn_task)

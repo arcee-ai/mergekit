@@ -155,7 +155,6 @@ class MultiGPUExecutor:
 
             # Run main thread tasks
             if self.trailing_main_handles:
-                logger.debug("Running trailing tasks on main thread")
                 exec = Executor(
                     self.trailing_main_handles,
                     math_device=self.storage_device or torch.device("cpu"),
