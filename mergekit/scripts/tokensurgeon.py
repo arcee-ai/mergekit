@@ -162,26 +162,26 @@ class DistanceWeightsTask(Task[torch.Tensor]):
 class ReconstructedEmbeddingTask(Task[torch.Tensor]):
     weights_task: Task  # [torch.Tensor]
     knn_task: Task  # [Tuple[torch.Tensor, torch.Tensor]]
-    embeddings_task: Task  # [torch.Tensor]
 
     def arguments(self):
         return {
             "weights": self.weights_task,
             "knn": self.knn_task,
-            "embeddings": self.embeddings_task,
         }
 
     def uses_accelerator(self):
         return True
 
+    def priority(self):
+        return 100
+
     def execute(
         self,
         weights: torch.Tensor,
         knn: Tuple[torch.Tensor, torch.Tensor],
-        embeddings: torch.Tensor,
     ):
-        knn_indices, _ = knn
-        return torch.sum(weights * embeddings[knn_indices], dim=0)
+        _, knn_embeddings = knn
+        return torch.sum(weights.unsqueeze(-1) * knn_embeddings, dim=0)
 
 
 class SubwordEmbeddingSumTask(Task[torch.Tensor]):
@@ -264,6 +264,9 @@ class MultiIndexedEmbeddingTask(Task[torch.Tensor]):
 class ZeroTensorTask(Task[torch.Tensor]):
     shape: Tuple[int, ...]
 
+    def uses_accelerator(self):
+        return True
+
     def execute(self):
         return torch.zeros(self.shape)
 
@@ -282,6 +285,9 @@ class AssembleEmbeddingsTask(Task[torch.Tensor]):
         return torch.stack(
             [embeddings[f"_e_{i}"] for i in range(len(self.embeddings))], dim=0
         )
+
+    def priority(self):
+        return 100
 
     def main_thread_only(self):
         return True
@@ -634,7 +640,7 @@ def plan_surgery(
                     clone=False,
                     optional=weight.optional,
                     dtype=weight.force_dtype,
-                    force_main_thread=False,
+                    force_main_thread=True,
                 )
             )
     finalize = FinalizeModel(
