@@ -29,7 +29,7 @@ from .graph import (
     build_schedule,
 )
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class MultiGPUExecutor:
@@ -61,7 +61,7 @@ class MultiGPUExecutor:
 
         if num_gpus is None:
             num_gpus = torch.cuda.device_count()
-        logger.info(f"Using {num_gpus} GPUs for parallel execution")
+        LOG.info(f"Using {num_gpus} GPUs for parallel execution")
 
         self.universe = TaskUniverse(tasks)
         self.targets = set([self.universe.get_handle(t) for t in tasks])
@@ -82,7 +82,7 @@ class MultiGPUExecutor:
             for t in ordered_handles
             if (t not in trailing_tasks and t not in leading_tasks)
         ]
-        logger.info(
+        LOG.info(
             f"Task breakdown: {len(self.leading_main_handles)} leading, "
             f"{len(parallel_handles)} parallel, "
             f"{len(self.trailing_main_handles)} trailing"
@@ -244,7 +244,7 @@ class MultiGPUExecutor:
         island_graph.add_nodes_from([t._index for t in tasks])
         island_graph.add_edges_from(edge_list)
         islands: List[Set[int]] = list(nx.weakly_connected_components(island_graph))
-        logger.info(f"Found {len(islands)} islands in parallel task graph")
+        LOG.info(f"Found {len(islands)} islands in parallel task graph")
         assignments: Dict[torch.device, List[int]] = {}
         for island in islands:
             if not island:
@@ -295,4 +295,4 @@ class MultiGPUExecutor:
                         result = None
                     self.task_completion_queue.put((task_handle._index, result))
         torch.cuda.synchronize(device=device)
-        logger.debug(f"Device {device} done")
+        LOG.debug(f"Device {device} done")

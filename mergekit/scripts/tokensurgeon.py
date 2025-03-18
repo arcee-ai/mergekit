@@ -33,6 +33,8 @@ from mergekit.tokenizer.normalization import (
     token_prefixes,
 )
 
+LOG = logging.getLogger(__name__)
+
 
 class TokenAssignmentStats(BaseModel):
     exact_match: int = 0
@@ -716,8 +718,8 @@ def main(
     average: bool,
     merge_options: MergeOptions,
 ):
-    # merge_options.apply_global_options()
-    logging.basicConfig(level=logging.DEBUG)
+    merge_options.apply_global_options()
+    logging.warning("This script is experimental and may produce unexpected results.")
     options = TokenSurgeonOptions(
         model=ModelReference.model_validate(model),
         donor=ModelReference.model_validate(donor),
