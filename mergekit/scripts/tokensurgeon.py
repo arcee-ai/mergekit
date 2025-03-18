@@ -274,6 +274,9 @@ class MultiIndexedEmbeddingTask(Task[torch.Tensor]):
 class ZeroTensorTask(Task[torch.Tensor]):
     shape: Tuple[int, ...]
 
+    def arguments(self):
+        return {}
+
     def uses_accelerator(self):
         return True
 
@@ -447,10 +450,6 @@ def plan_embedding(
         tied_names=weight_info.tied_names,
         force_main_thread=True,
     )
-    # e_c_0 = torch.stack(
-    #     [original_embed[original_vocab[token]] for token in common_tokens]
-    # )
-    # e_c_1 = torch.stack([donor_embed[donor_vocab[token]] for token in common_tokens])
     t_e_c_0 = MultiIndexedEmbeddingTask(
         embeddings=t_original_embed,
         indices=tuple(original_vocab[token] for token in common_tokens),
@@ -459,7 +458,7 @@ def plan_embedding(
         embeddings=t_donor_embed,
         indices=tuple(donor_vocab[token] for token in common_tokens),
     )
-    mean_donor_embed_task = EmbeddingMeanTask(embeddings=t_donor_embed)
+    mean_embed_task = EmbeddingMeanTask(embeddings=t_original_embed)
 
     stats = TokenAssignmentStats()
     embedding_tasks = []
@@ -519,7 +518,7 @@ def plan_embedding(
                     average=options.average,
                 )
             elif options.method == ApproximationMethod.MEAN:
-                tok_embedding_task = mean_donor_embed_task
+                tok_embedding_task = mean_embed_task
             elif options.method == ApproximationMethod.ZERO:
                 tok_embedding_task = ZeroTensorTask(shape=(hidden_size,))
             else:
