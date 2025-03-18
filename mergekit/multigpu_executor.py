@@ -61,9 +61,12 @@ class MultiGPUExecutor:
 
         if num_gpus is None:
             num_gpus = torch.cuda.device_count()
+        logger.info(f"Using {num_gpus} GPUs for parallel execution")
 
+        logger.debug(f"Buidling task universe with {len(tasks)} target tasks")
         self.universe = TaskUniverse(tasks)
         self.targets = set([self.universe.get_handle(t) for t in tasks])
+        logger.debug("Building task schedule")
         preliminary_schedule = build_schedule(list(self.targets), {})
         ordered_handles = preliminary_schedule.tasks
 
@@ -230,22 +233,25 @@ class MultiGPUExecutor:
         can execute independently. This method identifies islands in the
         non-trailing, non-leading task graph and assigns them to devices.
         """
+        task_set = set(tasks)
 
-        island_graph = nx.DiGraph()
-        island_graph.add_nodes_from(tasks)
-
+        edge_list = []
         # Add edges only between parallel tasks
         for task_handle in tasks:
             for dep_handle in task_handle.arguments().values():
-                if dep_handle in tasks:
-                    island_graph.add_edge(dep_handle, task_handle)
+                if dep_handle in task_set:
+                    edge_list.append((dep_handle._index, task_handle._index))
 
-        islands = list(nx.weakly_connected_components(island_graph))
+        island_graph = nx.DiGraph()
+        island_graph.add_edges_from(edge_list)
+        islands: List[Set[int]] = list(nx.weakly_connected_components(island_graph))
         logger.info(f"Found {len(islands)} islands in parallel task graph")
         assignments: Dict[torch.device, List[int]] = {}
         for island in islands:
-            # Borrow orderings from original task list
-            island_tasks = [t for t in tasks if t in island]
+            if not island:
+                continue
+            # don't need to sort, inner executor will handle
+            island_tasks = [self.universe.tasks[i] for i in island]
             # assign to GPU with fewest tasks
             device_idx = min(
                 range(num_gpus),

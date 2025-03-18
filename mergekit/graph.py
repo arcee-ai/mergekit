@@ -105,28 +105,36 @@ class TaskUniverse:
     tasks: List[Task]
     task_to_index: Dict[Task, int]
     task_arguments: Dict[int, Dict[str, int]]
+    _type_id_to_index: Dict[Tuple[type, int], int]
 
     def __init__(self, tasks: Optional[Iterable[Task]] = None):
         self.tasks = []
         self.task_to_index = {}
         self.task_arguments = {}
+        self._type_id_to_index = {}
         if tasks is not None:
             for task in tasks:
                 self.add_task(task)
 
     def add_task(self, task: Task, recursive: bool = True) -> "TaskHandle":
-        if task in self.task_to_index:
-            return TaskHandle(self, self.task_to_index[task])
+        _ti_key = (type(task), id(task))
+        if _ti_key in self._type_id_to_index:
+            index = self._type_id_to_index[_ti_key]
+            assert (
+                self.tasks[index] == task
+            ), "Task modified after being added to universe"
+            return TaskHandle(self, index)
 
-        index = len(self.tasks)
+        index = self.task_to_index.setdefault(task, len(self.tasks))
+        if index < len(self.tasks):
+            return TaskHandle(self, index)
         self.tasks.append(task)
-        self.task_to_index[task] = index
+        self._type_id_to_index[_ti_key] = index
 
         if recursive:
             self.task_arguments[index] = {}
             for k, v in task.arguments().items():
                 self.task_arguments[index][k] = self.add_task(v, recursive=True)._index
-
         return TaskHandle(self, index)
 
     def get_handle(self, task: Task) -> Optional["TaskHandle"]:
