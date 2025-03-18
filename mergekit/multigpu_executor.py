@@ -63,10 +63,8 @@ class MultiGPUExecutor:
             num_gpus = torch.cuda.device_count()
         logger.info(f"Using {num_gpus} GPUs for parallel execution")
 
-        logger.debug(f"Buidling task universe with {len(tasks)} target tasks")
         self.universe = TaskUniverse(tasks)
         self.targets = set([self.universe.get_handle(t) for t in tasks])
-        logger.debug("Building task schedule")
         self.serial_schedule = build_schedule(list(self.targets), {})
         ordered_handles = self.serial_schedule.tasks
 
