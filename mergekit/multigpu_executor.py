@@ -67,8 +67,8 @@ class MultiGPUExecutor:
         self.universe = TaskUniverse(tasks)
         self.targets = set([self.universe.get_handle(t) for t in tasks])
         logger.debug("Building task schedule")
-        preliminary_schedule = build_schedule(list(self.targets), {})
-        ordered_handles = preliminary_schedule.tasks
+        self.serial_schedule = build_schedule(list(self.targets), {})
+        ordered_handles = self.serial_schedule.tasks
 
         leading_tasks = self._find_leading_tasks(ordered_handles)
         trailing_tasks = self._find_trailing_tasks(ordered_handles)
@@ -106,7 +106,7 @@ class MultiGPUExecutor:
             Iterator[Tuple[Task, Any]]: Task and result pairs
         """
         with tqdm.tqdm(
-            total=len(self.universe.tasks), disable=quiet, desc="Executing graph"
+            total=len(self.serial_schedule.tasks), disable=quiet, desc="Executing graph"
         ) as pbar:
             if self.leading_main_handles:
                 exec = Executor(
@@ -121,9 +121,8 @@ class MultiGPUExecutor:
             def update_progress():
                 while not self.done_event.is_set():
                     try:
-                        task_handle, result = self.task_completion_queue.get(
-                            timeout=0.1
-                        )
+                        task_idx, result = self.task_completion_queue.get(timeout=0.1)
+                        task_handle = TaskHandle(self.universe, task_idx)
                         self.results[task_handle] = result
                         pbar.update()
                     except queue.Empty:
@@ -243,6 +242,7 @@ class MultiGPUExecutor:
                     edge_list.append((dep_handle._index, task_handle._index))
 
         island_graph = nx.DiGraph()
+        island_graph.add_nodes_from([t._index for t in tasks])
         island_graph.add_edges_from(edge_list)
         islands: List[Set[int]] = list(nx.weakly_connected_components(island_graph))
         logger.info(f"Found {len(islands)} islands in parallel task graph")
@@ -277,21 +277,23 @@ class MultiGPUExecutor:
             device: Device to execute tasks on
             quiet: Suppress progress bar output
         """
-        stream = torch.cuda.Stream(device=device)
-        with torch.cuda.stream(stream):
-            exec = Executor(
-                targets=task_list,
-                math_device=device,
-                storage_device=self.storage_device or device,
-                cached_values=cached_values,
-            )
-            count = 0
-            for task_handle, result in exec._run(quiet=quiet):
-                count += 1
-                if not (
-                    task_handle in self.targets
-                    or task_handle in self.trailing_dependencies
-                ):
-                    result = None
-                self.task_completion_queue.put((task_handle, result))
+        with torch.device(device):
+            stream = torch.cuda.Stream(device=device)
+            with torch.cuda.stream(stream):
+                exec = Executor(
+                    targets=task_list,
+                    math_device=device,
+                    storage_device=self.storage_device or device,
+                    cached_values=cached_values,
+                )
+                count = 0
+                for task_handle, result in exec._run(quiet=quiet):
+                    count += 1
+                    if not (
+                        task_handle in self.targets
+                        or task_handle in self.trailing_dependencies
+                    ):
+                        result = None
+                    self.task_completion_queue.put((task_handle._index, result))
         torch.cuda.synchronize(device=device)
+        logger.debug(f"Device {device} done")
