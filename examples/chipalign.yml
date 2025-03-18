@@ -1,0 +1,19 @@
+# ChipAlign merge example
+# Merge an instruction-aligned model with a domain-specific chip model
+# Based on https://arxiv.org/abs/2412.19819
+
+models:
+  - model: instruction_model_path  # Path to instruction-aligned model
+  - model: chip_model_path  # Path to chip-specific model
+
+merge_method: nuslerp
+parameters:
+  geodesic: true
+  lambda: 0.5  # Interpolation factor between the two models (0.0 = instruction model, 1.0 = chip model)
+  nuslerp_flatten: true  # Treat tensors as flattened vectors for geodesic interpolation
+
+# Optionally configure tokenizer
+tokenizer:
+  source: "union"  # Combine vocabularies from both models
+
+dtype: bfloat16  # Output precision
