@@ -250,6 +250,16 @@ class MultiIndexedEmbeddingTask(Task[torch.Tensor]):
     def main_thread_only(self):
         return True
 
+    def __hash__(self):
+        # fun fact: hashing a tuple of 100k ints is very very slow
+        # so just hash the embeddings task and let __eq__ sort it out
+        return hash(("MultiIndexedEmbeddingTask", self.embeddings))
+
+    def __eq__(self, other):
+        if not isinstance(other, MultiIndexedEmbeddingTask):
+            return False
+        return self.indices == other.indices and self.embeddings == other.embeddings
+
 
 class ZeroTensorTask(Task[torch.Tensor]):
     shape: Tuple[int, ...]
@@ -275,6 +285,14 @@ class AssembleEmbeddingsTask(Task[torch.Tensor]):
 
     def main_thread_only(self):
         return True
+
+    def __hash__(self):
+        return hash(("AssembleEmbeddingsTask", self.name))
+
+    def __eq__(self, other):
+        if not isinstance(other, AssembleEmbeddingsTask):
+            return False
+        return self.name == other.name and self.embeddings == other.embeddings
 
 
 class ApproximationMethod(enum.Enum):
@@ -403,6 +421,7 @@ def plan_embedding(
         optional=weight_info.optional,
         aliases=weight_info.aliases,
         tied_names=weight_info.tied_names,
+        force_main_thread=True,
     )
     t_donor_embed = LoadTensor(
         model=options.donor,
@@ -410,6 +429,7 @@ def plan_embedding(
         optional=weight_info.optional,
         aliases=weight_info.aliases,
         tied_names=weight_info.tied_names,
+        force_main_thread=True,
     )
     # e_c_0 = torch.stack(
     #     [original_embed[original_vocab[token]] for token in common_tokens]
