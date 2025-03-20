@@ -90,3 +90,13 @@ filterwarnings = [
     "ignore:No architecture config available:UserWarning",
 ]
 testpaths = ["tests"]
+
+[dependency-groups]
+test = [
+    "pytest~=8.3.5",
+]
+dev = [
+    "black~=24.10.0",
+    "isort~=5.13.2",
+    "pre-commit~=4.1.0",
+]

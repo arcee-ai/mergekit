@@ -76,6 +76,7 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
     optional: bool = False
     aliases: Optional[Tuple[str, ...]] = None
     tied_names: Optional[Tuple[str, ...]] = None
+    per_gpu: bool = False
 
     def arguments(self) -> Dict[str, Task]:
         return {}
@@ -115,6 +116,9 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
         #     return _normalized_shard_name(shard_path)
         # return None
         return name
+
+    def duplicate_per_gpu(self):
+        return self.per_gpu
 
 
 class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
@@ -168,6 +172,9 @@ class TensorWriterTask(Task[TensorWriter]):
             override_basename=self.override_basename,
         )
 
+    def priority(self):
+        return 10000
+
     def main_thread_only(self):
         return True
 
@@ -179,6 +186,7 @@ class SaveTensor(Task[None]):
     clone: bool
     optional: bool = False
     dtype: Optional[str] = None
+    force_main_thread: bool = False
 
     def arguments(self) -> Dict[str, Task]:
         return {"writer": self.writer_task, "tensor": self.tensor_task}
@@ -188,6 +196,9 @@ class SaveTensor(Task[None]):
 
     def group_label(self) -> Optional[str]:
         return self.tensor_task.group_label()
+
+    def main_thread_only(self):
+        return self.force_main_thread
 
     def execute(self, writer: TensorWriter, tensor: Optional[torch.Tensor]) -> None:
         if tensor is None:

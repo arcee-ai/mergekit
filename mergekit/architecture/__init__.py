@@ -22,7 +22,7 @@ from mergekit.options import MergeOptions
 if TYPE_CHECKING:
     from mergekit.config import MergeConfiguration
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture]:
@@ -44,11 +44,11 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
         for c in candidates:
             if c.expected_model_type == config.model_type:
                 return c
-        logger.warning(
+        LOG.warning(
             f"Multiple architectures for {arch_name}, none match model type {config.model_type}"
         )
 
-    logger.warning(f"No JSON architecture found for {arch_name}")
+    LOG.warning(f"No JSON architecture found for {arch_name}")
     return None
 
 

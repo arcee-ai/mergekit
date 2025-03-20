@@ -24,7 +24,7 @@ from mergekit.options import MergeOptions
 from mergekit.plan import MergePlanner
 from mergekit.tokenizer import TokenizerInfo
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def run_merge(
@@ -61,7 +61,7 @@ def run_merge(
         loader_cache.get(model)
     del pbar
 
-    logger.info("Planning operations")
+    LOG.info("Planning operations")
     targets = MergePlanner(
         merge_config,
         arch_info,
@@ -71,12 +71,12 @@ def run_merge(
 
     if options.multi_gpu:
         exec = MultiGPUExecutor(
-            tasks=targets,
+            targets=targets,
             storage_device=None if options.low_cpu_memory else "cpu",
         )
     else:
         exec = Executor(
-            tasks=targets,
+            targets=targets,
             math_device="cuda" if options.cuda else "cpu",
             storage_device="cuda" if options.low_cpu_memory else "cpu",
         )
@@ -94,7 +94,7 @@ def run_merge(
             cfg_out, arch_info, tokenizer, pad_to_multiple_of=pad_to_multiple_of
         )
 
-    logger.info("Saving config")
+    LOG.info("Saving config")
     cfg_out.save_pretrained(out_path)
 
     if options.write_model_card:
@@ -115,7 +115,7 @@ def run_merge(
             fp.write(config_source)
 
     if tokenizer is not None:
-        logger.info("Saving tokenizer")
+        LOG.info("Saving tokenizer")
         _set_chat_template(tokenizer, merge_config)
         tokenizer.save_pretrained(out_path, safe_serialization=True)
     else:
@@ -125,12 +125,12 @@ def run_merge(
                     merge_config, out_path, trust_remote_code=options.trust_remote_code
                 )
             except Exception as e:
-                logger.error(
+                LOG.error(
                     "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
                     exc_info=e,
                 )
         elif merge_config.chat_template:
-            logger.warning(
+            LOG.warning(
                 "Chat template specified but no tokenizer found. Chat template will not be saved."
             )
 
@@ -179,13 +179,13 @@ def _set_chat_template(
                 if template:
                     model_templates.append(template.strip())
             except Exception as e:
-                logger.warning(f"Unable to load tokenizer for {model}", exc_info=e)
+                LOG.warning(f"Unable to load tokenizer for {model}", exc_info=e)
 
         if not model_templates:
             return
 
         chat_template = Counter(model_templates).most_common(1)[0][0]
-        logger.info(f"Auto-selected chat template: {chat_template}")
+        LOG.info(f"Auto-selected chat template: {chat_template}")
 
     elif importlib.resources.is_resource(chat_templates, chat_template + ".jinja"):
         with importlib.resources.open_text(
@@ -210,7 +210,7 @@ def _copy_tagalong_files(
     for file_name in files:
         fp = os.path.join(donor_local_path, file_name)
         if os.path.exists(fp):
-            logger.info(f"Copying {file_name} from {donor_model}")
+            LOG.info(f"Copying {file_name} from {donor_model}")
             shutil.copy(
                 fp,
                 os.path.join(out_path, file_name),
@@ -233,7 +233,7 @@ def _copy_tokenizer(
             or os.path.exists(os.path.join(donor_local_path, "tokenizer.model"))
         )
     ):
-        logger.info(f"Copying tokenizer from {donor_model}")
+        LOG.info(f"Copying tokenizer from {donor_model}")
 
         for file_name in [
             "tokenizer_config.json",
@@ -252,7 +252,7 @@ def _copy_tokenizer(
         return
 
     # fallback: try actually loading the tokenizer and saving it
-    logger.info(f"Reserializing tokenizer from {donor_model}")
+    LOG.info(f"Reserializing tokenizer from {donor_model}")
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         donor_model.model.path,
         revision=donor_model.model.revision,
@@ -299,7 +299,7 @@ def _model_out_config(
     if module_layers:
         for module_name in module_layers:
             if module_name not in arch_info.modules:
-                logger.warning(
+                LOG.warning(
                     f"Module {module_name} in config but not in architecture info"
                 )
                 continue
@@ -307,7 +307,7 @@ def _model_out_config(
             cfg_key = module_info.architecture.num_layers_config_key()
             if not cfg_key:
                 if module_layers[module_name] > 0:
-                    logger.warning(
+                    LOG.warning(
                         f"Module {module_name} has no configuration key for number of layers, "
                         "but the number of layers is not zero."
                     )
@@ -315,7 +315,7 @@ def _model_out_config(
             try:
                 set_config_value(res, cfg_key, module_layers[module_name])
             except Exception as e:
-                logger.warning(
+                LOG.warning(
                     f"Unable to set number of layers for module {module_name} in output config "
                     "- you may need to manually correct it.",
                     exc_info=e,
@@ -338,7 +338,7 @@ def _update_config_vocab(
             config, arch_info.vocab_size_config_key or "vocab_size", vocab_size
         )
     except Exception as e:
-        logger.warning(
+        LOG.warning(
             "Unable to set vocabulary size in output config - you may need to manually correct it.",
             exc_info=e,
         )
