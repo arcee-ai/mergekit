@@ -10,7 +10,7 @@ from typing import Dict, Optional
 import safetensors
 import torch
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class TensorWriter:
@@ -65,7 +65,7 @@ class TensorWriter:
         if not self.current_shard:
             return
 
-        logger.info(f"Writing shard #{self.shards_written+1} to disk")
+        LOG.info(f"Writing shard #{self.shards_written+1} to disk")
 
         prefix, extension = self._get_name_components()
         shard_name = f"{prefix}-{self.shards_written+1}.{extension}"
@@ -87,7 +87,7 @@ class TensorWriter:
         with self.lock:
             self._flush_current_shard()
 
-            logger.info("Finalizing shard names")
+            LOG.info("Finalizing shard names")
 
             prefix, extension = self._get_name_components()
 
@@ -154,7 +154,7 @@ class TensorWriter:
                 and isinstance(e.args[0], str)
                 and "share memory" in e.args[0]
             ):
-                logger.warning(
+                LOG.warning(
                     "Your model has duplicated tensors but the --clone-tensors "
                     "flag is not set."
                 )

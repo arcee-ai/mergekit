@@ -30,7 +30,7 @@ class MergeOptions(BaseModel, frozen=True):
     lazy_unpickle: bool = False
     write_model_card: bool = True
     safe_serialization: bool = True
-    verbose: bool = False
+    verbosity: int = 0
     quiet: bool = False
     read_to_gpu: bool = False
     multi_gpu: bool = False
@@ -38,7 +38,15 @@ class MergeOptions(BaseModel, frozen=True):
     gpu_rich: bool = False
 
     def apply_global_options(self):
-        logging.basicConfig(level=logging.INFO if self.verbose else logging.WARNING)
+        if self.verbosity > 1:
+            log_level = logging.DEBUG
+        elif self.verbosity == 1:
+            log_level = logging.INFO
+        else:
+            log_level = logging.WARNING
+        logging.basicConfig(level=log_level)
+        if self.verbosity > 5:
+            logging.debug("whoah buddy that's a lot of verbosity, two is plenty")
         if self.random_seed is not None:
             transformers.trainer_utils.set_seed(self.random_seed)
         if self.num_threads is not None:
@@ -74,7 +82,7 @@ OPTION_HELP = {
     "read_to_gpu": "Read model weights directly to GPU",
     "multi_gpu": "Use multi-gpu parallel graph execution engine",
     "num_threads": "Number of threads to use for parallel CPU operations",
-    "verbose": "Enable verbose logging",
+    "verbosity": "Verbose logging (repeat for more verbosity)",
     "gpu_rich": "Alias for --cuda --low-cpu-memory --read-to-gpu --multi-gpu",
 }
 
@@ -96,7 +104,7 @@ OPTION_CATEGORIES = {
     "trust_remote_code": "Dangerous Options",
     "allow_crimes": "Dangerous Options",
     "random_seed": "Miscellaneous",
-    "verbose": "Miscellaneous",
+    "verbosity": "Miscellaneous",
     "quiet": "Miscellaneous",
     "lora_merge_dtype": "Miscellaneous",
 }
@@ -141,8 +149,9 @@ def add_merge_options(f: Callable) -> Callable:
             arg_str = f"--{arg_name}"
         param_decls = [arg_str]
         kwargs = {}
-        if field_name == "verbose":
-            param_decls = ["--verbose/--no-verbose", "-v"]
+        if field_name == "verbosity":
+            param_decls = ["-v", "verbosity"]
+            kwargs["count"] = True
         if field_name == "num_threads":
             param_decls = ["--num-threads", "-j"]
         if field_name == "gpu_rich":
@@ -155,7 +164,7 @@ def add_merge_options(f: Callable) -> Callable:
             type=field_type,
             default=info.default,
             help=help_str,
-            show_default=field_name != "out_shard_size",
+            show_default=field_name not in ("out_shard_size", "verbosity"),
             **kwargs,
         )(wrapper)
 
