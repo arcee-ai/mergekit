@@ -187,11 +187,12 @@ def _set_chat_template(
         chat_template = Counter(model_templates).most_common(1)[0][0]
         LOG.info(f"Auto-selected chat template: {chat_template}")
 
-    elif importlib.resources.is_resource(chat_templates, chat_template + ".jinja"):
-        with importlib.resources.open_text(
-            chat_templates, chat_template + ".jinja"
-        ) as fp:
-            chat_template = fp.read()
+    elif (
+        t := importlib.resources.files(chat_templates).joinpath(
+            chat_template + ".jinja"
+        )
+    ).is_file():
+        chat_template = t.read_text()
 
     elif len(chat_template) < 20 or "{" not in chat_template:
         raise RuntimeError(f"Invalid chat template: {chat_template}")
