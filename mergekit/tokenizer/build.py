@@ -17,7 +17,7 @@ from mergekit.architecture import arch_info_for_config
 from mergekit.common import ModelPath, ModelReference, get_config_value
 from mergekit.graph import Task
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def get_vocab_size(model_path: ModelPath, trust_remote_code: bool) -> Optional[int]:
@@ -30,7 +30,7 @@ def get_vocab_size(model_path: ModelPath, trust_remote_code: bool) -> Optional[i
         arch_info = arch_info_for_config(cfg)
         return get_config_value(cfg, arch_info.vocab_size_config_key or "vocab_size")
     except Exception as e:
-        logger.warning(f"Unable to get vocab size for {model_path}", exc_info=e)
+        LOG.warning(f"Unable to get vocab size for {model_path}", exc_info=e)
 
     return None
 
@@ -120,7 +120,7 @@ def build_union_tokenizer(
         vocab = tokenizer.get_vocab()
         for tok, idx in vocab.items():
             if idx >= vocab_size:
-                logger.warning(
+                LOG.warning(
                     f"Token {repr(tok)} present in {str(model)} tokenizer but >= vocab_size"
                 )
                 continue
@@ -138,7 +138,7 @@ def build_union_tokenizer(
 
             if tok in out_added_tokens:
                 if (out_added_tokens[tok] != info) and tok not in warned_added_tokens:
-                    logger.warning(
+                    LOG.warning(
                         f"Token '{tok}' added with multiple different settings, using first"
                     )
                     warned_added_tokens.add(tok)
@@ -190,7 +190,7 @@ def build_tokenizer(
     )
 
     # load all tokenizers
-    logger.info("Loading tokenizers")
+    LOG.info("Loading tokenizers")
     tokenizers = {base_model: tokenizer_base}
     for model in referenced_models:
         if model == base_model:
@@ -203,14 +203,14 @@ def build_tokenizer(
                 trust_remote_code=trust_remote_code,
             )
         except Exception as e:
-            logger.error(e)
-            logger.warning(
+            LOG.error(e)
+            LOG.warning(
                 f"Unable to load tokenizer for {model}. Assuming same as {base_model}."
             )
             continue
         tokenizers[model] = model_tok
 
-    logger.info("Building output tokenizer")
+    LOG.info("Building output tokenizer")
     # build final vocabulary
     if isinstance(tokenizer_source, ModelReference):
         tokenizer_out = transformers.AutoTokenizer.from_pretrained(
@@ -233,7 +233,7 @@ def build_tokenizer(
 
     vocab_out = tokenizer_out.get_vocab()
 
-    logger.info("Building permutations")
+    LOG.info("Building permutations")
     permutations = {}
     for model in (
         pbar := tqdm.tqdm(referenced_models, desc="Building tokenizer permutations")
@@ -256,7 +256,7 @@ def build_tokenizer(
 
             orig_idx = model_vocab[tok]
             if orig_idx >= vocab_size:
-                logger.warning(
+                LOG.warning(
                     f"{model} token {repr(tok)} has index {orig_idx}>{vocab_size-1} (padding?)"
                 )
                 continue
