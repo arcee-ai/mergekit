@@ -81,7 +81,7 @@ class TokenizerCache:
         return self.loaded[model]
 
 
-class EmbeddingKnnTask(Task[Tuple[torch.Tensor, torch.Tensor]]):
+class EmbeddingKnnTask(Task[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
     target_tensor: Task
     common_embedding: Task
     k: int
@@ -110,12 +110,12 @@ class EmbeddingKnnTask(Task[Tuple[torch.Tensor, torch.Tensor]]):
             ).squeeze()
         distances, indices = torch.topk(distances, self.k, largest=False)
         knn_embeddings = common_embeddings[indices]
-        return distances, knn_embeddings
+        return distances, knn_embeddings, indices
 
 
 class BarycentricWeightsTask(Task[torch.Tensor]):
     target_tensor: Task  # [torch.Tensor]
-    knn_task: Task  # [Tuple[torch.Tensor, torch.Tensor]]
+    knn_task: Task  # [Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
 
     def arguments(self):
         return {
@@ -126,8 +126,11 @@ class BarycentricWeightsTask(Task[torch.Tensor]):
     def uses_accelerator(self):
         return True
 
+    def priority(self):
+        return 11
+
     def execute(self, target: torch.Tensor, knn: Tuple[torch.Tensor, torch.Tensor]):
-        distances, knn_embeddings = knn
+        _, knn_embeddings, _ = knn
 
         # Find least squares barycentric weights
         # Constrain sum of weights to 1 by adding a row of 1s
@@ -147,14 +150,20 @@ class BarycentricWeightsTask(Task[torch.Tensor]):
         # despite it being explicitly recommended for this use case in the docs
         # so pinv instead
         # also upcast to float32 for stability
-        weights = torch.linalg.pinv(knn_e_c.to(torch.float32), rcond=1e-6) @ e_c.to(
+        weights = torch.linalg.pinv(knn_e_c.to(torch.float32), rcond=1e-8) @ e_c.to(
             torch.float32
         )
-        return weights[:-1].to(target.dtype)
+        if torch.isnan(weights).any():
+            # try again with slight ridge regression
+            weights = torch.linalg.pinv(
+                knn_e_c.to(torch.float32) + 1e-6 * torch.eye(knn_e_c.shape[0]),
+                rcond=1e-8,
+            ) @ e_c.to(torch.float32)
+        return weights.squeeze(-1)
 
 
 class DistanceWeightsTask(Task[torch.Tensor]):
-    knn_task: Task  # [Tuple[torch.Tensor, torch.Tensor]]
+    knn_task: Task  # [Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
 
     def arguments(self):
         return {
@@ -164,19 +173,80 @@ class DistanceWeightsTask(Task[torch.Tensor]):
     def uses_accelerator(self):
         return True
 
+    def priority(self):
+        return 11
+
     def execute(self, knn: Tuple[torch.Tensor, torch.Tensor]):
-        distances, _ = knn
+        distances, _, _ = knn
         return torch.nn.functional.softmin(distances, dim=0)
 
 
-class ReconstructedEmbeddingTask(Task[torch.Tensor]):
+class OrthogonalMatchingPursuitWeightsTask(Task[Tuple[torch.LongTensor, torch.Tensor]]):
+    target_tensor_task: Task  # [torch.Tensor]
+    common_embeddings_task: Task  # [torch.Tensor]
+    k: int
+
+    def arguments(self):
+        return {
+            "target": self.target_tensor_task,
+            "common_embeddings": self.common_embeddings_task,
+        }
+
+    def uses_accelerator(self):
+        return True
+
+    def priority(self):
+        return 10
+
+    def execute(self, target: torch.Tensor, common_embeddings: torch.Tensor):
+        residual = target.clone()
+        selected = []
+        for _ in range(self.k):
+            idx = torch.argmax(torch.abs(residual @ common_embeddings.T))
+            selected.append(idx)
+            B = common_embeddings[selected, :].T
+            # pinv because rank-deficient and linalg.lstsq chokes on CUDA
+            coeffs = torch.linalg.pinv(B.to(torch.float32)) @ target.to(torch.float32)
+            residual = target - B @ coeffs.to(target.dtype)
+
+        return selected, coeffs
+
+
+class OmpReconstructedEmbeddingTask(Task[torch.Tensor]):
+    omp_task: Task  # [Tuple[torch.LongTensor, torch.Tensor]]
+    common_embeddings_task: Task  # [torch.Tensor]
+
+    def arguments(self):
+        return {
+            "omp": self.omp_task,
+            "common_embeddings": self.common_embeddings_task,
+        }
+
+    def uses_accelerator(self):
+        return True
+
+    def priority(self):
+        return 100
+
+    def execute(
+        self,
+        omp: Tuple[torch.LongTensor, torch.Tensor],
+        common_embeddings: torch.Tensor,
+    ):
+        indices, coeffs = omp
+        return torch.sum(coeffs.unsqueeze(-1) * common_embeddings[indices], dim=0)
+
+
+class KnnReconstructedEmbeddingTask(Task[torch.Tensor]):
     weights_task: Task  # [torch.Tensor]
-    knn_task: Task  # [Tuple[torch.Tensor, torch.Tensor]]
+    knn_task: Task  # [Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
+    embeddings_task: Task  # [torch.Tensor]
 
     def arguments(self):
         return {
             "weights": self.weights_task,
             "knn": self.knn_task,
+            "embeddings": self.embeddings_task,
         }
 
     def uses_accelerator(self):
@@ -188,9 +258,11 @@ class ReconstructedEmbeddingTask(Task[torch.Tensor]):
     def execute(
         self,
         weights: torch.Tensor,
-        knn: Tuple[torch.Tensor, torch.Tensor],
+        knn: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+        embeddings: torch.Tensor,
     ):
-        _, knn_embeddings = knn
+        _, _, knn_indices = knn
+        knn_embeddings = embeddings[knn_indices]
         return torch.sum(weights.unsqueeze(-1) * knn_embeddings, dim=0)
 
 
@@ -243,6 +315,9 @@ class IndexedEmbeddingTask(Task[torch.Tensor]):
     def execute(self, embeddings: torch.Tensor):
         return embeddings[self.index]
 
+    def priority(self):
+        return 1
+
 
 class MultiIndexedEmbeddingTask(Task[torch.Tensor]):
     embeddings: Task
@@ -257,9 +332,6 @@ class MultiIndexedEmbeddingTask(Task[torch.Tensor]):
     def execute(self, embeddings: torch.Tensor):
         return torch.stack([embeddings[i] for i in self.indices], dim=0)
 
-    def main_thread_only(self):
-        return True
-
     def __hash__(self):
         # fun fact: hashing a tuple of 100k ints is very very slow
         # so just hash the embeddings task and let __eq__ sort it out
@@ -269,6 +341,9 @@ class MultiIndexedEmbeddingTask(Task[torch.Tensor]):
         if not isinstance(other, MultiIndexedEmbeddingTask):
             return False
         return self.indices == other.indices and self.embeddings == other.embeddings
+
+    def duplicate_per_gpu(self):
+        return True
 
 
 class ZeroTensorTask(Task[torch.Tensor]):
@@ -319,6 +394,7 @@ class ApproximationMethod(enum.Enum):
     SUBWORD = "subword"
     MEAN = "mean"
     ZERO = "zero"
+    ORTHOGONAL_MATCHING_PURSUIT = "omp"
 
 
 class TokenSurgeonOptions(BaseModel):
@@ -440,7 +516,7 @@ def plan_embedding(
         optional=weight_info.optional,
         aliases=weight_info.aliases,
         tied_names=weight_info.tied_names,
-        force_main_thread=True,
+        per_gpu=True,
     )
     t_donor_embed = LoadTensor(
         model=options.donor,
@@ -448,7 +524,7 @@ def plan_embedding(
         optional=weight_info.optional,
         aliases=weight_info.aliases,
         tied_names=weight_info.tied_names,
-        force_main_thread=True,
+        per_gpu=True,
     )
     t_e_c_0 = MultiIndexedEmbeddingTask(
         embeddings=t_original_embed,
@@ -496,16 +572,16 @@ def plan_embedding(
                     cosine_similarity=options.cosine_similarity,
                 )
                 if options.barycentric:
-                    weights_task = BarycentricWeightsTask(
+                    omp_task = BarycentricWeightsTask(
                         target_tensor=IndexedEmbeddingTask(
                             embeddings=t_donor_embed, index=idx_out
                         ),
                         knn_task=knn_task,
                     )
                 else:
-                    weights_task = DistanceWeightsTask(knn_task=knn_task)
-                reconstructed_task = ReconstructedEmbeddingTask(
-                    weights_task=weights_task,
+                    omp_task = DistanceWeightsTask(knn_task=knn_task)
+                reconstructed_task = KnnReconstructedEmbeddingTask(
+                    weights_task=omp_task,
                     knn_task=knn_task,
                     embeddings_task=t_e_c_0,
                 )
@@ -521,6 +597,18 @@ def plan_embedding(
                 tok_embedding_task = mean_embed_task
             elif options.method == ApproximationMethod.ZERO:
                 tok_embedding_task = ZeroTensorTask(shape=(hidden_size,))
+            elif options.method == ApproximationMethod.ORTHOGONAL_MATCHING_PURSUIT:
+                omp_task = OrthogonalMatchingPursuitWeightsTask(
+                    target_tensor_task=IndexedEmbeddingTask(
+                        embeddings=t_donor_embed, index=idx_out
+                    ),
+                    common_embeddings_task=t_e_c_1,
+                    k=options.k,
+                )
+                tok_embedding_task = OmpReconstructedEmbeddingTask(
+                    omp_task=omp_task,
+                    common_embeddings_task=t_e_c_0,
+                )
             else:
                 raise RuntimeError(f"Unknown approximation method: {options.method}")
 
