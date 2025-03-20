@@ -21,6 +21,8 @@ import networkx as nx
 import torch
 import tqdm
 
+from mergekit.io.tasks import TensorWriterTask
+
 from .graph import (
     Executor,
     Task,
@@ -68,6 +70,9 @@ class MultiGPUExecutor:
         self.serial_schedule = build_schedule(list(self.targets), {})
         ordered_handles = self.serial_schedule.tasks
 
+        self.per_gpu_tasks = set(
+            [t for t in ordered_handles if t.task().duplicate_per_gpu()]
+        )
         leading_tasks = self._find_leading_tasks(ordered_handles)
         trailing_tasks = self._find_trailing_tasks(ordered_handles)
         self.trailing_main_handles = [t for t in ordered_handles if t in trailing_tasks]
@@ -80,17 +85,30 @@ class MultiGPUExecutor:
         parallel_handles = [
             t
             for t in ordered_handles
-            if (t not in trailing_tasks and t not in leading_tasks)
+            if (
+                t not in trailing_tasks
+                and t not in leading_tasks
+                and t not in self.per_gpu_tasks
+            )
         ]
         LOG.info(
             f"Task breakdown: {len(self.leading_main_handles)} leading, "
+            f"{len(self.per_gpu_tasks)} duplicated per-GPU, "
             f"{len(parallel_handles)} parallel, "
             f"{len(self.trailing_main_handles)} trailing"
         )
         if any(t.task().main_thread_only() for t in parallel_handles):
+            offending = [
+                t.task() for t in parallel_handles if t.task().main_thread_only()
+            ]
+            logging.error(f"Main-thread-only tasks in parallel section:")
+            for task in offending:
+                logging.error(f"  {type(task).__name__}")
             raise RuntimeError(
                 "Main-thread-only tasks must be either leading or trailing"
             )
+        if any(t.task().main_thread_only() for t in self.per_gpu_tasks):
+            raise RuntimeError("Tasks can not be both per-GPU and main-thread-only")
         self.gpu_assignments = self._assign_islands_to_gpus(parallel_handles, num_gpus)
 
         self.task_completion_queue = queue.Queue()
@@ -116,6 +134,8 @@ class MultiGPUExecutor:
                     pbar.update()
                     self.results[task_handle] = result
 
+            results_snapshot = dict(self.results)
+
             def update_progress():
                 while not self.done_event.is_set():
                     try:
@@ -131,13 +151,12 @@ class MultiGPUExecutor:
 
             # Run parallel tasks
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                results_snapshot = dict(self.results)
                 futures = []
                 for device, island_task_handles in self.gpu_assignments.items():
                     futures.append(
                         executor.submit(
                             self._device_worker,
-                            task_list=island_task_handles,
+                            task_list=list(self.per_gpu_tasks) + island_task_handles,
                             cached_values=results_snapshot,
                             device=device,
                             quiet=True,
@@ -250,7 +269,7 @@ class MultiGPUExecutor:
             if not island:
                 continue
             # don't need to sort, inner executor will handle
-            island_tasks = [self.universe.tasks[i] for i in island]
+            island_tasks = [TaskHandle(self.universe, idx) for idx in island]
             # assign to GPU with fewest tasks
             device_idx = min(
                 range(num_gpus),
@@ -276,6 +295,7 @@ class MultiGPUExecutor:
             device: Device to execute tasks on
             quiet: Suppress progress bar output
         """
+        LOG.debug(f"Device {device} starting")
         with torch.device(device):
             stream = torch.cuda.Stream(device=device)
             with torch.cuda.stream(stream):

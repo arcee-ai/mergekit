@@ -100,6 +100,12 @@ class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
         """
         return False
 
+    def duplicate_per_gpu(self) -> bool:
+        """
+        Returns True if the task should be duplicated for each GPU.
+        """
+        return False
+
 
 class TaskUniverse:
     tasks: List[Task]
@@ -401,6 +407,8 @@ class Executor:
         if non_blocking is None:
             non_blocking = device.type == "cuda"
         if isinstance(value, torch.Tensor):
+            if value.device == device:
+                return value
             return value.to(device=device, non_blocking=non_blocking)
         elif isinstance(value, dict):
             return {

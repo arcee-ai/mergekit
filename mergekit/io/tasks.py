@@ -76,7 +76,7 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
     optional: bool = False
     aliases: Optional[Tuple[str, ...]] = None
     tied_names: Optional[Tuple[str, ...]] = None
-    force_main_thread: bool = False
+    per_gpu: bool = False
 
     def arguments(self) -> Dict[str, Task]:
         return {}
@@ -117,8 +117,8 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
         # return None
         return name
 
-    def main_thread_only(self):
-        return self.force_main_thread
+    def duplicate_per_gpu(self):
+        return self.per_gpu
 
 
 class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
@@ -171,6 +171,9 @@ class TensorWriterTask(Task[TensorWriter]):
             safe_serialization=self.safe_serialization,
             override_basename=self.override_basename,
         )
+
+    def priority(self):
+        return 10000
 
     def main_thread_only(self):
         return True
