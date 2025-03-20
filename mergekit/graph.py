@@ -104,9 +104,6 @@ class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
         """
         Returns True if the task should only be executed on the main thread.
 
-        Tasks with side effects like file I/O or that require specific thread
-        context should return True here to avoid parallel execution issues.
-
         Returns:
             bool: True if the task must run on the main thread, False otherwise
         """
