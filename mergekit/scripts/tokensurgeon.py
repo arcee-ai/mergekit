@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 import click
 import torch
+import tqdm
 import transformers
 from pydantic import BaseModel
 
@@ -16,15 +17,10 @@ from mergekit.architecture import (
     arch_info_for_config,
 )
 from mergekit.common import ModelReference, set_config_value
-from mergekit.graph import Executor, Task
 from mergekit.io.tasks import (
-    FinalizeModel,
     LoaderCache,
-    LoadTensor,
-    SaveTensor,
-    TensorWriterTask,
 )
-from mergekit.multigpu_executor import MultiGPUExecutor
+from mergekit.io.tensor_writer import TensorWriter
 from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 from mergekit.tokenizer.normalization import (
     NormalizedToken,
@@ -58,375 +54,220 @@ class TokenAssignmentStats(BaseModel):
         return "\n".join(chunks)
 
 
-class TokenizerCache:
-    loaded: Dict[ModelReference, transformers.PreTrainedTokenizerBase]
-    trust_remote_code: bool = False
-    _instance: Optional["TokenizerCache"] = None
-
-    def __new__(cls) -> "TokenizerCache":
-        if cls._instance is None:
-            res = super(TokenizerCache, cls).__new__(cls)
-            res.loaded = {}
-            cls._instance = res
-        return cls._instance
-
-    def get(self, model: ModelReference) -> transformers.PreTrainedTokenizerBase:
-        if model not in self.loaded:
-            self.loaded[model] = transformers.AutoTokenizer.from_pretrained(
-                model.model.path,
-                revision=model.model.revision,
-                trust_remote_code=self.trust_remote_code,
-                use_fast=True,
-            )
-        return self.loaded[model]
-
-
-class EmbeddingKnnTask(Task[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
-    target_tensor: Task
-    common_embedding: Task
-    k: int
-    cosine_similarity: bool = False
-
-    def arguments(self):
-        return {
-            "target": self.target_tensor,
-            "common_embeddings": self.common_embedding,
-        }
-
-    def uses_accelerator(self):
-        return True
-
-    def priority(self):
-        return 10
-
-    def execute(self, target: torch.Tensor, common_embeddings: torch.Tensor):
-        if self.cosine_similarity:
-            distances = 1 - torch.nn.functional.cosine_similarity(
-                target.unsqueeze(0), common_embeddings, dim=1
-            )
-        else:
-            distances = torch.cdist(
-                target.unsqueeze(0), common_embeddings, p=2
-            ).squeeze()
-        distances, indices = torch.topk(distances, self.k, largest=False)
-        knn_embeddings = common_embeddings[indices]
-        return distances, knn_embeddings, indices
-
-
-class BarycentricWeightsTask(Task[torch.Tensor]):
-    target_tensor: Task  # [torch.Tensor]
-    knn_task: Task  # [Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
-
-    def arguments(self):
-        return {
-            "target": self.target_tensor,
-            "knn": self.knn_task,
-        }
-
-    def uses_accelerator(self):
-        return True
-
-    def priority(self):
-        return 11
-
-    def execute(self, target: torch.Tensor, knn: Tuple[torch.Tensor, torch.Tensor]):
-        _, knn_embeddings, _ = knn
-
-        # Find least squares barycentric weights
-        # Constrain sum of weights to 1 by adding a row of 1s
-        constraint_row = torch.ones(
-            (1, knn_embeddings.shape[0]),
-            device=target.device,
-            dtype=knn_embeddings.dtype,
-        )  # (1, k)
-        knn_e_c = torch.cat([knn_embeddings.T, constraint_row], dim=0)
-        e_c = torch.cat(
-            [
-                target,
-                torch.tensor([1.0], device=target.device, dtype=target.dtype),
-            ]
-        ).unsqueeze(-1)
-        # torch.linalg.lstsq doesn't work for rank-deficient matrices on CUDA
-        # despite it being explicitly recommended for this use case in the docs
-        # so pinv instead
-        # also upcast to float32 for stability
-        weights = torch.linalg.pinv(knn_e_c.to(torch.float32), rcond=1e-8) @ e_c.to(
-            torch.float32
-        )
-        if torch.isnan(weights).any():
-            # try again with slight ridge regression
-            weights = torch.linalg.pinv(
-                knn_e_c.to(torch.float32) + 1e-6 * torch.eye(knn_e_c.shape[0]),
-                rcond=1e-8,
-            ) @ e_c.to(torch.float32)
-        return weights.squeeze(-1)
-
-
-class DistanceWeightsTask(Task[torch.Tensor]):
-    knn_task: Task  # [Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
-
-    def arguments(self):
-        return {
-            "knn": self.knn_task,
-        }
-
-    def uses_accelerator(self):
-        return True
-
-    def priority(self):
-        return 11
-
-    def execute(self, knn: Tuple[torch.Tensor, torch.Tensor]):
-        distances, _, _ = knn
-        return torch.nn.functional.softmin(distances, dim=0)
-
-
-class OrthogonalMatchingPursuitWeightsTask(Task[Tuple[torch.LongTensor, torch.Tensor]]):
-    target_tensor_task: Task  # [torch.Tensor]
-    common_embeddings_task: Task  # [torch.Tensor]
-    k: int
-
-    def arguments(self):
-        return {
-            "target": self.target_tensor_task,
-            "common_embeddings": self.common_embeddings_task,
-        }
-
-    def uses_accelerator(self):
-        return True
-
-    def priority(self):
-        return 10
-
-    def execute(self, target: torch.Tensor, common_embeddings: torch.Tensor):
-        residual = target.clone()
-        selected = []
-        for _ in range(self.k):
-            idx = torch.argmax(torch.abs(residual @ common_embeddings.T))
-            selected.append(idx)
-            B = common_embeddings[selected, :].T
-            # pinv because rank-deficient and linalg.lstsq chokes on CUDA
-            coeffs = torch.linalg.pinv(B.to(torch.float32)) @ target.to(torch.float32)
-            residual = target - B @ coeffs.to(target.dtype)
-
-        return selected, coeffs
-
-
-class OmpReconstructedEmbeddingTask(Task[torch.Tensor]):
-    omp_task: Task  # [Tuple[torch.LongTensor, torch.Tensor]]
-    common_embeddings_task: Task  # [torch.Tensor]
-
-    def arguments(self):
-        return {
-            "omp": self.omp_task,
-            "common_embeddings": self.common_embeddings_task,
-        }
-
-    def uses_accelerator(self):
-        return True
-
-    def priority(self):
-        return 100
-
-    def execute(
-        self,
-        omp: Tuple[torch.LongTensor, torch.Tensor],
-        common_embeddings: torch.Tensor,
-    ):
-        indices, coeffs = omp
-        return torch.sum(coeffs.unsqueeze(-1) * common_embeddings[indices], dim=0)
-
-
-class KnnReconstructedEmbeddingTask(Task[torch.Tensor]):
-    weights_task: Task  # [torch.Tensor]
-    knn_task: Task  # [Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
-    embeddings_task: Task  # [torch.Tensor]
-
-    def arguments(self):
-        return {
-            "weights": self.weights_task,
-            "knn": self.knn_task,
-            "embeddings": self.embeddings_task,
-        }
-
-    def uses_accelerator(self):
-        return True
-
-    def priority(self):
-        return 100
-
-    def execute(
-        self,
-        weights: torch.Tensor,
-        knn: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
-        embeddings: torch.Tensor,
-    ):
-        _, _, knn_indices = knn
-        knn_embeddings = embeddings[knn_indices]
-        return torch.sum(weights.unsqueeze(-1) * knn_embeddings, dim=0)
-
-
-class SubwordEmbeddingSumTask(Task[torch.Tensor]):
-    text: str
-    tokenizer_from: ModelReference
-    embeddings: Task
-    average: bool = True
-
-    def arguments(self):
-        return {"embeddings": self.embeddings}
-
-    def uses_accelerator(self):
-        return True
-
-    def execute(self, embeddings: torch.Tensor):
-        tokenizer = TokenizerCache().get(self.tokenizer_from)
-        tokenized = tokenizer(self.text)["input_ids"]
-        res = torch.zeros_like(embeddings[0])
-        for token in tokenized:
-            res += embeddings[token]
-        if self.average and len(tokenized) > 1:
-            res /= len(tokenized)
-        return res
-
-
-class EmbeddingMeanTask(Task[torch.Tensor]):
-    embeddings: Task
-
-    def arguments(self):
-        return {"embeddings": self.embeddings}
-
-    def uses_accelerator(self):
-        return True
-
-    def execute(self, embeddings: torch.Tensor):
-        return embeddings.mean(dim=0)
-
-
-class IndexedEmbeddingTask(Task[torch.Tensor]):
-    embeddings: Task
-    index: int
-
-    def arguments(self):
-        return {"embeddings": self.embeddings}
-
-    def uses_accelerator(self):
-        return True
-
-    def execute(self, embeddings: torch.Tensor):
-        return embeddings[self.index]
-
-    def priority(self):
-        return 1
-
-
-class MultiIndexedEmbeddingTask(Task[torch.Tensor]):
-    embeddings: Task
-    indices: Tuple[int, ...]
-
-    def arguments(self):
-        return {"embeddings": self.embeddings}
-
-    def uses_accelerator(self):
-        return True
-
-    def execute(self, embeddings: torch.Tensor):
-        return torch.stack([embeddings[i] for i in self.indices], dim=0)
-
-    def __hash__(self):
-        # fun fact: hashing a tuple of 100k ints is very very slow
-        # so just hash the embeddings task and let __eq__ sort it out
-        return hash(("MultiIndexedEmbeddingTask", self.embeddings))
-
-    def __eq__(self, other):
-        if not isinstance(other, MultiIndexedEmbeddingTask):
-            return False
-        return self.indices == other.indices and self.embeddings == other.embeddings
-
-    def duplicate_per_gpu(self):
-        return True
-
-
-class ZeroTensorTask(Task[torch.Tensor]):
-    shape: Tuple[int, ...]
-
-    def arguments(self):
-        return {}
-
-    def uses_accelerator(self):
-        return True
-
-    def execute(self):
-        return torch.zeros(self.shape)
-
-
-class AssembleEmbeddingsTask(Task[torch.Tensor]):
-    name: str
-    embeddings: Tuple[Task, ...]
-
-    def arguments(self):
-        return {f"_e_{i}": task for i, task in enumerate(self.embeddings)}
-
-    def uses_accelerator(self):
-        return True
-
-    def execute(self, **embeddings):
-        return torch.stack(
-            [embeddings[f"_e_{i}"] for i in range(len(self.embeddings))], dim=0
-        )
-
-    def priority(self):
-        return 100
-
-    def main_thread_only(self):
-        return True
-
-    def __hash__(self):
-        return hash(("AssembleEmbeddingsTask", self.name))
-
-    def __eq__(self, other):
-        if not isinstance(other, AssembleEmbeddingsTask):
-            return False
-        return self.name == other.name and self.embeddings == other.embeddings
-
-
 class ApproximationMethod(enum.Enum):
-    KNN_INTERPOLATION = "knn_interpolation"
+    COMMON_INTERPOLATION = "common_interpolation"
     SUBWORD = "subword"
     MEAN = "mean"
     ZERO = "zero"
     ORTHOGONAL_MATCHING_PURSUIT = "omp"
 
 
+class DistanceMetric(enum.Enum):
+    EUCLIDEAN = "euclidean"
+    COSINE = "cosine"
+
+
+class WeightingScheme(enum.Enum):
+    DISTANCE_PROPORTIONAL = "distance_proportional"
+    BARYCENTRIC = "barycentric"
+    LEAST_SQUARES = "least_squares"
+
+
+def approximate_from_landmarks(
+    targets: torch.Tensor,
+    points: torch.Tensor,
+    distances: torch.Tensor,
+    scheme: WeightingScheme = WeightingScheme.DISTANCE_PROPORTIONAL,
+    cosine_similarity: bool = False,
+) -> torch.Tensor:
+    batch_size, embedding_dim = targets.shape
+    assert points.dim() == 3 and points.shape == (
+        batch_size,
+        points.shape[1],
+        embedding_dim,
+    )
+    num_points = points.shape[1]
+    assert points.shape[2] == embedding_dim
+    assert distances.shape == (batch_size, num_points)
+
+    if scheme == WeightingScheme.DISTANCE_PROPORTIONAL:
+        if cosine_similarity:
+            weights = 1 - distances
+        else:
+            weights = 1 / distances.clamp_min(1e-6)
+        weights = weights / weights.sum(dim=1, keepdim=True)
+    elif scheme == WeightingScheme.BARYCENTRIC:
+        weights = barycentric_weights(targets, points)
+    elif scheme == WeightingScheme.LEAST_SQUARES:
+        weights = torch.linalg.lstsq(
+            points.transpose(1, 2).float(), targets.unsqueeze(-1).float()
+        ).solution.squeeze(-1)
+    else:
+        raise ValueError(f"Unknown weighting scheme: {scheme}")
+    return weights
+
+
+def barycentric_weights(targets: torch.Tensor, points: torch.Tensor) -> torch.Tensor:
+    batch_size, num_points, _embedding_dim = points.shape
+    ptp = torch.bmm(points, points.transpose(1, 2))
+    ones_col = torch.ones((batch_size, num_points, 1), device=points.device)
+    ones_row = torch.ones((batch_size, 1, num_points), device=points.device)
+    zeros = torch.zeros((batch_size, 1, 1), device=points.device)
+    upper = torch.cat([ptp, ones_col], dim=2)
+    lower = torch.cat([ones_row, zeros], dim=2)
+    augmented_matrix = torch.cat([upper, lower], dim=1)
+    rhs_upper = torch.bmm(targets.unsqueeze(1), points.transpose(1, 2)).squeeze(1)
+    rhs_lower = torch.ones((batch_size, 1), device=points.device)
+    rhs = torch.cat([rhs_upper, rhs_lower], dim=1)
+    return torch.linalg.lstsq(augmented_matrix, rhs.unsqueeze(-1)).solution.squeeze(-1)[
+        ..., :num_points
+    ]
+
+
+def _cosine_sim(x1: torch.Tensor, x2: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    w1 = x1.norm(p=2, dim=1, keepdim=True)
+    w2 = x2.norm(p=2, dim=1, keepdim=True)
+    return torch.mm(x1, x2.t()) / (w1 * w2.t()).clamp(min=eps)
+
+
+def common_interp_approximate(
+    targets: torch.Tensor,
+    a_embeddings: torch.Tensor,
+    b_embeddings: torch.Tensor,
+    options: "TokenSurgeonOptions",
+) -> Tuple[torch.Tensor, torch.LongTensor, torch.Tensor]:
+    k = options.k if options.knn else None
+    metric = (
+        DistanceMetric.COSINE if options.cosine_similarity else DistanceMetric.EUCLIDEAN
+    )
+    assert targets.dim() == 2
+    assert a_embeddings.dim() == 2
+    assert b_embeddings.dim() == 2
+    assert targets.size(1) == a_embeddings.size(1)
+    assert (k is None) or (k > 0), "k must be positive"
+
+    if metric == DistanceMetric.EUCLIDEAN:
+        distances = torch.cdist(targets, a_embeddings, p=2)
+    elif metric == DistanceMetric.COSINE:
+        distances = 1 - _cosine_sim(targets, a_embeddings)
+    else:
+        raise ValueError(f"Unknown distance metric: {metric}")
+
+    # Find the k nearest neighbors
+    if k is not None:
+        _, indices = torch.topk(distances, k=k, dim=1, largest=False)
+        knn_distances = distances.gather(1, indices)
+    else:
+        indices = torch.arange(a_embeddings.size(0), device=a_embeddings.device).expand(
+            targets.size(0), -1
+        )
+        knn_distances = distances
+    print(f"indices: {indices.shape}")
+    print(f"knn_distances: {knn_distances.shape}")
+
+    weights = approximate_from_landmarks(
+        targets,
+        a_embeddings[indices],
+        knn_distances,
+        scheme=options.weight_scheme,
+        cosine_similarity=metric == DistanceMetric.COSINE,
+    )
+
+    res = (
+        torch.bmm(weights.unsqueeze(1).float(), b_embeddings[indices].float())
+        .squeeze(1)
+        .to(b_embeddings.dtype)
+    )
+    return weights, indices, res
+
+
+def batch_omp(targets: torch.Tensor, pts: torch.Tensor, k: int):
+    """
+    Batched Orthogonal Matching Pursuit (OMP) to select `k` points from `pts` that best approximate each target in `targets`.
+
+    Args:
+        targets: (B, D) tensor of target vectors.
+        pts: (N, D) tensor of candidate points.
+        k: Number of points to select (sparsity level).
+
+    Returns:
+        (B, k) tensor of indices selected for each target.
+    """
+    B, D = targets.shape
+    N, _ = pts.shape
+    device = targets.device
+    # Initialize selected indices and residuals
+    selected_indices = torch.zeros((B, k), dtype=torch.long, device=device)
+    residuals = targets.clone()
+    for t in range(k):
+        LOG.debug(f"OMP iteration {t} - current rms: {residuals.norm(dim=1).mean()}")
+        # Compute absolute inner products between residuals and points
+        abs_inner = (residuals @ pts.T).abs()  # (B, N)
+        # Mask previously selected indices
+        if t > 0:
+            mask = torch.zeros((B, N), dtype=torch.bool, device=device)
+            mask.scatter_(1, selected_indices[:, :t], True)
+            abs_inner = abs_inner.masked_fill(mask, -torch.inf)
+        # Select new index with maximum correlation
+        _, new_idx = torch.max(abs_inner, dim=1)  # (B,)
+        selected_indices[:, t] = new_idx
+        # Gather selected points (B, t+1, D)
+        batch_indices = selected_indices[:, : t + 1].unsqueeze(-1).expand(-1, -1, D)
+        selected_points = torch.gather(
+            pts.unsqueeze(0).expand(B, -1, -1), 1, batch_indices
+        )
+        selected_points_transposed = selected_points.transpose(1, 2)  # Fix here
+        # Solve least squares
+        coeff = torch.linalg.lstsq(
+            selected_points_transposed.float(),  # (B, D, t+1)
+            targets.unsqueeze(-1).float(),  # (B, D, 1)
+        ).solution.squeeze(
+            -1
+        )  # (B, t+1)
+        # Update residuals
+        approx = torch.bmm(coeff.unsqueeze(1), selected_points.float()).squeeze(1)
+        residuals = targets - approx.to(targets.dtype)
+    return selected_indices, coeff
+
+
 class TokenSurgeonOptions(BaseModel):
     model: ModelReference
     donor: ModelReference
     out_path: str
-    method: ApproximationMethod = ApproximationMethod.KNN_INTERPOLATION
+    method: ApproximationMethod = ApproximationMethod.COMMON_INTERPOLATION
+    weight_scheme: WeightingScheme = WeightingScheme.DISTANCE_PROPORTIONAL
     k: int = 8
+    knn: bool = True
     cosine_similarity: bool = False
-    barycentric: bool = False
     average: bool = True
 
 
-def get_embedding_info(
+def get_arch_info(
     model: ModelReference, options: MergeOptions
-) -> Tuple[WeightInfo, WeightInfo]:
-    """Get WeightInfo for the input and output embeddings of a model."""
+) -> ConfiguredModelArchitecture:
     cfg = model.config(trust_remote_code=options.trust_remote_code)
     arch_info = arch_info_for_config(cfg)
+    return ConfiguredModelArchitecture(info=arch_info, config=cfg)
 
-    if len(arch_info.modules) != 1:
+
+def get_embedding_info(
+    arch_info: ConfiguredModelArchitecture,
+) -> Tuple[WeightInfo, WeightInfo]:
+    """Get WeightInfo for the input and output embeddings of a model."""
+
+    if len(arch_info.info.modules) != 1:
         raise RuntimeError("Model has multiple modules - not supported by tokensurgeon")
-    module_def = next(iter(arch_info.modules.values()))
+    name = next(iter(arch_info.info.modules.keys()))
+    module_def = arch_info.get_module(name)
 
     embed, lm_head = None, None
-    for weight_info in module_def.architecture.pre_weights(cfg):
+    for weight_info in module_def.pre_weights():
         if weight_info.is_embed:
             if embed is not None:
                 raise RuntimeError("Multiple input embeddings found")
             embed = weight_info
 
-    for weight_info in module_def.architecture.post_weights(cfg):
+    for weight_info in module_def.post_weights():
         if weight_info.is_embed:
             if lm_head is not None:
                 raise RuntimeError("Multiple output embeddings found")
@@ -442,19 +283,31 @@ def maybe_aliases(weight_info: WeightInfo, tied: bool) -> Tuple[str, ...]:
 
 
 def get_stuff(
-    model: ModelReference, options: MergeOptions, get_tied: bool = False
+    model: ModelReference,
+    options: MergeOptions,
+    arch_info: Optional[ConfiguredModelArchitecture] = None,
+    get_tied: bool = False,
+    device: str = "cpu",
 ) -> Tuple[Dict[NormalizedToken, int], Optional[torch.Tensor], Optional[torch.Tensor]]:
-    tokenizer = TokenizerCache().get(model)
+    if arch_info is None:
+        arch_info = get_arch_info(model, options)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(
+        model.model.path,
+        revision=model.model.revision,
+        trust_remote_code=options.trust_remote_code,
+    )
     vocab = normalized_vocabulary(tokenizer)
-    embed_wi, lm_head_wi = get_embedding_info(model, options)
+    embed_wi, lm_head_wi = get_embedding_info(arch_info)
     loader = LoaderCache().get(model)
     embed = loader.get_tensor(
         embed_wi.name,
+        device=device,
         aliases=maybe_aliases(embed_wi, get_tied),
         raise_on_missing=not embed_wi.optional,
     )
     lm_head = loader.get_tensor(
         lm_head_wi.name,
+        device=device,
         aliases=maybe_aliases(lm_head_wi, get_tied),
         raise_on_missing=not lm_head_wi.optional,
     )
@@ -500,138 +353,6 @@ def unnormalize_token(token: NormalizedToken) -> str:
     return token
 
 
-def plan_embedding(
-    options: TokenSurgeonOptions,
-    original_vocab: Dict[NormalizedToken, int],
-    donor_vocab: Dict[NormalizedToken, int],
-    common_tokens: List[str],
-    hidden_size: int,
-    weight_info: WeightInfo,
-    allow_prefix_match: bool = False,
-) -> Tuple[Task[torch.Tensor], TokenAssignmentStats]:
-    logging.info(f"Planning embedding surgery for {weight_info.name}")
-    t_original_embed = LoadTensor(
-        model=options.model,
-        tensor=weight_info.name,
-        optional=weight_info.optional,
-        aliases=weight_info.aliases,
-        tied_names=weight_info.tied_names,
-        per_gpu=True,
-    )
-    t_donor_embed = LoadTensor(
-        model=options.donor,
-        tensor=weight_info.name,
-        optional=weight_info.optional,
-        aliases=weight_info.aliases,
-        tied_names=weight_info.tied_names,
-        per_gpu=True,
-    )
-    t_e_c_0 = MultiIndexedEmbeddingTask(
-        embeddings=t_original_embed,
-        indices=tuple(original_vocab[token] for token in common_tokens),
-    )
-    t_e_c_1 = MultiIndexedEmbeddingTask(
-        embeddings=t_donor_embed,
-        indices=tuple(donor_vocab[token] for token in common_tokens),
-    )
-    mean_embed_task = EmbeddingMeanTask(embeddings=t_original_embed)
-
-    stats = TokenAssignmentStats()
-    embedding_tasks = []
-    for tok_out in donor_vocab:
-        tok_embedding_task = None
-        idx_out = donor_vocab[tok_out]
-        if tok_out in original_vocab:
-            idx_in = original_vocab[tok_out]
-            tok_embedding_task = IndexedEmbeddingTask(
-                embeddings=t_original_embed, index=idx_in
-            )
-            stats.exact_match += 1
-        elif byte_idx := match_byte_token(tok_out, original_vocab):
-            tok_embedding_task = IndexedEmbeddingTask(
-                embeddings=t_original_embed, index=byte_idx
-            )
-            stats.byte_match += 1
-        elif allow_prefix_match and (
-            prefix_idx := match_prefix(tok_out, original_vocab)
-        ):
-            tok_embedding_task = IndexedEmbeddingTask(
-                embeddings=t_original_embed, index=prefix_idx
-            )
-            stats.prefix_match += 1
-        else:
-            # gotta approximate
-            stats.to_approximate += 1
-            if options.method == ApproximationMethod.KNN_INTERPOLATION:
-                knn_task = EmbeddingKnnTask(
-                    target_tensor=IndexedEmbeddingTask(
-                        embeddings=t_donor_embed, index=idx_out
-                    ),
-                    common_embedding=t_e_c_1,
-                    k=options.k,
-                    cosine_similarity=options.cosine_similarity,
-                )
-                if options.barycentric:
-                    omp_task = BarycentricWeightsTask(
-                        target_tensor=IndexedEmbeddingTask(
-                            embeddings=t_donor_embed, index=idx_out
-                        ),
-                        knn_task=knn_task,
-                    )
-                else:
-                    omp_task = DistanceWeightsTask(knn_task=knn_task)
-                reconstructed_task = KnnReconstructedEmbeddingTask(
-                    weights_task=omp_task,
-                    knn_task=knn_task,
-                    embeddings_task=t_e_c_0,
-                )
-                tok_embedding_task = reconstructed_task
-            elif options.method == ApproximationMethod.SUBWORD:
-                tok_embedding_task = SubwordEmbeddingSumTask(
-                    text=unnormalize_token(tok_out),
-                    tokenizer_from=options.model,
-                    embeddings=t_original_embed,
-                    average=options.average,
-                )
-            elif options.method == ApproximationMethod.MEAN:
-                tok_embedding_task = mean_embed_task
-            elif options.method == ApproximationMethod.ZERO:
-                tok_embedding_task = ZeroTensorTask(shape=(hidden_size,))
-            elif options.method == ApproximationMethod.ORTHOGONAL_MATCHING_PURSUIT:
-                omp_task = OrthogonalMatchingPursuitWeightsTask(
-                    target_tensor_task=IndexedEmbeddingTask(
-                        embeddings=t_donor_embed, index=idx_out
-                    ),
-                    common_embeddings_task=t_e_c_1,
-                    k=options.k,
-                )
-                tok_embedding_task = OmpReconstructedEmbeddingTask(
-                    omp_task=omp_task,
-                    common_embeddings_task=t_e_c_0,
-                )
-            else:
-                raise RuntimeError(f"Unknown approximation method: {options.method}")
-
-        if tok_embedding_task is None:
-            raise RuntimeError(f"Failed to create task for token: {tok_out}")
-        embedding_tasks.append(tok_embedding_task)
-
-    assemble_task = AssembleEmbeddingsTask(
-        embeddings=embedding_tasks, name=weight_info.name
-    )
-    logging.info(stats.pretty_print())
-
-    pct_approx = stats.to_approximate / len(donor_vocab) * 100
-    logging.info(f"Approximation rate: {pct_approx:.2f}%")
-    if pct_approx > 10:
-        # encourage best practices
-        logging.warning(
-            f"Large number of tokens ({pct_approx}%) could not be exactly "
-            "matched - be sure to fine tune this sucker!"
-        )
-    return assemble_task
-
-
 def get_out_arch_info(
     model: ModelReference,
     donor: ModelReference,
@@ -657,97 +378,114 @@ def get_out_arch_info(
     return ConfiguredModelArchitecture(info=arch_info_out, config=cfg_out)
 
 
-def plan_surgery(
+def compute_new_embeddings(
+    orig_embed: torch.Tensor,
+    donor_embed: torch.Tensor,
+    orig_vocab: Dict[NormalizedToken, int],
+    donor_vocab: Dict[NormalizedToken, int],
+    target_tokens: List[NormalizedToken],
     options: TokenSurgeonOptions,
-    common_options: MergeOptions,
-) -> Tuple[List[Task], transformers.PretrainedConfig]:
-    embed_wi, lm_head_wi = get_embedding_info(options.model, common_options)
-    old_vocab, old_embed, old_lm_head = get_stuff(options.model, common_options)
-    new_vocab, donor_embed, donor_lm_head = get_stuff(
-        options.donor, common_options, get_tied=True
-    )
-    common_tokens = list(set(old_vocab.keys()) & set(new_vocab.keys()))
-
-    writer_task = TensorWriterTask(
-        out_path=options.out_path,
-        max_shard_size=common_options.out_shard_size,
-        safe_serialization=common_options.safe_serialization,
-    )
-    save_tasks = []
-    if old_embed is not None:
-        assert (
-            donor_embed is not None
-        ), "Donor model does not have an input embedding, but the target model does"
-        embed_task = plan_embedding(
+) -> torch.Tensor:
+    assert all(t in donor_vocab for t in target_tokens)
+    if options.method == ApproximationMethod.MEAN:
+        mean = orig_embed.mean(dim=0)
+        return mean.unsqueeze(0).expand(len(target_tokens), -1)
+    elif options.method == ApproximationMethod.ZERO:
+        return torch.zeros(
+            len(target_tokens),
+            orig_embed.shape[1],
+            device=orig_embed.device,
+            dtype=orig_embed.dtype,
+        )
+    elif options.method == ApproximationMethod.COMMON_INTERPOLATION:
+        shared_vocab = list(
+            sorted(
+                set(orig_vocab.keys()) & set(donor_vocab.keys()),
+                key=lambda x: donor_vocab[x],
+            )
+        )
+        donor_shared_embeds = donor_embed[
+            torch.tensor([donor_vocab[t] for t in shared_vocab])
+        ]
+        orig_shared_embeds = orig_embed[
+            torch.tensor([orig_vocab[t] for t in shared_vocab])
+        ]
+        targets = donor_embed[torch.tensor([donor_vocab[t] for t in target_tokens])]
+        _, _, new_embeds = common_interp_approximate(
+            targets,
+            donor_shared_embeds,
+            orig_shared_embeds,
             options,
-            old_vocab,
-            new_vocab,
-            common_tokens,
-            hidden_size=old_embed.shape[1],
-            weight_info=embed_wi,
-            allow_prefix_match=False,
         )
-        save_tasks.append(
-            SaveTensor(
-                tensor_name=embed_wi.name,
-                tensor_task=embed_task,
-                writer_task=writer_task,
-                clone=False,
-                force_main_thread=True,
+        return new_embeds
+    elif options.method == ApproximationMethod.ORTHOGONAL_MATCHING_PURSUIT:
+        shared_vocab = list(
+            sorted(
+                set(orig_vocab.keys()) & set(donor_vocab.keys()),
+                key=lambda x: donor_vocab[x],
             )
         )
+        donor_shared_embeds = donor_embed[
+            torch.tensor([donor_vocab[t] for t in shared_vocab])
+        ]
+        orig_shared_embeds = orig_embed[
+            torch.tensor([orig_vocab[t] for t in shared_vocab])
+        ]
+        targets = donor_embed[torch.tensor([donor_vocab[t] for t in target_tokens])]
+        indices, coeffs = batch_omp(targets, donor_shared_embeds, options.k)
+        return torch.bmm(coeffs.unsqueeze(1), orig_shared_embeds[indices]).squeeze(1)
+    elif options.method == ApproximationMethod.SUBWORD:
+        raise NotImplementedError("Subword approximation not yet implemented")
+    else:
+        raise ValueError(f"Unknown approximation method: {options.method}")
 
-    if old_lm_head is not None:
-        assert (
-            donor_lm_head is not None
-        ), "Donor model does not have an output embedding, but the target model does"
-        lm_head_task = plan_embedding(
-            options,
-            old_vocab,
-            new_vocab,
-            common_tokens,
-            hidden_size=old_lm_head.shape[1],
-            weight_info=lm_head_wi,
-            allow_prefix_match=True,
-        )
-        save_tasks.append(
-            SaveTensor(
-                tensor_name=lm_head_wi.name,
-                tensor_task=lm_head_task,
-                writer_task=writer_task,
-                clone=False,
-                force_main_thread=True,
-            )
-        )
 
-    arch_info_out = get_out_arch_info(
-        options.model, options.donor, len(new_vocab), common_options
+def build_embedding_matrix(
+    weight_info: WeightInfo,
+    orig_embed: torch.Tensor,
+    donor_embed: torch.Tensor,
+    orig_vocab: Dict[NormalizedToken, int],
+    donor_vocab: Dict[NormalizedToken, int],
+    allow_prefix: bool,
+    allow_byte: bool,
+    options: TokenSurgeonOptions,
+) -> torch.Tensor:
+    LOG.info(f"Building new tensor for {weight_info.name}")
+    stats = TokenAssignmentStats()
+    out_vocab_size = max(len(donor_vocab), max(donor_vocab.values()) + 1)
+    res = torch.zeros(
+        out_vocab_size,
+        orig_embed.shape[1],
+        device=orig_embed.device,
+        dtype=orig_embed.dtype,
     )
-    for weight in arch_info_out.all_weights():
-        if weight.name not in {embed_wi.name, lm_head_wi.name}:
-            load_task = LoadTensor(
-                model=options.model,
-                tensor=weight.name,
-                optional=weight.optional,
-                aliases=weight.aliases,
-                tied_names=weight.tied_names,
-            )
-            save_tasks.append(
-                SaveTensor(
-                    tensor_name=weight.name,
-                    tensor_task=load_task,
-                    writer_task=writer_task,
-                    clone=False,
-                    optional=weight.optional,
-                    dtype=weight.force_dtype,
-                    force_main_thread=True,
-                )
-            )
-    finalize = FinalizeModel(
-        tensor_save_tasks=save_tasks,
-        writer_task=writer_task,
-    )
-    return [finalize], arch_info_out.config
+    new_tokens = []
+    for token, donor_idx in donor_vocab.items():
+        if token in orig_vocab:
+            orig_idx = orig_vocab[token]
+            res[donor_idx] = orig_embed[orig_idx]
+            stats.exact_match += 1
+        elif (
+            allow_byte and (orig_idx := match_byte_token(token, orig_vocab)) is not None
+        ):
+            res[donor_idx] = orig_embed[orig_idx]
+            stats.byte_match += 1
+        elif allow_prefix and (orig_idx := match_prefix(token, orig_vocab)) is not None:
+            res[donor_idx] = orig_embed[orig_idx]
+            stats.prefix_match += 1
+        else:
+            new_tokens.append(token)
+            stats.to_approximate += 1
+
+    LOG.info(stats.pretty_print())
+    if new_tokens:
+        LOG.info(f"Approximating {len(new_tokens)} tokens")
+        new_embeds = compute_new_embeddings(
+            orig_embed, donor_embed, orig_vocab, donor_vocab, new_tokens, options
+        )
+        for ne_idx, token in enumerate(new_tokens):
+            res[donor_vocab[token]] = new_embeds[ne_idx]
+    return res
 
 
 @click.command("mergekit-tokensurgeon", cls=PrettyPrintHelp)
@@ -763,11 +501,10 @@ def plan_surgery(
     show_default=True,
 )
 @click.option(
-    "--barycentric/--no-barycentric",
-    "-b/-nb",
+    "--knn/--no-knn",
     is_flag=True,
-    default=False,
-    help="Use barycentric interpolation instead of distance weighting",
+    default=True,
+    help="Use KNN for common-vocabulary interpolation",
     show_default=True,
 )
 @click.option(
@@ -782,8 +519,16 @@ def plan_surgery(
     "--approximation-method",
     "-a",
     type=click.Choice([m.value for m in ApproximationMethod]),
-    default=ApproximationMethod.KNN_INTERPOLATION.value,
+    default=ApproximationMethod.COMMON_INTERPOLATION.value,
     help="Method for approximating missing tokens",
+    show_default=True,
+)
+@click.option(
+    "--weight-scheme",
+    "-w",
+    type=click.Choice([w.value for w in WeightingScheme]),
+    default=WeightingScheme.DISTANCE_PROPORTIONAL.value,
+    help="Weighting scheme for KNN interpolation",
     show_default=True,
 )
 @click.option(
@@ -799,9 +544,10 @@ def main(
     donor: str,
     out_path: str,
     k: int,
-    barycentric: bool,
+    knn: bool,
     cosine_similarity: bool,
     approximation_method: str,
+    weight_scheme: str,
     average: bool,
     merge_options: MergeOptions,
 ):
@@ -812,30 +558,108 @@ def main(
         donor=ModelReference.model_validate(donor),
         out_path=out_path,
         k=k,
+        knn=knn,
         cosine_similarity=cosine_similarity,
-        barycentric=barycentric,
         method=ApproximationMethod(approximation_method),
+        weight_scheme=WeightingScheme(weight_scheme),
         average=average,
     )
-    logging.info("Planning surgery...")
-    tasks, out_config = plan_surgery(options, merge_options)
 
-    logging.info(f"Writing config and tokenizer to {out_path}")
-    out_config.save_pretrained(out_path)
-    TokenizerCache().get(options.donor).save_pretrained(out_path)
-    logging.info("Wrote them.")
+    cache = LoaderCache()
+    cache.setup(options=merge_options)
 
-    if merge_options.multi_gpu:
-        executor = MultiGPUExecutor(
-            tasks, storage_device="cpu" if not merge_options.low_cpu_memory else None
+    device = "cuda" if merge_options.cuda else "cpu"
+
+    arch_info = get_arch_info(options.model, merge_options)
+    embed_wi, lm_head_wi = get_embedding_info(arch_info)
+    orig_vocab, orig_embed, orig_lm_head = get_stuff(
+        options.model, merge_options, arch_info=arch_info, device=device
+    )
+    donor_vocab, donor_embed, donor_lm_head = get_stuff(
+        options.donor, merge_options, arch_info=None, get_tied=True, device=device
+    )
+
+    if orig_embed is not None:
+        if donor_embed is None:
+            raise RuntimeError(
+                f"Missing tensor {embed_wi.name} in model {options.donor}"
+            )
+        new_embed = build_embedding_matrix(
+            embed_wi,
+            orig_embed,
+            donor_embed,
+            orig_vocab=orig_vocab,
+            donor_vocab=donor_vocab,
+            allow_prefix=False,
+            allow_byte=True,
+            options=options,
         )
     else:
-        executor = Executor(
-            tasks,
-            math_device="cuda" if merge_options.cuda else "cpu",
-            storage_device="cuda" if merge_options.low_cpu_memory else "cpu",
-        )
+        if not embed_wi.optional:
+            raise RuntimeError(
+                f"Missing tensor {embed_wi.name} in model {options.model}"
+            )
+        new_embed = None
 
-    logging.info("Executing surgery...")
-    executor.execute()
-    logging.info("Done!")
+    if orig_lm_head is not None:
+        if donor_lm_head is None:
+            raise RuntimeError(
+                f"Missing tensor {lm_head_wi.name} in model {options.donor}"
+            )
+        new_lm_head = build_embedding_matrix(
+            lm_head_wi,
+            orig_lm_head,
+            donor_lm_head,
+            orig_vocab=orig_vocab,
+            donor_vocab=donor_vocab,
+            allow_prefix=True,
+            allow_byte=True,
+            options=options,
+        )
+    else:
+        if not lm_head_wi.optional:
+            raise RuntimeError(
+                f"Missing tensor {lm_head_wi.name} in model {options.model}"
+            )
+        new_lm_head = None
+
+    new_vocab_size = None
+    if new_embed is not None:
+        new_vocab_size = new_embed.shape[0]
+    elif new_lm_head is not None:
+        new_vocab_size = new_lm_head.shape[0]
+    LOG.info(f"Saving new model to {out_path}")
+    out_arch_info = get_out_arch_info(
+        options.model, options.donor, new_vocab_size, merge_options
+    )
+    writer = TensorWriter(
+        out_path,
+        max_shard_size=merge_options.out_shard_size,
+        safe_serialization=merge_options.safe_serialization,
+    )
+    for weight_info in tqdm.tqdm(out_arch_info.all_weights(), desc="Saving weights"):
+        if weight_info.name == embed_wi.name:
+            tensor = new_embed
+        elif lm_head_wi is not None and weight_info.name == lm_head_wi.name:
+            tensor = new_lm_head
+        else:
+            tensor = cache.get(options.model).get_tensor(
+                weight_info.name, aliases=weight_info.aliases
+            )
+        if tensor is None:
+            if weight_info.optional:
+                continue
+            raise RuntimeError(
+                f"Missing tensor {weight_info.name} in model {options.model}"
+            )
+        writer.save_tensor(weight_info.name, tensor, clone=merge_options.clone_tensors)
+    writer.finalize()
+    out_arch_info.config.save_pretrained(out_path)
+
+    tokenizer_out = transformers.AutoTokenizer.from_pretrained(
+        options.donor.model.path,
+        revision=options.donor.model.revision,
+        trust_remote_code=merge_options.trust_remote_code,
+    )
+    tokenizer_out.save_pretrained(out_path)
+    LOG.info("Done!")
