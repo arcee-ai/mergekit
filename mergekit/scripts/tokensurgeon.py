@@ -289,7 +289,7 @@ def batch_omp(
         rt_approx = torch.bmm(
             final_coeff.unsqueeze(1), points_work[selected_indices]
         ).squeeze(1)
-        residuals = targets - rt_approx
+        residuals = targets_work - rt_approx
         LOG.debug(f"OMP final RMS: {residuals.norm(dim=1).mean()}")
 
     return selected_indices, final_coeff
