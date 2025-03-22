@@ -171,6 +171,15 @@ def common_interp_approximate(
         cosine_similarity=metric == DistanceMetric.COSINE,
     )
 
+    # Log reconstruction error
+    approx = (
+        torch.bmm(weights.unsqueeze(1).float(), a_embeddings[indices].float())
+        .squeeze(1)
+        .to(targets.dtype)
+    )
+    err = (approx - targets).norm(dim=1)
+    LOG.debug(f"Reconstruction error: {err.mean()}")
+
     res = (
         torch.bmm(weights.unsqueeze(1).float(), b_embeddings[indices].float())
         .squeeze(1)
@@ -180,7 +189,11 @@ def common_interp_approximate(
 
 
 def batch_omp(
-    targets: torch.Tensor, candidate_points: torch.Tensor, k: int
+    targets: torch.Tensor,
+    candidate_points: torch.Tensor,
+    k: int,
+    eps: float = 1e-8,
+    reorthogonalize_interval: int = 50,
 ) -> Tuple[torch.LongTensor, torch.Tensor]:
     """
     Batched Orthogonal Matching Pursuit (OMP) to select `k` points from `candidate_points` that best approximate each target in `targets`.
@@ -189,6 +202,8 @@ def batch_omp(
         targets: (B, D) tensor of target vectors.
         candidate_points: (N, D) tensor of candidate points.
         k: Number of points to select (sparsity level).
+        eps: Tolerance for numerical stability.
+        reorthogonalize_interval: Number of iterations between reorthogonalization steps.
 
     Returns:
         selected_indices: (B, k) tensor of indices selected for each target.
@@ -204,12 +219,15 @@ def batch_omp(
         if targets.dtype in (torch.float32, torch.float64)
         else torch.float32
     )
-    # Initialize selected indices and residuals
-    selected_indices = torch.zeros((B, k), dtype=torch.long, device=device)
+    # Convert inputs to work_dtype
     targets_work = targets.to(dtype=work_dtype)
-    residuals = targets_work.clone()
     points_work = candidate_points.to(dtype=work_dtype)
+    # Preallocate tensors
+    q = torch.zeros((B, D, k), dtype=work_dtype, device=device)
+    r = torch.zeros((B, k, k), dtype=work_dtype, device=device)
+    selected_indices = torch.zeros((B, k), dtype=torch.long, device=device)
     mask = torch.zeros((B, N), dtype=torch.bool, device=device)
+    residuals = targets_work.clone()
 
     for t in range(k):
         rms_0 = residuals.norm(dim=1).mean()
@@ -221,24 +239,60 @@ def batch_omp(
         # Select new index with maximum correlation
         _, new_idx = torch.max(abs_inner, dim=1)  # (B,)
         selected_indices[:, t] = new_idx
-
-        # Update mask
         mask[torch.arange(B, device=device), new_idx] = True
 
-        # Gather selected points (B, t+1, D)
-        selected_points = points_work[selected_indices[:, : t + 1]]
-        # Solve least squares
-        coeff = torch.linalg.lstsq(
-            selected_points.transpose(1, 2),  # (B, D, t+1)
-            targets_work.unsqueeze(-1),  # (B, D, 1)
-        ).solution.squeeze(
-            -1
-        )  # (B, t+1)
-        # Update residuals
-        approx = torch.bmm(coeff.unsqueeze(1), selected_points).squeeze(1)
+        new_atom = points_work[new_idx]  # (B, D)
+        if t == 0:
+            r[:, 0, 0] = new_atom.norm(dim=1)
+            norm = r[:, 0, 0].clamp(min=eps)
+            q[:, :, 0] = new_atom / norm.unsqueeze(1)
+        else:
+            # Project onto existing basis
+            projections = torch.bmm(
+                q[:, :, :t].transpose(1, 2), new_atom.unsqueeze(-1)
+            ).squeeze(
+                -1
+            )  # (B, t)
+            residual = new_atom - torch.bmm(
+                q[:, :, :t], projections.unsqueeze(-1)
+            ).squeeze(
+                -1
+            )  # (B, D)
+            norm = torch.clamp(torch.norm(residual, dim=1), min=eps)
+            # Update R and Q
+            r[:, :t, t] = projections
+            r[:, t, t] = norm
+            q[:, :, t] = residual / norm.unsqueeze(-1)
+
+        if t > 0 and t % reorthogonalize_interval == 0:
+            q_b = q[:, :, : t + 1]
+            q_new, r_new = torch.linalg.qr(q_b, mode="reduced")
+            r[:, : t + 1, : t + 1] = torch.bmm(r_new, r[:, : t + 1, : t + 1])
+            q[:, :, : t + 1] = q_new
+
+        qt_targets = torch.bmm(
+            q[:, :, : t + 1].transpose(1, 2), targets_work.unsqueeze(-1)
+        )  # (B, t+1, 1)
+        approx = torch.bmm(q[:, :, : t + 1], qt_targets).squeeze(-1)
         residuals = targets_work - approx
         LOG.debug(f"OMP iteration {t}: RMS {rms_0} -> {residuals.norm(dim=1).mean()}")
-    return selected_indices, coeff
+
+    # Get final coefficients
+    final_coeff = torch.linalg.solve_triangular(
+        r[:, :k, :k],
+        torch.bmm(q[:, :, :k].transpose(1, 2), targets_work.unsqueeze(-1)),
+        upper=True,
+    ).squeeze(-1)
+
+    # Print residuals if we're yapping
+    if LOG.isEnabledFor(logging.DEBUG):
+        rt_approx = torch.bmm(
+            final_coeff.unsqueeze(1), points_work[selected_indices]
+        ).squeeze(1)
+        residuals = targets - rt_approx
+        LOG.debug(f"OMP final RMS: {residuals.norm(dim=1).mean()}")
+
+    return selected_indices, final_coeff
 
 
 class TokenSurgeonOptions(BaseModel):
