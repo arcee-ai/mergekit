@@ -162,8 +162,6 @@ def common_interp_approximate(
             targets.size(0), -1
         )
         knn_distances = distances
-    print(f"indices: {indices.shape}")
-    print(f"knn_distances: {knn_distances.shape}")
 
     weights = approximate_from_landmarks(
         targets,
@@ -240,6 +238,7 @@ class TokenSurgeonOptions(BaseModel):
     knn: bool = True
     cosine_similarity: bool = False
     average: bool = True
+    batch_size: Optional[int] = None
 
 
 def get_arch_info(
@@ -480,11 +479,23 @@ def build_embedding_matrix(
     LOG.info(stats.pretty_print())
     if new_tokens:
         LOG.info(f"Approximating {len(new_tokens)} tokens")
-        new_embeds = compute_new_embeddings(
-            orig_embed, donor_embed, orig_vocab, donor_vocab, new_tokens, options
-        )
-        for ne_idx, token in enumerate(new_tokens):
-            res[donor_vocab[token]] = new_embeds[ne_idx]
+        batch_size = options.batch_size or len(new_tokens)
+        for base_idx in tqdm.tqdm(
+            range(0, len(new_tokens), batch_size),
+            desc="Approximating tokens",
+        ):
+            new_embeds = compute_new_embeddings(
+                orig_embed,
+                donor_embed,
+                orig_vocab,
+                donor_vocab,
+                new_tokens[base_idx : base_idx + batch_size],
+                options,
+            )
+            for ne_idx, token in enumerate(
+                new_tokens[base_idx : base_idx + batch_size]
+            ):
+                res[donor_vocab[token]] = new_embeds[ne_idx]
     return res
 
 
@@ -538,6 +549,13 @@ def build_embedding_matrix(
     help="Use average instead of sum for subword embedding approximation",
     show_default=True,
 )
+@click.option(
+    "--batch-size",
+    type=int,
+    default=None,
+    help="Number of tokens to process in each batch",
+    show_default=True,
+)
 @add_merge_options
 def main(
     model: str,
@@ -549,6 +567,7 @@ def main(
     approximation_method: str,
     weight_scheme: str,
     average: bool,
+    batch_size: Optional[int],
     merge_options: MergeOptions,
 ):
     merge_options.apply_global_options()
@@ -563,6 +582,7 @@ def main(
         method=ApproximationMethod(approximation_method),
         weight_scheme=WeightingScheme(weight_scheme),
         average=average,
+        batch_size=batch_size,
     )
 
     cache = LoaderCache()
