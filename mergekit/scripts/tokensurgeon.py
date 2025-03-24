@@ -444,6 +444,32 @@ def get_out_arch_info(
     return ConfiguredModelArchitecture(info=arch_info_out, config=cfg_out)
 
 
+def subword_approximate(
+    orig_embed: torch.Tensor,
+    target_tokens: List[NormalizedToken],
+    options: TokenSurgeonOptions,
+) -> torch.Tensor:
+    res = torch.zeros(
+        len(target_tokens),
+        orig_embed.shape[1],
+        device=orig_embed.device,
+        dtype=orig_embed.dtype,
+    )
+    tok_0 = transformers.AutoTokenizer.from_pretrained(
+        options.model.model.path,
+        revision=options.model.model.revision,
+        trust_remote_code=False,
+    )
+    for idx, token in enumerate(target_tokens):
+        text = unnormalize_token(token)
+        token_ids = tok_0(text, add_special_tokens=False)["input_ids"]
+        for id in token_ids:
+            res[idx] += orig_embed[id]
+        if options.average and len(token_ids) > 0:
+            res[idx] /= len(token_ids)
+    return res
+
+
 def compute_new_embeddings(
     orig_embed: torch.Tensor,
     donor_embed: torch.Tensor,
@@ -498,14 +524,21 @@ def compute_new_embeddings(
             torch.tensor([orig_vocab[t] for t in shared_vocab])
         ]
         targets = donor_embed[torch.tensor([donor_vocab[t] for t in target_tokens])]
+        print(
+            f"OMP: {len(shared_vocab)} shared tokens, {len(target_tokens)} targets, k={options.k}"
+        )
         indices, coeffs = batch_omp(targets, donor_shared_embeds, options.k)
-        return (
+        print(f"OMP: coeffs shape {coeffs.shape}, indices shape {indices.shape}")
+        res = (
             torch.bmm(coeffs.unsqueeze(1), orig_shared_embeds[indices].to(torch.float))
             .squeeze(1)
             .to(orig_embed.dtype)
         )
+        print(f"OMP: res shape {res.shape}")
+        print(repr(res))
+        return res
     elif options.method == ApproximationMethod.SUBWORD:
-        raise NotImplementedError("Subword approximation not yet implemented")
+        return subword_approximate(orig_embed, target_tokens, options)
     else:
         raise ValueError(f"Unknown approximation method: {options.method}")
 
