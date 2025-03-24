@@ -73,6 +73,13 @@ class WeightingScheme(enum.Enum):
     LEAST_SQUARES = "least_squares"
 
 
+class SubwordMethod(enum.Enum):
+    MEAN = "mean"
+    SUM = "sum"
+    WEIGHTED_MEAN = "weighted_mean"
+    FIRST_LAST = "first_last"
+
+
 def approximate_from_landmarks(
     targets: torch.Tensor,
     points: torch.Tensor,
@@ -304,7 +311,7 @@ class TokenSurgeonOptions(BaseModel):
     k: int = 8
     knn: bool = True
     cosine_similarity: bool = False
-    average: bool = True
+    subword_method: SubwordMethod = SubwordMethod.MEAN
     batch_size: Optional[int] = None
 
 
@@ -447,6 +454,7 @@ def get_out_arch_info(
 def subword_approximate(
     orig_embed: torch.Tensor,
     target_tokens: List[NormalizedToken],
+    is_lm_head: bool,
     options: TokenSurgeonOptions,
 ) -> torch.Tensor:
     res = torch.zeros(
@@ -463,10 +471,31 @@ def subword_approximate(
     for idx, token in enumerate(target_tokens):
         text = unnormalize_token(token)
         token_ids = tok_0(text, add_special_tokens=False)["input_ids"]
-        for id in token_ids:
-            res[idx] += orig_embed[id]
-        if options.average and len(token_ids) > 0:
-            res[idx] /= len(token_ids)
+
+        if options.subword_method in (SubwordMethod.MEAN, SubwordMethod.SUM):
+            for id in token_ids:
+                res[idx] += orig_embed[id]
+            if options.subword_method == SubwordMethod.MEAN and len(token_ids) > 0:
+                res[idx] /= len(token_ids)
+        elif options.subword_method == SubwordMethod.WEIGHTED_MEAN:
+            weights = list(range(1, len(token_ids) + 1))
+            if not is_lm_head:
+                # for embed_tokens, want last token to have highest weight
+                # (vs. first token for lm_head)
+                weights = weights[::-1]
+            for id, weight in zip(token_ids, weights):
+                res[idx] += weight * orig_embed[id]
+            if len(token_ids) > 0:
+                res[idx] /= sum(weights)
+        elif options.subword_method == SubwordMethod.FIRST_LAST:
+            if len(token_ids) == 0:
+                continue
+            if is_lm_head:
+                res[idx] = orig_embed[token_ids[0]]
+            else:
+                res[idx] = orig_embed[token_ids[-1]]
+        else:
+            raise ValueError(f"Unknown subword method: {options.subword_method}")
     return res
 
 
@@ -476,6 +505,7 @@ def compute_new_embeddings(
     orig_vocab: Dict[NormalizedToken, int],
     donor_vocab: Dict[NormalizedToken, int],
     target_tokens: List[NormalizedToken],
+    is_lm_head: bool,
     options: TokenSurgeonOptions,
 ) -> torch.Tensor:
     assert all(t in donor_vocab for t in target_tokens)
@@ -524,21 +554,15 @@ def compute_new_embeddings(
             torch.tensor([orig_vocab[t] for t in shared_vocab])
         ]
         targets = donor_embed[torch.tensor([donor_vocab[t] for t in target_tokens])]
-        print(
-            f"OMP: {len(shared_vocab)} shared tokens, {len(target_tokens)} targets, k={options.k}"
-        )
         indices, coeffs = batch_omp(targets, donor_shared_embeds, options.k)
-        print(f"OMP: coeffs shape {coeffs.shape}, indices shape {indices.shape}")
         res = (
             torch.bmm(coeffs.unsqueeze(1), orig_shared_embeds[indices].to(torch.float))
             .squeeze(1)
             .to(orig_embed.dtype)
         )
-        print(f"OMP: res shape {res.shape}")
-        print(repr(res))
         return res
     elif options.method == ApproximationMethod.SUBWORD:
-        return subword_approximate(orig_embed, target_tokens, options)
+        return subword_approximate(orig_embed, target_tokens, is_lm_head, options)
     else:
         raise ValueError(f"Unknown approximation method: {options.method}")
 
@@ -551,6 +575,7 @@ def build_embedding_matrix(
     donor_vocab: Dict[NormalizedToken, int],
     allow_prefix: bool,
     allow_byte: bool,
+    is_lm_head: bool,
     options: TokenSurgeonOptions,
 ) -> torch.Tensor:
     LOG.info(f"Building new tensor for {weight_info.name}")
@@ -594,6 +619,7 @@ def build_embedding_matrix(
                 orig_vocab,
                 donor_vocab,
                 new_tokens[base_idx : base_idx + batch_size],
+                is_lm_head,
                 options,
             )
             for ne_idx, token in enumerate(
@@ -647,10 +673,11 @@ def build_embedding_matrix(
     show_default=True,
 )
 @click.option(
-    "--average/--no-average",
-    is_flag=True,
-    default=True,
-    help="Use average instead of sum for subword embedding approximation",
+    "--subword-method",
+    "-s",
+    type=click.Choice([m.value for m in SubwordMethod]),
+    default=SubwordMethod.MEAN.value,
+    help="Method for approximating embeddings with subword tokens",
     show_default=True,
 )
 @click.option(
@@ -670,7 +697,7 @@ def main(
     cosine_similarity: bool,
     approximation_method: str,
     weight_scheme: str,
-    average: bool,
+    subword_method: str,
     batch_size: Optional[int],
     merge_options: MergeOptions,
 ):
@@ -685,7 +712,7 @@ def main(
         cosine_similarity=cosine_similarity,
         method=ApproximationMethod(approximation_method),
         weight_scheme=WeightingScheme(weight_scheme),
-        average=average,
+        subword_method=SubwordMethod(subword_method),
         batch_size=batch_size,
     )
 
@@ -716,6 +743,7 @@ def main(
             donor_vocab=donor_vocab,
             allow_prefix=False,
             allow_byte=True,
+            is_lm_head=False,
             options=options,
         )
     else:
@@ -738,6 +766,7 @@ def main(
             donor_vocab=donor_vocab,
             allow_prefix=True,
             allow_byte=True,
+            is_lm_head=True,
             options=options,
         )
     else:
