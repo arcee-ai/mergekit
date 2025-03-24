@@ -687,6 +687,13 @@ def build_embedding_matrix(
     help="Number of tokens to process in each batch",
     show_default=True,
 )
+@click.option(
+    "--allow-lm-head-prefix-match/--no-allow-lm-head-prefix-match",
+    is_flag=True,
+    default=True,
+    help="Allow prefix matches for LM head tokens",
+    show_default=True,
+)
 @add_merge_options
 def main(
     model: str,
@@ -699,6 +706,7 @@ def main(
     weight_scheme: str,
     subword_method: str,
     batch_size: Optional[int],
+    allow_lm_head_prefix_match: bool,
     merge_options: MergeOptions,
 ):
     merge_options.apply_global_options()
@@ -764,7 +772,7 @@ def main(
             donor_lm_head,
             orig_vocab=orig_vocab,
             donor_vocab=donor_vocab,
-            allow_prefix=True,
+            allow_prefix=allow_lm_head_prefix_match,
             allow_byte=True,
             is_lm_head=True,
             options=options,
