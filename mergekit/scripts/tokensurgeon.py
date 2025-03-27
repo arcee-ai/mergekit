@@ -555,6 +555,7 @@ def compute_new_embeddings(
         ]
         targets = donor_embed[torch.tensor([donor_vocab[t] for t in target_tokens])]
         indices, coeffs = batch_omp(targets, donor_shared_embeds, options.k)
+
         res = (
             torch.bmm(coeffs.unsqueeze(1), orig_shared_embeds[indices].to(torch.float))
             .squeeze(1)
@@ -660,7 +661,7 @@ def build_embedding_matrix(
     "--approximation-method",
     "-a",
     type=click.Choice([m.value for m in ApproximationMethod]),
-    default=ApproximationMethod.COMMON_INTERPOLATION.value,
+    default=ApproximationMethod.ORTHOGONAL_MATCHING_PURSUIT.value,
     help="Method for approximating missing tokens",
     show_default=True,
 )
@@ -669,7 +670,7 @@ def build_embedding_matrix(
     "-w",
     type=click.Choice([w.value for w in WeightingScheme]),
     default=WeightingScheme.DISTANCE_PROPORTIONAL.value,
-    help="Weighting scheme for KNN interpolation",
+    help="Weighting scheme for common-vocabulary interpolation",
     show_default=True,
 )
 @click.option(
@@ -690,7 +691,7 @@ def build_embedding_matrix(
 @click.option(
     "--allow-lm-head-prefix-match/--no-allow-lm-head-prefix-match",
     is_flag=True,
-    default=True,
+    default=False,
     help="Allow prefix matches for LM head tokens",
     show_default=True,
 )
