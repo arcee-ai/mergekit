@@ -976,6 +976,8 @@ def main(
             if (tok not in well_trained_donor_tokens)
             and (tok not in well_trained_orig_tokens)
         ]
+    else:
+        junk_tokens = []
 
     if orig_embed is not None:
         if donor_embed is None:
@@ -1012,6 +1014,7 @@ def main(
             donor_lm_head,
             orig_vocab=orig_vocab,
             donor_vocab=donor_vocab,
+            junk_tokens=junk_tokens,
             allow_prefix=prefix_match in (AllowMatch.YES, AllowMatch.EMBED_ONLY),
             allow_byte=byte_match in (AllowMatch.YES, AllowMatch.EMBED_ONLY),
             is_lm_head=True,
