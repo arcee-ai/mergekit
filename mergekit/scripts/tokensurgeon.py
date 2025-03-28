@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 import click
 import torch
+import torch.distributions.constraints
 import tqdm
 import transformers
 from pydantic import BaseModel
@@ -24,10 +25,17 @@ from mergekit.io.tensor_writer import TensorWriter
 from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 from mergekit.tokenizer.normalization import (
     NormalizedToken,
-    TokenMarker,
     normalized_vocabulary,
     token_prefixes,
 )
+from mergekit.tokensurgeon import (
+    SubwordMethod,
+    WeightingScheme,
+    batch_omp,
+    common_interp_approximate,
+    subword_approximate,
+)
+from mergekit.tokensurgeon.common_interpolation import DistanceMetric
 
 LOG = logging.getLogger(__name__)
 
@@ -59,247 +67,9 @@ class ApproximationMethod(enum.Enum):
     SUBWORD = "subword"
     MEAN = "mean"
     ZERO = "zero"
+    RANDN = "randn"
+    JOHN_HEWITT = "random_matching_distribution"
     ORTHOGONAL_MATCHING_PURSUIT = "omp"
-
-
-class DistanceMetric(enum.Enum):
-    EUCLIDEAN = "euclidean"
-    COSINE = "cosine"
-
-
-class WeightingScheme(enum.Enum):
-    DISTANCE_PROPORTIONAL = "distance_proportional"
-    BARYCENTRIC = "barycentric"
-    LEAST_SQUARES = "least_squares"
-
-
-class SubwordMethod(enum.Enum):
-    MEAN = "mean"
-    SUM = "sum"
-    WEIGHTED_MEAN = "weighted_mean"
-    FIRST_LAST = "first_last"
-
-
-def approximate_from_landmarks(
-    targets: torch.Tensor,
-    points: torch.Tensor,
-    distances: torch.Tensor,
-    scheme: WeightingScheme = WeightingScheme.DISTANCE_PROPORTIONAL,
-    cosine_similarity: bool = False,
-) -> torch.Tensor:
-    batch_size, embedding_dim = targets.shape
-    assert points.dim() == 3 and points.shape == (
-        batch_size,
-        points.shape[1],
-        embedding_dim,
-    )
-    num_points = points.shape[1]
-    assert points.shape[2] == embedding_dim
-    assert distances.shape == (batch_size, num_points)
-
-    if scheme == WeightingScheme.DISTANCE_PROPORTIONAL:
-        if cosine_similarity:
-            weights = 1 - distances
-        else:
-            weights = 1 / distances.clamp_min(1e-6)
-        weights = weights / weights.sum(dim=1, keepdim=True).clamp_min(1e-6)
-    elif scheme == WeightingScheme.BARYCENTRIC:
-        weights = barycentric_weights(targets, points)
-    elif scheme == WeightingScheme.LEAST_SQUARES:
-        weights = torch.linalg.lstsq(
-            points.transpose(1, 2).float(), targets.unsqueeze(-1).float()
-        ).solution.squeeze(-1)
-    else:
-        raise ValueError(f"Unknown weighting scheme: {scheme}")
-    return weights
-
-
-def barycentric_weights(targets: torch.Tensor, points: torch.Tensor) -> torch.Tensor:
-    batch_size, num_points, _embedding_dim = points.shape
-    ptp = torch.bmm(points, points.transpose(1, 2))
-    ones_col = torch.ones((batch_size, num_points, 1), device=points.device)
-    ones_row = torch.ones((batch_size, 1, num_points), device=points.device)
-    zeros = torch.zeros((batch_size, 1, 1), device=points.device)
-    upper = torch.cat([ptp, ones_col], dim=2)
-    lower = torch.cat([ones_row, zeros], dim=2)
-    augmented_matrix = torch.cat([upper, lower], dim=1)
-    rhs_upper = torch.bmm(targets.unsqueeze(1), points.transpose(1, 2)).squeeze(1)
-    rhs_lower = torch.ones((batch_size, 1), device=points.device)
-    rhs = torch.cat([rhs_upper, rhs_lower], dim=1)
-    return torch.linalg.lstsq(augmented_matrix, rhs.unsqueeze(-1)).solution.squeeze(-1)[
-        ..., :num_points
-    ]
-
-
-def _cosine_sim(x1: torch.Tensor, x2: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
-    w1 = x1.norm(p=2, dim=1, keepdim=True)
-    w2 = x2.norm(p=2, dim=1, keepdim=True)
-    return torch.mm(x1, x2.t()) / (w1 * w2.t()).clamp(min=eps)
-
-
-def common_interp_approximate(
-    targets: torch.Tensor,
-    a_embeddings: torch.Tensor,
-    b_embeddings: torch.Tensor,
-    options: "TokenSurgeonOptions",
-) -> Tuple[torch.Tensor, torch.LongTensor, torch.Tensor]:
-    k = options.k if options.knn else None
-    metric = (
-        DistanceMetric.COSINE if options.cosine_similarity else DistanceMetric.EUCLIDEAN
-    )
-    assert targets.dim() == 2
-    assert a_embeddings.dim() == 2
-    assert b_embeddings.dim() == 2
-    assert targets.size(1) == a_embeddings.size(1)
-    assert (k is None) or (k > 0), "k must be positive"
-
-    if metric == DistanceMetric.EUCLIDEAN:
-        distances = torch.cdist(targets, a_embeddings, p=2)
-    elif metric == DistanceMetric.COSINE:
-        distances = 1 - _cosine_sim(targets, a_embeddings)
-    else:
-        raise ValueError(f"Unknown distance metric: {metric}")
-
-    # Find the k nearest neighbors
-    if k is not None:
-        _, indices = torch.topk(distances, k=k, dim=1, largest=False)
-        knn_distances = distances.gather(1, indices)
-    else:
-        indices = torch.arange(a_embeddings.size(0), device=a_embeddings.device).expand(
-            targets.size(0), -1
-        )
-        knn_distances = distances
-
-    weights = approximate_from_landmarks(
-        targets,
-        a_embeddings[indices],
-        knn_distances,
-        scheme=options.weight_scheme,
-        cosine_similarity=metric == DistanceMetric.COSINE,
-    )
-
-    # Log reconstruction error
-    approx = (
-        torch.bmm(weights.unsqueeze(1).float(), a_embeddings[indices].float())
-        .squeeze(1)
-        .to(targets.dtype)
-    )
-    err = (approx - targets).norm(dim=1)
-    LOG.debug(f"Reconstruction error: {err.mean()}")
-
-    res = (
-        torch.bmm(weights.unsqueeze(1).float(), b_embeddings[indices].float())
-        .squeeze(1)
-        .to(b_embeddings.dtype)
-    )
-    return weights, indices, res
-
-
-def batch_omp(
-    targets: torch.Tensor,
-    candidate_points: torch.Tensor,
-    k: int,
-    eps: float = 1e-8,
-    reorthogonalize_interval: int = 50,
-) -> Tuple[torch.LongTensor, torch.Tensor]:
-    """
-    Batched Orthogonal Matching Pursuit (OMP) to select `k` points from `candidate_points` that best approximate each target in `targets`.
-
-    Args:
-        targets: (B, D) tensor of target vectors.
-        candidate_points: (N, D) tensor of candidate points.
-        k: Number of points to select (sparsity level).
-        eps: Tolerance for numerical stability.
-        reorthogonalize_interval: Number of iterations between reorthogonalization steps.
-
-    Returns:
-        selected_indices: (B, k) tensor of indices selected for each target.
-        coeff: (B, k) tensor of coefficients for each selected point.
-    """
-    B, D = targets.shape
-    N, _ = candidate_points.shape
-    device = targets.device
-    if k > N:
-        raise ValueError(f"Cannot select {k} points from {N} candidates")
-    work_dtype = (
-        targets.dtype
-        if targets.dtype in (torch.float32, torch.float64)
-        else torch.float32
-    )
-    # Convert inputs to work_dtype
-    targets_work = targets.to(dtype=work_dtype)
-    points_work = candidate_points.to(dtype=work_dtype)
-    # Preallocate tensors
-    q = torch.zeros((B, D, k), dtype=work_dtype, device=device)
-    r = torch.zeros((B, k, k), dtype=work_dtype, device=device)
-    selected_indices = torch.zeros((B, k), dtype=torch.long, device=device)
-    mask = torch.zeros((B, N), dtype=torch.bool, device=device)
-    residuals = targets_work.clone()
-
-    for t in range(k):
-        rms_0 = residuals.norm(dim=1).mean()
-        # Compute absolute inner products between residuals and points
-        abs_inner = (residuals @ points_work.T).abs()  # (B, N)
-        # Mask out already selected points
-        abs_inner.masked_fill_(mask, -float("inf"))
-
-        # Select new index with maximum correlation
-        _, new_idx = torch.max(abs_inner, dim=1)  # (B,)
-        selected_indices[:, t] = new_idx
-        mask[torch.arange(B, device=device), new_idx] = True
-
-        new_atom = points_work[new_idx]  # (B, D)
-        if t == 0:
-            r[:, 0, 0] = new_atom.norm(dim=1)
-            norm = r[:, 0, 0].clamp(min=eps)
-            q[:, :, 0] = new_atom / norm.unsqueeze(1)
-        else:
-            # Project onto existing basis
-            projections = torch.bmm(
-                q[:, :, :t].transpose(1, 2), new_atom.unsqueeze(-1)
-            ).squeeze(
-                -1
-            )  # (B, t)
-            residual = new_atom - torch.bmm(
-                q[:, :, :t], projections.unsqueeze(-1)
-            ).squeeze(
-                -1
-            )  # (B, D)
-            norm = torch.clamp(torch.norm(residual, dim=1), min=eps)
-            # Update R and Q
-            r[:, :t, t] = projections
-            r[:, t, t] = norm
-            q[:, :, t] = residual / norm.unsqueeze(-1)
-
-        if t > 0 and t % reorthogonalize_interval == 0:
-            q_b = q[:, :, : t + 1]
-            q_new, r_new = torch.linalg.qr(q_b, mode="reduced")
-            r[:, : t + 1, : t + 1] = torch.bmm(r_new, r[:, : t + 1, : t + 1])
-            q[:, :, : t + 1] = q_new
-
-        qt_targets = torch.bmm(
-            q[:, :, : t + 1].transpose(1, 2), targets_work.unsqueeze(-1)
-        )  # (B, t+1, 1)
-        approx = torch.bmm(q[:, :, : t + 1], qt_targets).squeeze(-1)
-        residuals = targets_work - approx
-        LOG.debug(f"OMP iteration {t}: RMS {rms_0} -> {residuals.norm(dim=1).mean()}")
-
-    # Get final coefficients
-    final_coeff = torch.linalg.solve_triangular(
-        r[:, :k, :k],
-        torch.bmm(q[:, :, :k].transpose(1, 2), targets_work.unsqueeze(-1)),
-        upper=True,
-    ).squeeze(-1)
-
-    # Print residuals if we're yapping
-    if LOG.isEnabledFor(logging.DEBUG):
-        rt_approx = torch.bmm(
-            final_coeff.unsqueeze(1), points_work[selected_indices]
-        ).squeeze(1)
-        residuals = targets_work - rt_approx
-        LOG.debug(f"OMP final RMS: {residuals.norm(dim=1).mean()}")
-
-    return selected_indices, final_coeff
 
 
 class TokenSurgeonOptions(BaseModel):
@@ -418,14 +188,6 @@ def match_prefix(
     return None
 
 
-def unnormalize_token(token: NormalizedToken) -> str:
-    if isinstance(token, tuple):
-        if token[0] == TokenMarker.WORD_START:
-            return " " + token[1]
-        return token[1]
-    return token
-
-
 def get_out_arch_info(
     model: ModelReference,
     donor: ModelReference,
@@ -451,52 +213,88 @@ def get_out_arch_info(
     return ConfiguredModelArchitecture(info=arch_info_out, config=cfg_out)
 
 
-def subword_approximate(
-    orig_embed: torch.Tensor,
-    target_tokens: List[NormalizedToken],
-    is_lm_head: bool,
-    options: TokenSurgeonOptions,
-) -> torch.Tensor:
-    res = torch.zeros(
-        len(target_tokens),
-        orig_embed.shape[1],
-        device=orig_embed.device,
-        dtype=orig_embed.dtype,
+def john_hewitt_init(orig_embed: torch.Tensor, num_new_tokens: int) -> torch.Tensor:
+    orig_embed_f32 = orig_embed.to(torch.float32)
+    mean = orig_embed_f32.mean(dim=0)
+    centered = orig_embed_f32 - mean
+    covariance = centered.T @ centered / orig_embed_f32.shape[0]
+    is_pd = torch.distributions.constraints.positive_definite.check(covariance).all()
+    if not is_pd:
+        LOG.warning(
+            "Covariance matrix is not positive definite - falling back to small randn"
+        )
+        return (
+            torch.randn(
+                len(num_new_tokens),
+                orig_embed.shape[1],
+                device=orig_embed.device,
+                dtype=orig_embed.dtype,
+            )
+            * 0.02
+        )
+    dist = torch.distributions.multivariate_normal.MultivariateNormal(
+        loc=mean,
+        covariance_matrix=covariance,
     )
-    tok_0 = transformers.AutoTokenizer.from_pretrained(
-        options.model.model.path,
-        revision=options.model.model.revision,
+    new_embeds = dist.sample((num_new_tokens,))
+    return new_embeds.to(orig_embed.dtype)
+
+
+def debug_reconstruction_for_random_tokens(
+    coeffs: torch.Tensor,
+    donor_shared_embeds: torch.Tensor,
+    indices: torch.LongTensor,
+    donor_embed: torch.Tensor,
+    target_tokens: List[NormalizedToken],
+    donor_vocab: Dict[NormalizedToken, int],
+    shared_vocab: List[NormalizedToken],
+    options: TokenSurgeonOptions,
+):
+    import random
+
+    reconstructed_in_donor = (
+        torch.bmm(
+            coeffs.unsqueeze(1).to(torch.float),
+            donor_shared_embeds[indices].to(torch.float),
+        )
+        .squeeze(1)
+        .to(donor_embed.dtype)
+    )
+    donor_tok = transformers.AutoTokenizer.from_pretrained(
+        options.donor.model.path,
+        revision=options.donor.model.revision,
         trust_remote_code=False,
     )
-    for idx, token in enumerate(target_tokens):
-        text = unnormalize_token(token)
-        token_ids = tok_0(text, add_special_tokens=False)["input_ids"]
-
-        if options.subword_method in (SubwordMethod.MEAN, SubwordMethod.SUM):
-            for id in token_ids:
-                res[idx] += orig_embed[id]
-            if options.subword_method == SubwordMethod.MEAN and len(token_ids) > 0:
-                res[idx] /= len(token_ids)
-        elif options.subword_method == SubwordMethod.WEIGHTED_MEAN:
-            weights = list(range(1, len(token_ids) + 1))
-            if not is_lm_head:
-                # for embed_tokens, want last token to have highest weight
-                # (vs. first token for lm_head)
-                weights = weights[::-1]
-            for id, weight in zip(token_ids, weights):
-                res[idx] += weight * orig_embed[id]
-            if len(token_ids) > 0:
-                res[idx] /= sum(weights)
-        elif options.subword_method == SubwordMethod.FIRST_LAST:
-            if len(token_ids) == 0:
-                continue
-            if is_lm_head:
-                res[idx] = orig_embed[token_ids[0]]
-            else:
-                res[idx] = orig_embed[token_ids[-1]]
-        else:
-            raise ValueError(f"Unknown subword method: {options.subword_method}")
-    return res
+    for i in random.sample(range(len(target_tokens)), 10):
+        tok_txt = donor_tok.decode([donor_vocab[target_tokens[i]]])
+        comp_tokens = [
+            repr(donor_tok.decode([donor_vocab[shared_vocab[j]]])) for j in indices[i]
+        ]
+        comp_coeffs = coeffs[i]
+        print(
+            repr(tok_txt)
+            + "\\approx "
+            + " + ".join(
+                [
+                    f"{comp_coeffs[j].item():.4f} * {comp_tokens[j]}"
+                    for j in range(len(comp_tokens))
+                ]
+            )
+        )
+        donor_tok_embed = donor_embed[donor_vocab[target_tokens[i]]]
+        reconstructed = reconstructed_in_donor[i]
+        err_rms = (reconstructed - donor_tok_embed).norm()
+        err_rel = err_rms / donor_tok_embed.norm().clamp_min(1e-6)
+        print(f"  Original embed norm: {donor_tok_embed.norm().item():.4f}")
+        print(f"  Reconstructed embed norm: {reconstructed.norm().item():.4f}")
+        print(f"  RMS error: {err_rms.item():.4f} (rel: {err_rel.item():.4f})")
+        cos_sim = torch.nn.functional.cosine_similarity(
+            donor_tok_embed,
+            reconstructed,
+            dim=0,
+        )
+        print(f"  Cosine similarity: {cos_sim.item():.4f}")
+        print()
 
 
 def compute_new_embeddings(
@@ -519,7 +317,19 @@ def compute_new_embeddings(
             device=orig_embed.device,
             dtype=orig_embed.dtype,
         )
-    elif options.method == ApproximationMethod.COMMON_INTERPOLATION:
+    elif options.method == ApproximationMethod.RANDN:
+        return torch.randn(
+            len(target_tokens),
+            orig_embed.shape[1],
+            device=orig_embed.device,
+            dtype=orig_embed.dtype,
+        )
+    elif options.method == ApproximationMethod.JOHN_HEWITT:
+        return john_hewitt_init(orig_embed, len(target_tokens))
+    elif options.method in (
+        ApproximationMethod.COMMON_INTERPOLATION,
+        ApproximationMethod.ORTHOGONAL_MATCHING_PURSUIT,
+    ):
         shared_vocab = list(
             sorted(
                 set(orig_vocab.keys()) & set(donor_vocab.keys()),
@@ -533,28 +343,32 @@ def compute_new_embeddings(
             torch.tensor([orig_vocab[t] for t in shared_vocab])
         ]
         targets = donor_embed[torch.tensor([donor_vocab[t] for t in target_tokens])]
-        _, _, new_embeds = common_interp_approximate(
-            targets,
+        if options.method == ApproximationMethod.COMMON_INTERPOLATION:
+            indices, coeffs = common_interp_approximate(
+                targets,
+                donor_shared_embeds,
+                k=options.k,
+                metric=(
+                    DistanceMetric.COSINE
+                    if options.cosine_similarity
+                    else DistanceMetric.EUCLIDEAN
+                ),
+                weight_scheme=options.weight_scheme,
+            )
+        else:
+            indices, coeffs = batch_omp(targets, donor_shared_embeds, options.k)
+
+        # for paper: choose a few random tokens and print the shared tokens and coefficients for them
+        debug_reconstruction_for_random_tokens(
+            coeffs,
             donor_shared_embeds,
-            orig_shared_embeds,
+            indices,
+            donor_embed,
+            target_tokens,
+            donor_vocab,
+            shared_vocab,
             options,
         )
-        return new_embeds
-    elif options.method == ApproximationMethod.ORTHOGONAL_MATCHING_PURSUIT:
-        shared_vocab = list(
-            sorted(
-                set(orig_vocab.keys()) & set(donor_vocab.keys()),
-                key=lambda x: donor_vocab[x],
-            )
-        )
-        donor_shared_embeds = donor_embed[
-            torch.tensor([donor_vocab[t] for t in shared_vocab])
-        ]
-        orig_shared_embeds = orig_embed[
-            torch.tensor([orig_vocab[t] for t in shared_vocab])
-        ]
-        targets = donor_embed[torch.tensor([donor_vocab[t] for t in target_tokens])]
-        indices, coeffs = batch_omp(targets, donor_shared_embeds, options.k)
 
         res = (
             torch.bmm(coeffs.unsqueeze(1), orig_shared_embeds[indices].to(torch.float))

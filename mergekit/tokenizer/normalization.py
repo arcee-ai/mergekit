@@ -35,6 +35,14 @@ def normalize_token(
     return token
 
 
+def unnormalize_token(token: NormalizedToken) -> str:
+    if isinstance(token, tuple):
+        if token[0] == TokenMarker.WORD_START:
+            return " " + token[1]
+        return token[1]
+    return token
+
+
 def token_prefixes(
     token: NormalizedToken, allow_whitespace: bool = False
 ) -> Generator[NormalizedToken, None, None]:
