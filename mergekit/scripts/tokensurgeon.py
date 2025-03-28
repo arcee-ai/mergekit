@@ -73,6 +73,7 @@ class ApproximationMethod(enum.Enum):
     ORTHOGONAL_MATCHING_PURSUIT = "omp"
     LANDMARK_PCA = "landmark_pca"
     RBF = "rbf"
+    SPARSE_TOKEN_BASIS = "stb"
 
 
 class TokenSurgeonOptions(BaseModel):
@@ -398,9 +399,6 @@ def debug_reconstruction_for_random_tokens(
         reconstructed = reconstructed_in_donor[i]
         err_rms = (reconstructed - donor_tok_embed).norm()
         err_rel = err_rms / donor_tok_embed.norm().clamp_min(1e-6)
-        print(f"  Original embed norm: {donor_tok_embed.norm().item():.4f}")
-        print(f"  Reconstructed embed norm: {reconstructed.norm().item():.4f}")
-        print(f"  RMS error: {err_rms.item():.4f} (rel: {err_rel.item():.4f})")
         cos_sim = torch.nn.functional.cosine_similarity(
             donor_tok_embed,
             reconstructed,
@@ -410,13 +408,12 @@ def debug_reconstruction_for_random_tokens(
         print()
 
 
-def sparse_token_basis(
-    vocab: List[NormalizedToken],
+def sparse_linear_basis(
     embeddings: torch.Tensor,
     k: int,
     d: int,
     eps: float = 1e-8,
-) -> List[List[Tuple[NormalizedToken, float]]]:
+) -> Tuple[torch.LongTensor, torch.Tensor]:
     """
     Form an approximate orthogonal basis from sparse linear combinations of the input embeddings.
     Args:
@@ -425,7 +422,8 @@ def sparse_token_basis(
         d: dimensionality of the basis
         eps: numerical stability parameter
     Returns:
-        List of tuples (token, coefficient) for each basis vector
+        indices: (d, k) tensor of selected indices
+        coeffs: (d, k) tensor of coefficients for each selected point
     """
     assert embeddings.dim() == 2
     num_pts, embed_dim = embeddings.shape
@@ -447,7 +445,7 @@ def sparse_token_basis(
     # use OMP to approximate the singular vectors
     indices, coeffs = batch_omp(
         U_d.t(),  # (d, embed_dim)
-        embeddings,  # (num_pts, embed_dim)
+        centered_embeddings,  # (num_pts, embed_dim)
         k,
         eps=eps,
     )
@@ -455,7 +453,7 @@ def sparse_token_basis(
     if LOG.isEnabledFor(logging.DEBUG):
         rc_basis = torch.bmm(
             coeffs.unsqueeze(1).to(torch.float),
-            embeddings[indices].to(torch.float),
+            centered_embeddings[indices].to(torch.float),
         ).squeeze(1)
         for i in range(d):
             v_0 = U_d[:, i]
@@ -467,17 +465,7 @@ def sparse_token_basis(
                 f"Basis vector {i}: cos_sim = {cos_sim.item():.4f}, RMS = {rms.item():.4f}, norm_rms = {norm_rms.item():.4f}"
             )
 
-    return [
-        [
-            (
-                vocab[indices[j][i]],
-                coeffs[j][i].item(),
-            )
-            for i in range(k)
-            if coeffs[j][i].abs() > eps
-        ]
-        for j in range(d)
-    ]
+    return indices, coeffs
 
 
 def compute_new_embeddings(
@@ -487,6 +475,7 @@ def compute_new_embeddings(
     donor_vocab: Dict[NormalizedToken, int],
     target_tokens: List[NormalizedToken],
     is_lm_head: bool,
+    token_basis: Optional[Tuple[torch.Tensor, torch.Tensor]],
     options: TokenSurgeonOptions,
 ) -> torch.Tensor:
     assert all(t in donor_vocab for t in target_tokens)
@@ -524,26 +513,6 @@ def compute_new_embeddings(
         donor_shared_embeds = donor_embed[
             torch.tensor([donor_vocab[t] for t in shared_vocab])
         ]
-
-        # debug: print sparse token basis
-        if True:
-            donor_tok = transformers.AutoTokenizer.from_pretrained(
-                options.donor.model.path,
-                revision=options.donor.model.revision,
-                trust_remote_code=False,
-            )
-            basis = sparse_token_basis(
-                vocab=shared_vocab,
-                embeddings=donor_shared_embeds,
-                k=options.k,
-                d=32,
-            )
-            for i, sparse_decomposition in enumerate(basis):
-                eq_chunks = []
-                for token, coeff in sparse_decomposition:
-                    tok_text = donor_tok.decode([donor_vocab[token]])
-                    eq_chunks.append(f"{coeff:.4f} * {repr(tok_text)}")
-                print(f"\tBasis vector {i}: " + " + ".join(eq_chunks))
 
         orig_shared_embeds = orig_embed[
             torch.tensor([orig_vocab[t] for t in shared_vocab])
@@ -596,6 +565,34 @@ def compute_new_embeddings(
         return res
     elif options.method == ApproximationMethod.SUBWORD:
         return subword_approximate(orig_embed, target_tokens, is_lm_head, options)
+    elif options.method == ApproximationMethod.SPARSE_TOKEN_BASIS:
+        assert token_basis is not None, "Token basis must be provided for STB"
+        donor_basis, orig_basis = token_basis
+        donor_basis = donor_basis.to(torch.float32)
+        orig_basis = orig_basis.to(torch.float32)
+        # donor_basis: (basis_dim, donor_embed_dim)
+        # orig_basis: (basis_dim, orig_embed_dim)
+        # project target tokens into the donor basis
+        # then apply those coefficients to the original basis to get the new embeddings
+        target_donor_embeds = donor_embed[
+            torch.tensor([donor_vocab[t] for t in target_tokens])
+        ].to(torch.float32) - donor_embed.mean(dim=0)
+        coeffs = torch.linalg.lstsq(
+            donor_basis.T,
+            target_donor_embeds.T,
+        ).solution.T
+        if LOG.isEnabledFor(logging.DEBUG):
+            donor_rt = coeffs @ donor_basis
+            err = (donor_rt - target_donor_embeds).norm(dim=1)
+            err_rel = err / target_donor_embeds.norm(dim=1).clamp_min(1e-6)
+            sim = torch.nn.functional.cosine_similarity(
+                donor_rt, target_donor_embeds, dim=1
+            )
+            LOG.debug(f"Reconstruction error: {err.mean().item():.4f}")
+            LOG.debug(f"Relative reconstruction error: {err_rel.mean().item():.4f}")
+            LOG.debug(f"Cosine similarity: {sim.mean().item():.4f}")
+
+        return coeffs @ orig_basis + orig_embed.mean(dim=0)
     else:
         raise ValueError(f"Unknown approximation method: {options.method}")
 
@@ -606,6 +603,7 @@ def build_embedding_matrix(
     donor_embed: torch.Tensor,
     orig_vocab: Dict[NormalizedToken, int],
     donor_vocab: Dict[NormalizedToken, int],
+    junk_tokens: List[int],
     allow_prefix: bool,
     allow_byte: bool,
     is_lm_head: bool,
@@ -614,6 +612,19 @@ def build_embedding_matrix(
     LOG.info(f"Building new tensor for {weight_info.name}")
     stats = TokenAssignmentStats()
     out_vocab_size = max(len(donor_vocab), max(donor_vocab.values()) + 1)
+
+    if options.method == ApproximationMethod.SPARSE_TOKEN_BASIS:
+        token_basis = compute_token_basis(
+            orig_embed,
+            donor_embed,
+            orig_vocab,
+            donor_vocab,
+            junk_tokens,
+            options,
+        )
+    else:
+        token_basis = None
+
     res = torch.zeros(
         out_vocab_size,
         orig_embed.shape[1],
@@ -651,15 +662,159 @@ def build_embedding_matrix(
                 donor_embed,
                 orig_vocab,
                 donor_vocab,
-                new_tokens[base_idx : base_idx + batch_size],
-                is_lm_head,
-                options,
+                target_tokens=new_tokens[base_idx : base_idx + batch_size],
+                is_lm_head=is_lm_head,
+                token_basis=token_basis,
+                options=options,
             )
             for ne_idx, token in enumerate(
                 new_tokens[base_idx : base_idx + batch_size]
             ):
                 res[donor_vocab[token]] = new_embeds[ne_idx]
+    if junk_tokens:
+        LOG.info(f"Zero-initializing {len(junk_tokens)} junk tokens")
+        for token_id in junk_tokens:
+            res[token_id] = torch.zeros(
+                orig_embed.shape[1],
+                device=orig_embed.device,
+                dtype=orig_embed.dtype,
+            )
     return res
+
+
+def compute_token_basis(
+    orig_embed: torch.Tensor,
+    donor_embed: torch.Tensor,
+    orig_vocab: Dict[NormalizedToken, int],
+    donor_vocab: Dict[NormalizedToken, int],
+    junk_tokens: List[int],
+    options: TokenSurgeonOptions,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    common_vocab = set(orig_vocab.keys()) & set(donor_vocab.keys())
+    junk_set = set(junk_tokens)
+    common_vocab = [
+        tok
+        for tok in common_vocab
+        if (tok not in donor_vocab or donor_vocab[tok] not in junk_set)
+    ]
+    effective_dim = min(orig_embed.shape[1], donor_embed.shape[1])
+    orig_shared_embeds = orig_embed[torch.tensor([orig_vocab[t] for t in common_vocab])]
+    donor_shared_embeds = donor_embed[
+        torch.tensor([donor_vocab[t] for t in common_vocab])
+    ]
+    if donor_embed.shape[1] < orig_embed.shape[1]:
+        basis_src_embeds = donor_shared_embeds
+        LOG.debug(f"Using donor embeds to compute token basis")
+    else:
+        basis_src_embeds = orig_shared_embeds
+        LOG.debug(f"Using original embeds to compute token basis")
+    LOG.debug(f"Basis dimension: {effective_dim}")
+    tb_indices, tb_weights = sparse_linear_basis(
+        basis_src_embeds,
+        k=options.k,
+        d=effective_dim,
+    )
+    donor_basis = (
+        torch.bmm(
+            tb_weights.unsqueeze(1).to(torch.float),
+            donor_shared_embeds[tb_indices].to(torch.float),
+        )
+        .squeeze(1)
+        .to(donor_embed.dtype)
+    )
+    orig_basis = (
+        torch.bmm(
+            tb_weights.unsqueeze(1).to(torch.float),
+            orig_shared_embeds[tb_indices].to(torch.float),
+        )
+        .squeeze(1)
+        .to(orig_embed.dtype)
+    )
+    return (donor_basis, orig_basis)
+
+
+class AllowMatch(enum.Enum):
+    LM_HEAD_ONLY = "lm_head"
+    EMBED_ONLY = "embed"
+    YES = "yes"
+    NO = "no"
+
+
+def well_trained_tokens(
+    vocab: Dict[NormalizedToken, int],
+    embed: torch.Tensor,
+    lm_head: Optional[torch.Tensor],
+    known_unused: Optional[List[NormalizedToken]] = None,
+) -> List[NormalizedToken]:
+    """Get a list of tokens that are well-trained in the model."""
+    unused_indices = set(range(embed.shape[0])) - set(vocab.values())
+    if known_unused:
+        unused_indices.update(vocab[tok] for tok in known_unused if tok in vocab)
+    for tok in vocab:
+        tok_text = unnormalize_token(tok)
+        if "unused_token" in tok_text or "reserved_special_token" in tok_text:
+            LOG.debug(f"Assuming {tok_text} is unused")
+            unused_indices.add(vocab[tok])
+
+    if unused_indices:
+        mean_unused_in = embed[list(unused_indices)].mean(dim=0)
+        mean_unused_out = (
+            lm_head[list(unused_indices)].mean(dim=0) if lm_head is not None else None
+        )
+        LOG.info(f"Found {len(unused_indices)} unused tokens")
+    else:
+        mean_unused_in = None
+        mean_unused_out = None
+
+    bad_indices = set(unused_indices)
+
+    if lm_head is not None:
+        # check L2 norm of input embeddings - use 5th percentile as threshold
+        l2_norms = embed.norm(dim=1).float()
+        threshold = torch.quantile(l2_norms, 0.05, dim=0)
+        LOG.debug(f"Unused token threshold: {threshold.item():.4f} (5th percentile)")
+        l2_bad_indices = torch.where(l2_norms < threshold)[0]
+        if len(l2_bad_indices) > 0:
+            bad_indices.update(l2_bad_indices.tolist())
+            LOG.info(f"Discarding {len(l2_bad_indices)} low-l2 tokens")
+
+    if mean_unused_in is not None:
+        # check cosine similarity of input embeddings
+        cos_sim = torch.nn.functional.cosine_similarity(
+            embed, mean_unused_in.unsqueeze(0), dim=1
+        ).float()
+        threshold = torch.quantile(cos_sim, 0.9, dim=0)
+        LOG.debug(
+            f"Unused token threshold in embed_tokens: {threshold.item():.4f} (90th percentile)"
+        )
+        cos_bad_indices = torch.where(cos_sim > threshold)[0]
+        if len(cos_bad_indices) > 0:
+            bad_indices.update(cos_bad_indices.tolist())
+            LOG.info(
+                f"Discarding {len(cos_bad_indices)} high-sim to unused mean tokens"
+            )
+
+    if lm_head is not None and mean_unused_out is not None:
+        # check cosine similarity of output embeddings
+        cos_sim = torch.nn.functional.cosine_similarity(
+            lm_head, mean_unused_out.unsqueeze(0), dim=1
+        ).float()
+        threshold = torch.quantile(cos_sim, 0.9, dim=0)
+        LOG.debug(
+            f"Unused token threshold in lm_head: {threshold.item():.4f} (90th percentile)"
+        )
+        cos_bad_indices = torch.where(cos_sim > threshold)[0]
+        if len(cos_bad_indices) > 0:
+            bad_indices.update(cos_bad_indices.tolist())
+            LOG.info(
+                f"Discarding {len(cos_bad_indices)} high-sim to unused mean tokens"
+            )
+
+    good_tokens = [tok for tok, idx in vocab.items() if idx not in bad_indices]
+    LOG.info(
+        f"Found {len(good_tokens)} well-trained tokens, {len(bad_indices)} bad tokens"
+    )
+    return good_tokens
 
 
 @click.command("mergekit-tokensurgeon", cls=PrettyPrintHelp)
@@ -721,10 +876,26 @@ def build_embedding_matrix(
     show_default=True,
 )
 @click.option(
-    "--allow-lm-head-prefix-match/--no-allow-lm-head-prefix-match",
+    "--prefix-match",
+    "-pm",
+    type=click.Choice([m.value for m in AllowMatch]),
+    default=AllowMatch.NO.value,
+    help="Allow prefix match for tokens",
+    show_default=True,
+)
+@click.option(
+    "--byte-match",
+    "-bm",
+    type=click.Choice([m.value for m in AllowMatch]),
+    default=AllowMatch.NO.value,
+    help="Allow byte match for tokens",
+    show_default=True,
+)
+@click.option(
+    "--magikarp/--no-magikarp",
     is_flag=True,
     default=False,
-    help="Allow prefix matches for LM head tokens",
+    help="Filter out poorly trained tokens",
     show_default=True,
 )
 @add_merge_options
@@ -739,7 +910,9 @@ def main(
     weight_scheme: str,
     subword_method: str,
     batch_size: Optional[int],
-    allow_lm_head_prefix_match: bool,
+    prefix_match: str,
+    byte_match: str,
+    magikarp: bool,
     merge_options: MergeOptions,
 ):
     merge_options.apply_global_options()
@@ -756,6 +929,8 @@ def main(
         subword_method=SubwordMethod(subword_method),
         batch_size=batch_size,
     )
+    prefix_match = AllowMatch(prefix_match)
+    byte_match = AllowMatch(byte_match)
 
     cache = LoaderCache()
     cache.setup(options=merge_options)
@@ -771,6 +946,37 @@ def main(
         options.donor, merge_options, arch_info=None, get_tied=True, device=device
     )
 
+    if magikarp:
+        well_trained_orig_tokens = set(
+            well_trained_tokens(
+                orig_vocab,
+                orig_embed,
+                orig_lm_head,
+            )
+        )
+        well_trained_donor_tokens = set(
+            well_trained_tokens(
+                donor_vocab,
+                donor_embed,
+                donor_lm_head,
+            )
+        )
+        common_well_trained_tokens = (
+            well_trained_orig_tokens & well_trained_donor_tokens
+        )
+        LOG.info(f"Found {len(common_well_trained_tokens)} common well-trained tokens")
+        orig_vocab = {
+            tok: idx
+            for tok, idx in orig_vocab.items()
+            if tok in common_well_trained_tokens
+        }
+        junk_tokens = [
+            idx
+            for tok, idx in donor_vocab.items()
+            if (tok not in well_trained_donor_tokens)
+            and (tok not in well_trained_orig_tokens)
+        ]
+
     if orig_embed is not None:
         if donor_embed is None:
             raise RuntimeError(
@@ -782,8 +988,9 @@ def main(
             donor_embed,
             orig_vocab=orig_vocab,
             donor_vocab=donor_vocab,
-            allow_prefix=False,
-            allow_byte=True,
+            junk_tokens=junk_tokens,
+            allow_prefix=prefix_match in (AllowMatch.YES, AllowMatch.LM_HEAD_ONLY),
+            allow_byte=byte_match in (AllowMatch.YES, AllowMatch.LM_HEAD_ONLY),
             is_lm_head=False,
             options=options,
         )
@@ -805,8 +1012,8 @@ def main(
             donor_lm_head,
             orig_vocab=orig_vocab,
             donor_vocab=donor_vocab,
-            allow_prefix=allow_lm_head_prefix_match,
-            allow_byte=True,
+            allow_prefix=prefix_match in (AllowMatch.YES, AllowMatch.EMBED_ONLY),
+            allow_byte=byte_match in (AllowMatch.YES, AllowMatch.EMBED_ONLY),
             is_lm_head=True,
             options=options,
         )
