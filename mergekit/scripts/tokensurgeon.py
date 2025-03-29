@@ -27,14 +27,16 @@ from mergekit.tokenizer.normalization import (
     NormalizedToken,
     normalized_vocabulary,
     token_prefixes,
-    unnormalize_token,
 )
 from mergekit.tokensurgeon import (
     SubwordMethod,
     WeightingScheme,
     batch_omp,
     common_interp_approximate,
+    compute_token_basis,
+    landmark_pca_approximate,
     subword_approximate,
+    well_trained_tokens,
 )
 from mergekit.tokensurgeon.common_interpolation import DistanceMetric
 
@@ -72,7 +74,6 @@ class ApproximationMethod(enum.Enum):
     JOHN_HEWITT = "random_matching_distribution"
     ORTHOGONAL_MATCHING_PURSUIT = "omp"
     LANDMARK_PCA = "landmark_pca"
-    RBF = "rbf"
     SPARSE_TOKEN_BASIS = "stb"
 
 
@@ -244,116 +245,6 @@ def john_hewitt_init(orig_embed: torch.Tensor, num_new_tokens: int) -> torch.Ten
     return new_embeds.to(orig_embed.dtype)
 
 
-def landmark_pca_approximate(
-    targets: torch.Tensor,
-    points_a: torch.Tensor,
-    points_b: torch.Tensor,
-) -> torch.Tensor:
-    """Given target points in space a and a set of reference points in both space a and b,
-    approximate the target points in space b."""
-    # points_a: (N, D_a)
-    # points_b: (N, D_b)
-    # 1:1 correspondence between points_a and points_b
-    # targets: (B, D_a)
-    num_points, d_a = points_a.shape
-    batch_size, _ = targets.shape
-    _, d_b = points_b.shape
-    assert (
-        points_a.shape[0] == points_b.shape[0]
-    ), "Number of points in A and B must match"
-    assert targets.shape == (batch_size, d_a)
-
-    effective_dim = min(d_a, d_b)
-
-    out_dtype = targets.dtype
-    points_a = points_a.float()
-    points_b = points_b.float()
-    targets = targets.float()
-
-    # Compute the mean of all points in A and B
-    mean_a = points_a.mean(dim=0, keepdim=True)  # (1, D_a)
-    mean_b = points_b.mean(dim=0, keepdim=True)  # (1, D_b)
-    centered_a = points_a - mean_a  # (N, D_a)
-    centered_b = points_b - mean_b  # (N, D_b)
-    centered_targets = targets - mean_a  # (B, D_a)
-
-    # Perform PCA to get the principal components
-    U_a, S_a, V_a = torch.pca_lowrank(centered_a, q=effective_dim)
-    U_b, S_b, V_b = torch.pca_lowrank(centered_b, q=effective_dim)
-
-    # Project reference points into PCA space
-    A_pca = torch.mm(centered_a, V_a)  # (N, effective_dim)
-    B_pca = torch.mm(centered_b, V_b)  # (N, effective_dim)
-
-    # Compute Procrustes matrix and solve for optimal rotation
-    M = torch.mm(B_pca.t(), A_pca)  # (effective_dim, effective_dim)
-    U, S, V = torch.svd(M)
-    R = torch.mm(U, V.t())  # (effective_dim, effective_dim)
-
-    # Transform targets through PCA spaces and rotation
-    projected_a = torch.mm(centered_targets, V_a)  # (B, effective_dim)
-    rotated = torch.mm(projected_a, R)  # (B, effective_dim)
-    projected_b = torch.mm(rotated, V_b.t())  # (B, D_b)
-
-    # Translate back to original space B
-    approximated_b = projected_b + mean_b
-
-    return approximated_b.to(out_dtype)
-
-
-def rbf_approximate(
-    targets: torch.Tensor,
-    points_a: torch.Tensor,
-    points_b: torch.Tensor,
-    epsilon: float = 1e-6,
-) -> torch.Tensor:
-    """
-    Approximate target points from space 'a' to space 'b' using RBF interpolation.
-
-    Args:
-        targets: Tensor of shape (B, D_a), points to approximate.
-        points_a: Reference points in space 'a', shape (N, D_a).
-        points_b: Corresponding points in space 'b', shape (N, D_b).
-        epsilon: Small number to ensure numerical stability.
-
-    Returns:
-        Approximate points in space 'b', tensor of shape (B, D_b).
-    """
-    N, D_a = points_a.shape
-    B, _ = targets.shape
-    _, D_b = points_b.shape
-
-    assert (
-        points_a.shape[0] == points_b.shape[0]
-    ), "points_a and points_b must have the same number of points."
-    assert (
-        targets.shape[1] == D_a
-    ), "targets and points_a must have the same dimensionality."
-
-    # Compute pairwise squared distances between points_a
-    dist_matrix = torch.cdist(points_a, points_a, p=2).pow(2)  # shape (N, N)
-
-    # Use Gaussian Radial Basis Function kernel
-    sigma = torch.median(dist_matrix) + epsilon  # heuristic sigma value
-    rbf_kernel = torch.exp(-dist_matrix / (2 * sigma**2))  # (N, N)
-
-    # Solve for weights to map from points_a to points_b
-    weights, _ = torch.lstsq(
-        points_b, rbf_kernel + epsilon * torch.eye(N, device=points_a.device)
-    )
-
-    # Compute distances between targets and points_a
-    dist_targets = torch.cdist(targets, points_a, p=2).pow(2)  # shape (B, N)
-
-    # Apply RBF kernel to target points
-    rbf_targets = torch.exp(-dist_targets / (2 * sigma**2))  # shape (B, N)
-
-    # Approximate targets in space 'b'
-    approximations = rbf_targets @ weights[:N]
-
-    return approximations
-
-
 def debug_reconstruction_for_random_tokens(
     coeffs: torch.Tensor,
     donor_shared_embeds: torch.Tensor,
@@ -397,8 +288,6 @@ def debug_reconstruction_for_random_tokens(
         )
         donor_tok_embed = donor_embed[donor_vocab[target_tokens[i]]]
         reconstructed = reconstructed_in_donor[i]
-        err_rms = (reconstructed - donor_tok_embed).norm()
-        err_rel = err_rms / donor_tok_embed.norm().clamp_min(1e-6)
         cos_sim = torch.nn.functional.cosine_similarity(
             donor_tok_embed,
             reconstructed,
@@ -406,66 +295,6 @@ def debug_reconstruction_for_random_tokens(
         )
         print(f"  Cosine similarity: {cos_sim.item():.4f}")
         print()
-
-
-def sparse_linear_basis(
-    embeddings: torch.Tensor,
-    k: int,
-    d: int,
-    eps: float = 1e-8,
-) -> Tuple[torch.LongTensor, torch.Tensor]:
-    """
-    Form an approximate orthogonal basis from sparse linear combinations of the input embeddings.
-    Args:
-        embeddings: (num_pts, embed_dim) tensor of embeddings
-        k: number of points to select per basis vector
-        d: dimensionality of the basis
-        eps: numerical stability parameter
-    Returns:
-        indices: (d, k) tensor of selected indices
-        coeffs: (d, k) tensor of coefficients for each selected point
-    """
-    assert embeddings.dim() == 2
-    num_pts, embed_dim = embeddings.shape
-    assert k <= num_pts, "k must be less than or equal to the number of points"
-    assert d <= embed_dim, "d must be less than or equal to the embedding dimension"
-
-    mean_embed = embeddings.mean(dim=0)
-    centered_embeddings = (embeddings - mean_embed).to(torch.float32)
-    covariance_matrix = (
-        centered_embeddings.T @ centered_embeddings
-    ) / num_pts  # (embed_dim, embed_dim)
-
-    U, S, V = torch.linalg.svd(covariance_matrix)
-    # Select the top d singular vectors
-    U_d = U[:, :d]  # (embed_dim, d)
-    V_d = V[:, :d]  # (embed_dim, d)
-    S_d = S[:d]  # (d,)
-
-    # use OMP to approximate the singular vectors
-    indices, coeffs = batch_omp(
-        U_d.t(),  # (d, embed_dim)
-        centered_embeddings,  # (num_pts, embed_dim)
-        k,
-        eps=eps,
-    )
-
-    if LOG.isEnabledFor(logging.DEBUG):
-        rc_basis = torch.bmm(
-            coeffs.unsqueeze(1).to(torch.float),
-            centered_embeddings[indices].to(torch.float),
-        ).squeeze(1)
-        for i in range(d):
-            v_0 = U_d[:, i]
-            v_1 = rc_basis[i]
-            cos_sim = torch.nn.functional.cosine_similarity(v_0, v_1, dim=0)
-            rms = torch.norm(v_0 - v_1)
-            norm_rms = torch.norm(v_0 - (v_1 / v_1.norm().clamp_min(1e-6)))
-            LOG.debug(
-                f"Basis vector {i}: cos_sim = {cos_sim.item():.4f}, RMS = {rms.item():.4f}, norm_rms = {norm_rms.item():.4f}"
-            )
-
-    return indices, coeffs
 
 
 def compute_new_embeddings(
@@ -502,7 +331,6 @@ def compute_new_embeddings(
         ApproximationMethod.COMMON_INTERPOLATION,
         ApproximationMethod.ORTHOGONAL_MATCHING_PURSUIT,
         ApproximationMethod.LANDMARK_PCA,
-        ApproximationMethod.RBF,
     ):
         shared_vocab = list(
             sorted(
@@ -520,12 +348,6 @@ def compute_new_embeddings(
         targets = donor_embed[torch.tensor([donor_vocab[t] for t in target_tokens])]
         if options.method == ApproximationMethod.LANDMARK_PCA:
             return landmark_pca_approximate(
-                targets,
-                donor_shared_embeds,
-                orig_shared_embeds,
-            )
-        elif options.method == ApproximationMethod.RBF:
-            return rbf_approximate(
                 targets,
                 donor_shared_embeds,
                 orig_shared_embeds,
@@ -682,139 +504,11 @@ def build_embedding_matrix(
     return res
 
 
-def compute_token_basis(
-    orig_embed: torch.Tensor,
-    donor_embed: torch.Tensor,
-    orig_vocab: Dict[NormalizedToken, int],
-    donor_vocab: Dict[NormalizedToken, int],
-    junk_tokens: List[int],
-    options: TokenSurgeonOptions,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    common_vocab = set(orig_vocab.keys()) & set(donor_vocab.keys())
-    junk_set = set(junk_tokens)
-    common_vocab = [
-        tok
-        for tok in common_vocab
-        if (tok not in donor_vocab or donor_vocab[tok] not in junk_set)
-    ]
-    effective_dim = min(orig_embed.shape[1], donor_embed.shape[1])
-    orig_shared_embeds = orig_embed[torch.tensor([orig_vocab[t] for t in common_vocab])]
-    donor_shared_embeds = donor_embed[
-        torch.tensor([donor_vocab[t] for t in common_vocab])
-    ]
-    if donor_embed.shape[1] < orig_embed.shape[1]:
-        basis_src_embeds = donor_shared_embeds
-        LOG.debug(f"Using donor embeds to compute token basis")
-    else:
-        basis_src_embeds = orig_shared_embeds
-        LOG.debug(f"Using original embeds to compute token basis")
-    LOG.debug(f"Basis dimension: {effective_dim}")
-    tb_indices, tb_weights = sparse_linear_basis(
-        basis_src_embeds,
-        k=options.k,
-        d=effective_dim,
-    )
-    donor_basis = (
-        torch.bmm(
-            tb_weights.unsqueeze(1).to(torch.float),
-            donor_shared_embeds[tb_indices].to(torch.float),
-        )
-        .squeeze(1)
-        .to(donor_embed.dtype)
-    )
-    orig_basis = (
-        torch.bmm(
-            tb_weights.unsqueeze(1).to(torch.float),
-            orig_shared_embeds[tb_indices].to(torch.float),
-        )
-        .squeeze(1)
-        .to(orig_embed.dtype)
-    )
-    return (donor_basis, orig_basis)
-
-
 class AllowMatch(enum.Enum):
     LM_HEAD_ONLY = "lm_head"
     EMBED_ONLY = "embed"
     YES = "yes"
     NO = "no"
-
-
-def well_trained_tokens(
-    vocab: Dict[NormalizedToken, int],
-    embed: torch.Tensor,
-    lm_head: Optional[torch.Tensor],
-    known_unused: Optional[List[NormalizedToken]] = None,
-) -> List[NormalizedToken]:
-    """Get a list of tokens that are well-trained in the model."""
-    unused_indices = set(range(embed.shape[0])) - set(vocab.values())
-    if known_unused:
-        unused_indices.update(vocab[tok] for tok in known_unused if tok in vocab)
-    for tok in vocab:
-        tok_text = unnormalize_token(tok)
-        if "unused_token" in tok_text or "reserved_special_token" in tok_text:
-            LOG.debug(f"Assuming {tok_text} is unused")
-            unused_indices.add(vocab[tok])
-
-    if unused_indices:
-        mean_unused_in = embed[list(unused_indices)].mean(dim=0)
-        mean_unused_out = (
-            lm_head[list(unused_indices)].mean(dim=0) if lm_head is not None else None
-        )
-        LOG.info(f"Found {len(unused_indices)} unused tokens")
-    else:
-        mean_unused_in = None
-        mean_unused_out = None
-
-    bad_indices = set(unused_indices)
-
-    if lm_head is not None:
-        # check L2 norm of input embeddings - use 5th percentile as threshold
-        l2_norms = embed.norm(dim=1).float()
-        threshold = torch.quantile(l2_norms, 0.05, dim=0)
-        LOG.debug(f"Unused token threshold: {threshold.item():.4f} (5th percentile)")
-        l2_bad_indices = torch.where(l2_norms < threshold)[0]
-        if len(l2_bad_indices) > 0:
-            bad_indices.update(l2_bad_indices.tolist())
-            LOG.info(f"Discarding {len(l2_bad_indices)} low-l2 tokens")
-
-    if mean_unused_in is not None:
-        # check cosine similarity of input embeddings
-        cos_sim = torch.nn.functional.cosine_similarity(
-            embed, mean_unused_in.unsqueeze(0), dim=1
-        ).float()
-        threshold = torch.quantile(cos_sim, 0.9, dim=0)
-        LOG.debug(
-            f"Unused token threshold in embed_tokens: {threshold.item():.4f} (90th percentile)"
-        )
-        cos_bad_indices = torch.where(cos_sim > threshold)[0]
-        if len(cos_bad_indices) > 0:
-            bad_indices.update(cos_bad_indices.tolist())
-            LOG.info(
-                f"Discarding {len(cos_bad_indices)} high-sim to unused mean tokens"
-            )
-
-    if lm_head is not None and mean_unused_out is not None:
-        # check cosine similarity of output embeddings
-        cos_sim = torch.nn.functional.cosine_similarity(
-            lm_head, mean_unused_out.unsqueeze(0), dim=1
-        ).float()
-        threshold = torch.quantile(cos_sim, 0.9, dim=0)
-        LOG.debug(
-            f"Unused token threshold in lm_head: {threshold.item():.4f} (90th percentile)"
-        )
-        cos_bad_indices = torch.where(cos_sim > threshold)[0]
-        if len(cos_bad_indices) > 0:
-            bad_indices.update(cos_bad_indices.tolist())
-            LOG.info(
-                f"Discarding {len(cos_bad_indices)} high-sim to unused mean tokens"
-            )
-
-    good_tokens = [tok for tok, idx in vocab.items() if idx not in bad_indices]
-    LOG.info(
-        f"Found {len(good_tokens)} well-trained tokens, {len(bad_indices)} bad tokens"
-    )
-    return good_tokens
 
 
 @click.command("mergekit-tokensurgeon", cls=PrettyPrintHelp)

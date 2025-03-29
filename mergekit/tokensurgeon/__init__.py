@@ -6,8 +6,11 @@ from .common_interpolation import (
     WeightingScheme,
     common_interp_approximate,
 )
+from .magikarp import well_trained_tokens
 from .omp import batch_omp
+from .pca import landmark_pca_approximate
 from .subword import SubwordMethod, subword_approximate
+from .token_basis import compute_token_basis
 
 __all__ = [
     "common_interp_approximate",
@@ -16,4 +19,7 @@ __all__ = [
     "batch_omp",
     "SubwordMethod",
     "subword_approximate",
+    "well_trained_tokens",
+    "compute_token_basis",
+    "landmark_pca_approximate",
 ]
