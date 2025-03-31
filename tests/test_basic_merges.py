@@ -244,6 +244,16 @@ class TestBasicMerges:
         )
         run_and_check_merge(config)
 
+    def test_karcher_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="karcher",
+            base_model=model_c,
+            params={"max_iter": 5, "tol": 1e-5},
+        )
+        run_and_check_merge(config)
+
     def two_model_config(
         self,
         model_a,
