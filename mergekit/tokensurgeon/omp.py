@@ -250,6 +250,8 @@ def batch_mp_rope(
         mask[torch.arange(B, device=device), new_idx] = True
         new_atom = points_a[new_idx]
 
+        print(f"new_atom: {new_atom.shape}")
+        print(f"residuals: {residuals.shape}")
         # compute position id for new atom
         pos_id = estimate_pos_id_best(
             new_atom,
@@ -257,11 +259,13 @@ def batch_mp_rope(
             num_heads=num_heads_a,
             head_dim=D_a // num_heads_a,
             base=a_rope_base,
-        )
+        ).squeeze(-1)
+        print(f"pos_id: {pos_id.shape}")
+        print(f"pos_ids: {pos_ids.shape}")
         pos_ids[:, t] = pos_id
         new_atom = apply_rope(
             new_atom,
-            pos_id,
+            pos_id.unsqueeze(-1),
             num_heads=num_heads_a,
             head_dim=D_a // num_heads_a,
             base=a_rope_base,
@@ -280,11 +284,11 @@ def batch_mp_rope(
     selected_points_b = points_b[selected_indices]
     atoms_b = apply_rope(
         selected_points_b,
-        pos_ids,
+        pos_ids.unsqueeze(-1),
         num_heads=num_heads_b,
         head_dim=D_b // num_heads_b,
         base=b_rope_base,
     )
     approx_b = (atoms_b * coeffs.unsqueeze(-1)).sum(dim=1)
     final_tensor = approx_b.to(out_dtype)
-    return selected_indices, coeffs, final_tensor
+    return selected_indices, coeffs, final_tensor, targets - residuals

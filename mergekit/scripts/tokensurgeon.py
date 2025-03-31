@@ -258,17 +258,19 @@ def debug_reconstruction_for_random_tokens(
     donor_vocab: Dict[NormalizedToken, int],
     shared_vocab: List[NormalizedToken],
     options: TokenSurgeonOptions,
+    reconstructed_in_donor: Optional[torch.Tensor] = None,
 ):
     import random
 
-    reconstructed_in_donor = (
-        torch.bmm(
-            coeffs.unsqueeze(1).to(torch.float),
-            donor_shared_embeds[indices].to(torch.float),
+    if reconstructed_in_donor is None:
+        reconstructed_in_donor = (
+            torch.bmm(
+                coeffs.unsqueeze(1).to(torch.float),
+                donor_shared_embeds[indices].to(torch.float),
+            )
+            .squeeze(1)
+            .to(donor_embed.dtype)
         )
-        .squeeze(1)
-        .to(donor_embed.dtype)
-    )
     donor_tok = transformers.AutoTokenizer.from_pretrained(
         options.donor.model.path,
         revision=options.donor.model.revision,
@@ -371,7 +373,7 @@ def compute_new_embeddings(
                 weight_scheme=options.weight_scheme,
             )
         elif options.method == ApproximationMethod.MATCHING_PURSUIT_ROPE:
-            indices, coeffs, res = batch_mp_rope(
+            indices, coeffs, res, in_donor = batch_mp_rope(
                 targets,
                 donor_shared_embeds,
                 orig_shared_embeds,
@@ -394,6 +396,7 @@ def compute_new_embeddings(
             donor_vocab,
             shared_vocab,
             options,
+            reconstructed_in_donor=in_donor,
         )
 
         if res is None:

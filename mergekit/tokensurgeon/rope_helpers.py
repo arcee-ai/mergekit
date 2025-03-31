@@ -190,6 +190,13 @@ def estimate_pos_id_best(
     head_dim: int,
     base: float = 10000.0,
 ) -> torch.Tensor:
+    return estimate_position_id_projection(
+        x_0,
+        x_1,
+        num_heads,
+        head_dim,
+        base=base,
+    )
     est_pos_id = estimate_position_id(
         x_0,
         x_1,
