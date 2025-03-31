@@ -31,6 +31,7 @@ from mergekit.tokenizer.normalization import (
 from mergekit.tokensurgeon import (
     SubwordMethod,
     WeightingScheme,
+    batch_mp_rope,
     batch_omp,
     common_interp_approximate,
     compute_token_basis,
@@ -75,6 +76,7 @@ class ApproximationMethod(enum.Enum):
     ORTHOGONAL_MATCHING_PURSUIT = "omp"
     LANDMARK_PCA = "landmark_pca"
     SPARSE_TOKEN_BASIS = "stb"
+    MATCHING_PURSUIT_ROPE = "mp_rope"
 
 
 class TokenSurgeonOptions(BaseModel):
@@ -333,6 +335,7 @@ def compute_new_embeddings(
         ApproximationMethod.COMMON_INTERPOLATION,
         ApproximationMethod.ORTHOGONAL_MATCHING_PURSUIT,
         ApproximationMethod.LANDMARK_PCA,
+        ApproximationMethod.MATCHING_PURSUIT_ROPE,
     ):
         shared_vocab = list(
             sorted(
@@ -347,6 +350,7 @@ def compute_new_embeddings(
         orig_shared_embeds = orig_embed[
             torch.tensor([orig_vocab[t] for t in shared_vocab])
         ]
+        res = None
         targets = donor_embed[torch.tensor([donor_vocab[t] for t in target_tokens])]
         if options.method == ApproximationMethod.LANDMARK_PCA:
             return landmark_pca_approximate(
@@ -366,6 +370,17 @@ def compute_new_embeddings(
                 ),
                 weight_scheme=options.weight_scheme,
             )
+        elif options.method == ApproximationMethod.MATCHING_PURSUIT_ROPE:
+            indices, coeffs, res = batch_mp_rope(
+                targets,
+                donor_shared_embeds,
+                orig_shared_embeds,
+                k=options.k,
+                num_heads_a=28,
+                num_heads_b=32,
+                a_rope_base=1000000,
+                b_rope_base=500000,
+            )
         else:
             indices, coeffs = batch_omp(targets, donor_shared_embeds, options.k)
 
@@ -381,11 +396,14 @@ def compute_new_embeddings(
             options,
         )
 
-        res = (
-            torch.bmm(coeffs.unsqueeze(1), orig_shared_embeds[indices].to(torch.float))
-            .squeeze(1)
-            .to(orig_embed.dtype)
-        )
+        if res is None:
+            res = (
+                torch.bmm(
+                    coeffs.unsqueeze(1), orig_shared_embeds[indices].to(torch.float)
+                )
+                .squeeze(1)
+                .to(orig_embed.dtype)
+            )
         return res
     elif options.method == ApproximationMethod.SUBWORD:
         return subword_approximate(orig_embed, target_tokens, is_lm_head, options)
