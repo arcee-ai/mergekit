@@ -10,15 +10,15 @@ LOG = logging.getLogger(__name__)
 
 
 def sparse_linear_basis(
-    embeddings: torch.Tensor,
+    points: torch.Tensor,
     k: int,
     d: int,
     eps: float = 1e-8,
 ) -> Tuple[torch.LongTensor, torch.Tensor]:
     """
-    Form an approximate orthogonal basis from sparse linear combinations of the input embeddings.
+    Form an approximate orthogonal basis from sparse linear combinations of input points.
     Args:
-        embeddings: (num_pts, embed_dim) tensor of embeddings
+        points: (num_pts, embed_dim) tensor of input points
         k: number of points to select per basis vector
         d: dimensionality of the basis
         eps: numerical stability parameter
@@ -26,13 +26,13 @@ def sparse_linear_basis(
         indices: (d, k) tensor of selected indices
         coeffs: (d, k) tensor of coefficients for each selected point
     """
-    assert embeddings.dim() == 2
-    num_pts, embed_dim = embeddings.shape
+    assert points.dim() == 2
+    num_pts, embed_dim = points.shape
     assert k <= num_pts, "k must be less than or equal to the number of points"
     assert d <= embed_dim, "d must be less than or equal to the embedding dimension"
 
-    mean_embed = embeddings.mean(dim=0)
-    centered_embeddings = (embeddings - mean_embed).to(torch.float32)
+    mean_embed = points.mean(dim=0)
+    centered_embeddings = (points - mean_embed).to(torch.float32)
     covariance_matrix = (
         centered_embeddings.T @ centered_embeddings
     ) / num_pts  # (embed_dim, embed_dim)

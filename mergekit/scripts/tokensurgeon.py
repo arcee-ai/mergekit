@@ -88,6 +88,8 @@ class TokenSurgeonOptions(BaseModel):
     cosine_similarity: bool = False
     subword_method: SubwordMethod = SubwordMethod.MEAN
     batch_size: Optional[int] = None
+    new_vocab_noise: Optional[float] = None
+    new_vocab_scale: Optional[float] = None
 
 
 def get_arch_info(
@@ -489,6 +491,10 @@ def build_embedding_matrix(
                 token_basis=token_basis,
                 options=options,
             )
+            if options.new_vocab_noise:
+                new_embeds += torch.randn_like(new_embeds) * options.new_vocab_noise
+            if options.new_vocab_scale:
+                new_embeds *= options.new_vocab_scale
             for ne_idx, token in enumerate(
                 new_tokens[base_idx : base_idx + batch_size]
             ):
@@ -592,6 +598,22 @@ class AllowMatch(enum.Enum):
     help="Filter out poorly trained tokens",
     show_default=True,
 )
+@click.option(
+    "--new-vocab-noise",
+    "-nvn",
+    type=float,
+    default=None,
+    help="Add gaussian noise to new vocab embeddings",
+    show_default=True,
+)
+@click.option(
+    "--new-vocab-scale",
+    "-nvs",
+    type=float,
+    default=None,
+    help="Scale computed new vocab embeddings by this factor",
+    show_default=True,
+)
 @add_merge_options
 def main(
     model: str,
@@ -607,6 +629,8 @@ def main(
     prefix_match: str,
     byte_match: str,
     magikarp: bool,
+    new_vocab_noise: Optional[float],
+    new_vocab_scale: Optional[float],
     merge_options: MergeOptions,
 ):
     merge_options.apply_global_options()
@@ -622,6 +646,8 @@ def main(
         weight_scheme=WeightingScheme(weight_scheme),
         subword_method=SubwordMethod(subword_method),
         batch_size=batch_size,
+        new_vocab_noise=new_vocab_noise,
+        new_vocab_scale=new_vocab_scale,
     )
     prefix_match = AllowMatch(prefix_match)
     byte_match = AllowMatch(byte_match)
