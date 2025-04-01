@@ -21,7 +21,7 @@ from mergekit.options import MergeOptions
 
 RE_LAYER_INDEX = re.compile(r"\.(\d+)\.")
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def get_model_tensor_names(model: ModelReference, options: MergeOptions) -> List[str]:

@@ -1,11 +1,11 @@
 from typing import Optional
 
 import pytest
-from common import make_picollama, run_and_check_merge
-from test_tokenizer import make_tokenizer
 from transformers import AutoTokenizer
 
 from mergekit.config import InputModelDefinition, MergeConfiguration
+from tests.common import make_picollama, run_and_check_merge
+from tests.test_tokenizer import make_tokenizer
 
 
 @pytest.fixture(scope="session")
