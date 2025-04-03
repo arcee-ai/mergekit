@@ -294,11 +294,13 @@ def debug_reconstruction_for_random_tokens(
         )
         donor_tok_embed = donor_embed[donor_vocab[target_tokens[i]]]
         reconstructed = reconstructed_in_donor[i]
+        l2_err = (donor_tok_embed - reconstructed).norm()
         cos_sim = torch.nn.functional.cosine_similarity(
             donor_tok_embed,
             reconstructed,
             dim=0,
         )
+        print(f"  L2 error: {l2_err.item():.4f}")
         print(f"  Cosine similarity: {cos_sim.item():.4f}")
         print()
 

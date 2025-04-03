@@ -213,6 +213,7 @@ def batch_mp_rope(
     eps: float = 1e-8,
     a_rope_base: float = 10000.0,
     b_rope_base: float = 10000.0,
+    final_least_squares: bool = True,
 ) -> torch.Tensor:
     B, D_a = targets.shape
     N, _ = points_a.shape
@@ -250,8 +251,6 @@ def batch_mp_rope(
         mask[torch.arange(B, device=device), new_idx] = True
         new_atom = points_a[new_idx]
 
-        print(f"new_atom: {new_atom.shape}")
-        print(f"residuals: {residuals.shape}")
         # compute position id for new atom
         pos_id = estimate_pos_id_best(
             new_atom,
@@ -260,8 +259,16 @@ def batch_mp_rope(
             head_dim=D_a // num_heads_a,
             base=a_rope_base,
         ).squeeze(-1)
-        print(f"pos_id: {pos_id.shape}")
-        print(f"pos_ids: {pos_ids.shape}")
+        pos_id_neg = estimate_pos_id_best(
+            new_atom,
+            -residuals,
+            num_heads=num_heads_a,
+            head_dim=D_a // num_heads_a,
+            base=a_rope_base,
+        ).squeeze(-1)
+        pos_id = torch.where(
+            torch.abs(pos_id) < torch.abs(pos_id_neg), pos_id, pos_id_neg
+        )
         pos_ids[:, t] = pos_id
         new_atom = apply_rope(
             new_atom,
@@ -279,6 +286,21 @@ def batch_mp_rope(
 
         # update residuals
         residuals = residuals - current_coeff.unsqueeze(1) * new_atom
+
+    if final_least_squares:
+        # Least-squares solve for coefficients given selected points
+        # and position ids
+        roped_pts_a = apply_rope(
+            points_a[selected_indices],
+            pos_ids.unsqueeze(-1),
+            num_heads=num_heads_a,
+            head_dim=D_a // num_heads_a,
+            base=a_rope_base,
+        )
+        coeffs = torch.linalg.lstsq(
+            roped_pts_a.transpose(1, 2),
+            targets.unsqueeze(-1),
+        ).solution.squeeze(-1)
 
     # return result in b space
     selected_points_b = points_b[selected_indices]
