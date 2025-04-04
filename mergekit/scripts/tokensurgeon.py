@@ -376,31 +376,38 @@ def compute_new_embeddings(
                 weight_scheme=options.weight_scheme,
             )
         elif options.method == ApproximationMethod.MATCHING_PURSUIT_ROPE:
+            model_config = options.model.config(
+                trust_remote_code=options.trust_remote_code
+            )
+            donor_config = options.donor.config(
+                trust_remote_code=options.trust_remote_code
+            )
             indices, coeffs, res, in_donor = batch_mp_rope(
                 targets,
                 donor_shared_embeds,
                 orig_shared_embeds,
                 k=options.k,
-                num_heads_a=28,
-                num_heads_b=32,
-                a_rope_base=1000000,
-                b_rope_base=500000,
+                num_heads_a=donor_config.num_attention_heads,
+                num_heads_b=model_config.num_attention_heads,
+                a_rope_base=donor_config.rope_theta,
+                b_rope_base=model_config.rope_theta,
             )
         else:
             indices, coeffs = batch_omp(targets, donor_shared_embeds, options.k)
 
         # for paper: choose a few random tokens and print the shared tokens and coefficients for them
-        debug_reconstruction_for_random_tokens(
-            coeffs,
-            donor_shared_embeds,
-            indices,
-            donor_embed,
-            target_tokens,
-            donor_vocab,
-            shared_vocab,
-            options,
-            reconstructed_in_donor=in_donor,
-        )
+        if LOG.isEnabledFor(logging.DEBUG):
+            debug_reconstruction_for_random_tokens(
+                coeffs,
+                donor_shared_embeds,
+                indices,
+                donor_embed,
+                target_tokens,
+                donor_vocab,
+                shared_vocab,
+                options,
+                reconstructed_in_donor=in_donor,
+            )
 
         if res is None:
             res = (
