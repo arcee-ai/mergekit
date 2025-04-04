@@ -355,6 +355,7 @@ def compute_new_embeddings(
             torch.tensor([orig_vocab[t] for t in shared_vocab])
         ]
         res = None
+        in_donor = None
         targets = donor_embed[torch.tensor([donor_vocab[t] for t in target_tokens])]
         if options.method == ApproximationMethod.LANDMARK_PCA:
             return landmark_pca_approximate(
