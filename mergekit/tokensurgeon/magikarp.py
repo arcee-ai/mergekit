@@ -13,7 +13,7 @@ def well_trained_tokens(
     embed: torch.Tensor,
     lm_head: Optional[torch.Tensor],
     known_unused: Optional[List[NormalizedToken]] = None,
-    quantile: float = 0.05,
+    quantile: float = 0.01,
 ) -> List[NormalizedToken]:
     """Get a list of tokens that are well-trained in the model.
 
@@ -52,11 +52,11 @@ def well_trained_tokens(
     bad_indices = set(unused_indices)
 
     if lm_head is not None:
-        # check L2 norm of input embeddings - use 5th percentile as threshold
+        # check L2 norm of input embeddings
         l2_norms = embed.norm(dim=1).float()
         threshold = torch.quantile(l2_norms, quantile, dim=0)
         LOG.debug(
-            f"Unused token threshold: {threshold.item():.4f} ({int(quantile * 100)}th percentile)"
+            f"Unused token L2 norm threshold: {threshold.item():.4f} ({int(quantile * 100)}th percentile)"
         )
         l2_bad_indices = torch.where(l2_norms < threshold)[0]
         if len(l2_bad_indices) > 0:
@@ -72,6 +72,9 @@ def well_trained_tokens(
         LOG.debug(
             f"Unused token threshold in embed_tokens: {threshold.item():.4f} ({int((1-quantile) * 100)}th percentile)"
         )
+        if threshold < 0.5:
+            threshold = 0.5
+            LOG.debug("Clamping threshold to 0.5")
         cos_bad_indices = torch.where(cos_sim > threshold)[0]
         if len(cos_bad_indices) > 0:
             bad_indices.update(cos_bad_indices.tolist())
@@ -88,6 +91,9 @@ def well_trained_tokens(
         LOG.debug(
             f"Unused token threshold in lm_head: {threshold.item():.4f} ({int((1-quantile) * 100)}th percentile)"
         )
+        if threshold < 0.5:
+            threshold = 0.5
+            LOG.debug("Clamping threshold to 0.5")
         cos_bad_indices = torch.where(cos_sim > threshold)[0]
         if len(cos_bad_indices) > 0:
             bad_indices.update(cos_bad_indices.tolist())
