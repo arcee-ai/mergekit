@@ -39,7 +39,7 @@ def set_config_value(config: PretrainedConfig, key: str, value: Any):
     for idx, part in enumerate(parts[:-1]):
         if not hasattr(obj, part):
             raise RuntimeError(
-                f"Config {config} has no attribute {'.'.join(parts[:idx+1])}"
+                f"Config {config} has no attribute {'.'.join(parts[: idx + 1])}"
             )
         obj = getattr(obj, part)
     setattr(obj, parts[-1], value)
@@ -52,7 +52,7 @@ def get_config_value(config: PretrainedConfig, key: str) -> Any:
     for idx, part in enumerate(parts):
         if not hasattr(obj, part):
             raise RuntimeError(
-                f"Config {config} has no attribute {'.'.join(parts[:idx+1])}"
+                f"Config {config} has no attribute {'.'.join(parts[: idx + 1])}"
             )
         obj = getattr(obj, part)
     return obj

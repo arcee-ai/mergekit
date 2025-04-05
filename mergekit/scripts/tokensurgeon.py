@@ -532,7 +532,7 @@ def build_embedding_matrix(
     )
     shared_numeric_tokens = set(orig_vocab.keys()) & set(donor_numeric_tokens)
     LOG.debug(
-        f"{len(shared_numeric_tokens)} shared numeric tokens ({100.0*len(shared_numeric_tokens)/len(donor_numeric_tokens):.2f}%)"
+        f"{len(shared_numeric_tokens)} shared numeric tokens ({100.0 * len(shared_numeric_tokens) / len(donor_numeric_tokens):.2f}%)"
     )
     LOG.debug(
         [donor_tokenizer.decode([donor_vocab[tok]]) for tok in shared_numeric_tokens]

@@ -70,7 +70,7 @@ def well_trained_tokens(
         ).float()
         threshold = torch.quantile(cos_sim, 1 - quantile, dim=0)
         LOG.debug(
-            f"Unused token threshold in embed_tokens: {threshold.item():.4f} ({int((1-quantile) * 100)}th percentile)"
+            f"Unused token threshold in embed_tokens: {threshold.item():.4f} ({int((1 - quantile) * 100)}th percentile)"
         )
         if threshold < 0.5:
             threshold = 0.5
@@ -89,7 +89,7 @@ def well_trained_tokens(
         ).float()
         threshold = torch.quantile(cos_sim, 1 - quantile, dim=0)
         LOG.debug(
-            f"Unused token threshold in lm_head: {threshold.item():.4f} ({int((1-quantile) * 100)}th percentile)"
+            f"Unused token threshold in lm_head: {threshold.item():.4f} ({int((1 - quantile) * 100)}th percentile)"
         )
         if threshold < 0.5:
             threshold = 0.5

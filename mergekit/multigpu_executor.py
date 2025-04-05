@@ -21,8 +21,6 @@ import networkx as nx
 import torch
 import tqdm
 
-from mergekit.io.tasks import TensorWriterTask
-
 from .graph import (
     Executor,
     Task,
@@ -101,7 +99,7 @@ class MultiGPUExecutor:
             offending = [
                 t.task() for t in parallel_handles if t.task().main_thread_only()
             ]
-            logging.error(f"Main-thread-only tasks in parallel section:")
+            logging.error("Main-thread-only tasks in parallel section:")
             for task in offending:
                 logging.error(f"  {type(task).__name__}")
             raise RuntimeError(
