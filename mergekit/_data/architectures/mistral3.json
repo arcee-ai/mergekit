@@ -1,0 +1,146 @@
+{
+    "kind": "modular",
+    "architectures": [
+        "Mistral3ForConditionalGeneration"
+    ],
+    "model_type": "mistral3",
+    "tagalong_files": [
+        "preprocessor_config.json",
+        "processor_config.json"
+    ],
+    "vocab_size_config_key": "text_config.vocab_size",
+    "modules": {
+        "text_decoder": {
+            "weight_prefix": "language_model.",
+            "architecture": {
+                "model_type": "mistral",
+                "architectures": [],
+                "pre_weights": [
+                    {
+                        "name": "model.embed_tokens.weight",
+                        "is_embed": true
+                    }
+                ],
+                "num_layers_config_key": "text_config.num_hidden_layers",
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "model.layers.${layer_index}.input_layernorm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.q_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.k_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.v_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.o_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.post_attention_layernorm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.up_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.gate_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.down_proj.weight"
+                        }
+                    ]
+                },
+                "post_weights": [
+                    {
+                        "name": "model.norm.weight"
+                    },
+                    {
+                        "name": "lm_head.weight",
+                        "is_embed": true,
+                        "optional": true,
+                        "tied_names": [
+                            "model.embed_tokens.weight"
+                        ]
+                    }
+                ]
+            }
+        },
+        "multi_modal_projector": {
+            "weight_prefix": "multi_modal_projector.",
+            "architecture": {
+                "model_type": "",
+                "architectures": [],
+                "pre_weights": [
+                    {
+                        "name": "linear_1.weight"
+                    },
+                    {
+                        "name": "linear_2.weight"
+                    },
+                    {
+                        "name": "norm.weight"
+                    },
+                    {
+                        "name": "patch_merger.merging_layer.weight"
+                    }
+                ],
+                "post_weights": [],
+                "layer_templates": {
+                    "weights": []
+                },
+                "override_num_layers": 0
+            }
+        },
+        "vision_tower": {
+            "weight_prefix": "vision_tower.",
+            "architecture": {
+                "model_type": "pixtral",
+                "architectures": [],
+                "pre_weights": [
+                    {
+                        "name": "patch_conv.weight"
+                    },
+                    {
+                        "name": "ln_pre.weight"
+                    }
+                ],
+                "post_weights": [],
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "transformer.layers.${layer_index}.ffn_norm.weight"
+                        },
+                        {
+                            "name": "transformer.layers.${layer_index}.feed_forward.down_proj.weight"
+                        },
+                        {
+                            "name": "transformer.layers.${layer_index}.feed_forward.gate_proj.weight"
+                        },
+                        {
+                            "name": "transformer.layers.${layer_index}.feed_forward.up_proj.weight"
+                        },
+                        {
+                            "name": "transformer.layers.${layer_index}.attention_norm.weight"
+                        },
+                        {
+                            "name": "transformer.layers.${layer_index}.attention.k_proj.weight"
+                        },
+                        {
+                            "name": "transformer.layers.${layer_index}.attention.o_proj.weight"
+                        },
+                        {
+                            "name": "transformer.layers.${layer_index}.attention.q_proj.weight"
+                        },
+                        {
+                            "name": "transformer.layers.${layer_index}.attention.v_proj.weight"
+                        }
+                    ]
+                },
+                "num_layers_config_key": "vision_config.num_hidden_layers"
+            }
+        }
+    }
+}
