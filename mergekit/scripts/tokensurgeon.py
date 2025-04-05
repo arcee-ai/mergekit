@@ -300,7 +300,9 @@ def debug_reconstruction_for_random_tokens(
             reconstructed,
             dim=0,
         )
-        print(f"  L2 error: {l2_err.item():.4f}")
+        print(
+            f"  L2 error: {l2_err.item():.4f} (relative: {l2_err.item() / donor_tok_embed.norm():.4f})"
+        )
         print(f"  Cosine similarity: {cos_sim.item():.4f}")
         print()
 
@@ -376,12 +378,8 @@ def compute_new_embeddings(
                 weight_scheme=options.weight_scheme,
             )
         elif options.method == ApproximationMethod.MATCHING_PURSUIT_ROPE:
-            model_config = options.model.config(
-                trust_remote_code=options.trust_remote_code
-            )
-            donor_config = options.donor.config(
-                trust_remote_code=options.trust_remote_code
-            )
+            model_config = options.model.config(trust_remote_code=False)
+            donor_config = options.donor.config(trust_remote_code=False)
             indices, coeffs, res, in_donor = batch_mp_rope(
                 targets,
                 donor_shared_embeds,
@@ -503,6 +501,42 @@ def build_embedding_matrix(
         else:
             new_tokens.append(token)
             stats.to_approximate += 1
+
+    donor_tokenizer = transformers.AutoTokenizer.from_pretrained(
+        options.donor.model.path,
+        revision=options.donor.model.revision,
+        trust_remote_code=True,
+    )
+    orig_tokenizer = transformers.AutoTokenizer.from_pretrained(
+        options.model.model.path,
+        revision=options.model.model.revision,
+        trust_remote_code=True,
+    )
+    donor_numeric_tokens = [
+        tok
+        for tok in donor_vocab
+        if (tt := donor_tokenizer.decode([donor_vocab[tok]]).strip()).isnumeric()
+        and tt.isascii()
+    ]
+    orig_numeric_tokens = [
+        tok
+        for tok in orig_vocab
+        if (tt := orig_tokenizer.decode([orig_vocab[tok]]).strip()).isnumeric()
+        and tt.isascii()
+    ]
+    LOG.debug(f"Original has {len(orig_numeric_tokens)} numeric tokens")
+    LOG.debug([orig_tokenizer.decode([orig_vocab[tok]]) for tok in orig_numeric_tokens])
+    LOG.debug(f"Donor has {len(donor_numeric_tokens)} numeric tokens")
+    LOG.debug(
+        [donor_tokenizer.decode([donor_vocab[tok]]) for tok in donor_numeric_tokens]
+    )
+    shared_numeric_tokens = set(orig_vocab.keys()) & set(donor_numeric_tokens)
+    LOG.debug(
+        f"{len(shared_numeric_tokens)} shared numeric tokens ({100.0*len(shared_numeric_tokens)/len(donor_numeric_tokens):.2f}%)"
+    )
+    LOG.debug(
+        [donor_tokenizer.decode([donor_vocab[tok]]) for tok in shared_numeric_tokens]
+    )
 
     LOG.info(stats.pretty_print())
     if new_tokens:
@@ -698,6 +732,7 @@ def main(
     )
 
     if magikarp:
+        LOG.debug("Finding well-trained tokens in original model")
         well_trained_orig_tokens = set(
             well_trained_tokens(
                 orig_vocab,
@@ -705,6 +740,7 @@ def main(
                 orig_lm_head,
             )
         )
+        LOG.debug("Finding well-trained tokens in donor model")
         well_trained_donor_tokens = set(
             well_trained_tokens(
                 donor_vocab,
