@@ -43,22 +43,40 @@
                             "name": "model.layers.${layer_index}.post_attention_layernorm.weight"
                         },
                         {
-                            "name": "model.layers.${layer_index}.feed_forward.shared_expert.down_proj.weight"
+                            "name": "model.layers.${layer_index}.feed_forward.shared_expert.down_proj.weight",
+                            "optional": true
                         },
                         {
-                            "name": "model.layers.${layer_index}.feed_forward.shared_expert.gate_proj.weight"
+                            "name": "model.layers.${layer_index}.feed_forward.shared_expert.gate_proj.weight",
+                            "optional": true
                         },
                         {
-                            "name": "model.layers.${layer_index}.feed_forward.shared_expert.up_proj.weight"
+                            "name": "model.layers.${layer_index}.feed_forward.shared_expert.up_proj.weight",
+                            "optional": true
                         },
                         {
-                            "name": "model.layers.${layer_index}.feed_forward.experts.down_proj"
+                            "name": "model.layers.${layer_index}.feed_forward.experts.down_proj",
+                            "optional": true
                         },
                         {
-                            "name": "model.layers.${layer_index}.feed_forward.experts.gate_up_proj"
+                            "name": "model.layers.${layer_index}.feed_forward.experts.gate_up_proj",
+                            "optional": true
                         },
                         {
-                            "name": "model.layers.${layer_index}.feed_forward.router.weight"
+                            "name": "model.layers.${layer_index}.feed_forward.router.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.feed_forward.down_proj.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.feed_forward.gate_proj.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.feed_forward.up_proj.weight",
+                            "optional": true
                         }
                     ]
                 },
