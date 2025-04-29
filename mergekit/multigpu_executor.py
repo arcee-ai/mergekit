@@ -34,7 +34,17 @@ LOG = logging.getLogger(__name__)
 
 class MultiGPUExecutor:
     """
-    Execute tasks across multiple GPUs.
+    Execute computational tasks in parallel across multiple GPUs.
+
+    This class analyzes the dependency structure of a task graph and distributes
+    the workload across available GPUs while respecting:
+    1. Tasks requiring main thread execution
+    2. Tasks that need to be duplicated on each GPU
+    3. Task dependencies and data locality
+    4. Memory management for intermediate results
+
+    It automatically partitions the task graph into leading tasks (main thread, pre-GPU),
+    parallel tasks (distributed across GPUs), and trailing tasks (main thread, post-GPU).
 
     Attributes:
         num_gpus: Number of GPUs to utilize (None = all available)
@@ -44,17 +54,23 @@ class MultiGPUExecutor:
 
     def __init__(
         self,
-        tasks: List[Task],
+        targets: List[Task],
         num_gpus: Optional[int] = None,
         storage_device: Optional[torch.device] = None,
     ):
         """
-        Initialize the executor with a list of tasks.
+        Initialize the executor with a list of target tasks.
+
+        This performs initial task graph analysis, including:
+        - Finding tasks that must run on the main thread before parallel execution
+        - Finding tasks that must run on the main thread after parallel execution
+        - Partitioning parallel tasks into islands that can run independently
+        - Assigning islands to GPUs using a load-balancing approach
 
         Args:
-            tasks: List of tasks to execute
+            targets: List of final target tasks to execute
             num_gpus: Number of GPUs to utilize (None = all available)
-            storage_device: Device for storing tensors between stages
+            storage_device: Device for storing intermediate results between execution stages
         """
         self.results: Dict[TaskHandle, Any] = {}
         self.storage_device = storage_device
@@ -63,8 +79,8 @@ class MultiGPUExecutor:
             num_gpus = torch.cuda.device_count()
         LOG.info(f"Using {num_gpus} GPUs for parallel execution")
 
-        self.universe = TaskUniverse(tasks)
-        self.targets = set([self.universe.get_handle(t) for t in tasks])
+        self.universe = TaskUniverse(targets)
+        self.targets = set([self.universe.get_handle(t) for t in targets])
         self.serial_schedule = build_schedule(list(self.targets), {})
         ordered_handles = self.serial_schedule.tasks
 
@@ -96,12 +112,6 @@ class MultiGPUExecutor:
             f"{len(self.trailing_main_handles)} trailing"
         )
         if any(t.task().main_thread_only() for t in parallel_handles):
-            offending = [
-                t.task() for t in parallel_handles if t.task().main_thread_only()
-            ]
-            logging.error("Main-thread-only tasks in parallel section:")
-            for task in offending:
-                logging.error(f"  {type(task).__name__}")
             raise RuntimeError(
                 "Main-thread-only tasks must be either leading or trailing"
             )
@@ -197,9 +207,19 @@ class MultiGPUExecutor:
         """
         Identify tasks that must execute AFTER parallel GPU tasks complete.
 
-        Trailing tasks must:
-        - Require main thread execution
-        - Not have non-trailing dependants
+        This method finds tasks that need to run after parallel execution because they
+        require the main thread and have dependencies on other tasks.
+
+        A task is considered "trailing" if:
+        - It requires main thread execution (task.main_thread_only() is True)
+        - All tasks dependent on it are also trailing tasks (recursive condition)
+        - OR it has no dependents (terminal task)
+
+        Args:
+            tasks: List of task handles to analyze
+
+        Returns:
+            Set[TaskHandle]: Set of tasks that should be executed after parallel processing
         """
         dependants = defaultdict(set)
         for task_idx, arg_indices in self.universe.task_arguments.items():
@@ -221,11 +241,21 @@ class MultiGPUExecutor:
         return trailing_tasks
 
     def _find_leading_tasks(self, tasks: List[TaskHandle]) -> Set[TaskHandle]:
-        """Identify tasks that must execute BEFORE parallel GPU tasks.
+        """
+        Identify tasks that must execute BEFORE parallel GPU tasks.
 
-        Leading tasks must:
-        - Require main thread execution
-        - Not have non-leading dependencies
+        This method finds tasks that need to run before parallel execution because they
+        require the main thread and are dependencies for other tasks.
+
+        A task is considered "leading" if:
+        - It requires main thread execution (task.main_thread_only() is True)
+        - It has no dependencies, or all its dependencies are also leading tasks
+
+        Args:
+            tasks: List of task handles to analyze
+
+        Returns:
+            Set[TaskHandle]: Set of tasks that should be executed before parallel processing
         """
         leading_tasks = set()
         for task_handle in tasks:
@@ -242,11 +272,22 @@ class MultiGPUExecutor:
         self, tasks: List[TaskHandle], num_gpus: int
     ) -> Dict[torch.device, List[TaskHandle]]:
         """
-        Assign task islands to GPUs.
+        Assign task islands to GPUs for parallel execution.
 
-        Task islands (weakly connected components) are groups of tasks that
-        can execute independently. This method identifies islands in the
-        non-trailing, non-leading task graph and assigns them to devices.
+        This method partitions the parallel task graph into independent subgraphs
+        (islands) that can be executed independently on different GPUs. It uses
+        a load-balancing approach to distribute islands across available GPUs.
+
+        Task islands are identified as weakly connected components in the task
+        dependency graph, meaning groups of tasks that are connected through
+        dependencies but don't have dependencies outside their group.
+
+        Args:
+            tasks: List of parallel tasks to assign to GPUs
+            num_gpus: Number of available GPUs
+
+        Returns:
+            Dict[torch.device, List[TaskHandle]]: Mapping from GPU devices to assigned tasks
         """
         task_set = set(tasks)
 
@@ -268,7 +309,7 @@ class MultiGPUExecutor:
                 continue
             # don't need to sort, inner executor will handle
             island_tasks = [TaskHandle(self.universe, idx) for idx in island]
-            # assign to GPU with fewest tasks
+            # assign to GPU with fewest tasks (load balancing)
             device_idx = min(
                 range(num_gpus),
                 key=lambda i: len(assignments.get(torch.device(f"cuda:{i}"), [])),
@@ -287,11 +328,15 @@ class MultiGPUExecutor:
         """
         Execute a set of tasks on a single GPU.
 
+        This method runs as a thread worker for a specific GPU. It creates an execution
+        stream on the assigned GPU, runs the tasks, and queues results back to the main
+        thread. Only results needed for target tasks or trailing tasks are retained.
+
         Args:
-            island_tasks: List of tasks to execute
+            task_list: List of tasks to execute on this GPU
             cached_values: Values of previously-executed dependent tasks
-            device: Device to execute tasks on
-            quiet: Suppress progress bar output
+            device: GPU device to execute tasks on
+            quiet: Whether to suppress progress bar output
         """
         LOG.debug(f"Device {device} starting")
         with torch.device(device):
@@ -306,6 +351,7 @@ class MultiGPUExecutor:
                 count = 0
                 for task_handle, result in exec._run(quiet=quiet):
                     count += 1
+                    # Only keep results needed for target tasks or trailing tasks
                     if not (
                         task_handle in self.targets
                         or task_handle in self.trailing_dependencies

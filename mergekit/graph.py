@@ -91,12 +91,34 @@ class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
         """
         Returns True if the task can take advantage of matrix operation
         acceleration (such as on a GPU).
+
+        Tasks that perform heavy matrix operations should return True here
+        so they can be scheduled on appropriate devices.
+
+        Returns:
+            bool: True if the task benefits from acceleration, False otherwise
         """
         return False
 
     def main_thread_only(self) -> bool:
         """
         Returns True if the task should only be executed on the main thread.
+
+        Returns:
+            bool: True if the task must run on the main thread, False otherwise
+        """
+        return False
+
+    def duplicate_per_gpu(self) -> bool:
+        """
+        Returns True if the task should be duplicated for each GPU.
+
+        Tasks that are faster to execute than to transfer between devices
+        or are common dependencies of otherwise independent tasks should
+        return True here to maximize parallelism.
+
+        Returns:
+            bool: True if the task should be duplicated per GPU, False otherwise
         """
         return False
 
@@ -241,6 +263,265 @@ def build_schedule(
         if (node != dummy_handle) and node not in (cached_values or {})
     ]
 
+    last_use_index = {}
+    for idx, task in reversed(list(enumerate(schedule))):
+        for dep in task.arguments().values():
+            if dep not in last_use_index:
+                last_use_index[dep] = idx
+        if task not in last_use_index:
+            last_use_index[task] = idx
+    for task in cached_values or {}:
+        if task not in last_use_index:
+            last_use_index[task] = len(schedule) + 1
+
+    return ExecutionSchedule(
+        tasks=schedule,
+        last_use_index=last_use_index,
+    )
+
+
+class TaskUniverse:
+    """
+    Container for tasks and their relationships.
+
+    Maintains a registry of tasks and their dependencies, allowing efficient
+    lookup and traversal of the task graph.
+
+    Attributes:
+        tasks: List of all tasks in this universe
+        task_to_index: Mapping from task instances to their indices
+        task_arguments: Mapping from task indices to their argument dependencies
+        _type_id_to_index: Quick lookup for seen task instances
+    """
+
+    tasks: List[Task]
+    task_to_index: Dict[Task, int]
+    task_arguments: Dict[int, Dict[str, int]]
+    _type_id_to_index: Dict[Tuple[type, int], int]
+
+    def __init__(self, tasks: Optional[Iterable[Task]] = None):
+        self.tasks = []
+        self.task_to_index = {}
+        self.task_arguments = {}
+        self._type_id_to_index = {}
+        if tasks is not None:
+            for task in tasks:
+                self.add_task(task)
+
+    def add_task(self, task: Task, recursive: bool = True) -> "TaskHandle":
+        """
+        Add a task to the universe and return a handle to it.
+
+        If the task already exists in the universe, returns a handle to the existing instance.
+
+        Args:
+            task: The task to add
+            recursive: If True, also add all dependent tasks recursively
+
+        Returns:
+            TaskHandle: A handle to the added task
+        """
+        _ti_key = (type(task), id(task))
+        if _ti_key in self._type_id_to_index:
+            index = self._type_id_to_index[_ti_key]
+            assert (
+                self.tasks[index] == task
+            ), "Task modified after being added to universe"
+            return TaskHandle(self, index)
+
+        index = self.task_to_index.setdefault(task, len(self.tasks))
+        if index < len(self.tasks):
+            return TaskHandle(self, index)
+        self.tasks.append(task)
+        self._type_id_to_index[_ti_key] = index
+
+        if recursive:
+            self.task_arguments[index] = {}
+            for k, v in task.arguments().items():
+                self.task_arguments[index][k] = self.add_task(v, recursive=True)._index
+        return TaskHandle(self, index)
+
+    def get_handle(self, task: Task) -> Optional["TaskHandle"]:
+        """
+        Get a TaskHandle for an existing task, if it exists in this universe.
+
+        Args:
+            task: The task to look up
+
+        Returns:
+            Optional[TaskHandle]: A handle to the task, or None if not found
+        """
+        if task not in self.task_to_index:
+            return None
+        return TaskHandle(self, self.task_to_index[task])
+
+
+class TaskHandle:
+    """
+    A reference to a task within a specific TaskUniverse.
+
+    TaskHandle provides a lightweight way to refer to tasks without directly
+    holding the task instances themselves. Particularly useful for putting
+    tasks in sets or as keys in dictionaries. Much faster to compare and hash
+    than full Task instances.
+
+    Attributes:
+        _universe: The TaskUniverse containing the referenced task
+        _index: The index of the task within the universe
+    """
+
+    __slots__ = ["_universe", "_index"]
+    _universe: TaskUniverse
+    _index: int
+
+    def __init__(self, universe: TaskUniverse, index: int):
+        """
+        Initialize a TaskHandle.
+
+        Args:
+            universe: The TaskUniverse containing the task
+            index: The index of the task within the universe
+        """
+        self._universe = universe
+        self._index = index
+
+    def task(self) -> Task:
+        """
+        Get the actual Task instance referenced by this handle.
+
+        Returns:
+            Task: The referenced task
+        """
+        return self._universe.tasks[self._index]
+
+    def arguments(self) -> Dict[str, "TaskHandle"]:
+        """
+        Get handles to all argument tasks (dependencies) of this task.
+
+        Returns:
+            Dict[str, TaskHandle]: Mapping from argument names to task handles
+        """
+        return {
+            k: TaskHandle(self._universe, v)
+            for k, v in self._universe.task_arguments[self._index].items()
+        }
+
+    def __eq__(self, other):
+        """
+        Check if two TaskHandles refer to the same task in the same universe.
+
+        Args:
+            other: Another object to compare with
+
+        Returns:
+            bool: True if equal, False otherwise
+        """
+        if not isinstance(other, TaskHandle):
+            return False
+        if self._index != other._index:
+            return False
+        if self._universe is not other._universe:
+            return False
+        return True
+
+    def __hash__(self):
+        return self._index
+
+    def __str__(self):
+        return f"TaskHandle({type(self.task()).__name__}, {self._index})"
+
+    __repr__ = __str__
+
+
+class ExecutionSchedule:
+    """
+    Represents an ordered schedule of tasks for execution and their lifecycle information.
+
+    Tracks when each task's result can be discarded to optimize memory usage.
+
+    Attributes:
+        tasks: Ordered list of tasks to execute
+        last_use_index: Maps each task to the index in the schedule where its result is last used
+    """
+
+    tasks: List[TaskHandle]
+    last_use_index: Dict[TaskHandle, int]
+
+    def __init__(self, tasks: List[TaskHandle], last_use_index: Dict[TaskHandle, int]):
+        """
+        Initialize an execution schedule.
+
+        Args:
+            tasks: Ordered list of tasks to execute
+            last_use_index: Dictionary mapping tasks to their last use index in the schedule
+        """
+        self.tasks = tasks
+        self.last_use_index = last_use_index
+
+
+def build_schedule(
+    targets: List[TaskHandle], cached_values: Dict[TaskHandle, Any]
+) -> ExecutionSchedule:
+    """
+    Build an execution schedule for the given target tasks.
+
+    Creates a topologically sorted schedule that respects task dependencies and
+    tracks when each task's result can be discarded to optimize memory usage.
+
+    Args:
+        targets: List of target tasks that need to be executed
+        cached_values: Dictionary of task results that are already available
+
+    Returns:
+        ExecutionSchedule: A schedule containing tasks to execute and their lifecycle info
+    """
+    if not targets:
+        return ExecutionSchedule(tasks=[], last_use_index={})
+
+    universe = targets[0]._universe
+    assert all(
+        t._universe is universe for t in targets
+    ), "All tasks must be from the same universe"
+
+    dummy_handle = TaskHandle(universe, -1)
+    edge_tups: List[Tuple[TaskHandle, TaskHandle]] = []
+
+    # build a directed graph of dependencies
+    explored = set()
+    to_explore = set(targets)
+    while to_explore:
+        task = to_explore.pop()
+        if task in explored:
+            continue
+        explored.add(task)
+        if task in (cached_values or {}):
+            continue
+        for dep in task.arguments().values():
+            to_explore.add(dep)
+            edge_tups.append((dep, task))
+
+    # add edges from a dummy node to each target to guarantee
+    # they will be included in the final schedule
+    for target in targets:
+        edge_tups.append((dummy_handle, target))
+
+    def _compare_key(node: TaskHandle) -> Tuple[str, int]:
+        if node._index < 0:
+            return ("", 0)
+        task = node.task()
+        return (
+            task.group_label() or "",
+            -task.priority(),
+        )
+
+    graph = networkx.DiGraph(edge_tups)
+    schedule: List[TaskHandle] = [
+        node
+        for node in networkx.lexicographical_topological_sort(graph, key=_compare_key)
+        if (node != dummy_handle) and node not in (cached_values or {})
+    ]
+
+    # Calculate last use indices for memory optimization
     last_use_index = {}
     for idx, task in reversed(list(enumerate(schedule))):
         for dep in task.arguments().values():

@@ -36,7 +36,7 @@ def run_merge(
     if options.random_seed is not None:
         transformers.trainer_utils.set_seed(options.random_seed)
 
-    if not merge_config.models and not merge_config.slices:
+    if not merge_config.models and not merge_config.slices and not merge_config.modules:
         raise RuntimeError("No output requested")
 
     arch_info = get_architecture_info(merge_config, options)
@@ -71,7 +71,7 @@ def run_merge(
 
     if options.multi_gpu:
         exec = MultiGPUExecutor(
-            tasks=targets,
+            targets=targets,
             storage_device=None if options.low_cpu_memory else "cpu",
         )
     else:
@@ -121,9 +121,7 @@ def run_merge(
     else:
         if options.copy_tokenizer:
             try:
-                _copy_tokenizer(
-                    merge_config, out_path, trust_remote_code=options.trust_remote_code
-                )
+                _copy_tokenizer(merge_config, out_path, options=options)
             except Exception as e:
                 LOG.error(
                     "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
@@ -138,7 +136,7 @@ def run_merge(
         merge_config,
         out_path,
         files=arch_info.tagalong_files or [],
-        trust_remote_code=options.trust_remote_code,
+        options=options,
     )
 
     if getattr(arch_info, "post_fill_parameters", False):
@@ -188,11 +186,12 @@ def _set_chat_template(
         chat_template = Counter(model_templates).most_common(1)[0][0]
         LOG.info(f"Auto-selected chat template: {chat_template}")
 
-    elif importlib.resources.is_resource(chat_templates, chat_template + ".jinja"):
-        with importlib.resources.open_text(
-            chat_templates, chat_template + ".jinja"
-        ) as fp:
-            chat_template = fp.read()
+    elif (
+        t := importlib.resources.files(chat_templates).joinpath(
+            chat_template + ".jinja"
+        )
+    ).is_file():
+        chat_template = t.read_text()
 
     elif len(chat_template) < 20 or "{" not in chat_template:
         raise RuntimeError(f"Invalid chat template: {chat_template}")
@@ -204,15 +203,23 @@ def _copy_tagalong_files(
     merge_config: MergeConfiguration,
     out_path: str,
     files: List[str],
-    trust_remote_code: bool = False,
+    options: MergeOptions,
 ):
     donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
+    donor_local_path = donor_model.local_path(
+        cache_dir=options.transformers_cache, ignore_lora=True
+    )
 
     for file_name in files:
+<<<<<<< HEAD
         if os.path.exists(os.path.join(donor_model.model.path, file_name)):
+=======
+        fp = os.path.join(donor_local_path, file_name)
+        if os.path.exists(fp):
+>>>>>>> main
             LOG.info(f"Copying {file_name} from {donor_model}")
             shutil.copy(
-                os.path.join(donor_model.model.path, file_name),
+                fp,
                 os.path.join(out_path, file_name),
             )
 
@@ -220,18 +227,19 @@ def _copy_tagalong_files(
 
 
 def _copy_tokenizer(
-    merge_config: MergeConfiguration, out_path: str, trust_remote_code: bool = False
+    merge_config: MergeConfiguration, out_path: str, options: MergeOptions
 ):
     donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
+    donor_local_path = donor_model.local_path(
+        cache_dir=options.transformers_cache, ignore_lora=True
+    )
 
     if (
         (not merge_config.chat_template)
-        and os.path.exists(
-            os.path.join(donor_model.model.path, "tokenizer_config.json")
-        )
+        and os.path.exists(os.path.join(donor_local_path, "tokenizer_config.json"))
         and (
-            os.path.exists(os.path.join(donor_model.model.path, "tokenizer.json"))
-            or os.path.exists(os.path.join(donor_model.model.path, "tokenizer.model"))
+            os.path.exists(os.path.join(donor_local_path, "tokenizer.json"))
+            or os.path.exists(os.path.join(donor_local_path, "tokenizer.model"))
         )
     ):
         LOG.info(f"Copying tokenizer from {donor_model}")
@@ -244,9 +252,9 @@ def _copy_tokenizer(
             "added_tokens.json",
             "merges.txt",
         ]:
-            if os.path.exists(os.path.join(donor_model.model.path, file_name)):
+            if os.path.exists(os.path.join(donor_local_path, file_name)):
                 shutil.copy(
-                    os.path.join(donor_model.model.path, file_name),
+                    os.path.join(donor_local_path, file_name),
                     os.path.join(out_path, file_name),
                 )
 
@@ -257,7 +265,7 @@ def _copy_tokenizer(
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         donor_model.model.path,
         revision=donor_model.model.revision,
-        trust_remote_code=trust_remote_code,
+        trust_remote_code=options.trust_remote_code,
     )
     _set_chat_template(tokenizer, merge_config)
     tokenizer.save_pretrained(out_path, safe_serialization=True)
@@ -282,21 +290,38 @@ def _model_out_config(
     for module_name in arch_info.modules:
         if config.modules and module_name in config.modules:
             module_def = config.modules.get(module_name)
-            module_layers[module_name] = sum(
-                s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
-                for s in module_def.slices
-            )
+            if module_def and module_def.slices:
+                module_layers[module_name] = sum(
+                    [
+                        s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+                        for s in module_def.slices
+                    ]
+                )
         elif config.slices:
             module_layers[module_name] = sum(
-                s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
-                for s in config.slices
+                [
+                    s.sources[0].layer_range[1] - s.sources[0].layer_range[0]
+                    for s in config.slices
+                ]
             )
 
     if module_layers:
         for module_name in module_layers:
+            if module_name not in arch_info.modules:
+                LOG.warning(
+                    f"Module {module_name} in config but not in architecture info"
+                )
+                continue
+            module_info = arch_info.modules[module_name]
+            cfg_key = module_info.architecture.num_layers_config_key()
+            if not cfg_key:
+                if module_layers[module_name] > 0:
+                    LOG.warning(
+                        f"Module {module_name} has no configuration key for number of layers, "
+                        "but the number of layers is not zero."
+                    )
+                continue
             try:
-                module_info = arch_info.modules[module_name]
-                cfg_key = module_info.architecture.num_layers_config_key()
                 set_config_value(res, cfg_key, module_layers[module_name])
             except Exception as e:
                 LOG.warning(

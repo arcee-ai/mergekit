@@ -149,8 +149,13 @@ class ModelReference(BaseModel, frozen=True):
             res.architectures = [self.override_architecture]
         return res
 
-    def tensor_index(self, cache_dir: Optional[str] = None) -> ShardedTensorIndex:
-        assert self.lora is None
+    def local_path(
+        self, cache_dir: Optional[str] = None, ignore_lora: bool = False
+    ) -> str:
+        if not ignore_lora:
+            assert (
+                self.lora is None
+            ), "LoRA not merged - use .merged() to get a local path"
 
         path = self.model.path
         if not os.path.exists(path):
@@ -172,8 +177,10 @@ class ModelReference(BaseModel, frozen=True):
                 cache_dir=cache_dir,
                 allow_patterns=patterns,
             )
+        return path
 
-        return ShardedTensorIndex.from_disk(path)
+    def tensor_index(self, cache_dir: Optional[str] = None) -> ShardedTensorIndex:
+        return ShardedTensorIndex.from_disk(self.local_path(cache_dir))
 
     def lazy_loader(
         self, cache_dir: Optional[str] = None, lazy_unpickle: bool = True
