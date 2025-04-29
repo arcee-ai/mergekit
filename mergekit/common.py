@@ -39,7 +39,7 @@ def set_config_value(config: PretrainedConfig, key: str, value: Any):
     for idx, part in enumerate(parts[:-1]):
         if not hasattr(obj, part):
             raise RuntimeError(
-                f"Config {config} has no attribute {'.'.join(parts[:idx+1])}"
+                f"Config {config} has no attribute {'.'.join(parts[: idx + 1])}"
             )
         obj = getattr(obj, part)
     setattr(obj, parts[-1], value)
@@ -52,7 +52,7 @@ def get_config_value(config: PretrainedConfig, key: str) -> Any:
     for idx, part in enumerate(parts):
         if not hasattr(obj, part):
             raise RuntimeError(
-                f"Config {config} has no attribute {'.'.join(parts[:idx+1])}"
+                f"Config {config} has no attribute {'.'.join(parts[: idx + 1])}"
             )
         obj = getattr(obj, part)
     return obj
@@ -149,8 +149,13 @@ class ModelReference(BaseModel, frozen=True):
             res.architectures = [self.override_architecture]
         return res
 
-    def local_path(self, cache_dir: Optional[str] = None) -> str:
-        assert self.lora is None
+    def local_path(
+        self, cache_dir: Optional[str] = None, ignore_lora: bool = False
+    ) -> str:
+        if not ignore_lora:
+            assert (
+                self.lora is None
+            ), "LoRA not merged - use .merged() to get a local path"
 
         path = self.model.path
         if not os.path.exists(path):

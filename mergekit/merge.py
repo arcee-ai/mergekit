@@ -121,9 +121,7 @@ def run_merge(
     else:
         if options.copy_tokenizer:
             try:
-                _copy_tokenizer(
-                    merge_config, out_path, options=options
-                )
+                _copy_tokenizer(merge_config, out_path, options=options)
             except Exception as e:
                 logger.error(
                     "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
@@ -207,7 +205,9 @@ def _copy_tagalong_files(
     options: MergeOptions,
 ):
     donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
-    donor_local_path = donor_model.local_path(cache_dir=options.transformers_cache)
+    donor_local_path = donor_model.local_path(
+        cache_dir=options.transformers_cache, ignore_lora=True
+    )
 
     for file_name in files:
         fp = os.path.join(donor_local_path, file_name)
@@ -225,7 +225,9 @@ def _copy_tokenizer(
     merge_config: MergeConfiguration, out_path: str, options: MergeOptions
 ):
     donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
-    donor_local_path = donor_model.local_path(cache_dir=options.transformers_cache)
+    donor_local_path = donor_model.local_path(
+        cache_dir=options.transformers_cache, ignore_lora=True
+    )
 
     if (
         (not merge_config.chat_template)

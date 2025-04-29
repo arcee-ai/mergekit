@@ -257,7 +257,7 @@ def build_tokenizer(
             orig_idx = model_vocab[tok]
             if orig_idx >= vocab_size:
                 logger.warning(
-                    f"{model} token {repr(tok)} has index {orig_idx}>{vocab_size-1} (padding?)"
+                    f"{model} token {repr(tok)} has index {orig_idx}>{vocab_size - 1} (padding?)"
                 )
                 continue
 
