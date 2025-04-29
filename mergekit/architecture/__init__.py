@@ -16,7 +16,10 @@ from mergekit.architecture.base import (
     WeightInfo,
 )
 from mergekit.architecture.json_definitions import NAME_TO_ARCH
-from mergekit.architecture.mixtral import MixtralTensorNames
+from mergekit.architecture.moe_defs import (
+    MixtralModuleArchitecture,
+    Qwen3MoeModuleArchitecture,
+)
 from mergekit.options import MergeOptions
 
 if TYPE_CHECKING:
@@ -30,8 +33,14 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
         raise RuntimeError("More than one architecture in config?")
     arch_name = config.architectures[0]
 
-    if arch_name == MixtralTensorNames.ARCHITECTURE_NAME:
-        module = MixtralTensorNames.from_config(config)
+    if arch_name == MixtralModuleArchitecture.ARCHITECTURE_NAME:
+        module = MixtralModuleArchitecture.from_config(config)
+        return ModelArchitecture(
+            modules={"default": ModuleDefinition(architecture=module)},
+            architectures=[arch_name],
+        )
+    elif arch_name == Qwen3MoeModuleArchitecture.ARCHITECTURE_NAME:
+        module = Qwen3MoeModuleArchitecture.from_config(config)
         return ModelArchitecture(
             modules={"default": ModuleDefinition(architecture=module)},
             architectures=[arch_name],
