@@ -9,6 +9,7 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
     ConsensusMethod,
     GeneralizedTaskArithmeticMerge,
 )
+from mergekit.merge_methods.karcher import KarcherMerge
 from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.model_stock import ModelStockMerge
 from mergekit.merge_methods.nuslerp import NuSlerpMerge
@@ -23,6 +24,7 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
     PassthroughMerge(),
     ModelStockMerge(),
     ArceeFusionMerge(),
+    KarcherMerge(),
     # generalized task arithmetic methods
     GeneralizedTaskArithmeticMerge(
         consensus_method=None,

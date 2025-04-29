@@ -121,9 +121,7 @@ def run_merge(
     else:
         if options.copy_tokenizer:
             try:
-                _copy_tokenizer(
-                    merge_config, out_path, trust_remote_code=options.trust_remote_code
-                )
+                _copy_tokenizer(merge_config, out_path, options=options)
             except Exception as e:
                 LOG.error(
                     "Failed to copy tokenizer. The merge was still successful, just copy it from somewhere else.",
@@ -138,6 +136,7 @@ def run_merge(
         merge_config,
         out_path,
         files=arch_info.tagalong_files or [],
+        options=options,
     )
 
     if getattr(arch_info, "post_fill_parameters", False):
@@ -204,9 +203,12 @@ def _copy_tagalong_files(
     merge_config: MergeConfiguration,
     out_path: str,
     files: List[str],
+    options: MergeOptions,
 ):
     donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
-    donor_local_path = donor_model.local_path()
+    donor_local_path = donor_model.local_path(
+        cache_dir=options.transformers_cache, ignore_lora=True
+    )
 
     for file_name in files:
         fp = os.path.join(donor_local_path, file_name)
@@ -221,10 +223,12 @@ def _copy_tagalong_files(
 
 
 def _copy_tokenizer(
-    merge_config: MergeConfiguration, out_path: str, trust_remote_code: bool = False
+    merge_config: MergeConfiguration, out_path: str, options: MergeOptions
 ):
     donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
-    donor_local_path = donor_model.local_path()
+    donor_local_path = donor_model.local_path(
+        cache_dir=options.transformers_cache, ignore_lora=True
+    )
 
     if (
         (not merge_config.chat_template)
@@ -257,7 +261,7 @@ def _copy_tokenizer(
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         donor_model.model.path,
         revision=donor_model.model.revision,
-        trust_remote_code=trust_remote_code,
+        trust_remote_code=options.trust_remote_code,
     )
     _set_chat_template(tokenizer, merge_config)
     tokenizer.save_pretrained(out_path, safe_serialization=True)
