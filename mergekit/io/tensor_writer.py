@@ -65,10 +65,10 @@ class TensorWriter:
         if not self.current_shard:
             return
 
-        logger.info(f"Writing shard #{self.shards_written+1} to disk")
+        logger.info(f"Writing shard #{self.shards_written + 1} to disk")
 
         prefix, extension = self._get_name_components()
-        shard_name = f"{prefix}-{self.shards_written+1}.{extension}"
+        shard_name = f"{prefix}-{self.shards_written + 1}.{extension}"
 
         for key in self.current_shard:
             self.weight_map[key] = shard_name
@@ -95,8 +95,8 @@ class TensorWriter:
             total_shards = self.shards_written
             name_remap = {}
             for idx in range(total_shards):
-                name_remap[f"{prefix}-{idx+1}.{extension}"] = (
-                    f"{prefix}-{idx+1:05d}-of-{total_shards:05d}.{extension}"
+                name_remap[f"{prefix}-{idx + 1}.{extension}"] = (
+                    f"{prefix}-{idx + 1:05d}-of-{total_shards:05d}.{extension}"
                 )
 
             if total_shards < 2:
