@@ -24,7 +24,7 @@ from mergekit.io.tensor_writer import TensorWriter
 from mergekit.multigpu_executor import MultiGPUExecutor
 from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
-logger = logging.getLogger("extract_lora")
+LOG = logging.getLogger("extract_lora")
 
 
 @click.command("mergekit-extract-lora", cls=PrettyPrintHelp)
@@ -188,7 +188,7 @@ def main(
             )
         )
 
-    logger.info(f"LoRA adapter extracted to {out_path}")
+    LOG.info(f"LoRA adapter extracted to {out_path}")
 
 
 def make_config_dict(
@@ -375,10 +375,10 @@ def plan_extraction(
     ft_vocab = embed_in.weight.shape[0]
     base_vocab = dummy_base.get_input_embeddings().weight.shape[0]
     if ft_vocab != base_vocab and embed_lora:
-        logger.warning(
+        LOG.warning(
             f"Vocabulary size mismatch: fine-tuned model has {ft_vocab} tokens, base model has {base_vocab} tokens"
         )
-        logger.warning("Enforcing embeddings in modules_to_save, embed_lora=False")
+        LOG.warning("Enforcing embeddings in modules_to_save, embed_lora=False")
         embed_lora = False
     del dummy_base
 
@@ -398,7 +398,7 @@ def plan_extraction(
         bias_wi = name_to_wi.get(name + ".bias")
         if wi is None:
             if hasattr(module, "weight"):
-                logger.warning(
+                LOG.warning(
                     f"Weight {name} present in model but not in architecture info"
                 )
                 wi = WeightInfo(
@@ -422,15 +422,15 @@ def plan_extraction(
             # save them at full rank instead of decomposing
             key = name.split(".")[-1]
             if key not in modules_to_save:
-                logger.warning(f"Adding {key} to modules_to_save")
+                LOG.warning(f"Adding {key} to modules_to_save")
                 modules_to_save.append(key)
 
         if name in modules_to_save or (name.split(".")[-1] in modules_to_save):
-            logger.info(f"Planning to save {name} at full rank")
+            LOG.info(f"Planning to save {name} at full rank")
             targets.extend(plan_module_to_save(model_ref, writer_task, wi, bias_wi))
         elif _should_extract(name):
             if isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d, nn.Embedding)):
-                logger.info(f"Planning LoRA extraction for {name}")
+                LOG.info(f"Planning LoRA extraction for {name}")
                 targets.extend(
                     plan_lora_module(
                         base_model_ref,
@@ -458,7 +458,7 @@ def plan_extraction(
                         plan_module_to_save(model_ref, writer_task, wi, bias_wi)
                     )
                 if key not in warned_modules:
-                    logger.warning(message)
+                    LOG.warning(message)
                     warned_modules.add(key)
 
     save_tasks = [t for t in targets if isinstance(t, (SaveTensor, LoRAModuleSaveTask))]

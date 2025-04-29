@@ -14,7 +14,7 @@ from mergekit.graph import Executor, Task
 from mergekit.merge import run_merge
 from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
 
-logger = logging.getLogger("multimerge")
+LOG = logging.getLogger("multimerge")
 
 
 MODEL_CHECK_FILENAMES = [
@@ -45,10 +45,10 @@ class MergeModelTask(Task[str]):
                 for filename in MODEL_CHECK_FILENAMES
             )
         ):
-            logger.info(f"Model already exists at {self.out_path}, skipping")
+            LOG.info(f"Model already exists at {self.out_path}, skipping")
             return self.out_path
 
-        logger.info(f"Running merge for {self.name}")
+        LOG.info(f"Running merge for {self.name}")
         cfg = MergeConfiguration.model_validate(yaml.safe_load(self.config_yaml))
 
         run_merge(
@@ -56,7 +56,7 @@ class MergeModelTask(Task[str]):
             self.out_path,
             options=self.options,
         )
-        logger.info(f"Merge complete for {self.name}")
+        LOG.info(f"Merge complete for {self.name}")
         return self.out_path
 
 

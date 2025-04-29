@@ -136,9 +136,7 @@ def _template_substitution(
     return TemplateWithArithmetic(template).substitute(substitutions)
 
 
-def _load_architecture_json(name: str) -> ModelArchitecture:
-    with importlib.resources.open_text(mergekit._data.architectures, name) as f:
-        text = f.read()
+def _load_architecture_json(text: str) -> ModelArchitecture:
     data = json.loads(text)
     kind = data.get("kind", "module")
     if kind == "modular":
@@ -174,9 +172,10 @@ def _load_all_architectures() -> (
     Tuple[List[ModelArchitecture], Dict[str, List[ModelArchitecture]]]
 ):
     architectures: List[ModelArchitecture] = []
-    for f in importlib.resources.contents(mergekit._data.architectures):
-        if f.lower().endswith(".json"):
-            architectures.append(_load_architecture_json(f))
+    for f in importlib.resources.files(mergekit._data.architectures).iterdir():
+        if f.is_file() and f.name.lower().endswith(".json"):
+            text = f.read_text()
+            architectures.append(_load_architecture_json(text))
 
     name_to_arch: Dict[str, List[JsonModuleArchitecture]] = {}
     for arch_info in architectures:

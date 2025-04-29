@@ -200,7 +200,7 @@ def main(
         load_in_8bit=load_in_8bit,
         device=device,
         allow_all_same=i_understand_this_is_not_useful_without_training,
-        verbose=merge_options.verbose,
+        verbose=merge_options.verbosity > 0,
     )
 
     if merge_options.write_model_card:

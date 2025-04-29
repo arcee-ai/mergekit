@@ -1,7 +1,6 @@
 from typing import Dict, Optional
 
 import pytest
-from common import make_gpt2size, make_picollama, make_picoLlaVa, run_and_check_merge
 from transformers import AutoConfig
 
 from mergekit.config import (
@@ -12,6 +11,12 @@ from mergekit.config import (
     ParameterSetting,
 )
 from mergekit.io import LazyTensorLoader
+from tests.common import (
+    make_gpt2size,
+    make_picollama,
+    make_picoLlaVa,
+    run_and_check_merge,
+)
 
 
 @pytest.fixture(scope="session")

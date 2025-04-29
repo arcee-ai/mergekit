@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import networkx
 import pytest
@@ -54,13 +54,19 @@ class TestTaskClass:
         assert task.group_label() is None, "Default group label should be None"
 
 
+def _make_schedule(tasks: List[Task]) -> List[Task]:
+    executor = Executor(tasks)
+    handles = executor.schedule.tasks
+    return [h.task() for h in handles]
+
+
 # Test cases for the Executor implementation
 class TestExecutorClass:
     def test_executor_initialization(self):
         # Testing initialization with single task
         task = create_mock_task("task1")
         executor = Executor([task])
-        assert executor.targets == [
+        assert [handle.task() for handle in executor.schedule.tasks] == [
             task
         ], "Executor did not initialize with correct targets"
 
@@ -71,18 +77,19 @@ class TestExecutorClass:
         # Testing scheduling with dependencies
         task1 = create_mock_task("task1", result=1)
         task2 = create_mock_task("task2", result=2, dependencies={"task1": task1})
-        executor = Executor([task2])
-        assert (
-            len(executor._make_schedule([task2])) == 2
-        ), "Schedule should include two tasks"
+        schedule = _make_schedule([task2])
+        assert len(schedule) == 2, "Schedule should include two tasks"
 
     def test_executor_dependency_building(self):
         # Testing dependency building
         task1 = create_mock_task("task1")
         task2 = create_mock_task("task2", dependencies={"task1": task1})
         executor = Executor([task2])
-        dependencies = executor._build_dependencies([task2])
-        assert task1 in dependencies[task2], "Task1 should be a dependency of Task2"
+        task1_handle = executor.universe.get_handle(task1)
+        task2_handle = executor.universe.get_handle(task2)
+        assert (
+            task1_handle in task2_handle.arguments().values()
+        ), "Task1 should be a dependency of Task2"
 
     def test_executor_run(self):
         # Testing execution through the run method
@@ -106,9 +113,8 @@ class TestExecutorClass:
         task1 = create_mock_task("task1", result=1)
         task2 = create_mock_task("task2", result=2, dependencies={"task1": task1})
         task3 = create_mock_task("task3", result=3, dependencies={"task2": task2})
-        executor = Executor([task3])
 
-        schedule = executor._make_schedule([task3])
+        schedule = _make_schedule([task3])
         assert schedule.index(task1) < schedule.index(
             task2
         ), "Task1 should be scheduled before Task2"
@@ -129,11 +135,7 @@ class TestExecutorGroupLabel:
             "task4", dependencies={"task2": task2, "task3": task3}, group_label="group1"
         )
 
-        # Initialize Executor with the tasks
-        executor = Executor([task4])
-
-        # Get the scheduled tasks
-        schedule = executor._make_schedule([task4])
+        schedule = _make_schedule([task4])
 
         # Check if tasks with the same group label are scheduled consecutively when possible
         group_labels_in_order = [
@@ -156,8 +158,7 @@ class TestExecutorGroupLabel:
             "task3", result=3, dependencies={"task2": task2}, group_label="group1"
         )
 
-        executor = Executor([task3])
-        schedule = executor._make_schedule([task3])
+        schedule = _make_schedule([task3])
         scheduled_labels = [
             task.group_label() for task in schedule if task.group_label()
         ]

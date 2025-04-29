@@ -41,7 +41,7 @@ from mergekit.merge import _model_out_config
 from mergekit.options import MergeOptions
 from mergekit.plan import MergePlanner
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class MergeActorBase:
@@ -91,18 +91,18 @@ class OnDiskMergeEvaluator(MergeActorBase):
     ) -> dict:
         gc.collect()
         torch.cuda.empty_cache()
-        logger.info("Merging model")
+        LOG.info("Merging model")
         merged_path = merge_model(
             genotype, self.genome, self.model_storage_path, self.merge_options
         )
         if not merged_path:
-            logger.error("Model merge failed")
+            LOG.error("Model merge failed")
             return {"score": None, "results": None}
 
         model_kwargs = {}
         if self.quantization_config is not None:
             model_kwargs["quantization_config"] = self.quantization_config
-        logger.info(f"Model merged to {merged_path}")
+        LOG.info(f"Model merged to {merged_path}")
         return evaluate_model(
             merged_path,
             self.config.tasks,
@@ -167,7 +167,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     continue
 
                 if getattr(cfg_out, key) != getattr(self.arch_info.config, key, None):
-                    logger.warning(f"Config key {key} changed, reinitializing model")
+                    LOG.warning(f"Config key {key} changed, reinitializing model")
                     different = True
                     break
 
@@ -206,7 +206,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                 del inner_model
                 tokenizer_donor = self.genome.definition.base_model
                 if tokenizer_donor is None:
-                    logger.warning(
+                    LOG.warning(
                         "Base model not set, using tokenizer from first model in genome"
                     )
                     tokenizer_donor = self.genome.definition.models[0]
@@ -224,7 +224,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     max_model_len = min(max_model_len or 1024, window_sz)
                 if max_model_len and max_model_len > 8192:
                     max_model_len = 8192
-                    logger.warning(f"Clipping sequence length to {max_model_len}")
+                    LOG.warning(f"Clipping sequence length to {max_model_len}")
 
                 mem_util = (
                     0.7 if self.merge_options.cuda else 0.9
@@ -248,13 +248,13 @@ class InMemoryMergeEvaluator(MergeActorBase):
             if ai
             else None
         )
-        logger.info("Model initialized")
+        LOG.info("Model initialized")
 
     def evaluate(self, genotype: torch.Tensor) -> dict:
         try:
             config = self.genome.genotype_merge_config(genotype)
         except InvalidGenotypeError as e:
-            logger.error("Invalid genotype", exc_info=e)
+            LOG.error("Invalid genotype", exc_info=e)
             return {"score": None, "results": None}
 
         self._maybe_init_model(config)

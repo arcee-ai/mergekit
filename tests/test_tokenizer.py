@@ -6,12 +6,12 @@ from typing import Dict, List, Optional, Union
 import pytest
 import tokenizers
 import torch
-from common import make_picollama, run_and_check_merge
 from transformers import LlamaConfig, LlamaTokenizerFast, PreTrainedTokenizerBase
 
 from mergekit.config import InputModelDefinition, MergeConfiguration
 from mergekit.io import LazyTensorLoader
 from mergekit.tokenizer import TokenizerConfig
+from tests.common import make_picollama, run_and_check_merge
 
 
 @pytest.fixture(scope="session")
