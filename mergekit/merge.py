@@ -211,12 +211,8 @@ def _copy_tagalong_files(
     )
 
     for file_name in files:
-<<<<<<< HEAD
-        if os.path.exists(os.path.join(donor_model.model.path, file_name)):
-=======
         fp = os.path.join(donor_local_path, file_name)
         if os.path.exists(fp):
->>>>>>> main
             LOG.info(f"Copying {file_name} from {donor_model}")
             shutil.copy(
                 fp,
