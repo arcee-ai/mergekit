@@ -1,6 +1,7 @@
 # Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: BUSL-1.1
 
+import re
 from typing import ClassVar, List, Optional
 
 from pydantic import BaseModel
@@ -11,8 +12,6 @@ from mergekit.architecture.base import (
     WeightInfo,
 )
 from mergekit.architecture.json_definitions import NAME_TO_ARCH
-
-import re
 
 MISTRAL_INFO = NAME_TO_ARCH["MistralForCausalLM"][0]
 MISTRAL_MODULE_ARCH = MISTRAL_INFO.modules["default"].architecture
