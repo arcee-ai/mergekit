@@ -7,7 +7,7 @@ import logging
 import os
 import shutil
 from collections import Counter
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import tqdm
 import transformers
@@ -15,7 +15,7 @@ import transformers
 from mergekit._data import chat_templates
 from mergekit.architecture import ModelArchitecture, get_architecture_info
 from mergekit.card import generate_card
-from mergekit.common import set_config_value
+from mergekit.common import ModelReference, set_config_value
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.io.tasks import LoaderCache
@@ -199,16 +199,28 @@ def _set_chat_template(
     tokenizer.chat_template = chat_template
 
 
+def _get_donor_model(
+    merge_config: MergeConfiguration,
+    options: MergeOptions,
+) -> Tuple[ModelReference, str]:
+    donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
+    donor_local_path = donor_model.merged(
+        cache_dir=options.lora_merge_cache,
+        trust_remote_code=options.trust_remote_code,
+        lora_merge_dtype=options.lora_merge_dtype,
+    ).local_path(cache_dir=options.transformers_cache)
+    if not donor_local_path:
+        raise RuntimeError(f"Unable to find local path for {donor_model}")
+    return donor_model, donor_local_path
+
+
 def _copy_tagalong_files(
     merge_config: MergeConfiguration,
     out_path: str,
     files: List[str],
     options: MergeOptions,
 ):
-    donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
-    donor_local_path = donor_model.local_path(
-        cache_dir=options.transformers_cache, ignore_lora=True
-    )
+    donor_model, donor_local_path = _get_donor_model(merge_config, options=options)
 
     for file_name in files:
         fp = os.path.join(donor_local_path, file_name)
@@ -225,10 +237,7 @@ def _copy_tagalong_files(
 def _copy_tokenizer(
     merge_config: MergeConfiguration, out_path: str, options: MergeOptions
 ):
-    donor_model = merge_config.base_model or (merge_config.referenced_models()[0])
-    donor_local_path = donor_model.local_path(
-        cache_dir=options.transformers_cache, ignore_lora=True
-    )
+    donor_model, donor_local_path = _get_donor_model(merge_config, options=options)
 
     if (
         (not merge_config.chat_template)
