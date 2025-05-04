@@ -107,9 +107,6 @@ def infer_architecture_info(
     in_all_models = all_tensor_names.intersection(*model_tensor_names.values())
 
     ignore_on_save, tied_keys, embed_names = get_transformers_info(base_model, options)
-    print(f"ignore_on_save: {ignore_on_save}")
-    print(f"tied_keys: {tied_keys}")
-    print(f"embed_names: {embed_names}")
 
     module_prefixes = set()
     module_layer_counts = defaultdict(int)
@@ -205,5 +202,4 @@ def infer_architecture_info(
         architectures=[],
         model_type="",
     )
-    print(repr(res))
     return res
