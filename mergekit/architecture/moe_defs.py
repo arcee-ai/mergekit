@@ -1,7 +1,6 @@
 # Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: BUSL-1.1
 
-import re
 from typing import ClassVar, List, Optional
 
 from pydantic import BaseModel
