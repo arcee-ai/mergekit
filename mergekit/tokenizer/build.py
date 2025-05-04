@@ -28,7 +28,10 @@ def get_vocab_size(model_path: ModelPath, trust_remote_code: bool) -> Optional[i
             trust_remote_code=trust_remote_code,
         )
         arch_info = arch_info_for_config(cfg)
-        return get_config_value(cfg, arch_info.vocab_size_config_key or "vocab_size")
+        key = "vocab_size"
+        if arch_info is not None:
+            key = arch_info.vocab_size_config_key or "vocab_size"
+        return get_config_value(cfg, key)
     except Exception as e:
         LOG.warning(f"Unable to get vocab size for {model_path}", exc_info=e)
 

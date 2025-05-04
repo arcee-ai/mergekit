@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 
 import logging
+from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
 
 from transformers import PretrainedConfig
@@ -26,6 +27,8 @@ if TYPE_CHECKING:
     from mergekit.config import MergeConfiguration
 
 LOG = logging.getLogger(__name__)
+
+WARNED_ARCHITECTURE_NAMES = set()
 
 
 def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture]:
@@ -57,7 +60,9 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
             f"Multiple architectures for {arch_name}, none match model type {config.model_type}"
         )
 
-    LOG.warning(f"No JSON architecture found for {arch_name}")
+    if arch_name not in WARNED_ARCHITECTURE_NAMES:
+        LOG.warning(f"No JSON architecture found for {arch_name}")
+        WARNED_ARCHITECTURE_NAMES.add(arch_name)
     return None
 
 
@@ -82,7 +87,7 @@ def get_architecture_info(
         return model_arch_info[0]
 
     # try to infer from all models
-    return infer_architecture_info(models, config.base_model, options)
+    return infer_architecture_info(tuple(models), config.base_model, options)
 
 
 __all__ = [
