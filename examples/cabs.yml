@@ -13,12 +13,12 @@ sources:
     path: /home/yangzz/models_test/zephyr-7b-alpha/
     parameters: 
       weight: 0.6         
-      n_m_ratio: [1, 2]   
+      n_m_ratio: [8, 32]   
   zephyr_beta: 
     path: /home/yangzz/models_test/zephyr-7b-beta/
     parameters:
-      weight: 0.4          
-      # n_m_ratio for zephyr_beta will use 'default_n_m_ratio' [1,4] from above
+      weight: 0.4     
+      n_m_ratio: [8, 32]  
 
 out_path: ./merged_cabs_zephyr_output
 dtype: bfloat16             
