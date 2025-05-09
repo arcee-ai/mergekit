@@ -1,5 +1,3 @@
-# cabs_nm_split_test.yaml
-
 models:
   - model: ./models_test/Mistral-7b-v0.1/ # Identifier is the path string
   - model: ./models_test/zephyr-7b-alpha/ # Identifier is the path string
@@ -16,8 +14,8 @@ models:
 
 merge_method: cabs
 # Global method parameters, sibling to merge_method
-default_n_val: 1   # Global default n
-default_m_val: 4   # Global default m
+default_n_val: 8   # Global default n
+default_m_val: 32   # Global default m
 pruning_order:            
   - ./models_test/zephyr-7b-alpha/
   - ./models_test/zephyr-7b-beta/
