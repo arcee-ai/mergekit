@@ -1,9 +1,6 @@
-# cabs_test_config.yaml
-base_model: mistral_base 
-merge_method: cabs # This will pick up the CABSMerge() instance from registry
 
-# Parameters for the 'cabs' method. These will be passed to Mergekit's
-# MergeMethod.create mechanism, which effectively configures the CABSMerge instance for this run.
+base_model: mistral_base 
+merge_method: cabs 
 default_n_m_ratio: [1, 4] 
 pruning_order:             
   - zephyr_alpha
