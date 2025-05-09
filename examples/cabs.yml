@@ -1,4 +1,3 @@
-
 base_model: mistral_base 
 merge_method: cabs 
 default_n_m_ratio: [1, 4] 
