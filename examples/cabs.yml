@@ -1,25 +1,26 @@
-base_model: mistral_base 
-merge_method: cabs 
-default_n_m_ratio: [1, 4] 
-pruning_order:             
-  - zephyr_alpha
-  - zephyr_beta
+# cabs_nm_split_test.yaml
 
-sources:
-  mistral_base: 
-    path: /home/yangzz/models_test/Mistral-7b-v0.1/ 
-  zephyr_alpha: 
-    path: /home/yangzz/models_test/zephyr-7b-alpha/
+models:
+  - model: ./models_test/Mistral-7b-v0.1/ # Identifier is the path string
+  - model: ./models_test/zephyr-7b-alpha/ # Identifier is the path string
     parameters: 
-      weight: 0.6         
-      n_m_ratio: [8, 32]   
-  zephyr_beta: 
-    path: /home/yangzz/models_test/zephyr-7b-beta/
-    parameters:
-      weight: 0.4     
-      n_m_ratio: [8, 32]  
+      weight: 0.6
+      n_val: 8  # Per-model n
+      m_val: 32 # Per-model m
+  - model: ./models_test/zephyr-7b-beta/  # Identifier is the path string
+    parameters: 
+      weight: 0.4
+      n_val: 8  # Per-model n
+      m_val: 32 # Per-model m
+      # n_val and m_val not set for zephyr_beta, will use global defaults
 
-out_path: ./merged_cabs_zephyr_output
-dtype: bfloat16             
-low_cpu_memory: true      
-copy_tokenizer: true        
+merge_method: cabs
+# Global method parameters, sibling to merge_method
+default_n_val: 1   # Global default n
+default_m_val: 4   # Global default m
+pruning_order:            
+  - ./models_test/zephyr-7b-alpha/
+  - ./models_test/zephyr-7b-beta/
+
+base_model: ./models_test/Mistral-7b-v0.1/ 
+dtype: bfloat16
