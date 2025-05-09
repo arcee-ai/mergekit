@@ -251,6 +251,7 @@ A quick overview of the currently supported merge methods:
 | [Model Breadcrumbs](https://arxiv.org/abs/2312.06795) + [TIES](https://arxiv.org/abs/2306.01708) | `breadcrumbs_ties`   | ✅           | ✅               |
 | [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅           | ✅               |
 | NuSLERP                                                                                          | `nuslerp`            | ❌           | ✅               |
+| [ChipAlign](https://arxiv.org/abs/2412.19819)                                                    | `nuslerp` + `geodesic: true` | ❌    | ❌               |
 | [DELLA](https://arxiv.org/abs/2406.11617)                                                        | `della`              | ✅           | ✅               |
 | [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)    | `della_linear`       | ✅           | ✅               |
 | [SCE](https://arxiv.org/abs/2408.07990)                                                          | `sce`                | ✅           | ✅               |
@@ -333,8 +334,23 @@ Parameters:
 - `weight`: relative weighting of a given tensor
 - `nuslerp_flatten`: set to false to do row-wise/column-wise interpolation instead of treating tensors as vectors
 - `nuslerp_row_wise`: SLERP row vectors instead of column vectors
+- `geodesic`: (boolean) when true, use ChipAlign-style geodesic interpolation
+- `lambda`: interpolation factor for geodesic interpolation (required when `geodesic` is true)
 
 To replicate the behavior of the original `slerp` method, set `weight` to `1-t` and `t` for your first and second model respectively.
+
+### ChipAlign
+
+[ChipAlign](https://arxiv.org/abs/2412.19819) is implemented as an extension to NuSLERP that uses geodesic interpolation on the weight manifold to effectively merge a general instruction-aligned LLM with a domain-specific LLM. This approach is particularly useful for creating models that maintain both strong instruction-following capabilities and domain expertise.
+
+To use ChipAlign, set `merge_method: nuslerp` and add the parameter `geodesic: true`. ChipAlign requires exactly two models, typically:
+- An instruction-aligned general LLM (first model)
+- A domain-specific expert LLM (second model)
+
+Parameters:
+- `lambda`: Interpolation factor between 0.0 and 1.0. At 0.0, the result will behave more like the instruction model; at 1.0, more like the domain model.
+
+See the [chipalign.yml](examples/chipalign.yml) example for a complete configuration.
 
 ### [DELLA](https://arxiv.org/abs/2406.11617)
 
