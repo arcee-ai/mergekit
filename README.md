@@ -7,6 +7,7 @@
 - [Why Merge Models?](#why-merge-models)
 - [Features](#features)
 - [Installation](#installation)
+- [Contributing](#contributing)
 - [Usage](#usage)
 - [Merge Configuration](#merge-configuration)
   - [Parameter Specification](#parameter-specification)
@@ -69,6 +70,10 @@ ERROR: File "setup.py" or "setup.cfg" not found. Directory cannot be installed i
 ```
 
 You may need to upgrade pip to > 21.3 with the command `python3 -m pip install --upgrade pip`
+
+## Contributing
+
+We welcome contributions to `mergekit`! If you have ideas for new merge methods, features, or other improvements, please check out our [contributing guide](CONTRIBUTING.md) for details on how to get started.
 
 ## Usage
 
