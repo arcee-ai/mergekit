@@ -4,13 +4,13 @@
 
 MergeKit offers two different paths for implementing custom merge methods:
 
-|                        | Decorator API         | Class-based API             |
-| ---------------------- | --------------------- | --------------------------- |
-| **Complexity**         | Simple function-based | Full class implementation   |
-| **Abstraction Level**  | Higher-level          | Lower-level                 |
-| **Parameter Handling** | Automatic validation  | Manual configuration        |
-| **Execution Flow**     | Single-step           | Arbitrary computation graph |
-| **Best For**           | Simple tensor ops     | Complex merge strategies    |
+|                        | Decorator API         | Class-based API                                |
+| ---------------------- | --------------------- | ---------------------------------------------- |
+| **Complexity**         | Simple function-based | Full class implementation                      |
+| **Abstraction Level**  | Higher-level          | Lower-level                                    |
+| **Parameter Handling** | Automatic validation  | Manual configuration                           |
+| **Execution Flow**     | Single function       | Arbitrary computation graph                    |
+| **Best For**           | Most merge methods    | Complex multi-stage, multi-input strategies    |
 
 Either approach benefits from MergeKit's underlying task system for resource management and execution control. The question of which to use largely depends on the complexity of the merge operation and the level of control needed.
 
@@ -33,14 +33,18 @@ MergeKit's computational graph infrastructure provides sophisticated resource ma
   - Execution ordered to optimize shard residency
 
 ### Decorator API
+
 Best for straightforward merge operations that can be expressed as a single tensor transformation. Features:
+
 - Parameter validation and type checking
 - Configuration schema generation
 - Simplified base model handling
 - Default GPU acceleration opt-in
 
 ### Class-based API
+
 Choose when you need:
+
 - Multi-stage merge operations
 - Custom computation graphs
 - Direct access to weight metadata
@@ -50,6 +54,7 @@ Choose when you need:
 ## Decorator API Implementation
 
 ### Basic Workflow
+
 1. Define a type-annotated Python function with your merge logic
 2. Add the `@merge_method` decorator with configuration
 3. Register by importing in `mergekit/merge_methods/__init__.py`
@@ -79,6 +84,7 @@ def average_merge(
 ```
 
 This enables configurations like:
+
 ```yaml
 merge_method: weighted_average
 models:
@@ -110,11 +116,11 @@ The decorator supports three parameter categories:
 
 3. **Base Model Integration**
    - Via `base_tensor` parameter annotation:
-     * `torch.Tensor`: Base model required
-     * `Optional[torch.Tensor]`: Base model optional
+     - `torch.Tensor`: Base model required
+     - `Optional[torch.Tensor]`: Base model optional
    - Without `base_tensor`: Base model tensor goes first in `tensors` list if present
 
-## Class-based API
+## Class-based API Implementation
 
 For complex merges requiring granular control, implement `MergeMethod` and `Task` classes:
 
