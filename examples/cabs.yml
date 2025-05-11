@@ -1,12 +1,12 @@
 models:
   - model: ./models_test/Mistral-7b-v0.1/ # Identifier is the path string
   - model: ./models_test/zephyr-7b-alpha/ # Identifier is the path string
-    parameters: 
+    parameters:
       weight: 0.6
       n_val: 8  # Per-model n
       m_val: 32 # Per-model m
   - model: ./models_test/zephyr-7b-beta/  # Identifier is the path string
-    parameters: 
+    parameters:
       weight: 0.4
       n_val: 8  # Per-model n
       m_val: 32 # Per-model m
@@ -16,9 +16,9 @@ merge_method: cabs
 # Global method parameters, sibling to merge_method
 default_n_val: 8   # Global default n
 default_m_val: 32   # Global default m
-pruning_order:            
+pruning_order:
   - ./models_test/zephyr-7b-alpha/
   - ./models_test/zephyr-7b-beta/
 
-base_model: ./models_test/Mistral-7b-v0.1/ 
+base_model: ./models_test/Mistral-7b-v0.1/
 dtype: bfloat16

@@ -5,11 +5,11 @@ from typing import Dict, List
 
 from mergekit.merge_methods.arcee_fusion import ArceeFusionMerge
 from mergekit.merge_methods.base import MergeMethod
+from mergekit.merge_methods.cabs import CABSMerge
 from mergekit.merge_methods.generalized_task_arithmetic import (
     ConsensusMethod,
     GeneralizedTaskArithmeticMerge,
 )
-from mergekit.merge_methods.cabs import CABSMerge
 from mergekit.merge_methods.karcher import KarcherMerge
 from mergekit.merge_methods.linear import LinearMerge
 from mergekit.merge_methods.model_stock import ModelStockMerge
