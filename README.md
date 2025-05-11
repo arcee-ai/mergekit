@@ -3,9 +3,11 @@
 `mergekit` is a toolkit for merging pre-trained language models. `mergekit` uses an out-of-core approach to perform unreasonably elaborate merges in resource-constrained situations. Merges can be run entirely on CPU or accelerated with as little as 8 GB of VRAM. Many merging algorithms are supported, with more coming as they catch my attention.
 
 ## Contents
+
 - [Why Merge Models?](#why-merge-models)
 - [Features](#features)
 - [Installation](#installation)
+- [Contributing](#contributing)
 - [Usage](#usage)
 - [Merge Configuration](#merge-configuration)
   - [Parameter Specification](#parameter-specification)
@@ -13,9 +15,11 @@
   - [Chat Template Configuration](#chat-template-configuration)
   - [Examples](#examples)
 - [Merge Methods](#merge-methods)
-- [LoRA extraction](#lora-extraction)
-- [Mixture of Experts merging](#mixture-of-experts-merging)
-- [Evolutionary merge methods](#evolutionary-merge-methods)
+- [LoRA Extraction](#lora-extraction)
+- [Mixture of Experts Merging](#mixture-of-experts-merging)
+- [Evolutionary Merge Methods](#evolutionary-merge-methods)
+- [Multi-Stage Merging (`mergekit-multi`)](#multi-stage-merging-mergekit-multi)
+- [Raw PyTorch Model Merging (`mergekit-pytorch`)](#raw-pytorch-model-merging-mergekit-pytorch)
 - [Merge in the Cloud](#-merge-in-the-cloud-)
 - [Citation](#citation)
 
@@ -44,6 +48,8 @@ Key features of `mergekit` include:
 - [Mixture of Experts merging](#mixture-of-experts-merging)
 - [LORA extraction](#lora-extraction)
 - [Evolutionary merge methods](#evolutionary-merge-methods)
+- [Multi-stage merging](#multi-stage-merging-mergekit-multi) for complex workflows.
+- [Merging of raw PyTorch models (`mergekit-pytorch`)](#raw-pytorch-model-merging-mergekit-pytorch).
 
 🌐 GUI Launch Alert 🤗 - We are excited to announce the launch of a mega-GPU backed graphical user interface for mergekit in Arcee! This GUI simplifies the merging process, making it more accessible to a broader audience. Check it out and contribute at the [Arcee App](https://app.arcee.ai). There is also a [Hugging Face Space](https://huggingface.co/mergekit-community) with limited amounts of GPUs.
 
@@ -64,6 +70,10 @@ ERROR: File "setup.py" or "setup.cfg" not found. Directory cannot be installed i
 ```
 
 You may need to upgrade pip to > 21.3 with the command `python3 -m pip install --upgrade pip`
+
+## Contributing
+
+We welcome contributions to `mergekit`! If you have ideas for new merge methods, features, or other improvements, please check out our [contributing guide](CONTRIBUTING.md) for details on how to get started.
 
 ## Usage
 
@@ -235,125 +245,37 @@ Several examples of merge configurations are available in [`examples/`](examples
 
 ## Merge Methods
 
-A quick overview of the currently supported merge methods:
+`mergekit` offers many methods for merging models, each with its own strengths and weaknesses. Choosing the right method depends on your specific goals, the relationship between the models you're merging, and the desired characteristics of the final model.
 
-| Method                                                                                           | `merge_method` value | Multi-Model | Uses base model |
-| ------------------------------------------------------------------------------------------------ | -------------------- | ----------- | --------------- |
-| Linear ([Model Soups](https://arxiv.org/abs/2203.05482))                                         | `linear`             | ✅           | ❌               |
-| SLERP                                                                                            | `slerp`              | ❌           | ✅               |
-| Nearswap                                                                                         | `nearswap`           | ❌           | ✅               |
-| [Task Arithmetic](https://arxiv.org/abs/2212.04089)                                              | `task_arithmetic`    | ✅           | ✅               |
-| [TIES](https://arxiv.org/abs/2306.01708)                                                         | `ties`               | ✅           | ✅               |
-| [DARE](https://arxiv.org/abs/2311.03099) [TIES](https://arxiv.org/abs/2306.01708)                | `dare_ties`          | ✅           | ✅               |
-| [DARE](https://arxiv.org/abs/2311.03099) [Task Arithmetic](https://arxiv.org/abs/2212.04089)     | `dare_linear`        | ✅           | ✅               |
-| Passthrough                                                                                      | `passthrough`        | ❌           | ❌               |
-| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)                                            | `breadcrumbs`        | ✅           | ✅               |
-| [Model Breadcrumbs](https://arxiv.org/abs/2312.06795) + [TIES](https://arxiv.org/abs/2306.01708) | `breadcrumbs_ties`   | ✅           | ✅               |
-| [Model Stock](https://arxiv.org/abs/2403.19522)                                                  | `model_stock`        | ✅           | ✅               |
-| NuSLERP                                                                                          | `nuslerp`            | ❌           | ✅               |
-| [DELLA](https://arxiv.org/abs/2406.11617)                                                        | `della`              | ✅           | ✅               |
-| [DELLA](https://arxiv.org/abs/2406.11617) [Task Arithmetic](https://arxiv.org/abs/2212.04089)    | `della_linear`       | ✅           | ✅               |
-| [SCE](https://arxiv.org/abs/2408.07990)                                                          | `sce`                | ✅           | ✅               |
+For detailed explanations, parameter descriptions, and use cases for each method, please see our [**Merge Method Guide**](docs/merge_methods.md).
 
-### Linear
+### Method Overview
 
-The classic merge method - a simple weighted average.
+| Method (`value`)                                                                                                      | Core Idea                                                            | # Models | Base Model | Key Strengths / Use Cases                                       |
+|:----------------------------------------------------------------------------------------------------------------------|:--------------------------------------------------------------------|:--------:|:----:|:---------------------------------------------------------------|
+| [**Linear** (`linear`)](docs/merge_methods.md#linear-linear)                                                          | Simple weighted average of model parameters.                         |    ≥2    |  -   | Averaging similar checkpoints, model soups.                     |
+| [**SLERP** (`slerp`)](docs/merge_methods.md#slerp-slerp)                                                              | Spherical linear interpolation between two models.                   |     2    |  ✓   | Smoothly transitioning between two models.                      |
+| [**NuSLERP** (`nuslerp`)](docs/merge_methods.md#nuslerp-nuslerp)                                                        | Enhanced SLERP with flexible weighting.                              |     2    |  *   | More intuitive SLERP; task vector SLERP.                        |
+| [**Multi-SLERP** (`multislerp`)](docs/merge_methods.md#multi-slerp-multislerp)                                          | Barycentric SLERP for multiple models.                               |    ≥2    |  *   | Spherical interpolation for >2 models.                          |
+| [**Karcher Mean** (`karcher`)](docs/merge_methods.md#karcher-mean-karcher)                                              | Riemannian barycenter of model parameters.                           |    ≥2    |  -   | Geometrically sound averaging on manifolds.                     |
+| [**Task Arithmetic** (`task_arithmetic`)](docs/merge_methods.md#task-arithmetic-task_arithmetic)                      | Linearly combine "task vectors" (differences from a base).           |    ≥2    |  ✓   | Transferring/combining fine-tuned skills.                       |
+| [**TIES** (`ties`)](docs/merge_methods.md#ties-merging-ties)                                                          | Task arithmetic + sparsification & sign consensus.                   |    ≥2    |  ✓   | Merging many models, reducing interference.                     |
+| [**DARE** (`dare_linear`, `dare_ties`)](docs/merge_methods.md#dare-dare_linear-dare_ties)                               | Task arithmetic + random pruning & rescaling.                        |    ≥2    |  ✓   | Robust skill retention, similar to TIES.                        |
+| [**DELLA** (`della`, `della_linear`)](docs/merge_methods.md#della-della-della_linear)                                   | Task arithmetic + adaptive magnitude-based pruning.                  |    ≥2    |  ✓   | Prioritizing important changes, reducing interference.          |
+| [**Model Breadcrumbs** (`breadcrumbs`, `breadcrumbs_ties`)](docs/merge_methods.md#model-breadcrumbs-breadcrumbs_ties)   | Task arithmetic + outlier removal (small & large diffs).             |    ≥2    |  ✓   | Refining task vectors by removing extreme changes.              |
+| [**SCE** (`sce`)](docs/merge_methods.md#sce-sce)                                                                      | Task arithmetic + adaptive matrix-level weighting based on variance. |    ≥2    |  ✓   | Dynamically weighting models based on parameter variance.       |
+| [**Model Stock** (`model_stock`)](docs/merge_methods.md#model-stock-model_stock)                                        | Geometric weight calculation for linear interpolation.               |    ≥3    |  ✓   | Finding good linear interpolation weights for many checkpoints. |
+| [**Nearswap** (`nearswap`)](docs/merge_methods.md#nearswap-nearswap)                                                    | Interpolate where parameters are similar.                            |     2    |  ✓   | Selective merging based on parameter similarity.                |
+| [**Arcee Fusion** (`arcee_fusion`)](docs/merge_methods.md#arcee-fusion-arcee_fusion)                                    | Dynamic thresholding for fusing important changes.                   |     2    |  ✓   | Identifying and merging salient features.                       |
+| [**Passthrough** (`passthrough`)](docs/merge_methods.md#passthrough-passthrough)                                        | Directly copies tensors from a single input model.                      |     1    |  -   | Frankenmerging, layer stacking, model surgery.                  |
 
-Parameters:
+**Key for `Base Model` Column:**
 
-- `weight` - relative (or absolute if `normalize=False`) weighting of a given tensor
-- `normalize` - if true, the weights of all models contributing to a tensor will be normalized. Default behavior.
+- ✓: **Required** - One of the input models *must* be designated as the `base_model`.
+- *: **Optional** - One of the input models *can* be designated as the `base_model`.
+- -: **Not Applicable** - `base_model` has no effect on this method.
 
-### SLERP
-
-Spherically interpolate the parameters of two models. One must be set as `base_model`.
-
-Parameters:
-
-- `t` - interpolation factor. At `t=0` will return `base_model`, at `t=1` will return the other one.
-
-### Nearswap
-
-Interpolates base model with secondary model if similarity is below t. Accepts two models.
-
-Parameters:
-
-- `t` - similarity threshold
-
-### [Task Arithmetic](https://arxiv.org/abs/2212.04089)
-
-Computes "task vectors" for each model by subtracting a base model. Merges the task vectors linearly and adds back the base. Works great for models that were fine tuned from a common ancestor. Also a super useful mental framework for several of the more involved merge methods.
-
-Parameters: same as [Linear](#linear), plus:
-- `lambda` - scaling factor applied after weighted sum of task vectors
-
-### [TIES](https://arxiv.org/abs/2306.01708)
-
-Builds on the task arithmetic framework. Resolves interference between models by sparsifying the task vectors and applying a sign consensus algorithm. Allows you to merge a larger number of models and retain more of their strengths.
-
-Parameters: same as [Task Arithmetic](#task-arithmetic), plus:
-
-- `density` - fraction of weights in differences from the base model to retain
-
-### [DARE](https://arxiv.org/abs/2311.03099)
-
-In the same vein as TIES, sparsifies task vectors to reduce interference. Differs in that DARE uses random pruning with a novel rescaling to better match performance of the original models. DARE can be used either with the sign consensus algorithm of TIES (`dare_ties`) or without (`dare_linear`).
-
-Parameters: same as [TIES](#ties) for `dare_ties`, or [Linear](#linear) for `dare_linear`
-
-### Passthrough
-
-`passthrough` is a no-op that simply passes input tensors through unmodified. It is meant to be used for layer-stacking type merges where you have only one input model. Useful for frankenmerging.
-
-### [Model Breadcrumbs](https://arxiv.org/abs/2312.06795)
-
-An extension of task arithmetic that discards both small and extremely large differences from the base model. As with DARE, the Model Breadcrumbs algorithm can be used with (`breadcrumbs_ties`) or without (`breadcrumbs`) the sign consensus algorithm of TIES.
-
-Parameters: same as [Task Arithmetic](#task-arithmetic), plus:
-
-- `density` - fraction of weights in differences from the base model to retain
-- `gamma` - fraction of largest magnitude differences to remove
-
-Note that `gamma` corresponds with the parameter `β` described in the paper, while `density` is the final density of the sparsified tensors (related to `γ` and `β` by `density = 1 - γ - β`). For good default values, try `density: 0.9` and `gamma: 0.01`.
-
-### [Model Stock](https://arxiv.org/abs/2403.19522)
-
-Uses some neat geometric properties of fine tuned models to compute good weights for linear interpolation. Requires at least three models, including a base model.
-
-Parameters:
-
-- `filter_wise`: if true, weight calculation will be per-row rather than per-tensor. Not recommended.
-
-### NuSLERP
-
-Spherically interpolate between parameters, but with more options and more sensical configuration! Does not require a base model, but can use one to do spherical interpolation of task vectors. Only works with either two models or two plus a base model.
-
-Parameters:
-
-- `weight`: relative weighting of a given tensor
-- `nuslerp_flatten`: set to false to do row-wise/column-wise interpolation instead of treating tensors as vectors
-- `nuslerp_row_wise`: SLERP row vectors instead of column vectors
-
-To replicate the behavior of the original `slerp` method, set `weight` to `1-t` and `t` for your first and second model respectively.
-
-### [DELLA](https://arxiv.org/abs/2406.11617)
-
-Building upon DARE, DELLA uses adaptive pruning based on parameter magnitudes. DELLA first ranks parameters in each row of delta parameters and assigns drop probabilities inversely proportional to their magnitudes. This allows it to retain more important changes while reducing interference. After pruning, it rescales the remaining parameters similar to [DARE](#dare). DELLA can be used with (`della`) or without (`della_linear`) the sign elect step of TIES
-
-Parameters: same as [Task Arithmetic](#task-arithmetic), plus:
-
-- `density` - fraction of weights in differences from the base model to retain
-- `epsilon` - maximum change in drop probability based on magnitude. Drop probabilities assigned will range from `density - epsilon` to `density + epsilon`. (When selecting values for `density` and `epsilon`, ensure that the range of probabilities falls within 0 to 1)
-
-### [SCE](https://arxiv.org/abs/2408.07990)
-
-SCE introduces adaptive matrix-level merging weights based on parameter variances. SCE first selects the top-k% elements from each parameter matrix that exhibit high variance across all delta parameters. Following this selection, SCE calculates matrix-level merging weights based on the sum of squares of elements in the delta parameters. Finally, it erases minority elements, a step similar to the sign election process in TIES.
-
-Parameters: same as [TIES](#ties), plus:
-
-- `select_topk` - fraction of elements with the highest variance in the delta parameters to retain.
-
-## LoRA extraction
+## LoRA Extraction
 
 Mergekit allows extracting PEFT-compatible low-rank approximations of finetuned models.
 
@@ -363,13 +285,31 @@ Mergekit allows extracting PEFT-compatible low-rank approximations of finetuned 
 mergekit-extract-lora --model finetuned_model_id_or_path --base-model base_model_id_or_path --out-path output_path [--no-lazy-unpickle] [--cuda] [--max-rank=desired_rank] [--sv-epsilon=tol]
 ```
 
-## Mixture of Experts merging
+## Mixture of Experts Merging
 
 The `mergekit-moe` script supports merging multiple dense models into a mixture of experts, either for direct use or for further training. For more details see the [`mergekit-moe` documentation](docs/moe.md).
 
-## Evolutionary merge methods
+## Evolutionary Merge Methods
 
 See [`docs/evolve.md`](docs/evolve.md) for details.
+
+## Multi-Stage Merging (`mergekit-multi`)
+
+`mergekit-multi` enables the execution of complex, multi-stage model merging workflows. You can define multiple merge configurations in a single YAML file, where later merges can use the outputs of earlier ones as inputs. This is useful for building up sophisticated models through a series of targeted merges.
+
+See the [`mergekit-multi` documentation](docs/multimerge.md) for usage details and examples.
+
+## Raw PyTorch Model Merging (`mergekit-pytorch`)
+
+For merging arbitrary PyTorch models (not necessarily Hugging Face Transformers), `mergekit-pytorch` provides a way to apply mergekit's algorithms directly to `.pt` or `.safetensors` checkpoints. The configuration is similar to the YAML format used in `mergekit-yaml`, but does not support layer slicing or tokenizer configuration.
+
+### Usage
+
+```sh
+mergekit-pytorch path/to/your/raw_config.yml ./output_pytorch_model_directory [options]
+```
+
+Use `mergekit-pytorch --help` for detailed options.
 
 ## ✨ Merge in the Cloud ✨
 
