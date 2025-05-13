@@ -69,6 +69,13 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
                     default_value=0.01,
                 )
             )
+        if self.sparsification_method == SparsificationMethod.della_magprune:
+            res.append(
+                ConfigParameterDef(
+                    name="epsilon",
+                    default_value=0.15,
+                )
+            )
         return res
 
     def make_task(
