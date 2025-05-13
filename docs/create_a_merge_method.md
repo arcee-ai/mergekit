@@ -4,15 +4,17 @@
 
 MergeKit offers two different paths for implementing custom merge methods:
 
-|                        | Decorator API         | Class-based API             |
-| ---------------------- | --------------------- | --------------------------- |
-| **Complexity**         | Simple function-based | Full class implementation   |
-| **Abstraction Level**  | Higher-level          | Lower-level                 |
-| **Parameter Handling** | Automatic validation  | Manual configuration        |
-| **Execution Flow**     | Single-step           | Arbitrary computation graph |
-| **Best For**           | Simple tensor ops     | Complex merge strategies    |
+|                        | Decorator API         | Class-based API                                |
+| ---------------------- | --------------------- | ---------------------------------------------- |
+| **Complexity**         | Simple function-based | Full class implementation                      |
+| **Abstraction Level**  | Higher-level          | Lower-level                                    |
+| **Parameter Handling** | Automatic validation  | Manual configuration                           |
+| **Execution Flow**     | Single function       | Arbitrary computation graph                    |
+| **Best For**           | Most merge methods    | Complex multi-stage, multi-input strategies    |
 
 Either approach benefits from MergeKit's underlying task system for resource management and execution control. The question of which to use largely depends on the complexity of the merge operation and the level of control needed.
+
+**Note on Parameter Configuration:** MergeKit uses a hierarchical YAML-based configuration system. Parameters for your custom merge methods (both scalar and per-model) can be defined at various levels (e.g., globally, per-model, per-slice). The values your merge function or task receives are resolved by MergeKit based on this hierarchy and context. For full details on configuration structure and parameter precedence, please refer to the [Merge Configuration](../README.md#merge-configuration) section of the README.
 
 ### Core Task System Features
 
@@ -33,14 +35,18 @@ MergeKit's computational graph infrastructure provides sophisticated resource ma
   - Execution ordered to optimize shard residency
 
 ### Decorator API
+
 Best for straightforward merge operations that can be expressed as a single tensor transformation. Features:
-- Parameter validation and type checking
+
+- Parameter validation, type checking, and value resolution
 - Configuration schema generation
 - Simplified base model handling
 - Default GPU acceleration opt-in
 
 ### Class-based API
+
 Choose when you need:
+
 - Multi-stage merge operations
 - Custom computation graphs
 - Direct access to weight metadata
@@ -50,9 +56,11 @@ Choose when you need:
 ## Decorator API Implementation
 
 ### Basic Workflow
+
 1. Define a type-annotated Python function with your merge logic
 2. Add the `@merge_method` decorator with configuration
-3. Register by importing in `mergekit/merge_methods/__init__.py`
+3. Ensure the module containing your function is imported
+   - For MergeKit to discover your decorated merge method, the Python module containing it must be imported during MergeKit's initialization. Add an import statement for your module in `mergekit/merge_methods/__init__.py`. Once the module is imported, the `@merge_method` decorator handles the registration of the method with MergeKit.
 
 ### Example: Weighted Average
 
@@ -64,11 +72,11 @@ import torch
 @merge_method(
     name="weighted_average",
     pretty_name="Weighted Average",            # Optional: human-readable name
-    reference_url="https://example.com/docs",  # Optional: documentation link
+    reference_url="https://example.com/docs",  # Optional: documentation or paper link
 )
 def average_merge(
     tensors: List[torch.Tensor],  # Required: input tensors
-    weight: List[float],          # Vector parameter (per-model)
+    weight: List[float],          # Vector parameter (one float per model)
     normalize: bool = True,       # Scalar parameter with default
 ) -> torch.Tensor:
     if normalize:
@@ -79,6 +87,7 @@ def average_merge(
 ```
 
 This enables configurations like:
+
 ```yaml
 merge_method: weighted_average
 models:
@@ -88,7 +97,7 @@ models:
   - model: model2
     parameters:
       weight: 0.7
-parameters:
+parameters: # Global parameters
   normalize: true
 ```
 
@@ -98,23 +107,33 @@ The decorator supports three parameter categories:
 
 1. **Scalar Parameters**
    - Types: `bool`, `float`, or `int`
-   - Defined in top-level `parameters` section
+   - Single value for all models
    - Without defaults they become required parameters
    - Example: `normalize: bool = True`
 
 2. **Vector Parameters**
    - Types: `List[float]` or `List[int]` only
-   - Configured per-model in their `parameters` section
+   - Configured per-model
    - Default values must be single numbers, not lists, as they are broadcasted
    - Example: `weights: List[float]`
 
 3. **Base Model Integration**
-   - Via `base_tensor` parameter annotation:
-     * `torch.Tensor`: Base model required
-     * `Optional[torch.Tensor]`: Base model optional
-   - Without `base_tensor`: Base model tensor goes first in `tensors` list if present
+    The `tensors: List[torch.Tensor]` argument and an optional `base_tensor` argument in your function signature interact with the `base_model` specified in the YAML configuration as follows:
 
-## Class-based API
+    - **If your function includes a `base_tensor` parameter (e.g., `base_tensor: torch.Tensor` or `base_tensor: Optional[torch.Tensor]`):**
+        - The `base_tensor` argument will receive the tensor from the `base_model` specified in the YAML. If annotated as `Optional` and no `base_model` is configured, it will be `None`.
+        - The `tensors: List[torch.Tensor]` argument will *only* contain tensors from the models specified under the `models:` key in the YAML, in order. It will *not* include the base model's tensor.
+    - **If your function does *not* include a `base_tensor` parameter:**
+        - If a `base_model` is specified in the YAML, its tensor will be the *first element* in the `tensors: List[torch.Tensor]` list (i.e., `tensors[0]`).
+        - Subsequent elements (`tensors[1:]`) will correspond to the models listed under the `models:` key in the YAML, in order.
+        - If no `base_model` is specified, the `tensors` list will directly correspond to the models listed under the `models:` key.
+
+4. **Special Auto-Populated Parameters**
+    Certain parameter names in your function signature have special meaning and are auto-populated by MergeKit if present. You do not configure these directly in the YAML `parameters` sections for your method; MergeKit provides them.
+    - `output_weight: WeightInfo`: If your function accepts an argument named `output_weight` annotated with `WeightInfo`, MergeKit will pass metadata about the specific weight tensor being computed.
+    - `base_model: ModelReference` (or `Optional[ModelReference]`): If your function accepts `base_model` annotated with `ModelReference`, MergeKit will pass a reference to the base model if one is used in the configuration for this merge operation.
+
+## Class-based API Implementation
 
 For complex merges requiring granular control, implement `MergeMethod` and `Task` classes:
 
@@ -122,18 +141,31 @@ For complex merges requiring granular control, implement `MergeMethod` and `Task
 
 ```python
 from mergekit.merge_methods.base import MergeMethod, ConfigParameterDef
-from mergekit.common import ImmutableMap, ModelReference
+from mergekit.common import ImmutableMap, ModelReference, WeightInfo
 from mergekit.graph import Task
 from typing import Any, Dict, List
+import torch
 
+
+class CustomDependencyTask(Task[float]):
+    totally_real_parameter: str
+
+    # Example of a task that computes a dependency for the merge
+    def execute(self) -> float:
+        # Custom logic to compute a dependency
+        return 42.0
 
 class CustomMergeTask(Task[torch.Tensor]):
     gather_tensors: MergeTensorInput
     parameters: ImmutableMap[str, Any]
+    tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
     weight_info: WeightInfo
 
     def arguments(self) -> Dict[str, Task]:
-        return {"tensors": self.gather_tensors}
+        return {
+            "tensors": self.gather_tensors,
+            "dependency": CustomDependencyTask(totally_real_parameter="example"),
+        }
 
     def priority(self) -> int:
         return 1  # Optional: higher priority = earlier execution
@@ -144,8 +176,14 @@ class CustomMergeTask(Task[torch.Tensor]):
     def uses_accelerator(self) -> bool:
         return True  # Enable GPU acceleration
 
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
-        # Implementation using weight info and parameters
+    def execute(
+        self, tensors: Dict[ModelReference, torch.Tensor], dependency: float
+    ) -> torch.Tensor:
+        # Implementation using self.weight_info, self.parameters, and self.tensor_parameters
+        # Access global parameters via self.parameters["param_name"]
+        # Access per-model tensor parameters via self.tensor_parameters[model_ref]["tensor_param_name"]
+        # These values are pre-resolved by MergeKit's configuration system.
+
         result = ...
         return result
 
@@ -171,15 +209,16 @@ class CustomMerge(MergeMethod):
     def make_task(
         self,
         *,
-        output_weight: WeightInfo,
-        tensors: MergeTensorInput,
-        parameters: ImmutableMap[str, Any],
-        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
-        **kwargs,
+        output_weight: WeightInfo, # Metadata about the weight being computed
+        tensors: MergeTensorInput, # Internal Task that fetches input tensors
+        parameters: ImmutableMap[str, Any], # Global parameters
+        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]], # Per-model parameters
+        **kwargs, # Other context like base_model: Optional[ModelReference]
     ) -> Task:
         return CustomMergeTask(
             gather_tensors=tensors,
             parameters=parameters,
+            tensor_parameters=tensor_parameters,
             weight_info=output_weight,
         )
 ```

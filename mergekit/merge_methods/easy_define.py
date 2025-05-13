@@ -293,10 +293,15 @@ def merge_method(
         This would enable merge configurations like:
         ```yaml
         merge_method: average
+        models:
+          - model: model_a
+            parameters:
+              weights: 0.3
+          - model: model_b
+            parameters:
+              weights: [0.6, 0.8]
         parameters:
           normalize: true
-        tensor_parameters:
-          weights: [0.3, 0.7]
         ```
 
     Raises:
