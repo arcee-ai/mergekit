@@ -1,0 +1,13 @@
+models:
+  - model: open-r1/R1-Distill-Qwen-Math-7B@v00.00-step-000003660
+    parameters:
+      weight: 0.333
+  - model: open-r1/R1-Distill-Qwen-Math-7B@v01.00-step-000002600
+    parameters:
+      weight: 0.333
+  - model: open-r1/R1-Distill-Qwen-Math-7B@v02.00-step-000006735
+    parameters:
+      weight: 0.333
+merge_method: linear
+dtype: bfloat16
+chat_template: "auto"
