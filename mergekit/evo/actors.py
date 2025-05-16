@@ -90,7 +90,7 @@ class OnDiskMergeEvaluator(MergeActorBase):
         genotype: torch.Tensor,
     ) -> dict:
         gc.collect()
-        torch.cuda.empty_cache()
+        empty_cache()
         LOG.info("Merging model")
         merged_path = merge_model(
             genotype, self.genome, self.model_storage_path, self.merge_options
@@ -190,7 +190,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     **model_kwargs,
                 )
                 .bfloat16()
-                .cuda()
+                .to(self.merge_options.device)
                 .eval()
                 .requires_grad_(False)
             )
@@ -227,15 +227,15 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     LOG.warning(f"Clipping sequence length to {max_model_len}")
 
                 mem_util = (
-                    0.7 if self.merge_options.cuda else 0.9
-                )  # reduce memory usage if we're also using cuda for the merge
+                    0.7 if self.merge_options.device in ["cuda", "xpu"] else 0.9
+                )  # reduce memory usage if we're also using accelerator for the merge
                 self.model = lm_eval.models.vllm_causallms.VLLM(
                     pretrained=tempdir,
                     batch_size=self.batch_size or "auto",
                     max_model_len=max_model_len,
                     gpu_memory_utilization=mem_util,
                     dtype="bfloat16",
-                    device="cuda",
+                    device=self.merge_options.device,
                     trust_remote_code=self.merge_options.trust_remote_code,
                 )
         else:
@@ -294,8 +294,8 @@ class InMemoryMergeEvaluator(MergeActorBase):
 
         executor = Executor(
             tasks,
-            math_device="cuda" if self.merge_options.cuda else "cpu",
-            storage_device="cuda" if self.merge_options.cuda else "cpu",
+            math_device=self.merge_options.device if self.merge_options.device in ["cuda", "xpu"] else "cpu",
+            storage_device=self.merge_options.device if self.merge_options.device in ["cuda", "xpu"] else "cpu",
         )
         for tensor_task, value in executor.run(quiet=True):
             assert isinstance(tensor_task, ReturnTensor)

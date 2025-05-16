@@ -21,6 +21,7 @@ class MergeOptions(BaseModel, frozen=True):
     lora_merge_cache: Optional[str] = None
     lora_merge_dtype: Optional[str] = None
     cuda: bool = False
+    device: Optional[str] = "auto"
     low_cpu_memory: bool = False
     out_shard_size: int = parse_kmb("5B")
     copy_tokenizer: bool = True
@@ -62,6 +63,24 @@ class MergeOptions(BaseModel, frozen=True):
             value["multi_gpu"] = True
         return value
 
+    @model_validator(mode="before")
+    def handle_device_setting(cls, value):
+        if not isinstance(value, dict):
+            return value
+
+        # Set device to "cuda" if cuda is True and device is still at default
+        if value.get("cuda"):
+            value["device"] = "cuda"
+
+        # Detect device automatically if `device` is set to "auto"
+        if value.get("device") is None or value.get("device") == "auto":
+            if torch.cuda.is_available():
+                value["device"] = "cuda"
+            elif hasattr(torch, "xpu") and torch.xpu.is_available():
+                value["device"] = "xpu"
+            else:
+                value["device"] = "cpu"
+        return value
 
 OPTION_HELP = {
     "allow_crimes": "Allow mixing architectures",
@@ -69,7 +88,8 @@ OPTION_HELP = {
     "lora_merge_cache": "Path to store merged LORA models",
     "lora_merge_dtype": "Override dtype when applying LoRAs",
     "cuda": "Perform matrix arithmetic on GPU",
-    "low_cpu_memory": "Store results and intermediate values on GPU. Useful if VRAM > RAM",
+    "device": "Perform matrix arithmetic on specified device",
+    "low_cpu_memory": "Store results and intermediate values on accelerator. Useful if VRAM > RAM",
     "out_shard_size": "Number of parameters per output shard  [default: 5B]",
     "copy_tokenizer": "Copy a tokenizer to the output",
     "clone_tensors": "Clone tensors before saving, to allow multiple occurrences of the same layer",
@@ -79,11 +99,11 @@ OPTION_HELP = {
     "write_model_card": "Output README.md containing details of the merge",
     "safe_serialization": "Save output in safetensors. Do this, don't poison the world with more pickled models.",
     "quiet": "Suppress progress bars and other non-essential output",
-    "read_to_gpu": "Read model weights directly to GPU",
+    "read_to_gpu": "Read model weights directly to accelerator",
     "multi_gpu": "Use multi-gpu parallel graph execution engine",
     "num_threads": "Number of threads to use for parallel CPU operations",
     "verbosity": "Verbose logging (repeat for more verbosity)",
-    "gpu_rich": "Alias for --cuda --low-cpu-memory --read-to-gpu --multi-gpu",
+    "gpu_rich": "Alias for --accelerator --cuda --low-cpu-memory --read-to-gpu --multi-gpu",
 }
 
 OPTION_CATEGORIES = {
@@ -96,6 +116,7 @@ OPTION_CATEGORIES = {
     "safe_serialization": "Output Settings",
     "lazy_unpickle": "Performance",
     "cuda": "Performance",
+    "device": "Performance",
     "low_cpu_memory": "Performance",
     "read_to_gpu": "Performance",
     "multi_gpu": "Performance",
@@ -127,8 +148,12 @@ def add_merge_options(f: Callable) -> Callable:
             if field_name in kwargs:
                 arg_dict[field_name] = kwargs.pop(field_name)
 
-        kwargs["merge_options"] = MergeOptions(**arg_dict)
-        f(*args, **kwargs)
+        try:
+            kwargs["merge_options"] = MergeOptions(**arg_dict)
+        except Exception as e:
+            print(f"Error creating MergeOptions with args: {arg_dict}")
+            raise
+        return f(*args, **kwargs)
 
     for field_name, info in reversed(MergeOptions.model_fields.items()):
         origin = typing.get_origin(info.annotation)

@@ -204,7 +204,7 @@ class MergePlanner:
         gather_tensors = GatherTensors(
             weight_info=ImmutableMap(data=dict(zip(models, weights_in))),
             dtype=self.config.dtype,
-            device="cuda" if self.options.read_to_gpu else None,
+            device=self.options.device if self.options.read_to_gpu else None,
         )
 
         tensor_input_task = gather_tensors
