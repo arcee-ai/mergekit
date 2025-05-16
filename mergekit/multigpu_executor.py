@@ -75,9 +75,11 @@ class MultiGPUExecutor:
         self.results: Dict[TaskHandle, Any] = {}
         self.storage_device = storage_device
 
+        self.accelerator_type = getattr(torch, torch.acclerator.current_accelerator().type) if hasattr(torch, "accelerator") else "cuda"
+        torch_accelerator_module = getattr(torch, self.accelerator_type)
         if num_gpus is None:
-            num_gpus = torch.cuda.device_count()
-        LOG.info(f"Using {num_gpus} GPUs for parallel execution")
+            num_gpus = torch_accelerator_module.device_count()
+        LOG.info(f"Using {num_gpus} {accelerator_type} for parallel execution")
 
         self.universe = TaskUniverse(targets)
         self.targets = set([self.universe.get_handle(t) for t in targets])
@@ -309,12 +311,12 @@ class MultiGPUExecutor:
                 continue
             # don't need to sort, inner executor will handle
             island_tasks = [TaskHandle(self.universe, idx) for idx in island]
-            # assign to GPU with fewest tasks (load balancing)
+            # assign to accelerator with fewest tasks (load balancing)
             device_idx = min(
                 range(num_gpus),
-                key=lambda i: len(assignments.get(torch.device(f"cuda:{i}"), [])),
+                key=lambda i: len(assignments.get(torch.device(f"{self.accelerator_type}:{i}"), [])),
             )
-            device = torch.device(f"cuda:{device_idx}")
+            device = torch.device(f"{self.accelerator_type}:{device_idx}")
             assignments[device] = assignments.get(device, []) + island_tasks
         return assignments
 
@@ -339,9 +341,10 @@ class MultiGPUExecutor:
             quiet: Whether to suppress progress bar output
         """
         LOG.debug(f"Device {device} starting")
+        torch_accelerator_module = getattr(torch, self.accelerator_type)
         with torch.device(device):
-            stream = torch.cuda.Stream(device=device)
-            with torch.cuda.stream(stream):
+            stream = torch.Stream(device=device) if self.accelerator_type == "xpu" else torch.cuda.Stream(device=device)
+            with stream if self.accelerator_type == "xpu" else torch.cuda.stream(stream):
                 exec = Executor(
                     targets=task_list,
                     math_device=device,
@@ -358,5 +361,5 @@ class MultiGPUExecutor:
                     ):
                         result = None
                     self.task_completion_queue.put((task_handle._index, result))
-        torch.cuda.synchronize(device=device)
+        torch_accelerator_module.synchronize(device=device)
         LOG.debug(f"Device {device} done")

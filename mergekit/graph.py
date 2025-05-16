@@ -529,7 +529,7 @@ class Executor:
         self, value: Any, device: torch.device, non_blocking: Optional[bool] = None
     ) -> Any:
         if non_blocking is None:
-            non_blocking = device.type == "cuda"
+            non_blocking = device.type in ["cuda", "xpu"]
         if isinstance(value, torch.Tensor):
             if value.device == device:
                 return value
