@@ -90,7 +90,8 @@ class OnDiskMergeEvaluator(MergeActorBase):
         genotype: torch.Tensor,
     ) -> dict:
         gc.collect()
-        empty_cache()
+        torch_acclerator_module=getattr(torch, self.merge_options.device, torch.cuda)
+        torch_acclerator_module.empty_cache()
         LOG.info("Merging model")
         merged_path = merge_model(
             genotype, self.genome, self.model_storage_path, self.merge_options
