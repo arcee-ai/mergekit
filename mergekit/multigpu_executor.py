@@ -75,7 +75,11 @@ class MultiGPUExecutor:
         self.results: Dict[TaskHandle, Any] = {}
         self.storage_device = storage_device
 
-        self.accelerator_type = getattr(torch, torch.acclerator.current_accelerator().type) if hasattr(torch, "accelerator") else "cuda"
+        self.accelerator_type = (
+            getattr(torch, torch.acclerator.current_accelerator().type)
+            if hasattr(torch, "accelerator")
+            else "cuda"
+        )
         torch_accelerator_module = getattr(torch, self.accelerator_type)
         if num_gpus is None:
             num_gpus = torch_accelerator_module.device_count()
@@ -314,7 +318,9 @@ class MultiGPUExecutor:
             # assign to accelerator with fewest tasks (load balancing)
             device_idx = min(
                 range(num_gpus),
-                key=lambda i: len(assignments.get(torch.device(f"{self.accelerator_type}:{i}"), [])),
+                key=lambda i: len(
+                    assignments.get(torch.device(f"{self.accelerator_type}:{i}"), [])
+                ),
             )
             device = torch.device(f"{self.accelerator_type}:{device_idx}")
             assignments[device] = assignments.get(device, []) + island_tasks
@@ -343,8 +349,14 @@ class MultiGPUExecutor:
         LOG.debug(f"Device {device} starting")
         torch_accelerator_module = getattr(torch, self.accelerator_type)
         with torch.device(device):
-            stream = torch.Stream(device=device) if self.accelerator_type == "xpu" else torch.cuda.Stream(device=device)
-            with stream if self.accelerator_type == "xpu" else torch.cuda.stream(stream):
+            stream = (
+                torch.Stream(device=device)
+                if self.accelerator_type == "xpu"
+                else torch.cuda.Stream(device=device)
+            )
+            with (
+                stream if self.accelerator_type == "xpu" else torch.cuda.stream(stream)
+            ):
                 exec = Executor(
                     targets=task_list,
                     math_device=device,

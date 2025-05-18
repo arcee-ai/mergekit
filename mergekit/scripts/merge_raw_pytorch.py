@@ -249,7 +249,8 @@ def main(
     executor = Executor(
         tasks,
         math_device=merge_options.device,
-        storage_device=(merge_options.device if merge_options.low_cpu_memory) else "cpu"
+        storage_device=(
+            merge_options.device if merge_options.low_cpu_memory else "cpu"
         ),
     )
     executor.execute()

@@ -82,6 +82,7 @@ class MergeOptions(BaseModel, frozen=True):
                 value["device"] = "cpu"
         return value
 
+
 OPTION_HELP = {
     "allow_crimes": "Allow mixing architectures",
     "transformers_cache": "Override storage path for downloaded models",

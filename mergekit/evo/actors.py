@@ -90,7 +90,7 @@ class OnDiskMergeEvaluator(MergeActorBase):
         genotype: torch.Tensor,
     ) -> dict:
         gc.collect()
-        torch_acclerator_module=getattr(torch, self.merge_options.device, torch.cuda)
+        torch_acclerator_module = getattr(torch, self.merge_options.device, torch.cuda)
         torch_acclerator_module.empty_cache()
         LOG.info("Merging model")
         merged_path = merge_model(
@@ -295,8 +295,16 @@ class InMemoryMergeEvaluator(MergeActorBase):
 
         executor = Executor(
             tasks,
-            math_device=self.merge_options.device if self.merge_options.device in ["cuda", "xpu"] else "cpu",
-            storage_device=self.merge_options.device if self.merge_options.device in ["cuda", "xpu"] else "cpu",
+            math_device=(
+                self.merge_options.device
+                if self.merge_options.device in ["cuda", "xpu"]
+                else "cpu"
+            ),
+            storage_device=(
+                self.merge_options.device
+                if self.merge_options.device in ["cuda", "xpu"]
+                else "cpu"
+            ),
         )
         for tensor_task, value in executor.run(quiet=True):
             assert isinstance(tensor_task, ReturnTensor)

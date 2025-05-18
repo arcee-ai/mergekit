@@ -37,7 +37,9 @@ class EvaluationStrategyBase(ABC):
         self.config = config
         self.genome = genome
         self.merge_options = merge_options
-        self.num_gpus = num_gpus or getattr(torch, self.merge_options.device).device_count()
+        self.num_gpus = (
+            num_gpus or getattr(torch, self.merge_options.device).device_count()
+        )
         self.batch_size = batch_size
         self.task_manager = lm_eval.tasks.TaskManager(include_path=task_search_path)
         self.model_storage_path = model_storage_path
@@ -118,7 +120,9 @@ class BufferedRayEvaluationStrategyActor:
         self.genome = genome
         self.merge_options = merge_options
         self.vllm = vllm
-        self.num_gpus = num_gpus or getattr(torch, self.merge_options.device).device_count()
+        self.num_gpus = (
+            num_gpus or getattr(torch, self.merge_options.device).device_count()
+        )
         self.input_queue = []
         self.batch_size = batch_size
         self.task_manager = task_manager
