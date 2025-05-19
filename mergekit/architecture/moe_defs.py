@@ -58,7 +58,7 @@ class MixtralModuleArchitecture(ModuleArchitecture, BaseModel):
         return res
 
 
-QWEN3_INFO = NAME_TO_ARCH["MistralForCausalLM"][0]
+QWEN3_INFO = NAME_TO_ARCH["Qwen3ForCausalLM"][0]
 QWEN3_MODULE_ARCH = QWEN3_INFO.modules["default"].architecture
 
 

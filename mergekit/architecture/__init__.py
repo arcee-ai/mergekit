@@ -41,12 +41,14 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
         return ModelArchitecture(
             modules={"default": ModuleDefinition(architecture=module)},
             architectures=[arch_name],
+            model_type="mixtral",
         )
     elif arch_name == Qwen3MoeModuleArchitecture.ARCHITECTURE_NAME:
         module = Qwen3MoeModuleArchitecture.from_config(config)
         return ModelArchitecture(
             modules={"default": ModuleDefinition(architecture=module)},
             architectures=[arch_name],
+            model_type="qwen3_moe",
         )
     elif arch_name in NAME_TO_ARCH:
         candidates = list(NAME_TO_ARCH[arch_name])
