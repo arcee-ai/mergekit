@@ -34,10 +34,22 @@
                 "name": "model.layers.${layer_index}.self_attn.q_proj.weight"
             },
             {
+                "name": "model.layers.${layer_index}.self_attn.q_proj.bias",
+                "optional": true
+            },
+            {
                 "name": "model.layers.${layer_index}.self_attn.k_proj.weight"
             },
             {
+                "name": "model.layers.${layer_index}.self_attn.k_proj.bias",
+                "optional": true
+            },
+            {
                 "name": "model.layers.${layer_index}.self_attn.v_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.v_proj.bias",
+                "optional": true
             },
             {
                 "name": "model.layers.${layer_index}.self_attn.o_proj.weight"
