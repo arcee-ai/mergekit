@@ -26,6 +26,7 @@ except ImportError:
 
 
 from mergekit.architecture import arch_info_for_config
+from mergekit.commom import get_torch_accelerator_module
 from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
@@ -90,7 +91,9 @@ class OnDiskMergeEvaluator(MergeActorBase):
         genotype: torch.Tensor,
     ) -> dict:
         gc.collect()
-        torch_accelerator_module = getattr(torch, self.merge_options.device, torch.cuda)
+        torch_accelerator_module = get_torch_accelerator_module(
+            self.merge_options.device
+        )
         torch_accelerator_module.empty_cache()
         LOG.info("Merging model")
         merged_path = merge_model(

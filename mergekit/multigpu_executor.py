@@ -21,7 +21,11 @@ import networkx as nx
 import torch
 import tqdm
 
-from .common import get_torch_accelerator_module, get_torch_accelerator_type
+from .common import (
+    get_torch_accelerator_count,
+    get_torch_accelerator_module,
+    get_torch_accelerator_type,
+)
 from .graph import (
     Executor,
     Task,
@@ -77,9 +81,8 @@ class MultiGPUExecutor:
         self.storage_device = storage_device
 
         self.accelerator_type = get_torch_accelerator_type()
-        torch_accelerator_module = get_torch_accelerator_module()
         if num_gpus is None:
-            num_gpus = torch_accelerator_module.device_count()
+            num_gpus = get_torch_accelerator_count()
         LOG.info(f"Using {num_gpus} {accelerator_type} for parallel execution")
 
         self.universe = TaskUniverse(targets)
@@ -344,7 +347,7 @@ class MultiGPUExecutor:
             quiet: Whether to suppress progress bar output
         """
         LOG.debug(f"Device {device} starting")
-        torch_accelerator_module = getattr(torch, self.accelerator_type)
+        torch_accelerator_module = get_torch_accelerator_module(self.accelerator_type)
         with torch.device(device):
             stream = (
                 torch.Stream(device=device)
