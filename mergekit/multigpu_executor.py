@@ -21,6 +21,7 @@ import networkx as nx
 import torch
 import tqdm
 
+from .common import get_torch_accelerator_module, get_torch_accelerator_type
 from .graph import (
     Executor,
     Task,
@@ -75,12 +76,8 @@ class MultiGPUExecutor:
         self.results: Dict[TaskHandle, Any] = {}
         self.storage_device = storage_device
 
-        self.accelerator_type = (
-            getattr(torch, torch.acclerator.current_accelerator().type)
-            if hasattr(torch, "accelerator")
-            else "cuda"
-        )
-        torch_accelerator_module = getattr(torch, self.accelerator_type)
+        self.accelerator_type = get_torch_accelerator_type()
+        torch_accelerator_module = get_torch_accelerator_module()
         if num_gpus is None:
             num_gpus = torch_accelerator_module.device_count()
         LOG.info(f"Using {num_gpus} {accelerator_type} for parallel execution")

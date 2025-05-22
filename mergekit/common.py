@@ -381,3 +381,19 @@ def get_auto_cls(arch_name: str) -> AutoClassProtocol:
             )
         auto_cls = transformers.AutoModelForCausalLM
     return auto_cls
+
+
+def get_torch_accelerator_module():
+    return (
+        getattr(torch, torch.accelerator.current_accelerator().type)
+        if hasattr(torch, "accelerator")
+        else torch.cuda
+    )
+
+
+def get_torch_accelerator_type():
+    return (
+        torch.accelerator.current_accelerator().type
+        if hasattr(torch, "accelerator")
+        else "cuda"
+    )

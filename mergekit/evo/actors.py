@@ -90,8 +90,8 @@ class OnDiskMergeEvaluator(MergeActorBase):
         genotype: torch.Tensor,
     ) -> dict:
         gc.collect()
-        torch_acclerator_module = getattr(torch, self.merge_options.device, torch.cuda)
-        torch_acclerator_module.empty_cache()
+        torch_accelerator_module = getattr(torch, self.merge_options.device, torch.cuda)
+        torch_accelerator_module.empty_cache()
         LOG.info("Merging model")
         merged_path = merge_model(
             genotype, self.genome, self.model_storage_path, self.merge_options
@@ -227,8 +227,9 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     max_model_len = 8192
                     LOG.warning(f"Clipping sequence length to {max_model_len}")
 
+                accelerator_type = torch.device(self.merge_options.device).type
                 mem_util = (
-                    0.7 if self.merge_options.device in ["cuda", "xpu"] else 0.9
+                    0.7 if accelerator_type in ["cuda", "xpu"] else 0.9
                 )  # reduce memory usage if we're also using accelerator for the merge
                 self.model = lm_eval.models.vllm_causallms.VLLM(
                     pretrained=tempdir,

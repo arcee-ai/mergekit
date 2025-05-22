@@ -21,7 +21,7 @@ class MergeOptions(BaseModel, frozen=True):
     lora_merge_cache: Optional[str] = None
     lora_merge_dtype: Optional[str] = None
     cuda: bool = False
-    device: Optional[str] = "auto"
+    device: Optional[str] = "cpu"
     low_cpu_memory: bool = False
     out_shard_size: int = parse_kmb("5B")
     copy_tokenizer: bool = True
@@ -72,8 +72,11 @@ class MergeOptions(BaseModel, frozen=True):
         if value.get("cuda"):
             value["device"] = "cuda"
 
+        if value.get("device") is None:
+            value["device"] = "cpu"
+
         # Detect device automatically if `device` is set to "auto"
-        if value.get("device") is None or value.get("device") == "auto":
+        if value.get("device") == "auto":
             if torch.cuda.is_available():
                 value["device"] = "cuda"
             elif hasattr(torch, "xpu") and torch.xpu.is_available():
@@ -104,7 +107,7 @@ OPTION_HELP = {
     "multi_gpu": "Use multi-gpu parallel graph execution engine",
     "num_threads": "Number of threads to use for parallel CPU operations",
     "verbosity": "Verbose logging (repeat for more verbosity)",
-    "gpu_rich": "Alias for --accelerator --cuda --low-cpu-memory --read-to-gpu --multi-gpu",
+    "gpu_rich": "Alias for --cuda --low-cpu-memory --read-to-gpu --multi-gpu",
 }
 
 OPTION_CATEGORIES = {
