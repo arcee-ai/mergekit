@@ -294,16 +294,17 @@ class InMemoryMergeEvaluator(MergeActorBase):
             ".up_proj.": (".gate_up_proj.", 1),
         }
 
+        accelerator_type = torch.device(self.merge_options.device).type
         executor = Executor(
             tasks,
             math_device=(
                 self.merge_options.device
-                if self.merge_options.device in ["cuda", "xpu"]
+                if accelerator_type in ["cuda", "xpu"]
                 else "cpu"
             ),
             storage_device=(
                 self.merge_options.device
-                if self.merge_options.device in ["cuda", "xpu"]
+                if accelerator_type in ["cuda", "xpu"]
                 else "cpu"
             ),
         )
