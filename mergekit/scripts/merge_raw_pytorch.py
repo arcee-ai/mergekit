@@ -248,9 +248,9 @@ def main(
 
     executor = Executor(
         tasks,
-        math_device="cuda" if merge_options.cuda else "cpu",
+        math_device=merge_options.device,
         storage_device=(
-            "cuda" if (merge_options.cuda and merge_options.low_cpu_memory) else "cpu"
+            merge_options.device if merge_options.low_cpu_memory else "cpu"
         ),
     )
     executor.execute()
