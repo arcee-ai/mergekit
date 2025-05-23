@@ -402,8 +402,7 @@ def get_torch_accelerator_count(accelerator_name: Optional[str] = None):
         # if user passes the device index in `acclerator_name`, then 1
         if accelerator.index != None:
             return 1
-        accelerator_type = accelerator.type
-        torch_accelerator_module = getattr(torch, accelerator_type)
+        torch_accelerator_module = getattr(torch, accelerator.type)
     else:
         torch_accelerator_module = (
             getattr(torch, torch.accelerator.current_accelerator().type)

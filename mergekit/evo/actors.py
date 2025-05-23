@@ -26,7 +26,7 @@ except ImportError:
 
 
 from mergekit.architecture import arch_info_for_config
-from mergekit.commom import get_torch_accelerator_module
+from mergekit.commom import get_torch_accelerator_module, get_torch_accelerator_type
 from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
@@ -230,7 +230,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     max_model_len = 8192
                     LOG.warning(f"Clipping sequence length to {max_model_len}")
 
-                accelerator_type = torch.device(self.merge_options.device).type
+                accelerator_type = get_torch_accelerator_type(self.merge_options.device)
                 mem_util = (
                     0.7 if accelerator_type in ["cuda", "xpu"] else 0.9
                 )  # reduce memory usage if we're also using accelerator for the merge
@@ -297,7 +297,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
             ".up_proj.": (".gate_up_proj.", 1),
         }
 
-        accelerator_type = torch.device(self.merge_options.device).type
+        accelerator_type = get_torch_accelerator_type(self.merge_options.device)
         executor = Executor(
             tasks,
             math_device=(
