@@ -399,7 +399,7 @@ def get_torch_accelerator_count(accelerator_name: Optional[str] = None):
     torch_accelerator_module = torch.cuda
     if accelerator_name is not None:
         accelerator = torch.device(accelerator_name)
-        # if user passes the device index in `acclerator_name`, then 1
+        # if user passes the device index in `accelerator_name`, then 1
         if accelerator.index != None:
             return 1
         torch_accelerator_module = getattr(torch, accelerator.type)
