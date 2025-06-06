@@ -381,3 +381,43 @@ def get_auto_cls(arch_name: str) -> AutoClassProtocol:
             )
         auto_cls = transformers.AutoModelForCausalLM
     return auto_cls
+
+
+def get_torch_accelerator_module(accelerator_name: Optional[str] = None):
+    if accelerator_name is not None:
+        accelerator_type = torch.device(accelerator_name).type
+        return getattr(torch, accelerator_type)
+    else:
+        return (
+            getattr(torch, torch.accelerator.current_accelerator().type)
+            if hasattr(torch, "accelerator")
+            else torch.cuda
+        )
+
+
+def get_torch_accelerator_count(accelerator_name: Optional[str] = None):
+    torch_accelerator_module = torch.cuda
+    if accelerator_name is not None:
+        accelerator = torch.device(accelerator_name)
+        # if user passes the device index in `accelerator_name`, then 1
+        if accelerator.index != None:
+            return 1
+        torch_accelerator_module = getattr(torch, accelerator.type)
+    else:
+        torch_accelerator_module = (
+            getattr(torch, torch.accelerator.current_accelerator().type)
+            if hasattr(torch, "accelerator")
+            else torch.cuda
+        )
+    return torch_accelerator_module.device_count()
+
+
+def get_torch_accelerator_type(accelerator_name: Optional[str] = None):
+    if accelerator_name is not None:
+        return torch.device(accelerator_name).type
+    else:
+        return (
+            torch.accelerator.current_accelerator().type
+            if hasattr(torch, "accelerator")
+            else "cuda"
+        )

@@ -88,7 +88,7 @@ def main(
     cache = LoaderCache()
     cache.setup(options=merge_options)
 
-    device = "cuda" if merge_options.cuda else "cpu"
+    device = merge_options.device
 
     arch_info, donor_cfg = validate_architecture(model, donor, merge_options)
     embed_info, lm_head_info = get_embedding_info(model, merge_options)
