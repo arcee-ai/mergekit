@@ -117,7 +117,7 @@ def main(
 
     executor = Executor(
         tasks, math_device="cpu", storage_device="cpu"
-    )  # inner executors will handle cuda
+    )  # inner executors will handle accelerator
     executor.execute(desc="Merging models")
 
 
