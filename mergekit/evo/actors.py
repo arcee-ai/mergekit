@@ -26,7 +26,7 @@ except ImportError:
 
 
 from mergekit.architecture import arch_info_for_config
-from mergekit.commom import get_torch_accelerator_module, get_torch_accelerator_type
+from mergekit.common import get_torch_accelerator_module, get_torch_accelerator_type
 from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
