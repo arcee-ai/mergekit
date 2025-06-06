@@ -15,7 +15,7 @@ import ray.util.scheduling_strategies
 import torch
 import transformers
 
-from mergekit.commom import get_torch_accelerator_count
+from mergekit.common import get_torch_accelerator_count
 from mergekit.evo.actors import InMemoryMergeEvaluator, OnDiskMergeEvaluator
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import ModelGenome
