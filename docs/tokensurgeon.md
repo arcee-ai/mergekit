@@ -26,7 +26,7 @@ This command creates a new model at `./output_model` whose tokenizer matches the
 - `--subword-method`: How to combine subword pieces when using the `subword` method (`mean`, `sum`, `weighted_mean`, `first_last`).
 - `--prefix-match` / `--byte-match`: Reuse existing embeddings that share a prefix or byte representation with donor tokens.
 - `--magikarp`: Filter out poorly trained tokens using the Magikarp heuristic before approximation.
-- Standard mergekit options such as `--device`, `--dtype`, and `--trust-remote-code` are also accepted.
+- Standard mergekit options such as `--device` and `--trust-remote-code` are also accepted.
 
 Run `mergekit-tokensurgeon --help` for the full list of arguments.
 
