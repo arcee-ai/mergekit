@@ -83,7 +83,7 @@ class MultiGPUExecutor:
         self.accelerator_type = get_torch_accelerator_type()
         if num_gpus is None:
             num_gpus = get_torch_accelerator_count()
-        LOG.info(f"Using {num_gpus} {accelerator_type} for parallel execution")
+        LOG.info(f"Using {num_gpus} {self.accelerator_type} for parallel execution")
 
         self.universe = TaskUniverse(targets)
         self.targets = set([self.universe.get_handle(t) for t in targets])
