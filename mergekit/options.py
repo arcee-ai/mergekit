@@ -68,12 +68,12 @@ class MergeOptions(BaseModel, frozen=True):
         if not isinstance(value, dict):
             return value
 
-        # Set device to "cuda" if cuda is True and device is still at default
-        if value.get("cuda"):
-            value["device"] = "cuda"
-
+        # If `device` is not set, determine it based on other flags
         if value.get("device") is None:
-            value["device"] = "cpu"
+            if value.get("cuda") or value.get("gpu_rich"):
+                value["device"] = "cuda"
+            else:
+                value["device"] = "cpu"
 
         # Detect device automatically if `device` is set to "auto"
         if value.get("device") == "auto":
@@ -154,7 +154,7 @@ def add_merge_options(f: Callable) -> Callable:
 
         try:
             kwargs["merge_options"] = MergeOptions(**arg_dict)
-        except Exception as e:
+        except Exception:
             print(f"Error creating MergeOptions with args: {arg_dict}")
             raise
         return f(*args, **kwargs)

@@ -370,6 +370,7 @@ tokenizer = AutoTokenizer.from_pretrained("path/to/merged-model")
 - [Evolutionary Merge Methods](#evolutionary-merge-methods)
 - [Multi-Stage Merging (`mergekit-multi`)](#multi-stage-merging-mergekit-multi)
 - [Raw PyTorch Model Merging (`mergekit-pytorch`)](#raw-pytorch-model-merging-mergekit-pytorch)
+- [Tokenizer Transplantation (`mergekit-tokensurgeon`)](#tokenizer-transplantation-mergekit-tokensurgeon)
 - [Merge in the Cloud](#-merge-in-the-cloud-)
 - [Citation](#citation)
 
@@ -660,6 +661,10 @@ mergekit-pytorch path/to/your/raw_config.yml ./output_pytorch_model_directory [o
 ```
 
 Use `mergekit-pytorch --help` for detailed options.
+
+## Tokenizer Transplantation (`mergekit-tokensurgeon`)
+
+`mergekit-tokensurgeon` is a specialized tool for transplanting tokenizers between models, allowing you to align the vocabulary of one model with another. This is particularly useful for cheaply producing draft models for speculative decoding or for cross-tokenizer knowledge distillation. See the [documentation](docs/tokensurgeon.md) for more details and how to use it.
 
 ## ✨ Merge in the Cloud ✨
 
