@@ -444,7 +444,9 @@ def build_embedding_matrix(
     LOG.info(stats.pretty_print())
     if new_tokens:
         LOG.info(f"Approximating {len(new_tokens)} tokens")
-        batch_size = options.batch_size or len(new_tokens)
+        batch_size = options.batch_size
+        if batch_size is None or batch_size <= 0:
+            batch_size = len(new_tokens)
         for base_idx in tqdm.tqdm(
             range(0, len(new_tokens), batch_size),
             desc="Approximating tokens",
@@ -539,8 +541,8 @@ class AllowMatch(enum.Enum):
 @click.option(
     "--batch-size",
     type=int,
-    default=None,
-    help="Number of tokens to process in each batch",
+    default=512,
+    help="Number of tokens to process in each batch. -1 for no batching.",
     show_default=True,
 )
 @click.option(
