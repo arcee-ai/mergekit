@@ -10,13 +10,13 @@ Other approximation strategies are also implemented (e.g. common-vocabulary inte
 
 ```bash
 mergekit-tokensurgeon \
-  --model path/to/base_model \
-  --donor path/to/donor_model \
-  --out-path ./output_model \
+  path/to/base_model \
+  path/to/donor_model \
+  ./output_model \
   [options]
 ```
 
-This command creates a new model at `out-path` whose tokenizer matches the donor model. The main embeddings and language modeling head are updated so existing weights remain aligned with the new vocabulary.
+This command creates a new model at `./output_model` whose tokenizer matches the donor model. The main embeddings and language modeling head are updated so existing weights remain aligned with the new vocabulary.
 
 ### Key Options
 
