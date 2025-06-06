@@ -77,8 +77,8 @@ def run_merge(
     else:
         exec = Executor(
             targets=targets,
-            math_device="cuda" if options.cuda else "cpu",
-            storage_device="cuda" if options.low_cpu_memory else "cpu",
+            math_device=options.device,
+            storage_device=options.device if options.low_cpu_memory else "cpu",
         )
 
     tokenizer = None

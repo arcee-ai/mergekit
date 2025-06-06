@@ -720,7 +720,7 @@ def main(
     cache = LoaderCache()
     cache.setup(options=merge_options)
 
-    device = "cuda" if merge_options.cuda else "cpu"
+    device = merge_options.device
 
     arch_info = get_arch_info(options.model, merge_options)
     embed_wi, lm_head_wi = get_embedding_info(arch_info)

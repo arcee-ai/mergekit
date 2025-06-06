@@ -26,6 +26,7 @@ except ImportError:
 
 
 from mergekit.architecture import arch_info_for_config
+from mergekit.common import get_torch_accelerator_module, get_torch_accelerator_type
 from mergekit.config import MergeConfiguration
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
@@ -90,7 +91,10 @@ class OnDiskMergeEvaluator(MergeActorBase):
         genotype: torch.Tensor,
     ) -> dict:
         gc.collect()
-        torch.cuda.empty_cache()
+        torch_accelerator_module = get_torch_accelerator_module(
+            self.merge_options.device
+        )
+        torch_accelerator_module.empty_cache()
         LOG.info("Merging model")
         merged_path = merge_model(
             genotype, self.genome, self.model_storage_path, self.merge_options
@@ -190,7 +194,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     **model_kwargs,
                 )
                 .bfloat16()
-                .cuda()
+                .to(self.merge_options.device)
                 .eval()
                 .requires_grad_(False)
             )
@@ -226,16 +230,17 @@ class InMemoryMergeEvaluator(MergeActorBase):
                     max_model_len = 8192
                     LOG.warning(f"Clipping sequence length to {max_model_len}")
 
+                accelerator_type = get_torch_accelerator_type(self.merge_options.device)
                 mem_util = (
-                    0.7 if self.merge_options.cuda else 0.9
-                )  # reduce memory usage if we're also using cuda for the merge
+                    0.7 if accelerator_type in ["cuda", "xpu"] else 0.9
+                )  # reduce memory usage if we're also using accelerator for the merge
                 self.model = lm_eval.models.vllm_causallms.VLLM(
                     pretrained=tempdir,
                     batch_size=self.batch_size or "auto",
                     max_model_len=max_model_len,
                     gpu_memory_utilization=mem_util,
                     dtype="bfloat16",
-                    device="cuda",
+                    device=self.merge_options.device,
                     trust_remote_code=self.merge_options.trust_remote_code,
                 )
         else:
@@ -292,10 +297,19 @@ class InMemoryMergeEvaluator(MergeActorBase):
             ".up_proj.": (".gate_up_proj.", 1),
         }
 
+        accelerator_type = get_torch_accelerator_type(self.merge_options.device)
         executor = Executor(
             tasks,
-            math_device="cuda" if self.merge_options.cuda else "cpu",
-            storage_device="cuda" if self.merge_options.cuda else "cpu",
+            math_device=(
+                self.merge_options.device
+                if accelerator_type in ["cuda", "xpu"]
+                else "cpu"
+            ),
+            storage_device=(
+                self.merge_options.device
+                if accelerator_type in ["cuda", "xpu"]
+                else "cpu"
+            ),
         )
         for tensor_task, value in executor.run(quiet=True):
             assert isinstance(tensor_task, ReturnTensor)
