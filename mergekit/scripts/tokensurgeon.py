@@ -249,64 +249,6 @@ def john_hewitt_init(orig_embed: torch.Tensor, num_new_tokens: int) -> torch.Ten
     return new_embeds.to(orig_embed.dtype)
 
 
-def debug_reconstruction_for_random_tokens(
-    coeffs: torch.Tensor,
-    donor_shared_embeds: torch.Tensor,
-    indices: torch.LongTensor,
-    donor_embed: torch.Tensor,
-    target_tokens: List[NormalizedToken],
-    donor_vocab: Dict[NormalizedToken, int],
-    shared_vocab: List[NormalizedToken],
-    options: TokenSurgeonOptions,
-    reconstructed_in_donor: Optional[torch.Tensor] = None,
-):
-    import random
-
-    if reconstructed_in_donor is None:
-        reconstructed_in_donor = (
-            torch.bmm(
-                coeffs.unsqueeze(1).to(torch.float),
-                donor_shared_embeds[indices].to(torch.float),
-            )
-            .squeeze(1)
-            .to(donor_embed.dtype)
-        )
-    donor_tok = transformers.AutoTokenizer.from_pretrained(
-        options.donor.model.path,
-        revision=options.donor.model.revision,
-        trust_remote_code=False,
-    )
-    for i in random.sample(range(len(target_tokens)), 10):
-        tok_txt = donor_tok.decode([donor_vocab[target_tokens[i]]])
-        comp_tokens = [
-            repr(donor_tok.decode([donor_vocab[shared_vocab[j]]])) for j in indices[i]
-        ]
-        comp_coeffs = coeffs[i]
-        print(
-            repr(tok_txt)
-            + "\\approx "
-            + " + ".join(
-                [
-                    f"{comp_coeffs[j].item():.4f} * {comp_tokens[j]}"
-                    for j in range(len(comp_tokens))
-                ]
-            )
-        )
-        donor_tok_embed = donor_embed[donor_vocab[target_tokens[i]]]
-        reconstructed = reconstructed_in_donor[i]
-        l2_err = (donor_tok_embed - reconstructed).norm()
-        cos_sim = torch.nn.functional.cosine_similarity(
-            donor_tok_embed,
-            reconstructed,
-            dim=0,
-        )
-        print(
-            f"  L2 error: {l2_err.item():.4f} (relative: {l2_err.item() / donor_tok_embed.norm():.4f})"
-        )
-        print(f"  Cosine similarity: {cos_sim.item():.4f}")
-        print()
-
-
 def compute_new_embeddings(
     orig_embed: torch.Tensor,
     donor_embed: torch.Tensor,
@@ -392,20 +334,6 @@ def compute_new_embeddings(
             )
         else:
             indices, coeffs = batch_omp(targets, donor_shared_embeds, options.k)
-
-        # for paper: choose a few random tokens and print the shared tokens and coefficients for them
-        if LOG.isEnabledFor(logging.DEBUG):
-            debug_reconstruction_for_random_tokens(
-                coeffs,
-                donor_shared_embeds,
-                indices,
-                donor_embed,
-                target_tokens,
-                donor_vocab,
-                shared_vocab,
-                options,
-                reconstructed_in_donor=in_donor,
-            )
 
         if res is None:
             res = (
