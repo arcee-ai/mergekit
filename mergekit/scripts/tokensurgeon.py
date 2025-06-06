@@ -72,7 +72,7 @@ class ApproximationMethod(enum.Enum):
     MEAN = "mean"
     ZERO = "zero"
     RANDN = "randn"
-    JOHN_HEWITT = "random_matching_distribution"
+    JOHN_HEWITT = "john_hewitt"
     ORTHOGONAL_MATCHING_PURSUIT = "omp"
     LANDMARK_PCA = "landmark_pca"
     SPARSE_TOKEN_BASIS = "stb"
@@ -85,8 +85,7 @@ class TokenSurgeonOptions(BaseModel):
     out_path: str
     method: ApproximationMethod = ApproximationMethod.COMMON_INTERPOLATION
     weight_scheme: WeightingScheme = WeightingScheme.DISTANCE_PROPORTIONAL
-    k: int = 8
-    knn: bool = True
+    k: int = 64
     cosine_similarity: bool = False
     subword_method: SubwordMethod = SubwordMethod.MEAN
     batch_size: Optional[int] = None
@@ -257,6 +256,7 @@ def compute_new_embeddings(
     target_tokens: List[NormalizedToken],
     is_lm_head: bool,
     token_basis: Optional[Tuple[torch.Tensor, torch.Tensor]],
+    orig_tokenizer: transformers.PreTrainedTokenizerBase,
     options: TokenSurgeonOptions,
 ) -> torch.Tensor:
     assert all(t in donor_vocab for t in target_tokens)
@@ -345,7 +345,13 @@ def compute_new_embeddings(
             )
         return res
     elif options.method == ApproximationMethod.SUBWORD:
-        return subword_approximate(orig_embed, target_tokens, is_lm_head, options)
+        return subword_approximate(
+            orig_embed,
+            target_tokens,
+            is_lm_head,
+            orig_tokenizer,
+            options.subword_method,
+        )
     elif options.method == ApproximationMethod.SPARSE_TOKEN_BASIS:
         assert token_basis is not None, "Token basis must be provided for STB"
         donor_basis, orig_basis = token_basis
@@ -459,6 +465,7 @@ def build_embedding_matrix(
                 target_tokens=new_tokens[base_idx : base_idx + batch_size],
                 is_lm_head=is_lm_head,
                 token_basis=token_basis,
+                orig_tokenizer=orig_tokenizer,
                 options=options,
             )
             if options.new_vocab_noise:
@@ -495,15 +502,8 @@ class AllowMatch(enum.Enum):
     "--k",
     "-k",
     type=int,
-    default=8,
+    default=64,
     help="Number of nearest neighbours to use for embedding interpolation",
-    show_default=True,
-)
-@click.option(
-    "--knn/--no-knn",
-    is_flag=True,
-    default=True,
-    help="Use KNN for common-vocabulary interpolation",
     show_default=True,
 )
 @click.option(
@@ -590,7 +590,6 @@ def main(
     donor: str,
     out_path: str,
     k: int,
-    knn: bool,
     cosine_similarity: bool,
     approximation_method: str,
     weight_scheme: str,
@@ -610,7 +609,6 @@ def main(
         donor=ModelReference.model_validate(donor),
         out_path=out_path,
         k=k,
-        knn=knn,
         cosine_similarity=cosine_similarity,
         method=ApproximationMethod(approximation_method),
         weight_scheme=WeightingScheme(weight_scheme),

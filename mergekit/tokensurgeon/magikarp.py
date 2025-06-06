@@ -25,7 +25,7 @@ def well_trained_tokens(
         embed: The input embedding matrix of the model.
         lm_head: The output embedding matrix of the model (optional).
         known_unused: A list of known unused tokens (optional).
-        quantile: The quantile to use for filtering (default: 0.05).
+        quantile: The quantile to use for filtering (default: 0.01).
 
     Returns:
         A list of tokens that can be assumed to be well-trained in the model.
