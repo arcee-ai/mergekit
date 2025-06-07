@@ -109,7 +109,7 @@
                 }
             }
         },
-        "vision_tower": 
+        "vision_tower":
         {
             "architecture": {
                 "model_type": "",
@@ -127,11 +127,9 @@
                         {
                             "name": "visual.blocks.${layer_index}.attn.proj.bias"
                         },
-                        
                         {
                             "name": "visual.blocks.${layer_index}.attn.proj.weight"
                         },
-                        
                         {
                             "name": "visual.blocks.${layer_index}.attn.qkv.bias"
                         },
