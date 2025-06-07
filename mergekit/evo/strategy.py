@@ -15,6 +15,7 @@ import ray.util.scheduling_strategies
 import torch
 import transformers
 
+from mergekit.common import get_torch_accelerator_count
 from mergekit.evo.actors import InMemoryMergeEvaluator, OnDiskMergeEvaluator
 from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import ModelGenome
@@ -37,7 +38,9 @@ class EvaluationStrategyBase(ABC):
         self.config = config
         self.genome = genome
         self.merge_options = merge_options
-        self.num_gpus = num_gpus or torch.cuda.device_count()
+        self.num_gpus = num_gpus or get_torch_accelerator_count(
+            self.merge_options.device
+        )
         self.batch_size = batch_size
         self.task_manager = lm_eval.tasks.TaskManager(include_path=task_search_path)
         self.model_storage_path = model_storage_path
@@ -118,7 +121,9 @@ class BufferedRayEvaluationStrategyActor:
         self.genome = genome
         self.merge_options = merge_options
         self.vllm = vllm
-        self.num_gpus = num_gpus or torch.cuda.device_count()
+        self.num_gpus = num_gpus or get_torch_accelerator_count(
+            self.merge_options.device
+        )
         self.input_queue = []
         self.batch_size = batch_size
         self.task_manager = task_manager
