@@ -21,7 +21,7 @@ class MergeOptions(BaseModel, frozen=True):
     lora_merge_cache: Optional[str] = None
     lora_merge_dtype: Optional[str] = None
     cuda: bool = False
-    device: Optional[str] = "cpu"
+    device: Optional[str] = None
     low_cpu_memory: bool = False
     out_shard_size: int = parse_kmb("5B")
     copy_tokenizer: bool = True
@@ -69,7 +69,7 @@ class MergeOptions(BaseModel, frozen=True):
             return value
 
         # If `device` is not set, determine it based on other flags
-        if value.get("device") is None:
+        if not value.get("device"):
             if value.get("cuda") or value.get("gpu_rich"):
                 value["device"] = "cuda"
             else:
