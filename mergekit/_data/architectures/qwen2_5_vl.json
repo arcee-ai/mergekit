@@ -1,0 +1,170 @@
+{
+    "kind": "modular",
+    "model_type": "qwen2_5_vl",
+    "architectures": [
+        "Qwen2_5_VLForConditionalGeneration"
+    ],
+    "num_vision_layers_config_key": "vision_config.depth",
+    "vocab_size_config_key": "vocab_size",
+    "tagalong_files": [
+        "preprocessor_config.json",
+        "vocab.json"
+    ],
+    "modules": {
+        "text_decoder": {
+            "architecture": {
+                "architectures": [
+                    "Qwen2_5ForCausalLM"
+                ],
+                "model_type": "qwen2_5",
+                "num_layers_config_key": "num_hidden_layers",
+                "pre_weights": [
+                    {
+                        "name": "model.embed_tokens.weight",
+                        "is_embed": true
+                    }
+                ],
+                "post_weights": [
+                    {
+                        "name": "model.norm.weight"
+                    },
+                    {
+                        "name": "lm_head.weight",
+                        "is_embed": true,
+                        "optional": true,
+                        "tied_names": [
+                            "model.embed_tokens.weight"
+                        ]
+                    }
+                ],
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "model.layers.${layer_index}.input_layernorm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.down_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.gate_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.up_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.post_attention_layernorm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.k_proj.bias"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.k_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.o_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.q_proj.bias"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.q_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.v_proj.bias"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.v_proj.weight"
+                        }
+                    ]
+                }
+            }
+        },
+        "multi_modal_projector": {
+            "model_type": "",
+            "architecture": {
+                "model_type": "",
+                "architectures": [],
+                "override_num_layers": 2,
+                "pre_weights": [
+                    {
+                        "name": "visual.merger.ln_q.weight"
+                    }
+                ],
+                "post_weights": [],
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "visual.merger.mlp.0.weight"
+                        },
+                        {
+                            "name": "visual.merger.mlp.0.bias"
+                        },
+                        {
+                            "name": "visual.merger.mlp.2.weight"
+                        },
+                        {
+                            "name": "visual.merger.mlp.2.bias"
+                        }
+                    ]
+                }
+            }
+        },
+        "vision_tower":
+        {
+            "architecture": {
+                "model_type": "",
+                "architectures": [],
+                "num_layers_config_key": "vision_config.depth",
+                "pre_weights": [
+                    {
+                        "name": "visual.patch_embed.proj.weight",
+                        "is_embed": true
+                    }
+                ],
+                "post_weights": [],
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "visual.blocks.${layer_index}.attn.proj.bias"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.attn.proj.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.attn.qkv.bias"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.attn.qkv.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.down_proj.bias"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.down_proj.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.gate_proj.bias"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.gate_proj.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.up_proj.bias"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.up_proj.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.norm1.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.norm2.weight"
+                        }
+
+
+                    ]
+                }
+            }
+        }
+    }
+}
