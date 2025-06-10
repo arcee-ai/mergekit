@@ -2,7 +2,7 @@
 
 `mergekit-tokensurgeon` is a command line utility for "transplanting" tokenizers between models. It reconstructs embeddings for a donor tokenizer inside the base model's embedding space so that the resulting model can operate with the donor vocabulary and ID mapping.
 
-The default approach uses **Orthogonal Matching Pursuit (OMP)** to approximate unseen token embeddings as sparse combinations of tokens shared between the two vocabularies. This provides a training-free way to align tokenizers with minimal loss in downstream performance. The method is described in detail in the paper *Training-Free Tokenizer Transplantation via Orthogonal Matching Pursuit* (to be published).
+The default approach uses **Orthogonal Matching Pursuit (OMP)** to approximate unseen token embeddings as sparse combinations of tokens shared between the two vocabularies. This provides a training-free way to align tokenizers with minimal loss in downstream performance. The method is described in detail in the paper [*Training-Free Tokenizer Transplantation via Orthogonal Matching Pursuit*](https://arxiv.org/abs/2506.06607).
 
 Other approximation strategies are also implemented (e.g. common-vocabulary interpolation, subword based methods, PCA and more). You can control which technique is used via the `--approximation-method` option described below.
 
