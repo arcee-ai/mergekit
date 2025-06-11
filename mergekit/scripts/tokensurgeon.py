@@ -738,7 +738,7 @@ def main(
             tensor = new_lm_head
         else:
             tensor = cache.get(options.model).get_tensor(
-                weight_info.name, aliases=weight_info.aliases
+                weight_info.name, aliases=weight_info.aliases, raise_on_missing=False
             )
         if tensor is None:
             if weight_info.optional:
