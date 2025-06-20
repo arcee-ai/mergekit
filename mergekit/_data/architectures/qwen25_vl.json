@@ -1,0 +1,162 @@
+{
+    "kind": "modular",
+    "architectures": [
+        "Qwen2_5_VLForConditionalGeneration"
+    ],
+    "model_type": "qwen2_5_vl",
+    "tagalong_files": [
+        "preprocessor_config.json",
+        "processor_config.json"
+    ],
+    "vocab_size_config_key": "vocab_size",
+    "modules": {
+        "text_decoder": {
+            "architecture": {
+                "model_type": "qwen2_5_vl_text",
+                "architectures": [],
+                "pre_weights": [
+                    {
+                        "name": "model.embed_tokens.weight",
+                        "is_embed": true
+                    }
+                ],
+                "num_layers_config_key": "num_hidden_layers",
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "model.layers.${layer_index}.input_layernorm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.q_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.q_proj.bias"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.k_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.k_proj.bias"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.v_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.v_proj.bias"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.self_attn.o_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.post_attention_layernorm.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.gate_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.up_proj.weight"
+                        },
+                        {
+                            "name": "model.layers.${layer_index}.mlp.down_proj.weight"
+                        }
+                    ]
+                },
+                "post_weights": [
+                    {
+                        "name": "model.norm.weight"
+                    },
+                    {
+                        "name": "lm_head.weight",
+                        "is_embed": true,
+                        "optional": true,
+                        "tied_names": [
+                            "embed_tokens.weight"
+                        ]
+                    }
+                ]
+            }
+        },
+        "vision_model": {
+            "architecture": {
+                "model_type": "qwen2_5_vl_vision_model",
+                "architectures": [],
+                "pre_weights": [
+                    {
+                        "name": "visual.patch_embed.proj.weight"
+                    }
+                ],
+                "post_weights": [
+                    {
+                        "name": "visual.merger.ln_q.weight"
+                    },
+                    {
+                        "name": "visual.merger.mlp.0.weight"
+                    },
+                    {
+                        "name": "visual.merger.mlp.0.bias"
+                    },
+                    {
+                        "name": "visual.merger.mlp.2.weight"
+                    },
+                    {
+                        "name": "visual.merger.mlp.2.bias"
+                    }
+                ],
+                "layer_templates": {
+                    "weights": [
+                        {
+                            "name": "visual.blocks.${layer_index}.norm1.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.norm2.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.attn.qkv.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.attn.qkv.bias"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.attn.proj.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.attn.proj.bias"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.gate_proj.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.gate_proj.bias"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.up_proj.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.up_proj.bias"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.down_proj.weight"
+                        },
+                        {
+                            "name": "visual.blocks.${layer_index}.mlp.down_proj.bias"
+                        }
+                    ]
+                },
+                "num_layers_config_key": "vision_config.depth"
+            }
+        },
+        "multi_modal_projector": {
+            "weight_prefix": "",
+            "architecture": {
+                "model_type": "",
+                "architectures": [],
+                "pre_weights": [],
+                "post_weights": [],
+                "layer_templates": {
+                    "weights": []
+                },
+                "override_num_layers": 0
+            }
+        }
+    }
+}
