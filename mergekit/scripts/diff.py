@@ -17,15 +17,16 @@ The tool supports multiple loading strategies:
 import gc
 import os
 from contextlib import contextmanager
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import click
 import numpy as np
 import torch
 import torch.nn as nn
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from mergekit.io.lazy_tensor_loader import LazyTensorLoader
 from tqdm import tqdm
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+from mergekit.io.lazy_tensor_loader import LazyTensorLoader
 
 # Constants
 DEFAULT_NUM_BINS = 100
@@ -44,6 +45,7 @@ LAYER_PATTERNS = {
 
 class ModelComparisonError(Exception):
     """Custom exception for model comparison errors."""
+
     pass
 
 
@@ -80,7 +82,9 @@ def resolve_hf_model_path(model_name: str) -> str:
     if "/" in model_name and not os.path.exists(model_name):
         # Convert model name to cache path format
         cache_name = model_name.replace("/", "--")
-        cache_path = os.path.expanduser(f"~/.cache/huggingface/hub/models--{cache_name}")
+        cache_path = os.path.expanduser(
+            f"~/.cache/huggingface/hub/models--{cache_name}"
+        )
         if os.path.exists(cache_path):
             return cache_path
     return model_name
@@ -100,19 +104,22 @@ def is_local_model_folder(path: str) -> bool:
         return False
 
     # Check for single model file
-    if (os.path.exists(os.path.join(path, "model.safetensors")) or
-        os.path.exists(os.path.join(path, "pytorch_model.bin"))):
+    if os.path.exists(os.path.join(path, "model.safetensors")) or os.path.exists(
+        os.path.join(path, "pytorch_model.bin")
+    ):
         return True
 
     # Check for sharded model files
-    if (os.path.exists(os.path.join(path, "model.safetensors.index.json")) or
-        os.path.exists(os.path.join(path, "pytorch_model.bin.index.json"))):
+    if os.path.exists(
+        os.path.join(path, "model.safetensors.index.json")
+    ) or os.path.exists(os.path.join(path, "pytorch_model.bin.index.json")):
         return True
 
     # Check for individual shard files
     for file in os.listdir(path):
-        if (file.startswith("model-") and file.endswith(".safetensors")) or \
-           (file.startswith("pytorch_model-") and file.endswith(".bin")):
+        if (file.startswith("model-") and file.endswith(".safetensors")) or (
+            file.startswith("pytorch_model-") and file.endswith(".bin")
+        ):
             return True
 
     # Check for HF cache structure
@@ -121,9 +128,13 @@ def is_local_model_folder(path: str) -> bool:
         for snapshot in os.listdir(snapshots_dir):
             snapshot_path = os.path.join(snapshots_dir, snapshot)
             if os.path.isdir(snapshot_path):
-                if (os.path.exists(os.path.join(snapshot_path, "model.safetensors")) or
-                    os.path.exists(os.path.join(snapshot_path, "pytorch_model.bin")) or
-                    os.path.exists(os.path.join(snapshot_path, "model.safetensors.index.json"))):
+                if (
+                    os.path.exists(os.path.join(snapshot_path, "model.safetensors"))
+                    or os.path.exists(os.path.join(snapshot_path, "pytorch_model.bin"))
+                    or os.path.exists(
+                        os.path.join(snapshot_path, "model.safetensors.index.json")
+                    )
+                ):
                     return True
 
     return False
@@ -140,9 +151,11 @@ def get_model_path(path: str) -> str:
         Path to the actual model files
     """
     # Check for direct model files
-    if (os.path.exists(os.path.join(path, "model.safetensors")) or
-        os.path.exists(os.path.join(path, "pytorch_model.bin")) or
-        os.path.exists(os.path.join(path, "model.safetensors.index.json"))):
+    if (
+        os.path.exists(os.path.join(path, "model.safetensors"))
+        or os.path.exists(os.path.join(path, "pytorch_model.bin"))
+        or os.path.exists(os.path.join(path, "model.safetensors.index.json"))
+    ):
         return path
 
     # HF cache structure
@@ -151,9 +164,13 @@ def get_model_path(path: str) -> str:
         for snapshot in os.listdir(snapshots_dir):
             snapshot_path = os.path.join(snapshots_dir, snapshot)
             if os.path.isdir(snapshot_path):
-                if (os.path.exists(os.path.join(snapshot_path, "model.safetensors")) or
-                    os.path.exists(os.path.join(snapshot_path, "pytorch_model.bin")) or
-                    os.path.exists(os.path.join(snapshot_path, "model.safetensors.index.json"))):
+                if (
+                    os.path.exists(os.path.join(snapshot_path, "model.safetensors"))
+                    or os.path.exists(os.path.join(snapshot_path, "pytorch_model.bin"))
+                    or os.path.exists(
+                        os.path.join(snapshot_path, "model.safetensors.index.json")
+                    )
+                ):
                     return snapshot_path
     return path
 
@@ -200,7 +217,9 @@ class ModelLoader:
     """Handles model loading with different strategies."""
 
     @staticmethod
-    def load_lazy(model_name: str, device: str = "cpu") -> Tuple[nn.Module, AutoTokenizer]:
+    def load_lazy(
+        model_name: str, device: str = "cpu"
+    ) -> Tuple[nn.Module, AutoTokenizer]:
         """
         Load a model lazily (only config and tokenizer initially).
 
@@ -229,7 +248,9 @@ class ModelLoader:
             raise ModelComparisonError(f"Error loading model {model_name}: {e}")
 
     @staticmethod
-    def load_from_path_lazy(model_path: str, device: str = "cpu") -> Tuple[nn.Module, AutoTokenizer]:
+    def load_from_path_lazy(
+        model_path: str, device: str = "cpu"
+    ) -> Tuple[nn.Module, AutoTokenizer]:
         """
         Load a model from a local folder path lazily.
 
@@ -258,7 +279,9 @@ class ModelLoader:
             raise ModelComparisonError(f"Error loading model from {model_path}: {e}")
 
     @staticmethod
-    def load_full(model_name: str, device: str = "cpu") -> Tuple[nn.Module, AutoTokenizer]:
+    def load_full(
+        model_name: str, device: str = "cpu"
+    ) -> Tuple[nn.Module, AutoTokenizer]:
         """
         Load a model fully (for backward compatibility).
 
@@ -286,7 +309,9 @@ class ModelLoader:
             raise ModelComparisonError(f"Error loading model {model_name}: {e}")
 
     @staticmethod
-    def load_from_path_full(model_path: str, device: str = "cpu") -> Tuple[nn.Module, AutoTokenizer]:
+    def load_from_path_full(
+        model_path: str, device: str = "cpu"
+    ) -> Tuple[nn.Module, AutoTokenizer]:
         """
         Load a model from a local folder path fully.
 
@@ -363,11 +388,11 @@ class ModelAnalyzer:
             ValueError: If layer name is not found
         """
         # Navigate to the layer
-        module_path = layer_name.rsplit('.', 1)[0]
-        param_name = layer_name.rsplit('.', 1)[1]
+        module_path = layer_name.rsplit(".", 1)[0]
+        param_name = layer_name.rsplit(".", 1)[1]
 
         module = model
-        for part in module_path.split('.'):
+        for part in module_path.split("."):
             if hasattr(module, part):
                 module = getattr(module, part)
             else:
@@ -376,7 +401,9 @@ class ModelAnalyzer:
         if hasattr(module, param_name):
             return getattr(module, param_name).data.clone()
         else:
-            raise ValueError(f"Parameter {param_name} not found in module {module_path}")
+            raise ValueError(
+                f"Parameter {param_name} not found in module {module_path}"
+            )
 
     @staticmethod
     def get_layer_weights(model: nn.Module) -> Dict[str, torch.Tensor]:
@@ -436,7 +463,9 @@ class WeightComparator:
 
                 # Ensure shapes match
                 if w1.shape != w2.shape:
-                    print(f"Warning: Shape mismatch for {layer_name}: {w1.shape} vs {w2.shape}")
+                    print(
+                        f"Warning: Shape mismatch for {layer_name}: {w1.shape} vs {w2.shape}"
+                    )
                     differences[layer_name] = 100.0
                     continue
 
@@ -464,7 +493,7 @@ class WeightComparator:
         model1: nn.Module,
         model2: nn.Module,
         layer_names: List[str],
-        device: str = "cpu"
+        device: str = "cpu",
     ) -> Dict[str, float]:
         """
         Compare weights between two models layer by layer (memory efficient).
@@ -494,7 +523,9 @@ class WeightComparator:
 
                 # Ensure shapes match
                 if w1.shape != w2.shape:
-                    print(f"Warning: Shape mismatch for {layer_name}: {w1.shape} vs {w2.shape}")
+                    print(
+                        f"Warning: Shape mismatch for {layer_name}: {w1.shape} vs {w2.shape}"
+                    )
                     differences[layer_name] = 100.0
                     continue
 
@@ -528,7 +559,7 @@ class KLDivergenceCalculator:
         weights1: Dict[str, torch.Tensor],
         weights2: Dict[str, torch.Tensor],
         num_bins: int = DEFAULT_NUM_BINS,
-        epsilon: float = DEFAULT_EPSILON
+        epsilon: float = DEFAULT_EPSILON,
     ) -> Dict[str, float]:
         """
         Compute KL divergence between weight distributions for each layer.
@@ -552,20 +583,24 @@ class KLDivergenceCalculator:
 
                 # Ensure shapes match
                 if w1.shape != w2.shape:
-                    print(f"Warning: Shape mismatch for {layer_name}: {w1.shape} vs {w2.shape}")
-                    kl_divergences[layer_name] = float('inf')
+                    print(
+                        f"Warning: Shape mismatch for {layer_name}: {w1.shape} vs {w2.shape}"
+                    )
+                    kl_divergences[layer_name] = float("inf")
                     continue
 
-                kl_divergences[layer_name] = KLDivergenceCalculator._compute_single_kl_divergence(
-                    w1, w2, num_bins, epsilon
+                kl_divergences[layer_name] = (
+                    KLDivergenceCalculator._compute_single_kl_divergence(
+                        w1, w2, num_bins, epsilon
+                    )
                 )
 
             elif layer_name in weights1:
                 print(f"Warning: Layer {layer_name} only exists in first model")
-                kl_divergences[layer_name] = float('inf')
+                kl_divergences[layer_name] = float("inf")
             elif layer_name in weights2:
                 print(f"Warning: Layer {layer_name} only exists in second model")
-                kl_divergences[layer_name] = float('inf')
+                kl_divergences[layer_name] = float("inf")
 
         return kl_divergences
 
@@ -576,7 +611,7 @@ class KLDivergenceCalculator:
         layer_names: List[str],
         device: str = "cpu",
         num_bins: int = DEFAULT_NUM_BINS,
-        epsilon: float = DEFAULT_EPSILON
+        epsilon: float = DEFAULT_EPSILON,
     ) -> Dict[str, float]:
         """
         Compute KL divergence between weight distributions layer by layer (memory efficient).
@@ -608,12 +643,16 @@ class KLDivergenceCalculator:
 
                 # Ensure shapes match
                 if w1.shape != w2.shape:
-                    print(f"Warning: Shape mismatch for {layer_name}: {w1.shape} vs {w2.shape}")
-                    kl_divergences[layer_name] = float('inf')
+                    print(
+                        f"Warning: Shape mismatch for {layer_name}: {w1.shape} vs {w2.shape}"
+                    )
+                    kl_divergences[layer_name] = float("inf")
                     continue
 
-                kl_divergences[layer_name] = KLDivergenceCalculator._compute_single_kl_divergence(
-                    w1, w2, num_bins, epsilon
+                kl_divergences[layer_name] = (
+                    KLDivergenceCalculator._compute_single_kl_divergence(
+                        w1, w2, num_bins, epsilon
+                    )
                 )
 
                 # Clean up memory
@@ -623,16 +662,13 @@ class KLDivergenceCalculator:
 
             except Exception as e:
                 print(f"Warning: Error processing layer {layer_name}: {e}")
-                kl_divergences[layer_name] = float('inf')
+                kl_divergences[layer_name] = float("inf")
 
         return kl_divergences
 
     @staticmethod
     def _compute_single_kl_divergence(
-        w1: torch.Tensor,
-        w2: torch.Tensor,
-        num_bins: int,
-        epsilon: float
+        w1: torch.Tensor, w2: torch.Tensor, num_bins: int, epsilon: float
     ) -> float:
         """
         Compute KL divergence between two tensors.
@@ -687,7 +723,9 @@ class ResultAnalyzer:
     """Handles analysis and presentation of comparison results."""
 
     @staticmethod
-    def group_layers_by_type(differences: Dict[str, float]) -> Dict[str, List[Tuple[str, float]]]:
+    def group_layers_by_type(
+        differences: Dict[str, float],
+    ) -> Dict[str, List[Tuple[str, float]]]:
         """
         Group layers by their type (e.g., attention, mlp, embedding, etc.).
 
@@ -762,7 +800,7 @@ class ResultAnalyzer:
         # Print KL divergence statistics if available
         if kl_divergences:
             # Filter out infinite values for statistics
-            finite_kl_values = [v for v in kl_divergences.values() if v != float('inf')]
+            finite_kl_values = [v for v in kl_divergences.values() if v != float("inf")]
             if finite_kl_values:
                 print(f"\nKL DIVERGENCE STATISTICS:")
                 print(f"Average KL divergence: {np.mean(finite_kl_values):.6f}")
@@ -788,7 +826,9 @@ class ResultAnalyzer:
             # Print layers with highest differences
             print("\nTOP 10 LAYERS WITH HIGHEST DIFFERENCES:")
             print("-" * 60)
-            sorted_layers = sorted(differences.items(), key=lambda x: x[1], reverse=True)
+            sorted_layers = sorted(
+                differences.items(), key=lambda x: x[1], reverse=True
+            )
             for layer_name, diff_percentage in sorted_layers[:10]:
                 print(f"{layer_name:<50} {diff_percentage:>8.2f}%")
 
@@ -812,7 +852,7 @@ class ResultAnalyzer:
                         layers.sort(key=lambda x: x[1], reverse=True)
 
                         for layer_name, kl_value in layers:
-                            if kl_value == float('inf'):
+                            if kl_value == float("inf"):
                                 print(f"{layer_name:<50} {'INF':>8}")
                             else:
                                 print(f"{layer_name:<50} {kl_value:>8.6f}")
@@ -820,9 +860,11 @@ class ResultAnalyzer:
                 # Print layers with highest KL divergence
                 print("\nTOP 10 LAYERS WITH HIGHEST KL DIVERGENCE:")
                 print("-" * 60)
-                sorted_kl_layers = sorted(kl_divergences.items(), key=lambda x: x[1], reverse=True)
+                sorted_kl_layers = sorted(
+                    kl_divergences.items(), key=lambda x: x[1], reverse=True
+                )
                 for layer_name, kl_value in sorted_kl_layers[:10]:
-                    if kl_value == float('inf'):
+                    if kl_value == float("inf"):
                         print(f"{layer_name:<50} {'INF':>8}")
                     else:
                         print(f"{layer_name:<50} {kl_value:>8.6f}")
@@ -831,7 +873,7 @@ class ResultAnalyzer:
                 print("\nTOP 10 LAYERS WITH LOWEST KL DIVERGENCE:")
                 print("-" * 60)
                 for layer_name, kl_value in sorted_kl_layers[-10:]:
-                    if kl_value == float('inf'):
+                    if kl_value == float("inf"):
                         print(f"{layer_name:<50} {'INF':>8}")
                     else:
                         print(f"{layer_name:<50} {kl_value:>8.6f}")
@@ -842,11 +884,7 @@ class DirectStateDictComparator:
 
     @staticmethod
     def compare_models(
-        model_path1: str,
-        model_path2: str,
-        device: str,
-        num_bins: int,
-        verbose: bool
+        model_path1: str, model_path2: str, device: str, num_bins: int, verbose: bool
     ) -> Tuple[Dict[str, float], Dict[str, float]]:
         """
         Compare models using direct state dict access.
@@ -861,7 +899,9 @@ class DirectStateDictComparator:
         Returns:
             Tuple of (differences, kl_divergences)
         """
-        print("\nUsing direct state dict comparison (true lazy, no model instantiation)...")
+        print(
+            "\nUsing direct state dict comparison (true lazy, no model instantiation)..."
+        )
 
         loader1 = LazyTensorLoader.from_disk(model_path1)
         loader2 = LazyTensorLoader.from_disk(model_path2)
@@ -881,13 +921,15 @@ class DirectStateDictComparator:
                 if t1 is None or t2 is None:
                     print(f"Warning: {key} only exists in one model.")
                     differences[key] = 100.0
-                    kl_divergences[key] = float('inf')
+                    kl_divergences[key] = float("inf")
                     continue
 
                 if t1.shape != t2.shape:
-                    print(f"Warning: Shape mismatch for {key}: {t1.shape} vs {t2.shape}")
+                    print(
+                        f"Warning: Shape mismatch for {key}: {t1.shape} vs {t2.shape}"
+                    )
                     differences[key] = 100.0
-                    kl_divergences[key] = float('inf')
+                    kl_divergences[key] = float("inf")
                     continue
 
                 # Convert to float32 if needed for compatibility
@@ -908,8 +950,10 @@ class DirectStateDictComparator:
                 differences[key] = diff_percentage
 
                 # Compute KL divergence
-                kl_divergences[key] = KLDivergenceCalculator._compute_single_kl_divergence(
-                    t1, t2, num_bins, DEFAULT_EPSILON
+                kl_divergences[key] = (
+                    KLDivergenceCalculator._compute_single_kl_divergence(
+                        t1, t2, num_bins, DEFAULT_EPSILON
+                    )
                 )
 
                 # Clean up memory
@@ -920,7 +964,7 @@ class DirectStateDictComparator:
             except Exception as e:
                 print(f"Warning: Error processing tensor {key}: {e}")
                 differences[key] = 100.0
-                kl_divergences[key] = float('inf')
+                kl_divergences[key] = float("inf")
 
         return differences, kl_divergences
 
@@ -934,23 +978,26 @@ class DirectStateDictComparator:
     default="cpu",
     help="Device to load models on (cpu, cuda, mps)",
 )
-@click.option(
-    "--verbose",
-    is_flag=True,
-    help="Show detailed per-layer information"
-)
+@click.option("--verbose", is_flag=True, help="Show detailed per-layer information")
 @click.option(
     "--num-bins",
     type=int,
     default=DEFAULT_NUM_BINS,
-    help="Number of bins for KL divergence histogram computation"
+    help="Number of bins for KL divergence histogram computation",
 )
 @click.option(
     "--no-lazy",
     is_flag=True,
-    help="Disable lazy loading (load all weights at once, uses more memory)"
+    help="Disable lazy loading (load all weights at once, uses more memory)",
 )
-def main(base_model: str, model: str, device: str, verbose: bool, num_bins: int, no_lazy: bool):
+def main(
+    base_model: str,
+    model: str,
+    device: str,
+    verbose: bool,
+    num_bins: int,
+    no_lazy: bool,
+):
     """
     Analyze weight differences between two models with the same base architecture.
 
@@ -984,7 +1031,9 @@ def main(base_model: str, model: str, device: str, verbose: bool, num_bins: int,
             print(f"Resolved model to cache path: {resolved_model}")
 
         # True PyTorch/safetensors path: both are local folders with weights
-        if is_local_model_folder(resolved_base_model) and is_local_model_folder(resolved_model):
+        if is_local_model_folder(resolved_base_model) and is_local_model_folder(
+            resolved_model
+        ):
             model_path1 = get_model_path(resolved_base_model)
             model_path2 = get_model_path(resolved_model)
 
@@ -1001,9 +1050,13 @@ def main(base_model: str, model: str, device: str, verbose: bool, num_bins: int,
             print("Loading base model config and tokenizer...")
             with model_context(device):
                 if is_local_path(base_model):
-                    base_model_obj, base_tokenizer = ModelLoader.load_from_path_lazy(base_model, device)
+                    base_model_obj, base_tokenizer = ModelLoader.load_from_path_lazy(
+                        base_model, device
+                    )
                 else:
-                    base_model_obj, base_tokenizer = ModelLoader.load_lazy(base_model, device)
+                    base_model_obj, base_tokenizer = ModelLoader.load_lazy(
+                        base_model, device
+                    )
 
             print("Loading second model config and tokenizer...")
             with model_context(device):
@@ -1019,7 +1072,9 @@ def main(base_model: str, model: str, device: str, verbose: bool, num_bins: int,
 
             # Compare weights layer by layer
             print("\nComparing weights layer by layer...")
-            differences = WeightComparator.compare_weights_lazy(base_model_obj, model2, layer_names, device)
+            differences = WeightComparator.compare_weights_lazy(
+                base_model_obj, model2, layer_names, device
+            )
 
             # Always compute KL divergence
             print("\nComputing KL divergence layer by layer...")
@@ -1035,9 +1090,13 @@ def main(base_model: str, model: str, device: str, verbose: bool, num_bins: int,
             print("\nLoading base model...")
             with model_context(device):
                 if is_local_path(base_model):
-                    base_model_obj, base_tokenizer = ModelLoader.load_from_path_full(base_model, device)
+                    base_model_obj, base_tokenizer = ModelLoader.load_from_path_full(
+                        base_model, device
+                    )
                 else:
-                    base_model_obj, base_tokenizer = ModelLoader.load_full(base_model, device)
+                    base_model_obj, base_tokenizer = ModelLoader.load_full(
+                        base_model, device
+                    )
 
                 # Extract weights from base model
                 print("Extracting weights from base model...")
@@ -1067,10 +1126,14 @@ def main(base_model: str, model: str, device: str, verbose: bool, num_bins: int,
 
             # Always compute KL divergence
             print("\nComputing KL divergence...")
-            kl_divergences = KLDivergenceCalculator.compute_kl_divergence(base_weights, model2_weights, num_bins)
+            kl_divergences = KLDivergenceCalculator.compute_kl_divergence(
+                base_weights, model2_weights, num_bins
+            )
 
         # Print results
-        ResultAnalyzer.print_analysis_results(differences, kl_divergences, base_model, model, verbose)
+        ResultAnalyzer.print_analysis_results(
+            differences, kl_divergences, base_model, model, verbose
+        )
 
     except ModelComparisonError as e:
         print(f"Error during analysis: {e}")
@@ -1083,4 +1146,4 @@ def main(base_model: str, model: str, device: str, verbose: bool, num_bins: int,
 
 
 if __name__ == "__main__":
-    main() 
+    main()
