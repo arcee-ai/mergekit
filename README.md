@@ -21,6 +21,7 @@
 - [Multi-Stage Merging (`mergekit-multi`)](#multi-stage-merging-mergekit-multi)
 - [Raw PyTorch Model Merging (`mergekit-pytorch`)](#raw-pytorch-model-merging-mergekit-pytorch)
 - [Tokenizer Transplantation (`mergekit-tokensurgeon`)](#tokenizer-transplantation-mergekit-tokensurgeon)
+- [Model Weight Analysis (`mergekit-diff`)](#model-weight-analysis-mergekit-diff)
 - [Merge in the Cloud](#-merge-in-the-cloud-)
 - [Citation](#citation)
 
@@ -315,6 +316,10 @@ Use `mergekit-pytorch --help` for detailed options.
 ## Tokenizer Transplantation (`mergekit-tokensurgeon`)
 
 `mergekit-tokensurgeon` is a specialized tool for transplanting tokenizers between models, allowing you to align the vocabulary of one model with another. This is particularly useful for cheaply producing draft models for speculative decoding or for cross-tokenizer knowledge distillation. See the [documentation](docs/tokensurgeon.md) for more details and how to use it.
+
+## Model Weight Analysis (`mergekit-diff`)
+
+`mergekit-diff` analyzes weight differences between two models with the same architecture, reporting the percentage of differing weights and KL divergence between weight distributions. This tool is useful for understanding how models differ after fine-tuning, merging, or other modifications. It supports multiple loading strategies for memory efficiency, including direct state dict comparison for arbitrarily large models.
 
 ## ✨ Merge in the Cloud ✨
 

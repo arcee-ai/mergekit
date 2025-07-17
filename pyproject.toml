@@ -27,6 +27,7 @@ dependencies = [
     "protobuf",
     "scipy",
     "datasets",
+    "numpy",
 ]
 
 [project.optional-dependencies]
@@ -50,6 +51,7 @@ mergekit-extract-lora = "mergekit.scripts.extract_lora:main"
 mergekit-evolve = "mergekit.scripts.evolve:main"
 mergekit-pytorch = "mergekit.scripts.merge_raw_pytorch:main"
 mergekit-multi = "mergekit.scripts.multimerge:main"
+mergekit-diff = "mergekit.scripts.diff:main"
 
 [tool.setuptools]
 packages = [
