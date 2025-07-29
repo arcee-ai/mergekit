@@ -86,7 +86,9 @@ def copy_tensor_out(
         )
     except KeyError:
         tensor = None
-    if tensor is None and not weight_info.optional:
+    if tensor is None:
+        if weight_info.optional:
+            return
         logging.error(f"Missing weight: {weight_info.name} / {out_tensor_name}")
         raise KeyError(out_tensor_name)
 
