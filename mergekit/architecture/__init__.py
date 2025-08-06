@@ -18,10 +18,10 @@ from mergekit.architecture.base import (
 )
 from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.architecture.moe_defs import (
-    MixtralModuleArchitecture,
-    Qwen3MoeModuleArchitecture,
     Ernie4_5_MoeModuleArchitecture,
     GptOssModuleArchitecture,
+    MixtralModuleArchitecture,
+    Qwen3MoeModuleArchitecture,
 )
 from mergekit.options import MergeOptions
 
