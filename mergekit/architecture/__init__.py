@@ -20,6 +20,8 @@ from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.architecture.moe_defs import (
     MixtralModuleArchitecture,
     Qwen3MoeModuleArchitecture,
+    Ernie4_5_MoeModuleArchitecture,
+    GptOssModuleArchitecture,
 )
 from mergekit.options import MergeOptions
 
@@ -49,6 +51,20 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
             modules={"default": ModuleDefinition(architecture=module)},
             architectures=[arch_name],
             model_type="qwen3_moe",
+        )
+    elif arch_name == Ernie4_5_MoeModuleArchitecture.ARCHITECTURE_NAME:
+        module = Ernie4_5_MoeModuleArchitecture.from_config(config)
+        return ModelArchitecture(
+            modules={"default": ModuleDefinition(architecture=module)},
+            architectures=[arch_name],
+            model_type="ernie4_5_moe",
+        )
+    elif arch_name == GptOssModuleArchitecture.ARCHITECTURE_NAME:
+        module = GptOssModuleArchitecture.from_config(config)
+        return ModelArchitecture(
+            modules={"default": ModuleDefinition(architecture=module)},
+            architectures=[arch_name],
+            model_type="gpt_oss",
         )
     elif arch_name in NAME_TO_ARCH:
         candidates = list(NAME_TO_ARCH[arch_name])
