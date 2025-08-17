@@ -30,7 +30,7 @@ def _eval_model(
     task_manager: Optional[lm_eval.tasks.TaskManager] = None,
     **kwargs,
 ) -> Dict[str, Any]:
-    results = lm_eval.evaluator.simple_evaluate(
+    results = lm_eval.simple_evaluate(
         model=model,
         model_args=model_args,
         tasks=list(set([task.name for task in tasks])),
