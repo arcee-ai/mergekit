@@ -1,0 +1,80 @@
+{
+    "model_type": "lfm2",
+    "architectures": [
+        "Lfm2ForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "model.embed_tokens.weight",
+            "is_embed": true
+        },
+        {
+            "name": "model.embedding_norm.weight",
+            "is_embed": true
+        }
+
+    ],
+    "post_weights": [
+        {
+            "name": "lm_head.weight",
+            "is_embed": true,
+            "optional": true
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "model.layers.${layer_index}.feed_forward.w1.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.feed_forward.w2.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.feed_forward.w3.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.ffn_norm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.operator_norm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.conv.conv.weight",
+                "optional": true
+            },
+            {
+                "name": "model.layers.${layer_index}.conv.in_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.layers.${layer_index}.conv.out_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.k_layernorm.weight",
+                "optional": true
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.k_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.out_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.q_layernorm.weight",
+                "optional": true
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.q_proj.weight",
+                "optional": true
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.v_proj.weight",
+                "optional": true
+            }
+        ]
+    }
+}
