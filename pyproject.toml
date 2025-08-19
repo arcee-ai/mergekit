@@ -3,12 +3,12 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mergekit"
+name = "LLMTailor"
 description = "Tools for merging pre-trained large language models"
 readme = "README.md"
-license = { text = "BUSL-1.1" }
-version = "0.1.3"
-authors = [{ name = "Charles Goddard", email = "chargoddard@gmail.com" }]
+license = { text = "LGPL-3.0-or-later" }
+version = "0.0.1"
+authors = [{ name = "Minqiu Sun", email = "xfwsmq@gmail.com" }]
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0.0",
@@ -36,40 +36,40 @@ evolve = ["ray", "cma", "lm_eval", "wandb"]
 vllm = ["vllm==0.7.2", "lm_eval[vllm]"]
 
 [project.urls]
-repository = "https://github.com/cg123/mergekit"
+repository = "https://github.com/SunMinqiu/LLMTailor.git"
 
 
 [project.scripts]
-mergekit-yaml = "mergekit.scripts.run_yaml:main"
-mergekit-legacy = "mergekit.scripts.legacy:main"
-mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
-bakllama = "mergekit.scripts.bakllama:main"
-mergekit-moe = "mergekit.scripts.moe:main"
-mergekit-tokensurgeon = "mergekit.scripts.tokensurgeon:main"
-mergekit-extract-lora = "mergekit.scripts.extract_lora:main"
-mergekit-evolve = "mergekit.scripts.evolve:main"
-mergekit-pytorch = "mergekit.scripts.merge_raw_pytorch:main"
-mergekit-multi = "mergekit.scripts.multimerge:main"
+llmtailor-yaml = "llmtailor.scripts.run_yaml:main"
+llmtailor-legacy = "llmtailor.scripts.legacy:main"
+llmtailor-layershuffle = "llmtailor.scripts.layershuffle:main"
+bakllama = "llmtailor.scripts.bakllama:main"
+llmtailor-moe = "llmtailor.scripts.moe:main"
+llmtailor-tokensurgeon = "llmtailor.scripts.tokensurgeon:main"
+llmtailor-extract-lora = "llmtailor.scripts.extract_lora:main"
+llmtailor-evolve = "llmtailor.scripts.evolve:main"
+llmtailor-pytorch = "llmtailor.scripts.merge_raw_pytorch:main"
+llmtailor-multi = "llmtailor.scripts.multimerge:main"
 
 [tool.setuptools]
 packages = [
-    "mergekit",
-    "mergekit.io",
-    "mergekit.merge_methods",
-    "mergekit.moe",
-    "mergekit.scripts",
-    "mergekit.evo",
-    "mergekit.tokenizer",
-    "mergekit.tokensurgeon",
-    "mergekit.architecture",
-    "mergekit._data",
-    "mergekit._data.architectures",
-    "mergekit._data.chat_templates",
+    "llmtailor",
+    "llmtailor.io",
+    "llmtailor.merge_methods",
+    "llmtailor.moe",
+    "llmtailor.scripts",
+    "llmtailor.evo",
+    "llmtailor.tokenizer",
+    "llmtailor.tokensurgeon",
+    "llmtailor.architecture",
+    "llmtailor._data",
+    "llmtailor._data.architectures",
+    "llmtailor._data.chat_templates",
 ]
 include-package-data = true
-package-data = { "mergekit._data.architectures" = [
+package-data = { "llmtailor._data.architectures" = [
     "*.json",
-], "mergekit._data.chat_templates" = [
+], "llmtailor._data.chat_templates" = [
     "*.jinja",
 ] }
 
