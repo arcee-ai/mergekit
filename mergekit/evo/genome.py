@@ -54,7 +54,7 @@ class ModelGenomeDefinition(BaseModel, frozen=True):
 
 
 class ModelGenome:
-    definiton: ModelGenomeDefinition
+    definition: ModelGenomeDefinition
     num_layers: int
     _input_config_example: transformers.PretrainedConfig
 
