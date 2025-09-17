@@ -28,8 +28,8 @@ class InputModelDefinition(BaseModel, frozen=True):
 
 class RawPyTorchMergeConfig(BaseModel, frozen=True):
     merge_method: str
-    parameters: Optional[Dict[str, ParameterSetting]]
     models: List[InputModelDefinition]
+    parameters: Optional[Dict[str, ParameterSetting]] = None
     dtype: Optional[str] = None
     base_model: Optional[str] = None
 
@@ -169,7 +169,7 @@ def construct_param_dicts(
 ):
     global_params = {}
     for param_def in merge_method.parameters():
-        if param_def.name in config.parameters:
+        if config.parameters and param_def.name in config.parameters:
             value = evaluate_setting(tensor_name, config.parameters[param_def.name])
             if value is not None:
                 global_params[param_def.name] = value
