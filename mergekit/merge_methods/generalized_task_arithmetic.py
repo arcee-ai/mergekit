@@ -18,7 +18,7 @@ from mergekit.merge_methods.base import (
     MergeTensorInput,
 )
 from mergekit.sparsify import RescaleNorm, SparsificationMethod, sparsify
-
+from mergekit.subspace_helpers import iso_c, compute_and_sum_svd_mem_reduction
 
 class ConsensusMethod(str, Enum):
     count = "count"
@@ -130,7 +130,6 @@ class GTATask(Task[torch.Tensor]):
         )
         if not tvs:
             return base
-
         # sparsify
         if self.method.sparsification_method:
             for tv_info in tvs:
@@ -148,9 +147,8 @@ class GTATask(Task[torch.Tensor]):
                     rescale_norm=self.rescale_norm,
                     **kwargs,
                 )
-
         deltas = torch.stack([tv["delta"] for tv in tvs], dim=0)
-
+        
         weights = torch.tensor(
             [tv["weight"] for tv in tvs], dtype=deltas.dtype, device=deltas.device
         )
@@ -180,7 +178,13 @@ class GTATask(Task[torch.Tensor]):
 
         if self.lambda_ != 1:
             mixed_delta *= self.lambda_
-
+            
+        if self.method.name() == "iso_c":
+            mixed_delta = iso_c(deltas, deltas.device)
+        elif self.method.name() == "tsvm":
+            mixed_delta = compute_and_sum_svd_mem_reduction(deltas, deltas.device)
+        elif self.method.name() in ["task_arithmetic_sb", "ties_sb"]:
+            mixed_delta = subspace_boosting(mixed_delta)
         return (base + mixed_delta).to(base.dtype)
 
     def group_label(self) -> Optional[str]:
