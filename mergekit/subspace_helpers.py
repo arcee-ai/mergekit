@@ -172,7 +172,8 @@ def subspace_boosting(
     ]
 
     start_time = time.time_ns()
-
+    print('Length of merged_tv_state_dict:', len(merged_tv_state_dict.keys()))
+    global_key = merged_tv_state_dict.keys()[0]
     for key, param in merged_tv_state_dict.items():
         if any(i in key for i in keys_to_eval) and isinstance(param, torch.Tensor):
             logging.info(f"Applying subspace boosting to {key} with shape {param.shape}")
@@ -211,4 +212,4 @@ def subspace_boosting(
 
     logging.info(f"Subspace Boosting took {(end_time - start_time) / 1_000_000} ms.")
     
-    return merged_tv_state_dict
+    return torch.tensor(merged_tv_state_dict[global_key])
