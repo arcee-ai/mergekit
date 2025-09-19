@@ -189,7 +189,8 @@ class GTATask(Task[torch.Tensor]):
             subspace_out = compute_and_sum_svd_mem_reduction(subspace_input, deltas.device)
             mixed_delta = subspace_out[param_key]
         elif self.method.name() in ["task_arithmetic_sb", "ties_sb"]:
-            mixed_delta = subspace_boosting(mixed_delta)
+            subspace_input = {param_key: mixed_delta}
+            mixed_delta = subspace_boosting(subspace_input)
         return (base + mixed_delta).to(base.dtype)
 
     def group_label(self) -> Optional[str]:
