@@ -122,7 +122,8 @@ def compute_and_sum_svd_mem_reduction(task_vectors: List[Dict[str, Any]], device
     return new_vector
 
 def subspace_boosting(
-        merged_tv_state_dict: Dict[str, Any], 
+        merged_tv_key: str,
+        merged_tv: torch.Tensor, 
         reset_thresh=20, # TODO: refactor the parameter list and just use the config
         svd_thresh=0.01,
         attn_svd_thresh=0.10,
@@ -172,44 +173,41 @@ def subspace_boosting(
     ]
 
     start_time = time.time_ns()
-    print('Length of merged_tv_state_dict:', len(merged_tv_state_dict.keys()))
-    global_key = merged_tv_state_dict.keys()[0]
-    for key, param in merged_tv_state_dict.items():
-        if any(i in key for i in keys_to_eval) and isinstance(param, torch.Tensor):
-            logging.info(f"Applying subspace boosting to {key} with shape {param.shape}")
-            '''
-            # Process attention weights per head or qkv
-            if keys_to_eval[0] in key:
-                if apply_to_attn == "per_head":
-                    merged_tv_state_dict[key] = _per_head_subspace_boosting(param, config, config.method.attn_svd_thresh, cumsum)
-                elif apply_to_attn == "per_qkv":
-                    merged_tv_state_dict[key] = _per_qkv_subspace_boosting(param, config, config.method.attn_svd_thresh, cumsum)
+    if any(i in merged_tv_key for i in keys_to_eval) and isinstance(merged_tv, torch.Tensor):
+        logging.info(f"Applying subspace boosting to {merged_tv_key} with shape {merged_tv.shape}")
+        '''
+        # Process attention weights per head or qkv
+        if keys_to_eval[0] in key:
+            if apply_to_attn == "per_head":
+                merged_tv_state_dict[key] = _per_head_subspace_boosting(param, config, config.method.attn_svd_thresh, cumsum)
+            elif apply_to_attn == "per_qkv":
+                merged_tv_state_dict[key] = _per_qkv_subspace_boosting(param, config, config.method.attn_svd_thresh, cumsum)
+        
+        # Process full attention weights and MLP weights
+        if apply_to_attn == "full_attn" or (keys_to_eval[0] not in key):
+        '''
+        U, S, Vh = torch.linalg.svd(merged_tv, full_matrices=False)
+
+        # Clamping approach using the cumulative sum of singular values as the threshold
+        if cumsum:
+            total_sum = S.sum()
+            cumulative = torch.cumsum(S, dim=0)
             
-            # Process full attention weights and MLP weights
-            if apply_to_attn == "full_attn" or (keys_to_eval[0] not in key):
-            '''
-            U, S, Vh = torch.linalg.svd(param, full_matrices=False)
+            # thresh = config.method.attn_svd_thresh if (keys_to_eval[0] in key) else svd_thresh
+            thresh = svd_thresh
+            
+            k = (cumulative / total_sum >= thresh).nonzero(as_tuple=False)
+            cutoff_idx = k[0].item()
 
-            # Clamping approach using the cumulative sum of singular values as the threshold
-            if cumsum:
-                total_sum = S.sum()
-                cumulative = torch.cumsum(S, dim=0)
-                
-                # thresh = config.method.attn_svd_thresh if (keys_to_eval[0] in key) else svd_thresh
-                thresh = svd_thresh
-                
-                k = (cumulative / total_sum >= thresh).nonzero(as_tuple=False)
-                cutoff_idx = k[0].item()
+            S_damped = torch.clamp(S, min=S[cutoff_idx])
+        else: # Clamping approach using the threshold as an index
+            cutoff_idx = int(thresh * S.numel())
+            S_damped = torch.clamp(S, min=S[cutoff_idx])
 
-                S_damped = torch.clamp(S, min=S[cutoff_idx])
-            else: # Clamping approach using the threshold as an index
-                cutoff_idx = int(thresh * S.numel())
-                S_damped = torch.clamp(S, min=S[cutoff_idx])
-
-            merged_tv_state_dict[key] = (U * S_damped.unsqueeze(0)) @ Vh
+        merged_tv = (U * S_damped.unsqueeze(0)) @ Vh
 
     end_time = time.time_ns()
 
     logging.info(f"Subspace Boosting took {(end_time - start_time) / 1_000_000} ms.")
     
-    return torch.tensor(merged_tv_state_dict[global_key])
+    return merged_tv
