@@ -179,9 +179,6 @@ class GTATask(Task[torch.Tensor]):
         if self.lambda_ != 1:
             mixed_delta *= self.lambda_
             
-                if self.lambda_ != 1:
-            mixed_delta *= self.lambda_
-            
         param_key = self.weight_info.name
         subspace_input = [{param_key: tv["delta"]} for tv in tvs]
 
