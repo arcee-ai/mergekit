@@ -9,7 +9,7 @@ def iso_c(task_vectors: List[Dict[str, Any]], device: torch.device) -> Dict[str,
             tvs = [task_vector[key] for task_vector in task_vectors]
             new_vector[key] = sum(tvs) / len(tvs)
 
-            if len(task_vectors[0][key].shape) == 2 and "text_projection" not in key:
+            if (len(task_vectors[0][key].shape) == 2 and "embed_tokens" not in key and "lm_head" not in key):
                 new_vector[key] *= len(tvs)
                 U, S, V = torch.linalg.svd(new_vector[key], full_matrices=False)
                 S_mean = torch.ones_like(S) * S.mean()
@@ -50,7 +50,8 @@ def compute_and_sum_svd_mem_reduction(task_vectors: List[Dict[str, Any]], device
 
                 if (
                     len(task_vector[key].shape) == 2
-                    and "text_projection" not in key
+                    and "embed_tokens" not in key
+                    and "lm_head" not in key
                 ):
                     u, s, v = torch.linalg.svd(vec, full_matrices=False)
 
@@ -79,7 +80,11 @@ def compute_and_sum_svd_mem_reduction(task_vectors: List[Dict[str, Any]], device
                     else:
                         new_vector[key] += (vec - new_vector[key]) / (i + 1)
 
-            if len(task_vector[key].shape) == 2 and "text_projection" not in key:
+            if (
+                len(task_vector[key].shape) == 2
+                and "embed_tokens" not in key
+                and "lm_head" not in key
+            ):
                 u_u, s_u, v_u = torch.linalg.svd(sum_u, full_matrices=False)
                 u_v, s_v, v_v = torch.linalg.svd(sum_v, full_matrices=False)
 
