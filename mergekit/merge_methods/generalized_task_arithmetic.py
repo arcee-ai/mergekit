@@ -18,7 +18,7 @@ from mergekit.merge_methods.base import (
     MergeTensorInput,
 )
 from mergekit.sparsify import RescaleNorm, SparsificationMethod, sparsify
-from mergekit.subspace_helpers import iso_c, compute_and_sum_svd_mem_reduction
+from mergekit.subspace_helpers import iso_c, compute_and_sum_svd_mem_reduction, subspace_boosting
 
 class ConsensusMethod(str, Enum):
     count = "count"
