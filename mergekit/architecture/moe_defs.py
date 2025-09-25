@@ -85,19 +85,35 @@ class Qwen3MoeModuleArchitecture(ModuleArchitecture, BaseModel):
     def layer_weights(
         self, index: int, config: PretrainedConfig
     ) -> Optional[List[WeightInfo]]:
+        num_experts = self.num_experts
         prefix = f"model.layers.{index}"
         tensor_names = []
-        for expert_idx in range(self.num_experts):
+        
+        # Expert weights 추가
+        for expert_idx in range(num_experts):
             for param in ("up_proj", "gate_proj", "down_proj"):
                 tensor_names.append(
                     prefix + f".mlp.experts.{expert_idx}.{param}.weight"
                 )
+        
+        # Shared expert weights 추가 - 이 부분이 중요!
+        for param in ("up_proj", "gate_proj", "down_proj"):
+            tensor_names.append(
+                prefix + f".mlp.shared_expert.{param}.weight"
+            )
+        
+        # Gate weights 추가
         tensor_names.append(prefix + ".mlp.gate.weight")
+        tensor_names.append(prefix + ".mlp.shared_expert_gate.weight")
+        
         res = []
         for name in tensor_names:
             res.append(WeightInfo(name=name))
+        
+        # 기존 Qwen3 weights 중에서 MLP를 제외한 것들 추가
         for weight_info in QWEN3_MODULE_ARCH.layer_weights(index, config):
             if ".mlp." in weight_info.name:
                 continue
             res.append(weight_info)
+        
         return res
