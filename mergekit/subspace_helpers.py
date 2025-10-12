@@ -191,7 +191,13 @@ def subspace_boosting(
             thresh = svd_thresh
             
             k = (cumulative / total_sum >= thresh).nonzero(as_tuple=False)
-            cutoff_idx = k[0].item()
+            
+            if k.numel() == 0:
+            # fallback: use smallest singular value
+                cutoff_idx = -1
+                print(f"[Warning] No valid SVD cutoff for {merged_tv_key}. Using full singular spectrum.")
+            else:
+                cutoff_idx = k[0].item()
 
             S_damped = torch.clamp(S, min=S[cutoff_idx])
         else:  # Clamping approach using the threshold as an index
