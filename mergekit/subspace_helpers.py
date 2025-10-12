@@ -90,8 +90,18 @@ def compute_and_sum_svd_mem_reduction(task_vectors: List[torch.Tensor], tv_key: 
             and "lm_head" not in tv_key
         ):
             # Perform final SVD operations in float32
-            u_u, s_u, v_u = torch.linalg.svd(sum_u, full_matrices=False)
-            u_v, s_v, v_v = torch.linalg.svd(sum_v, full_matrices=False)
+            
+            try:
+                u_u, s_u, v_u = torch.linalg.svd(sum_u, full_matrices=False)
+            except torch._C._LinAlgError:
+                print(f"[Retry with 'gesvd'] SVD failed for {tv_key}.")
+                u_u, s_u, v_u = torch.linalg.svd(sum_u, full_matrices=False, driver='gesvd')
+            
+            try:
+                u_v, s_v, v_v = torch.linalg.svd(sum_v, full_matrices=False)
+            except torch._C._LinAlgError:
+                print(f"[Retry with 'gesvd'] SVD failed for {tv_key}.")
+                u_v, s_v, v_v = torch.linalg.svd(sum_v, full_matrices=False, driver='gesvd')
 
             # Perform matrix multiplication in float32
             new_vector = torch.linalg.multi_dot(
