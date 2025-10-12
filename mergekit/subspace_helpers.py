@@ -3,32 +3,34 @@ from typing import List, Dict, Any, Optional
 import time
 import logging
 
-def iso_c(task_vectors: List[Dict[str, Any]], device: torch.device) -> Dict[str, Any]:
-    print("Computing SVD...")
+def iso_c(task_vectors: List[torch.Tensor], tv_key: str, device: torch.device) -> Dict[str, Any]:
     with torch.no_grad():
-        new_vector = {}
-        for key in task_vectors[0]:
-            tvs = [task_vector[key] for task_vector in task_vectors]
-            new_vector[key] = sum(tvs) / len(tvs)
+        tvs = task_vectors
+        new_vector = sum(tvs) / len(tvs)
+        original_dtype = new_vector.dtype  # Store original dtype
 
-            if (len(task_vectors[0][key].shape) == 2 and "embed_tokens" not in key and "lm_head" not in key):
-                new_vector[key] *= len(tvs)
-                U, S, V = torch.linalg.svd(new_vector[key], full_matrices=False)
-                S_mean = torch.ones_like(S) * S.mean()
+        if (len(task_vectors[0].shape) == 2 and "embed_tokens" not in tv_key and "lm_head" not in tv_key):
+            print(f"Computing SVD for {tv_key}... with shape {task_vectors[0].shape}")
+            new_vector *= len(tvs)
+            # Convert to float32 for SVD
+            vec_fp32 = new_vector.to(torch.float32)
+            U, S, V = torch.linalg.svd(vec_fp32, full_matrices=False)
+            S_mean = torch.ones_like(S) * S.mean()
 
-                new_vector[key] = torch.linalg.multi_dot(
-                    (
-                        U,
-                        torch.diag(S_mean),
-                        V,
-                    )
+            # Perform matrix multiplication in float32 and convert back to original dtype
+            new_vector = torch.linalg.multi_dot(
+                (
+                    U,
+                    torch.diag(S_mean),
+                    V,
                 )
+            ).to(original_dtype)  # Convert back to original dtype
 
     return new_vector
 
 ###############
 #### TSV Merge Orthogonalization
-def compute_and_sum_svd_mem_reduction(task_vectors: List[Dict[str, Any]], device: torch.device) -> Dict[str, Any]:
+def compute_and_sum_svd_mem_reduction(task_vectors: List[torch.Tensor], tv_key: str, device: torch.device) -> Dict[str, Any]:
     """
     Computes the Singular Value Decomposition (SVD) for each vector in the task_vectors,
     reduces the dimensionality of the vectors based on the sv_reduction factor, and concatenate
@@ -42,82 +44,65 @@ def compute_and_sum_svd_mem_reduction(task_vectors: List[Dict[str, Any]], device
         dict: A dictionary containing the new vectors after SVD computation and merging.
     """
     sv_reduction = 1 / len(task_vectors)
-    print("Computing SVD...")
     with torch.no_grad():
         new_vector = {}
-        for key in task_vectors[0]:
-            new_vector[key] = {}
-            for i, task_vector in enumerate(task_vectors):
-                vec = task_vector[key]
-
-                if (
-                    len(task_vector[key].shape) == 2
-                    and "embed_tokens" not in key
-                    and "lm_head" not in key
-                ):
-                    u, s, v = torch.linalg.svd(vec, full_matrices=False)
-
-                    if i == 0:
-                        print(f"Computed SVD for {key}...")
-                        sum_u = torch.zeros_like(u, device=device)
-                        sum_s = torch.zeros_like(s, device=device)
-                        sum_v = torch.zeros_like(v, device=device)
-                    reduced_index_s = int(s.shape[0] * sv_reduction)
-
-                    # select only the first reduced_index_s columns of u and place them
-                    sum_u[:, i * reduced_index_s : (i + 1) * reduced_index_s] = u[
-                        :, :reduced_index_s
-                    ]
-                    sum_s[i * reduced_index_s : (i + 1) * reduced_index_s] = s[
-                        :reduced_index_s
-                    ]
-                    # select only the first reduced_index_s rows of v and place them
-                    sum_v[i * reduced_index_s : (i + 1) * reduced_index_s, :] = v[
-                        :reduced_index_s, :
-                    ]
-
-                else:
-                    if i == 0:
-                        new_vector[key] = vec.clone()
-                    else:
-                        new_vector[key] += (vec - new_vector[key]) / (i + 1)
+        for i, task_vector in enumerate(task_vectors):
+            vec = task_vector
+            original_dtype = vec.dtype  # Store original dtype
 
             if (
-                len(task_vector[key].shape) == 2
-                and "embed_tokens" not in key
-                and "lm_head" not in key
+                len(task_vector.shape) == 2
+                and "embed_tokens" not in tv_key
+                and "lm_head" not in tv_key
             ):
-                u_u, s_u, v_u = torch.linalg.svd(sum_u, full_matrices=False)
-                u_v, s_v, v_v = torch.linalg.svd(sum_v, full_matrices=False)
+                print(f"Computing SVD for {tv_key}... with shape {task_vector.shape}")
+                # Convert to float32 for SVD
+                vec_fp32 = vec.to(torch.float32)
+                u, s, v = torch.linalg.svd(vec_fp32, full_matrices=False)
 
-                new_vector[key] = torch.linalg.multi_dot(
-                    (
-                        u_u,
-                        v_u,
-                        torch.diag(sum_s),
-                        u_v,
-                        v_v,
-                    )
+                if i == 0:
+                    sum_u = torch.zeros_like(u, device=device, dtype=torch.float32)
+                    sum_s = torch.zeros_like(s, device=device, dtype=torch.float32)
+                    sum_v = torch.zeros_like(v, device=device, dtype=torch.float32)
+                reduced_index_s = int(s.shape[0] * sv_reduction)
+
+                # select only the first reduced_index_s columns of u and place them
+                sum_u[:, i * reduced_index_s : (i + 1) * reduced_index_s] = u[
+                    :, :reduced_index_s
+                ]
+                sum_s[i * reduced_index_s : (i + 1) * reduced_index_s] = s[
+                    :reduced_index_s
+                ]
+                # select only the first reduced_index_s rows of v and place them
+                sum_v[i * reduced_index_s : (i + 1) * reduced_index_s, :] = v[
+                    :reduced_index_s, :
+                ]
+
+            else:
+                if i == 0:
+                    new_vector = vec.clone()
+                else:
+                    new_vector += (vec - new_vector) / (i + 1)
+
+        if (
+            len(task_vector.shape) == 2
+            and "embed_tokens" not in tv_key
+            and "lm_head" not in tv_key
+        ):
+            # Perform final SVD operations in float32
+            u_u, s_u, v_u = torch.linalg.svd(sum_u, full_matrices=False)
+            u_v, s_v, v_v = torch.linalg.svd(sum_v, full_matrices=False)
+
+            # Perform matrix multiplication in float32
+            new_vector = torch.linalg.multi_dot(
+                (
+                    u_u,
+                    v_u,
+                    torch.diag(sum_s),
+                    u_v,
+                    v_v,
                 )
-                '''
-
-                if config.method.apply_subspace_boosting:
-                    print("Applying subspace boosting...")
-                    U, S, Vh = torch.linalg.svd(new_vector[key], full_matrices=False)
-
-                    total_sum = S.sum()
-                    cumulative = torch.cumsum(S, dim=0)
-                    thresh = config.method.svd_thresh # svd threshold for the boosting
-
-                    # only apply boosting to non-empty matrices
-                    if total_sum.item() != 0:
-                        k = (cumulative / total_sum >= thresh).nonzero(as_tuple=False)
-                        cutoff_idx = k[0].item()
-
-                        S_damped = torch.clamp(S, min=S[cutoff_idx])
-
-                        new_vector[key] = (U * S_damped.unsqueeze(0)) @ Vh
-                '''
+            ).to(original_dtype)  # Convert back to original dtype
 
     return new_vector
 
@@ -171,10 +156,15 @@ def subspace_boosting(
         ".mlp.up_proj.weight",
         ".mlp.down_proj.weight",
     ]
-
+    '''
+    print('merged_tv_key: ', merged_tv_key)
+    print('type(merged_tv_key): ', type(merged_tv_key))
+    print('type(merged_tv): ', type(merged_tv))
+    print('merged_tv.shape: ', merged_tv.shape)
+    '''
     start_time = time.time_ns()
     if any(i in merged_tv_key for i in keys_to_eval) and isinstance(merged_tv, torch.Tensor):
-        logging.info(f"Applying subspace boosting to {merged_tv_key} with shape {merged_tv.shape}")
+        print(f"Applying subspace boosting to {merged_tv_key} with shape {merged_tv.shape}")
         
         # Store original dtype
         original_dtype = merged_tv.dtype
@@ -212,6 +202,6 @@ def subspace_boosting(
 
     end_time = time.time_ns()
 
-    logging.info(f"Subspace Boosting took {(end_time - start_time) / 1_000_000} ms.")
+    # print(f"Subspace Boosting took {(end_time - start_time) / 1_000_000} ms.")
     
     return merged_tv

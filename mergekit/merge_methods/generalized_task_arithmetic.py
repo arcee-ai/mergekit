@@ -180,16 +180,15 @@ class GTATask(Task[torch.Tensor]):
             mixed_delta *= self.lambda_
             
         param_key = self.weight_info.name
-        subspace_input = [{param_key: tv["delta"]} for tv in tvs]
+        subspace_input = [tv["delta"] for tv in tvs]
 
         if self.method.name() == "iso_c":
-            subspace_out = iso_c(subspace_input, deltas.device)
-            mixed_delta = subspace_out[param_key]
+            mixed_delta = iso_c(subspace_input, param_key, deltas.device)
         elif self.method.name() == "tsvm":
-            subspace_out = compute_and_sum_svd_mem_reduction(subspace_input, deltas.device)
-            mixed_delta = subspace_out[param_key]
+            mixed_delta = compute_and_sum_svd_mem_reduction(subspace_input, param_key, deltas.device)
         elif self.method.name() in ["task_arithmetic_sb", "ties_sb"]:
             mixed_delta = subspace_boosting(param_key, mixed_delta)
+        
         return (base + mixed_delta).to(base.dtype)
 
     def group_label(self) -> Optional[str]:
