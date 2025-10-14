@@ -22,6 +22,14 @@ except ImportError:
 else:
     ALL_OUTPUT_ARCHITECTURES.append(QwenMoE())
 
+# KORMo MoE 추가
+try:
+    from mergekit.moe.kormo import KORMoMoE
+except ImportError:
+    pass
+else:
+    ALL_OUTPUT_ARCHITECTURES.append(KORMoMoE())
+
 __all__ = [
     "ALL_OUTPUT_ARCHITECTURES",
     "MoEOutputArchitecture",
