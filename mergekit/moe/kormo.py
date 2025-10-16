@@ -4,6 +4,8 @@
 import json
 import logging
 import os
+import shutil
+from pathlib import Path
 from typing import List, Optional
 
 import torch
@@ -70,10 +72,16 @@ class KORMoMoE(MoEOutputArchitecture):
         res["decoder_sparse_step"] = 1
         res["norm_topk_prob"] = True
         res["moe_intermediate_size"] = res["intermediate_size"]
-        
+
+        # auto_map 추가 - 커스텀 모델 로딩을 위해 필수
+        res["auto_map"] = {
+            "AutoConfig": "configuration_kormo_moe.KORMoMoeConfig",
+            "AutoModelForCausalLM": "modeling_kormo_moe.KORMoMoeForCausalLM"
+        }
+
         if num_shared_experts > 0:
             res["shared_expert_intermediate_size"] = res["intermediate_size"]
-        
+
         if (res["num_experts"] & (res["num_experts"] - 1)) != 0:
             logging.warning(
                 f"Your model has {res['num_experts']} experts, which is "
@@ -91,10 +99,10 @@ class KORMoMoE(MoEOutputArchitecture):
     ):
         base_model = config.base_model
         base_cfg = base_model.config(trust_remote_code=merge_options.trust_remote_code)
-    
+
         # 출력 디렉토리 생성
         os.makedirs(out_path, exist_ok=True)
-    
+
         out_dtype = select_dtype(config, base_cfg)
         out_cfg = self._generate_config(
             base_cfg,
@@ -104,15 +112,25 @@ class KORMoMoE(MoEOutputArchitecture):
         )
         if out_dtype is not None:
             out_cfg["torch_dtype"] = str(out_dtype).removeprefix("torch.")
-        
+
         with open(os.path.join(out_path, "config.json"), "w", encoding="utf-8") as f:
             json.dump(out_cfg, f, indent=4)
-    
+
+        # Copy custom model files to output directory
+        arch_dir = Path(__file__).parent / "_architectures"
+        for model_file in ["configuration_kormo_moe.py", "modeling_kormo_moe.py"]:
+            src_file = arch_dir / model_file
+            if src_file.exists():
+                shutil.copy2(src_file, out_path)
+                logging.info(f"Copied {model_file} to {out_path}")
+            else:
+                logging.warning(f"Model file {model_file} not found at {src_file}")
+
         shared_def = config.shared_experts[0] if config.shared_experts else None
-    
+
         loaders, base_loader, writer = initialize_io(config, out_path, merge_options)
         shared_loader = loaders.get(shared_def.source_model) if shared_def else base_loader
-        
+
         for weight_info in tqdm.tqdm(
             KORMO_INFO.all_weights(base_cfg),
             desc="Weights",
@@ -135,8 +153,8 @@ class KORMoMoE(MoEOutputArchitecture):
                         out_dtype=out_dtype,
                         clone=merge_options.clone_tensors,
                     )
-    
-                # Shared expert weights 복사
+
+                # Shared expert weights 복사 - shared_experts가 있을 때만!
                 if shared_def is not None:
                     shared_expert_name = tensor_name.replace(".mlp.", ".mlp.shared_expert.")
                     copy_tensor_out(
@@ -149,27 +167,8 @@ class KORMoMoE(MoEOutputArchitecture):
                         out_dtype=out_dtype,
                         clone=merge_options.clone_tensors,
                     )
-    
-                # Gate weights는 레이어 단위로 저장
-                # (이미 모든 expert를 처리했으면 gate도 저장)
-                if expert_idx == len(config.experts) - 1:
-                    layer_idx = int(tensor_name.split(".")[2])
-                    gate_name = f"model.layers.{layer_idx}.mlp.gate.weight"
-                    writer.save_tensor(
-                        gate_name,
-                        router_weights[layer_idx].to(dtype=out_dtype),
-                        clone=merge_options.clone_tensors,
-                    )
-                    
-                    if shared_router_weights is not None and shared_def is not None:
-                        shared_gate_name = f"model.layers.{layer_idx}.mlp.shared_expert_gate.weight"
-                        writer.save_tensor(
-                            shared_gate_name,
-                            shared_router_weights[layer_idx].to(dtype=out_dtype),
-                            clone=merge_options.clone_tensors,
-                        )
             else:
-                # MLP가 아닌 weights는 base model에서 복사
+                # 일반 weights 복사
                 copy_tensor_out(
                     weight_info,
                     base_loader,
@@ -177,5 +176,29 @@ class KORMoMoE(MoEOutputArchitecture):
                     out_dtype=out_dtype,
                     clone=merge_options.clone_tensors,
                 )
-        
+
+        # Router weights 저장 - 모든 weight 처리 후 별도로 저장
+        for layer_idx, weight in enumerate(
+            tqdm.tqdm(router_weights, desc="Router weights")
+        ):
+            writer.save_tensor(
+                f"model.layers.{layer_idx}.mlp.gate.linear.weight",
+                weight.to(dtype=out_dtype).contiguous(),
+                clone=merge_options.clone_tensors,
+            )
+
+            # Shared expert gate weights 저장 - shared_experts가 있을 때만!
+            if shared_def is not None:
+                if shared_router_weights is not None and len(shared_router_weights) > layer_idx:
+                    shared_weight = shared_router_weights[layer_idx]
+                else:
+                    # shared_router_weights가 없으면 dummy weight 생성
+                    shared_weight = torch.zeros_like(weight[:1, :])  # [1, hidden_size]
+
+                writer.save_tensor(
+                    f"model.layers.{layer_idx}.mlp.shared_expert_gate.weight",
+                    shared_weight.to(dtype=out_dtype).contiguous(),
+                    clone=merge_options.clone_tensors,
+                )
+
         writer.finalize()
