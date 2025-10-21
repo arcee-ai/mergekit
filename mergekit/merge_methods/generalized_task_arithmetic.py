@@ -55,6 +55,8 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
                 name="rescale", required=False, default_value=self.default_rescale
             ),
             ConfigParameterDef(name="lambda", required=False, default_value=1.0),
+            ConfigParameterDef(name="svd_thresh", required=False, default_value=0.01),
+            ConfigParameterDef(name="cumsum", required=False, default_value=True),
         ]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
@@ -96,6 +98,8 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             lambda_=parameters["lambda"],
             rescale_norm=RescaleNorm.l1 if parameters["rescale"] else None,
             weight_info=output_weight,
+            svd_thresh=parameters["svd_thresh"],
+            cumsum=parameters["cumsum"],
         )
 
 
@@ -109,6 +113,8 @@ class GTATask(Task[torch.Tensor]):
     normalize: bool
     lambda_: float
     rescale_norm: Optional[RescaleNorm]
+    svd_thresh: float
+    cumsum: bool
 
     def uses_accelerator(self) -> bool:
         return True
@@ -187,7 +193,7 @@ class GTATask(Task[torch.Tensor]):
         elif self.method.name() == "tsvm":
             mixed_delta = compute_and_sum_svd_mem_reduction(subspace_input, param_key, deltas.device)
         elif self.method.name() in ["task_arithmetic_sb", "ties_sb"]:
-            mixed_delta = subspace_boosting(param_key, mixed_delta)
+            mixed_delta = subspace_boosting(param_key, mixed_delta, svd_thresh=self.svd_thresh, cumsum=self.cumsum)
         
         return (base + mixed_delta).to(base.dtype)
 

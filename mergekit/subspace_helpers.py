@@ -119,11 +119,8 @@ def compute_and_sum_svd_mem_reduction(task_vectors: List[torch.Tensor], tv_key: 
 def subspace_boosting(
         merged_tv_key: str,
         merged_tv: torch.Tensor, 
-        reset_thresh=20, # TODO: refactor the parameter list and just use the config
         svd_thresh=0.01,
-        attn_svd_thresh=0.10,
         cumsum=True, 
-        remove_keys=[]
     ) -> Dict[str, Any]:
     """
     Subspace boosting for merging task vectors.
@@ -166,13 +163,7 @@ def subspace_boosting(
         ".mlp.up_proj.weight",
         ".mlp.down_proj.weight",
     ]
-    '''
-    print('merged_tv_key: ', merged_tv_key)
-    print('type(merged_tv_key): ', type(merged_tv_key))
-    print('type(merged_tv): ', type(merged_tv))
-    print('merged_tv.shape: ', merged_tv.shape)
-    '''
-    start_time = time.time_ns()
+    
     if any(i in merged_tv_key for i in keys_to_eval) and isinstance(merged_tv, torch.Tensor):
         print(f"Applying subspace boosting to {merged_tv_key} with shape {merged_tv.shape}")
         
@@ -210,8 +201,4 @@ def subspace_boosting(
         # Convert back to original dtype
         merged_tv = merged_tv.to(original_dtype)
 
-    end_time = time.time_ns()
-
-    # print(f"Subspace Boosting took {(end_time - start_time) / 1_000_000} ms.")
-    
     return merged_tv
