@@ -76,11 +76,19 @@ def copy_tensor_out(
     clone: bool = False,
 ):
     out_tensor_name = output_name or weight_info.name
+    aliases = weight_info.aliases or []
+    if not weight_info.optional:
+        aliases += weight_info.tied_names or []
     try:
-        tensor = loader.get_tensor(weight_info.name, aliases=weight_info.aliases)
+        tensor = loader.get_tensor(
+            weight_info.name,
+            aliases=aliases,
+        )
     except KeyError:
         tensor = None
-    if tensor is None and not weight_info.optional:
+    if tensor is None:
+        if weight_info.optional:
+            return
         logging.error(f"Missing weight: {weight_info.name} / {out_tensor_name}")
         raise KeyError(out_tensor_name)
 
