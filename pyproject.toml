@@ -60,6 +60,7 @@ packages = [
     "mergekit.scripts",
     "mergekit.evo",
     "mergekit.tokenizer",
+    "mergekit.tokensurgeon",
     "mergekit.architecture",
     "mergekit._data",
     "mergekit._data.architectures",
