@@ -20,6 +20,7 @@ from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.architecture.moe_defs import (
     MixtralModuleArchitecture,
     Qwen3MoeModuleArchitecture,
+    KORMoMoeModuleArchitecture
 )
 from mergekit.options import MergeOptions
 
@@ -34,6 +35,7 @@ WARNED_ARCHITECTURE_NAMES = set()
 def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture]:
     if len(config.architectures) != 1:
         raise RuntimeError("More than one architecture in config?")
+
     arch_name = config.architectures[0]
 
     if arch_name == MixtralModuleArchitecture.ARCHITECTURE_NAME:
@@ -49,6 +51,13 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
             modules={"default": ModuleDefinition(architecture=module)},
             architectures=[arch_name],
             model_type="qwen3_moe",
+        )
+    elif arch_name == KORMoMoeModuleArchitecture.ARCHITECTURE_NAME:  # 추가
+        module = KORMoMoeModuleArchitecture.from_config(config)
+        return ModelArchitecture(
+            modules={"default": ModuleDefinition(architecture=module)},
+            architectures=[arch_name],
+            model_type="kormo_moe",
         )
     elif arch_name in NAME_TO_ARCH:
         candidates = list(NAME_TO_ARCH[arch_name])

@@ -85,19 +85,96 @@ class Qwen3MoeModuleArchitecture(ModuleArchitecture, BaseModel):
     def layer_weights(
         self, index: int, config: PretrainedConfig
     ) -> Optional[List[WeightInfo]]:
+        num_experts = self.num_experts
         prefix = f"model.layers.{index}"
         tensor_names = []
-        for expert_idx in range(self.num_experts):
+        
+        # Expert weights 추가
+        for expert_idx in range(num_experts):
             for param in ("up_proj", "gate_proj", "down_proj"):
                 tensor_names.append(
                     prefix + f".mlp.experts.{expert_idx}.{param}.weight"
                 )
+        
+        # Shared expert weights 추가 - 이 부분이 중요!
+        for param in ("up_proj", "gate_proj", "down_proj"):
+            tensor_names.append(
+                prefix + f".mlp.shared_expert.{param}.weight"
+            )
+        
+        # Gate weights 추가
         tensor_names.append(prefix + ".mlp.gate.weight")
+        tensor_names.append(prefix + ".mlp.shared_expert_gate.weight")
+        
         res = []
         for name in tensor_names:
             res.append(WeightInfo(name=name))
+        
+        # 기존 Qwen3 weights 중에서 MLP를 제외한 것들 추가
         for weight_info in QWEN3_MODULE_ARCH.layer_weights(index, config):
             if ".mlp." in weight_info.name:
                 continue
             res.append(weight_info)
+        
+        return res
+
+# 파일 상단 import 부분에 추가
+KORMO_INFO = NAME_TO_ARCH["KORMoForCausalLM"][0]
+KORMO_MODULE_ARCH = KORMO_INFO.modules["default"].architecture
+
+
+class KORMoMoeModuleArchitecture(ModuleArchitecture, BaseModel):
+    ARCHITECTURE_NAME: ClassVar[str] = "KORMoMoeForCausalLM"
+    num_experts: int
+
+    def name(self) -> str:
+        return "kormo_moe"
+
+    @classmethod
+    def from_config(cls, config: PretrainedConfig):
+        return KORMoMoeModuleArchitecture(num_experts=config.num_experts)
+
+    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return KORMO_MODULE_ARCH.pre_weights(config)
+
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return KORMO_MODULE_ARCH.post_weights(config)
+
+    def num_layers_config_key(self) -> str:
+        return KORMO_MODULE_ARCH.num_layers_config_key()
+
+    def layer_weights(
+        self, index: int, config: PretrainedConfig
+    ) -> Optional[List[WeightInfo]]:
+        num_experts = self.num_experts
+        prefix = f"model.layers.{index}"
+        tensor_names = []
+        
+        # Expert weights 추가
+        for expert_idx in range(num_experts):
+            for param in ("gate_proj", "up_proj", "down_proj"):
+                tensor_names.append(
+                    prefix + f".mlp.experts.{expert_idx}.{param}.weight"
+                )
+        
+        # Shared expert weights 추가
+        for param in ("gate_proj", "up_proj", "down_proj"):
+            tensor_names.append(
+                prefix + f".mlp.shared_expert.{param}.weight"
+            )
+        
+        # Gate weights 추가
+        tensor_names.append(prefix + ".mlp.gate.weight")
+        tensor_names.append(prefix + ".mlp.shared_expert_gate.weight")
+        
+        res = []
+        for name in tensor_names:
+            res.append(WeightInfo(name=name))
+        
+        # 기존 KORMo weights 중에서 MLP를 제외한 것들 추가
+        for weight_info in KORMO_MODULE_ARCH.layer_weights(index, config):
+            if ".mlp." in weight_info.name:
+                continue
+            res.append(weight_info)
+        
         return res
