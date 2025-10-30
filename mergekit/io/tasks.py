@@ -160,6 +160,8 @@ class TensorWriterTask(Task[TensorWriter]):
     max_shard_size: int
     safe_serialization: bool = True
     override_basename: Optional[str] = None
+    use_async: bool = False
+    write_threads: int = 1
 
     def arguments(self) -> Dict[str, Task]:
         return {}
@@ -170,6 +172,8 @@ class TensorWriterTask(Task[TensorWriter]):
             max_shard_size=self.max_shard_size,
             safe_serialization=self.safe_serialization,
             override_basename=self.override_basename,
+            use_async=self.use_async,
+            max_write_threads=self.write_threads,
         )
 
     def priority(self):
