@@ -12,7 +12,6 @@ import numpy as np
 import ray
 import ray.util.queue
 import ray.util.scheduling_strategies
-import torch
 import transformers
 
 from mergekit.common import get_torch_accelerator_count
