@@ -92,6 +92,8 @@ def plan_flat_merge(
         out_path=out_path,
         max_shard_size=options.out_shard_size,
         safe_serialization=options.safe_serialization,
+        use_async=options.async_write,
+        max_write_threads=options.write_threads,
     )
 
     save_tasks = []
