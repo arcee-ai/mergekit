@@ -35,6 +35,8 @@ def initialize_io(
         out_path=out_path,
         max_shard_size=merge_options.out_shard_size,
         safe_serialization=merge_options.safe_serialization,
+        use_async=merge_options.async_write,
+        max_write_threads=merge_options.write_threads,
     )
 
     return loaders, base_loader, writer
