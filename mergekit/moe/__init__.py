@@ -13,6 +13,13 @@ except ImportError:
 else:
     ALL_OUTPUT_ARCHITECTURES.append(QwenMoE())
 
+try:
+    from mergekit.moe.qwen3 import Qwen3MoE
+except ImportError:
+    pass
+else:
+    ALL_OUTPUT_ARCHITECTURES.append(Qwen3MoE())
+
 __all__ = [
     "ALL_OUTPUT_ARCHITECTURES",
     "MoEOutputArchitecture",
