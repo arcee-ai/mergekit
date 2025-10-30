@@ -194,7 +194,8 @@ def construct_param_dicts(
             ):
                 tensor_params[mr][param_def.name] = value
             elif value := evaluate_setting(
-                tensor_name, config.parameters.get(param_def.name, []) if config.parameters else []
+                tensor_name,
+                config.parameters.get(param_def.name, []) if config.parameters else [],
             ):
                 tensor_params[mr][param_def.name] = value
             elif param_def.required:
