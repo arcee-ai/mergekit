@@ -1,5 +1,5 @@
 # Copyright (C) 2025 Arcee AI
-# SPDX-License-Identifier: BUSL-1.1
+# SPDX-License-Identifier: LGPL-3.0-only
 
 import json
 import logging
@@ -180,7 +180,7 @@ class TensorWriter:
                     content = {
                         "metadata": {
                             "total_size": self.total_size,
-                            "mergekit_version": "0.1.3",
+                            "mergekit_version": "0.1.4",
                         },
                         "weight_map": self.weight_map,
                     }
