@@ -371,7 +371,6 @@ tokenizer = AutoTokenizer.from_pretrained("path/to/merged-model")
 - [Multi-Stage Merging (`mergekit-multi`)](#multi-stage-merging-mergekit-multi)
 - [Raw PyTorch Model Merging (`mergekit-pytorch`)](#raw-pytorch-model-merging-mergekit-pytorch)
 - [Tokenizer Transplantation (`mergekit-tokensurgeon`)](#tokenizer-transplantation-mergekit-tokensurgeon)
-- [Merge in the Cloud](#-merge-in-the-cloud-)
 - [Citation](#citation)
 
 ## Why Merge Models?
@@ -401,8 +400,6 @@ Key features of `mergekit` include:
 - [Evolutionary merge methods](#evolutionary-merge-methods)
 - [Multi-stage merging](#multi-stage-merging-mergekit-multi) for complex workflows.
 - [Merging of raw PyTorch models (`mergekit-pytorch`)](#raw-pytorch-model-merging-mergekit-pytorch).
-
-🌐 GUI Launch Alert 🤗 - We are excited to announce the launch of a mega-GPU backed graphical user interface for mergekit in Arcee! This GUI simplifies the merging process, making it more accessible to a broader audience. Check it out and contribute at the [Arcee App](https://app.arcee.ai). There is also a [Hugging Face Space](https://huggingface.co/mergekit-community) with limited amounts of GPUs.
 
 ## Installation
 
@@ -665,30 +662,6 @@ Use `mergekit-pytorch --help` for detailed options.
 ## Tokenizer Transplantation (`mergekit-tokensurgeon`)
 
 `mergekit-tokensurgeon` is a specialized tool for transplanting tokenizers between models, allowing you to align the vocabulary of one model with another. This is particularly useful for cheaply producing draft models for speculative decoding or for cross-tokenizer knowledge distillation. See the [documentation](docs/tokensurgeon.md) for more details and how to use it.
-
-## ✨ Merge in the Cloud ✨
-
-We host merging on Arcee's cloud GPUs - you can launch a cloud merge in the [Arcee App](https://app.arcee.ai). Or through python - grab an ARCEE_API_KEY:
-
-`export ARCEE_API_KEY=<your-api-key>`
-`pip install -q arcee-py`
-
-```python
-import arcee
-arcee.merge_yaml("bio-merge","./examples/bio-merge.yml")
-```
-
-Check your merge status at the [Arcee App](https://app.arcee.ai)
-
-When complete, either deploy your merge:
-
-```python
-arcee.start_deployment("bio-merge", merging="bio-merge")
-```
-
-Or download your merge:
-
-`!arcee merging download bio-merge`
 
 ## Citation
 
