@@ -98,7 +98,9 @@ class SlerpMerge(MergeMethod):
 
 
 def lerp(
-    t: Optional[float], v0: Union[np.ndarray, torch.Tensor], v1: Union[np.ndarray, torch.Tensor]
+    t: Optional[float],
+    v0: Union[np.ndarray, torch.Tensor],
+    v1: Union[np.ndarray, torch.Tensor],
 ) -> Union[np.ndarray, torch.Tensor]:
     return (1 - t) * v0 + t * v1
 
