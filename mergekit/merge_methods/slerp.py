@@ -21,7 +21,7 @@ from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 class SlerpTask(Task[torch.Tensor]):
     gather_tensors: MergeTensorInput
     base_model: ModelReference
-    t: float
+    t: Optional[float]
     weight_info: WeightInfo
 
     def uses_accelerator(self) -> bool:
@@ -37,6 +37,12 @@ class SlerpTask(Task[torch.Tensor]):
             raise RuntimeError("Slerp merge expects exactly two models")
         elif self.base_model not in tensors:
             raise RuntimeError("Base model not in input tensors")
+
+        # If no interpolation parameter was provided for this tensor, do not attempt to merge;
+        # simply return the base model's weight unchanged. This avoids shape/broadcast errors
+        # when the secondary model has incompatible tensor shapes.
+        if self.t is None:
+            return tensors[self.base_model]
 
         [a, b] = list(tensors.items())
         if a[0] != self.base_model:
@@ -72,7 +78,7 @@ class SlerpMerge(MergeMethod):
         return "https://en.wikipedia.org/wiki/Slerp"
 
     def parameters(self) -> List[ConfigParameterDef]:
-        return [ConfigParameterDef(name="t", required=True)]
+        return [ConfigParameterDef(name="t", required=False, default_value=None)]
 
     def make_task(
         self,
@@ -92,7 +98,7 @@ class SlerpMerge(MergeMethod):
 
 
 def lerp(
-    t: float, v0: Union[np.ndarray, torch.Tensor], v1: Union[np.ndarray, torch.Tensor]
+    t: Optional[float], v0: Union[np.ndarray, torch.Tensor], v1: Union[np.ndarray, torch.Tensor]
 ) -> Union[np.ndarray, torch.Tensor]:
     return (1 - t) * v0 + t * v1
 
