@@ -46,7 +46,12 @@ class PassthroughMerge(MergeMethod):
         return "Passthrough"
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
-        return [ConfigParameterDef(name="scale", required=False, default_value=None)]
+        return [
+            ConfigParameterDef(name="scale", required=False, default_value=None),
+            ConfigParameterDef(name="noise_scale", required=False, default_value=None),
+            ConfigParameterDef(name="noise_variance", required=False, default_value=None),
+            ConfigParameterDef(name="noise_seed", required=False, default_value=None)
+        ]
 
     def make_task(
         self,
