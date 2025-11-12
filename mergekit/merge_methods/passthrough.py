@@ -31,6 +31,27 @@ class PassthroughMergeTask(Task[torch.Tensor]):
         if scale is not None:
             tensor = tensor * scale
 
+        noise_scale = self.tensor_parameters[model].data.get("noise_scale", None)
+        if noise_scale is not None and noise_scale != 0.0:
+            noise_seed = self.tensor_parameters[model].data.get("noise_seed", 42)
+            noise_generator = torch.Generator()
+            if noise_seed is not None:
+                noise_generator = noise_generator.manual_seed(int(noise_seed))
+                print("applying noise_seed")
+
+            print(f"Noise Generator Seed: {noise_generator.initial_seed()}")
+            random_tensor = torch.empty_like(tensor).normal_(generator=noise_generator)
+            noisy_tensor = random_tensor * noise_scale
+
+            noise_variance = self.tensor_parameters[model].data.get("noise_variance", False)
+            if noise_variance is not None and noise_variance != 0.0:
+                noisy_tensor = noisy_tensor * (tensor.std() * noise_variance)
+                print("applying noise_variance")
+
+            tensor = tensor + noisy_tensor
+
+            print(f"noise_scale={noise_scale}, noise_seed={noise_seed}, noise_variance={noise_variance}")
+
         return tensor
 
     def group_label(self) -> Optional[str]:
