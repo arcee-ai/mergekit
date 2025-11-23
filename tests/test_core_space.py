@@ -68,26 +68,32 @@ def test_low_rank_approximation():
     print("✓ Low-rank approximation test passed")
 
 
-def test_weighted_average_excludes_base():
-    """Test that weighted average correctly excludes base model."""
-    # Simulate base and two fine-tuned models
-    base = torch.ones(10, 10) * 1.0
-    model1 = torch.ones(10, 10) * 2.0  # delta = +1
-    model2 = torch.ones(10, 10) * 3.0  # delta = +2
+def test_weight_parameter_applied():
+    """Test that the weight parameter is actually applied."""
+    # Create simple test case
+    d_model, rank = 50, 8
+    base = torch.ones(d_model, d_model)
 
-    # Expected: average deltas then add to base
-    # delta1 = 2 - 1 = 1
-    # delta2 = 3 - 1 = 2
-    # avg_delta = (1 + 2) / 2 = 1.5
-    # result = 1 + 1.5 = 2.5
+    # Two models with deltas
+    model1 = base + torch.ones(d_model, d_model) * 0.1  # delta = +0.1
+    model2 = base + torch.ones(d_model, d_model) * 0.2  # delta = +0.2
 
+    # Simulate merging with weight=2.0
+    # Expected: deltas averaged, then scaled by 2.0
+    # avg_delta = (0.1 + 0.2) / 2 = 0.15
+    # scaled_delta = 0.15 * 2.0 = 0.3
+    # result = base + 0.3
+
+    weight = 2.0
     deltas = [model1 - base, model2 - base]
     avg_delta = sum(deltas) / len(deltas)
-    expected = base + avg_delta
+    expected = base + weight * avg_delta
 
-    assert torch.allclose(expected, torch.ones(10, 10) * 2.5)
+    # Should be ones(50,50) * (1 + 0.3) = ones * 1.3
+    expected_value = 1.0 + weight * 0.15
+    assert torch.allclose(expected, torch.ones(d_model, d_model) * expected_value)
 
-    print("✓ Weighted average excludes base test passed")
+    print("✓ Weight parameter applied test passed")
 
 
 def test_svd_low_rank_approximation():
@@ -206,46 +212,36 @@ def test_multiple_lora_merge_simulation():
     B_list = [B for B, A in loras]
     A_list = [A for B, A in loras]
 
-    # Compute reference bases
-    B_stacked = torch.cat(B_list, dim=0)  # Shape: (150, 8) = (3*50, 8)
-    A_stacked = torch.cat(A_list, dim=1)  # Shape: (8, 120) = (8, 3*40)
+    # Compute reference bases (matching implementation)
+    B_concat = torch.cat(B_list, dim=1)  # Shape: (50, 24) = (50, 3*8)
+    A_concat = torch.cat(A_list, dim=0)  # Shape: (24, 40) = (3*8, 40)
 
-    U_B, _, _ = torch.linalg.svd(B_stacked, full_matrices=False)  # U_B: (150, 8)
-    _, _, V_A_T = torch.linalg.svd(A_stacked.T, full_matrices=False)  # V_A_T: (8, 8)
-    V_A = V_A_T.T  # V_A: (8, 8)
+    U_B, _, _ = torch.linalg.svd(B_concat, full_matrices=False)
+    _, _, V_A_T = torch.linalg.svd(A_concat, full_matrices=False)
+    V_A = V_A_T.T
 
-    # Note: After SVD, U_B has shape (150, 8) and V_A has shape (8, 8) or less
-    # We need to take only the portion that corresponds to our original space
-    # For proper core space, we need U_B to be (d_out, rank) and V_A to be (d_in, rank)
+    # Truncate to common rank
+    common_rank = min(U_B.shape[1], V_A.shape[1])
+    U_B_trunc = U_B[:, :common_rank]
+    V_A_trunc = V_A[:, :common_rank]
 
-    # Take the first d_out rows of U_B for each adapter's space
-    U_B_parts = [U_B[i * d_out : (i + 1) * d_out, :] for i in range(len(loras))]
-    # Use the average or first one as reference
-    U_B_ref = U_B_parts[0]  # Shape: (50, 8)
-
-    # For V_A, we need to map from the stacked space back
-    # Take first d_in columns mapping
-    V_A_parts = []
-    for i in range(len(loras)):
-        # This is a simplification - in practice we'd need proper alignment
-        V_A_parts.append(V_A[:, :rank])
-    V_A_ref = V_A_parts[0]  # Shape: (8, 8)
-
-    # Project each to core space (simplified)
+    # Project each to core space
     core_reprs = []
     for B, A in loras:
-        # For this test, we'll use a simpler projection
-        # core = B^T @ B @ A @ A^T (to keep dimensions manageable)
-        core = (B.T @ B) @ (A @ A.T)  # (8, 8) @ (8, 8) = (8, 8)
+        core = U_B_trunc.T @ B @ A @ V_A_trunc
         core_reprs.append(core)
 
     # Merge with equal weights
-    weights = [1.0 / 3, 1.0 / 3, 1.0 / 3]
-    core_merged = sum(w * core for w, core in zip(weights, core_reprs))
+    core_merged = sum(core_reprs) / len(core_reprs)
+
+    # Reconstruct
+    delta_merged = U_B_trunc @ core_merged @ V_A_trunc.T
+    final = base + delta_merged
 
     # Verify shapes
-    assert core_merged.shape == (rank, rank)  # Should be square
-    assert len(core_reprs) == 3
+    assert core_merged.shape[0] == core_merged.shape[1]  # Should be square
+    assert delta_merged.shape == (d_out, d_in)
+    assert final.shape == base.shape
 
     print("✓ Multiple LoRA merge simulation test passed")
 

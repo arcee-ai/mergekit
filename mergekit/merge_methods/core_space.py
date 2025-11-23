@@ -1,7 +1,11 @@
+# Copyright (C) 2025 - Core Space Integration
+# SPDX-License-Identifier: BUSL-1.1
 """
 Core Space Merging Method for mergekit
 Based on "Accurate and Efficient Low-Rank Model Merging in Core Space"
 (Panariello et al., NeurIPS 2025)
+
+File: mergekit/merge_methods/core_space.py
 """
 
 import logging
@@ -57,17 +61,20 @@ class CoreSpaceTask(Task[torch.Tensor]):
         # Get base model tensor
         base_tensor = tensors.get(self.base_model)
         if base_tensor is None:
+            # Base model not found - use first model as base
             log.warning("Base model not found, using first model as base")
-            self.base_model = list(tensors.keys())[0]
-            base_tensor = tensors[self.base_model]
+            base_model = list(tensors.keys())[0]
+            base_tensor = tensors[base_model]
+        else:
+            base_model = self.base_model
 
         # Always use core space merge (which approximates deltas as low-rank)
         try:
-            return self._core_space_merge(tensors, base_tensor)
+            return self._core_space_merge(tensors, base_tensor, base_model)
         except Exception as e:
             log.warning(f"Core space merge failed for {self.weight_info.name}: {e}")
             log.warning("Falling back to weighted average")
-            return self._weighted_average(tensors, base_tensor)
+            return self._weighted_average(tensors, base_tensor, base_model)
 
     def _is_lora_weight(self, weight_name: str) -> bool:
         """
@@ -83,7 +90,10 @@ class CoreSpaceTask(Task[torch.Tensor]):
         return False  # For now, treat all as full weights
 
     def _extract_lora_matrices(
-        self, tensors: Dict[ModelReference, torch.Tensor], base_tensor: torch.Tensor
+        self,
+        tensors: Dict[ModelReference, torch.Tensor],
+        base_tensor: torch.Tensor,
+        base_model: ModelReference,
     ) -> tuple[List[torch.Tensor], List[torch.Tensor]]:
         """
         Extract LoRA A and B matrices from tensors.
@@ -100,7 +110,7 @@ class CoreSpaceTask(Task[torch.Tensor]):
         lora_Bs = []
 
         for model_ref, tensor in tensors.items():
-            if model_ref == self.base_model:
+            if model_ref == base_model:
                 continue
 
             # Compute task vector (delta from base)
@@ -125,7 +135,10 @@ class CoreSpaceTask(Task[torch.Tensor]):
         return lora_As, lora_Bs
 
     def _core_space_merge(
-        self, tensors: Dict[ModelReference, torch.Tensor], base_tensor: torch.Tensor
+        self,
+        tensors: Dict[ModelReference, torch.Tensor],
+        base_tensor: torch.Tensor,
+        base_model: ModelReference,
     ) -> torch.Tensor:
         """
         Perform core space merge.
@@ -138,7 +151,7 @@ class CoreSpaceTask(Task[torch.Tensor]):
         5. Reconstruct to full space
         """
         # Extract LoRA matrices
-        lora_As, lora_Bs = self._extract_lora_matrices(tensors, base_tensor)
+        lora_As, lora_Bs = self._extract_lora_matrices(tensors, base_tensor, base_model)
 
         if len(lora_As) == 0:
             return base_tensor
@@ -159,13 +172,16 @@ class CoreSpaceTask(Task[torch.Tensor]):
             core_repr = U_B_trunc.T @ B @ A @ V_A_trunc
             core_reprs.append(core_repr)
 
-        # Merge in core space using default_weight
-        # For now, use equal weights (default_weight applies to all models equally)
-        # TODO: Support per-model weights when mergekit provides model-specific parameters
+        # Merge in core space
+        # Note: All models get equal contribution weights in the core space.
+        # The default_weight parameter scales the entire merged delta globally.
         num_models = len(core_reprs)
 
-        # Apply default_weight as a scaling factor
-        core_merged = self.default_weight * sum(core_reprs) / num_models
+        # Average core representations (equal weighting of models)
+        core_avg = sum(core_reprs) / num_models
+
+        # Scale by global weight parameter
+        core_merged = self.default_weight * core_avg
 
         # Reconstruct to full space
         delta_W = U_B_trunc @ core_merged @ V_A_trunc.T
@@ -194,7 +210,10 @@ class CoreSpaceTask(Task[torch.Tensor]):
         return U_B, V_A
 
     def _weighted_average(
-        self, tensors: Dict[ModelReference, torch.Tensor], base_tensor: torch.Tensor
+        self,
+        tensors: Dict[ModelReference, torch.Tensor],
+        base_tensor: torch.Tensor,
+        base_model: ModelReference,
     ) -> torch.Tensor:
         """
         Fall back to simple weighted average.
@@ -206,7 +225,7 @@ class CoreSpaceTask(Task[torch.Tensor]):
         # Compute task vectors (exclude base model)
         deltas = []
         for model_ref, tensor in tensors.items():
-            if model_ref == self.base_model:
+            if model_ref == base_model:
                 continue
             delta = tensor - base_tensor
             deltas.append(delta)
