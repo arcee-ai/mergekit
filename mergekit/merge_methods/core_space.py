@@ -115,7 +115,10 @@ class CoreSpaceTask(Task[torch.Tensor]):
             else:
                 # Full weight - approximate as low-rank via SVD
                 # ΔW ≈ B @ A where rank is chosen automatically
-                rank = min(16, min(delta.shape) // 4)  # Adaptive rank
+                # Ensure rank is at least 1 to avoid degenerate matrices
+                rank = max(
+                    1, min(16, min(delta.shape) // 4)
+                )  # Adaptive rank with minimum of 1
                 U, S, Vt = torch.linalg.svd(delta, full_matrices=False)
 
                 # Keep top-rank components

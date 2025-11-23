@@ -25,26 +25,23 @@ def test_reference_bases_computation():
     A1 = torch.randn(16, 80)
     A2 = torch.randn(16, 80)
 
-    # Test the computation logic directly
-    # Stack B matrices vertically
-    B_stacked = torch.cat([B1, B2], dim=0)  # Shape: (200, 16)
-    # Stack A matrices horizontally
-    A_stacked = torch.cat([A1, A2], dim=1)  # Shape: (16, 160)
+    # Test the computation logic matching the actual implementation
+    # Concatenate B matrices horizontally (in subspace dimension)
+    B_concat = torch.cat([B1, B2], dim=1)  # Shape: (100, 32) = (100, 2*16)
 
-    # Compute SVD
-    U_B, _, _ = torch.linalg.svd(B_stacked, full_matrices=False)  # U_B: (200, 16)
-    _, _, V_A_T = torch.linalg.svd(
-        A_stacked.T, full_matrices=False
-    )  # A_stacked.T: (160, 16), V_A_T: (16, 16)
-    V_A = V_A_T.T  # V_A: (16, 16)
+    # Concatenate A matrices vertically (in subspace dimension)
+    A_concat = torch.cat([A1, A2], dim=0)  # Shape: (32, 80) = (2*16, 80)
+
+    # Compute SVD (matching implementation)
+    U_B, _, _ = torch.linalg.svd(B_concat, full_matrices=False)
+    _, _, V_A_T = torch.linalg.svd(A_concat, full_matrices=False)
+    V_A = V_A_T.T
 
     # Check dimensions
-    assert U_B.shape[0] == 200  # Stacked B matrices (100+100)
-    assert U_B.shape[1] == 16  # Rank dimension (min of 200, 16)
-    # After SVD on A_stacked.T which is (160, 16), we get V which is (16, 16)
-    # After transpose, V_A is (16, 16)
-    assert V_A.shape[0] == 16  # Rank dimension
-    assert V_A.shape[1] == 16  # Rank dimension
+    assert U_B.shape[0] == 100  # Output dimension
+    assert U_B.shape[1] == 32  # num_models * rank = 2 * 16
+    assert V_A.shape[0] == 80  # Input dimension
+    assert V_A.shape[1] == 32  # num_models * rank = 2 * 16
     print("✓ Reference bases computation test passed")
 
 
@@ -300,3 +297,45 @@ def test_core_space_vs_naive_merge():
     # They may or may not be different depending on the bases
     # Just verify the computation works
     print("✓ Core space vs naive merge comparison test passed")
+
+
+def test_zero_rank_edge_case():
+    """Test that rank calculation doesn't produce zero for small tensors."""
+    # Test the rank calculation logic with small dimensions
+    small_shapes = [(2, 3), (3, 2), (1, 10), (10, 1)]
+
+    for shape in small_shapes:
+        delta = torch.randn(*shape)
+
+        # This is the fixed calculation
+        rank = max(1, min(16, min(delta.shape) // 4))
+
+        # Rank should always be at least 1
+        assert rank >= 1, f"Rank is {rank} for shape {shape}, should be >= 1"
+        assert rank <= min(
+            delta.shape
+        ), f"Rank {rank} exceeds min dimension {min(delta.shape)}"
+
+        # Verify SVD works with this rank
+        U, S, Vt = torch.linalg.svd(delta, full_matrices=False)
+        A = torch.diag(S[:rank]) @ Vt[:rank, :]
+        B = U[:, :rank]
+
+        # Check shapes are valid
+        assert B.shape == (shape[0], rank)
+        assert A.shape == (rank, shape[1])
+
+        # Verify reconstruction works
+        reconstructed = B @ A
+        assert reconstructed.shape == shape
+
+    print("✓ Zero rank edge case test passed")
+
+
+if __name__ == "__main__":
+    # Run all tests
+    print("\n" + "=" * 70)
+    print("Running Core Space Merge Unit Tests")
+    print("=" * 70 + "\n")
+
+    pytest.main([__file__, "-v", "--tb=short"])
