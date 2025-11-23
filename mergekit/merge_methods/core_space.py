@@ -134,7 +134,7 @@ class CoreSpaceTask(Task[torch.Tensor]):
         1. Extract LoRA A and B matrices
         2. Compute reference bases via SVD
         3. Project to core space
-        4. Merge in core space
+        4. Merge in core space with weights
         5. Reconstruct to full space
         """
         # Extract LoRA matrices
@@ -154,16 +154,18 @@ class CoreSpaceTask(Task[torch.Tensor]):
 
         # Project each LoRA to core space
         core_reprs = []
-        model_refs = [ref for ref in tensors.keys() if ref != self.base_model]
 
         for A, B in zip(lora_As, lora_Bs):
             core_repr = U_B_trunc.T @ B @ A @ V_A_trunc
             core_reprs.append(core_repr)
 
-        # Merge in core space using equal weights (or default_weight)
-        # For simplicity, use equal weights for all models
+        # Merge in core space using default_weight
+        # For now, use equal weights (default_weight applies to all models equally)
+        # TODO: Support per-model weights when mergekit provides model-specific parameters
         num_models = len(core_reprs)
-        core_merged = sum(core_reprs) / num_models
+
+        # Apply default_weight as a scaling factor
+        core_merged = self.default_weight * sum(core_reprs) / num_models
 
         # Reconstruct to full space
         delta_W = U_B_trunc @ core_merged @ V_A_trunc.T
