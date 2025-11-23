@@ -196,14 +196,29 @@ class CoreSpaceTask(Task[torch.Tensor]):
     def _weighted_average(
         self, tensors: Dict[ModelReference, torch.Tensor], base_tensor: torch.Tensor
     ) -> torch.Tensor:
-        """Fall back to simple weighted average."""
-        # For now, use equal weights (simple average)
-        result = torch.zeros_like(base_tensor)
+        """
+        Fall back to simple weighted average.
 
+        Computes task vectors (deltas from base), averages them,
+        then adds back to base. This is the correct approach for
+        task-vector-based merging.
+        """
+        # Compute task vectors (exclude base model)
+        deltas = []
         for model_ref, tensor in tensors.items():
-            result += tensor
+            if model_ref == self.base_model:
+                continue
+            delta = tensor - base_tensor
+            deltas.append(delta)
 
-        return result / len(tensors) if len(tensors) > 0 else base_tensor
+        if len(deltas) == 0:
+            return base_tensor
+
+        # Average the deltas
+        avg_delta = sum(deltas) / len(deltas)
+
+        # Apply global weight and add back to base
+        return base_tensor + self.default_weight * avg_delta
 
     def group_label(self) -> Optional[str]:
         return self.gather_tensors.group_label()

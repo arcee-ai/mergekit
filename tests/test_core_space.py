@@ -68,28 +68,26 @@ def test_low_rank_approximation():
     print("✓ Low-rank approximation test passed")
 
 
-def test_weighted_average_logic():
-    """Test weighted average computation logic."""
-    base_tensor = torch.ones(10, 10)
-    model1_tensor = torch.ones(10, 10) * 2
-    model2_tensor = torch.ones(10, 10) * 3
+def test_weighted_average_excludes_base():
+    """Test that weighted average correctly excludes base model."""
+    # Simulate base and two fine-tuned models
+    base = torch.ones(10, 10) * 1.0
+    model1 = torch.ones(10, 10) * 2.0  # delta = +1
+    model2 = torch.ones(10, 10) * 3.0  # delta = +2
 
-    # Test weighted average calculation
-    weights = [0.5, 0.3, 0.2]
-    tensors = [base_tensor, model1_tensor, model2_tensor]
+    # Expected: average deltas then add to base
+    # delta1 = 2 - 1 = 1
+    # delta2 = 3 - 1 = 2
+    # avg_delta = (1 + 2) / 2 = 1.5
+    # result = 1 + 1.5 = 2.5
 
-    result = torch.zeros_like(base_tensor)
-    total_weight = sum(weights)
+    deltas = [model1 - base, model2 - base]
+    avg_delta = sum(deltas) / len(deltas)
+    expected = base + avg_delta
 
-    for w, t in zip(weights, tensors):
-        result += w * t
+    assert torch.allclose(expected, torch.ones(10, 10) * 2.5)
 
-    result = result / total_weight
-
-    # Expected: (0.5*1 + 0.3*2 + 0.2*3) / 1.0 = 1.7
-    expected = torch.ones(10, 10) * 1.7
-    assert torch.allclose(result, expected, atol=1e-6)
-    print("✓ Weighted average logic test passed")
+    print("✓ Weighted average excludes base test passed")
 
 
 def test_svd_low_rank_approximation():
