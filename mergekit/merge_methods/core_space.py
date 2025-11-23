@@ -28,7 +28,7 @@ class CoreSpaceTask(Task[torch.Tensor]):
     gather_tensors: MergeTensorInput
     base_model: ModelReference
     weight_info: WeightInfo
-    default_weight: float
+    default_weight: float  # Changed from dict to simple float
 
     def uses_accelerator(self) -> bool:
         return True
@@ -39,6 +39,11 @@ class CoreSpaceTask(Task[torch.Tensor]):
     def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
         """
         Execute core space merge for a single tensor.
+
+        Note: This processes each weight tensor independently. Core Space works
+        best with full fine-tuned models (not separate lora_A/lora_B weights).
+        For LoRA adapters, use models that have been merged back into base
+        (via PEFT's merge_and_unload).
 
         Args:
             tensors: Dictionary mapping model references to their tensors
@@ -56,18 +61,7 @@ class CoreSpaceTask(Task[torch.Tensor]):
             self.base_model = list(tensors.keys())[0]
             base_tensor = tensors[self.base_model]
 
-        # Check if this is a LoRA-adapted weight
-        # LoRA weights typically have "lora_A" or "lora_B" in their names
-        is_lora = self._is_lora_weight(self.weight_info.name)
-
-        if not is_lora:
-            # For non-LoRA weights, fall back to weighted average
-            log.debug(
-                f"Using weighted average for non-LoRA weight: {self.weight_info.name}"
-            )
-            return self._weighted_average(tensors, base_tensor)
-
-        # Perform core space merge for LoRA weights
+        # Always use core space merge (which approximates deltas as low-rank)
         try:
             return self._core_space_merge(tensors, base_tensor)
         except Exception as e:
@@ -76,9 +70,17 @@ class CoreSpaceTask(Task[torch.Tensor]):
             return self._weighted_average(tensors, base_tensor)
 
     def _is_lora_weight(self, weight_name: str) -> bool:
-        """Check if a weight is LoRA-adapted."""
-        lora_indicators = ["lora_A", "lora_B", "lora_", "adapter"]
-        return any(indicator in weight_name for indicator in lora_indicators)
+        """
+        Check if a weight is from a LoRA adapter.
+
+        Note: We only handle merged LoRA weights (full fine-tuned models),
+        not separate lora_A and lora_B matrices, since mergekit processes
+        each weight independently.
+        """
+        # Don't treat separate lora_A/lora_B as LoRA - they need to be paired
+        # which we can't do in this single-tensor context
+        # We only handle full merged models that were LoRA-adapted
+        return False  # For now, treat all as full weights
 
     def _extract_lora_matrices(
         self, tensors: Dict[ModelReference, torch.Tensor], base_tensor: torch.Tensor
@@ -86,9 +88,13 @@ class CoreSpaceTask(Task[torch.Tensor]):
         """
         Extract LoRA A and B matrices from tensors.
 
-        For actual LoRA adapters, we need to separate A and B matrices.
-        For full fine-tuned models, we compute task vectors and approximate
-        them as low-rank using SVD.
+        Since mergekit processes each tensor independently, we can't access
+        paired lora_A and lora_B weights. Instead, we approximate all task
+        vectors (deltas from base) as low-rank using SVD.
+
+        This works for:
+        - Full fine-tuned models (common case)
+        - LoRA models that were merged back into base (via merge_and_unload)
         """
         lora_As = []
         lora_Bs = []
@@ -100,33 +106,21 @@ class CoreSpaceTask(Task[torch.Tensor]):
             # Compute task vector (delta from base)
             delta = tensor - base_tensor
 
-            # Check if this is already a LoRA matrix
-            if "lora_A" in self.weight_info.name:
-                # This is already the A matrix
-                lora_As.append(delta)
-                # We'll need to match with corresponding B matrix
-                # For now, create identity-like B
-                lora_Bs.append(torch.eye(delta.shape[0], device=delta.device))
-            elif "lora_B" in self.weight_info.name:
-                # This is already the B matrix
-                lora_Bs.append(delta)
-                # Create identity-like A
-                lora_As.append(torch.eye(delta.shape[1], device=delta.device))
-            else:
-                # Full weight - approximate as low-rank via SVD
-                # ΔW ≈ B @ A where rank is chosen automatically
-                # Ensure rank is at least 1 to avoid degenerate matrices
-                rank = max(
-                    1, min(16, min(delta.shape) // 4)
-                )  # Adaptive rank with minimum of 1
-                U, S, Vt = torch.linalg.svd(delta, full_matrices=False)
+            # Approximate as low-rank via SVD
+            # ΔW ≈ B @ A where rank is chosen automatically
+            # Ensure rank is at least 1 to avoid degenerate matrices
+            rank = max(
+                1, min(16, min(delta.shape) // 4)
+            )  # Adaptive rank with minimum of 1
 
-                # Keep top-rank components
-                A = torch.diag(S[:rank]) @ Vt[:rank, :]
-                B = U[:, :rank]
+            U, S, Vt = torch.linalg.svd(delta, full_matrices=False)
 
-                lora_As.append(A)
-                lora_Bs.append(B)
+            # Keep top-rank components
+            A = torch.diag(S[:rank]) @ Vt[:rank, :]
+            B = U[:, :rank]
+
+            lora_As.append(A)
+            lora_Bs.append(B)
 
         return lora_As, lora_Bs
 
@@ -215,18 +209,29 @@ class CoreSpaceTask(Task[torch.Tensor]):
 
 class CoreSpaceMerge(MergeMethod):
     """
-    Core Space merging method for LoRA adapters.
+    Core Space merging method for LoRA-adapted models.
 
-    This method merges LoRA-adapted models by:
-    1. Projecting them into a shared core space using SVD-based reference bases
-    2. Merging in the compact core space
-    3. Reconstructing back to full parameter space
+    This method merges models by:
+    1. Approximating task vectors (deltas from base) as low-rank: ΔW ≈ B @ A
+    2. Computing SVD-based reference bases from all adapters
+    3. Projecting into a shared, aligned core space
+    4. Merging in the compact core space
+    5. Reconstructing back to full parameter space
+
+    Best used with:
+    - Full fine-tuned models (standard case)
+    - LoRA models merged back into base (via merge_and_unload)
+    - Any models where task vectors can be approximated as low-rank
+
+    Note: Does not handle separate lora_A/lora_B weight files directly,
+    as mergekit processes each tensor independently. For LoRA adapters,
+    merge them into the base model first using PEFT's merge_and_unload().
 
     Benefits:
     - Efficient: Operates in compact core space
-    - Aligned: SVD-based alignment of LoRA subspaces
-    - Information-preserving: No loss of information in projection
-    - Flexible: Supports heterogeneous ranks
+    - Aligned: SVD-based alignment of subspaces
+    - Information-preserving: Lossless projection
+    - Flexible: Handles heterogeneous ranks
     """
 
     def name(self) -> str:

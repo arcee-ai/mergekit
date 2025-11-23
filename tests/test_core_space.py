@@ -45,25 +45,27 @@ def test_reference_bases_computation():
     print("✓ Reference bases computation test passed")
 
 
-def test_lora_detection():
-    """Test LoRA weight detection logic."""
+def test_low_rank_approximation():
+    """Test that task vectors are approximated as low-rank correctly."""
+    # This is what the implementation actually does for all weights
 
-    def is_lora_weight(weight_name: str) -> bool:
-        lora_indicators = ["lora_A", "lora_B", "lora_", "adapter"]
-        return any(indicator in weight_name for indicator in lora_indicators)
+    # Simulate a task vector (delta from base)
+    delta = torch.randn(100, 80)
 
-    # Test positive cases
-    assert is_lora_weight("model.layers.0.lora_A.weight")
-    assert is_lora_weight("model.layers.0.lora_B.weight")
-    assert is_lora_weight("model.layers.0.adapter.weight")
-    assert is_lora_weight("transformer.h.0.lora_attn.weight")
+    # Approximate as low-rank (matching implementation)
+    rank = max(1, min(16, min(delta.shape) // 4))
 
-    # Test negative cases
-    assert not is_lora_weight("model.layers.0.mlp.weight")
-    assert not is_lora_weight("model.layers.0.attention.weight")
-    assert not is_lora_weight("transformer.embed.weight")
+    U, S, Vt = torch.linalg.svd(delta, full_matrices=False)
+    A = torch.diag(S[:rank]) @ Vt[:rank, :]
+    B = U[:, :rank]
 
-    print("✓ LoRA detection test passed")
+    # Verify
+    assert rank >= 1, "Rank must be at least 1"
+    assert B.shape == (100, rank)
+    assert A.shape == (rank, 80)
+    assert (B @ A).shape == delta.shape
+
+    print("✓ Low-rank approximation test passed")
 
 
 def test_weighted_average_logic():
