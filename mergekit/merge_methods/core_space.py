@@ -1,6 +1,8 @@
 from typing import List
+
 import torch
 from torch import Tensor
+
 from mergekit.merge_methods.easy_define import merge_method
 
 
@@ -18,14 +20,14 @@ def _lora_factor_from_delta(delta: Tensor, rank: int) -> tuple[Tensor, Tensor]:
         m, n = delta.shape
         return delta.new_zeros((0, n)), delta.new_zeros((m, 0))
 
-    U_r = U[:, :r_eff]           # [m, r_eff]
-    S_r = S[:r_eff]              # [r_eff]
-    Vh_r = Vh[:r_eff, :]         # [r_eff, n]
+    U_r = U[:, :r_eff]  # [m, r_eff]
+    S_r = S[:r_eff]  # [r_eff]
+    Vh_r = Vh[:r_eff, :]  # [r_eff, n]
 
     # Δ ≈ (U * sqrt(S)) @ (sqrt(S) * Vh)
     sqrt_S = S_r.sqrt()
-    B = U_r * sqrt_S.unsqueeze(0)      # scale columns of U
-    A = sqrt_S.unsqueeze(1) * Vh_r     # scale rows of Vh
+    B = U_r * sqrt_S.unsqueeze(0)  # scale columns of U
+    A = sqrt_S.unsqueeze(1) * Vh_r  # scale rows of Vh
     return A, B
 
 
@@ -68,19 +70,19 @@ def _core_space_ta_single(
     r = A_list[0].shape[0]
 
     # Stack to build global reference bases (Core Space)
-    A_stack = torch.cat(A_list, dim=0)   # [T * r, n]
-    B_stack = torch.cat(B_list, dim=1)   # [m, T * r]
+    A_stack = torch.cat(A_list, dim=0)  # [T * r, n]
+    B_stack = torch.cat(B_list, dim=1)  # [m, T * r]
 
     # SVDs to get reference bases
     # A_stack: we want a "right" basis for columns -> Vh
     _, _, Vh_A_ref = torch.linalg.svd(A_stack, full_matrices=False)  # [R_A, n]
     # B_stack: we want a "left" basis for rows -> U
-    U_B_ref, _, _ = torch.linalg.svd(B_stack, full_matrices=False)   # [m, R_B]
+    U_B_ref, _, _ = torch.linalg.svd(B_stack, full_matrices=False)  # [m, R_B]
 
     # Make both bases the same core dimensionality R
     R = min(U_B_ref.shape[1], Vh_A_ref.shape[0])
-    U_B_ref = U_B_ref[:, :R]          # [m, R]
-    Vh_A_ref = Vh_A_ref[:R, :]        # [R, n]
+    U_B_ref = U_B_ref[:, :R]  # [m, R]
+    Vh_A_ref = Vh_A_ref[:R, :]  # [R, n]
 
     # Represent each task in Core Space:
     # M_t = U_B_ref^T @ B_t @ A_t @ Vh_A_ref^T
@@ -95,7 +97,7 @@ def _core_space_ta_single(
 
     # Reconstruct merged delta in the original weight space:
     # Δ_merged = U_B_ref @ M_merged @ Vh_A_ref
-    delta_merged = U_B_ref @ M_merged @ Vh_A_ref      # [m, n]
+    delta_merged = U_B_ref @ M_merged @ Vh_A_ref  # [m, n]
     return (base_tensor.to(torch.float32) + delta_merged).to(base_tensor.dtype)
 
 
