@@ -117,11 +117,7 @@ def infer_architecture_info(
     for tensor_name in all_tensor_names:
         if ignore_on_save and tensor_name in ignore_on_save:
             continue
-        if len(RE_LAYER_INDEX.findall(tensor_name)) > 1:
-            raise ValueError(
-                f"Tensor name {tensor_name} has more than one layer index - not supported"
-            )
-        elif match := RE_LAYER_INDEX.search(tensor_name):
+        if match := RE_LAYER_INDEX.search(tensor_name):
             prefix = tensor_name[: match.start()]
             module_prefixes.add(prefix)
             layer_idx = int(match.group(1))
