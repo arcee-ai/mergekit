@@ -125,7 +125,7 @@ def infer_architecture_info(
                 module_layer_counts[prefix], layer_idx + 1
             )
             module_templates[prefix] = module_templates[prefix].union(
-                set([RE_LAYER_INDEX.sub(".${layer_index}.", tensor_name)])
+                set([RE_LAYER_INDEX.sub(".${layer_index}.", tensor_name, count=1)])
             )
 
     if len(module_prefixes) == 1:
