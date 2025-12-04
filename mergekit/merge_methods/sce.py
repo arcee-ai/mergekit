@@ -38,11 +38,7 @@ def sce_merge(
         # Handle shape mismatch - resize to base dimensions
         if t.shape != base_tensor.shape:
             # Slice tensor to match base_tensor dimensions
-            slices = tuple(
-                slice(0, min(t.shape[i], base_tensor.shape[i]))
-                for i in range(len(base_tensor.shape))
-            )
-            t = t[slices]
+            t = t[: base_tensor.shape[0], : base_tensor.shape[1]]
             logging.warning(f"Using submatrix of tensor {idx}")
 
         # Compute task vector (delta)
