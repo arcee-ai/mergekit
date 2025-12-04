@@ -1,5 +1,5 @@
 # Copyright (C) 2025 Arcee AI
-# SPDX-License-Identifier: BUSL-1.1
+# SPDX-License-Identifier: LGPL-3.0-only
 
 import logging
 from functools import lru_cache
@@ -18,6 +18,7 @@ from mergekit.architecture.base import (
 )
 from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.architecture.moe_defs import (
+    AfmoeModuleArchitecture,
     MixtralModuleArchitecture,
     Qwen3MoeModuleArchitecture,
 )
@@ -49,6 +50,13 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
             modules={"default": ModuleDefinition(architecture=module)},
             architectures=[arch_name],
             model_type="qwen3_moe",
+        )
+    elif arch_name == AfmoeModuleArchitecture.ARCHITECTURE_NAME:
+        module = AfmoeModuleArchitecture.from_config(config)
+        return ModelArchitecture(
+            modules={"default": ModuleDefinition(architecture=module)},
+            architectures=[arch_name],
+            model_type="afmoe",
         )
     elif arch_name in NAME_TO_ARCH:
         candidates = list(NAME_TO_ARCH[arch_name])

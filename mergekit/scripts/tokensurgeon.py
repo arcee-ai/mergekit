@@ -1,5 +1,5 @@
 # Copyright (C) 2025 Arcee AI
-# SPDX-License-Identifier: BUSL-1.1
+# SPDX-License-Identifier: LGPL-3.0-only
 
 import enum
 import logging
@@ -730,6 +730,8 @@ def main(
         out_path,
         max_shard_size=merge_options.out_shard_size,
         safe_serialization=merge_options.safe_serialization,
+        use_async=merge_options.async_write,
+        max_write_threads=merge_options.write_threads,
     )
     for weight_info in tqdm.tqdm(out_arch_info.all_weights(), desc="Saving weights"):
         if weight_info.name == embed_wi.name:

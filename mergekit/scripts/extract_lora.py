@@ -1,5 +1,5 @@
 # Copyright (C) 2025 Arcee AI
-# SPDX-License-Identifier: BUSL-1.1
+# SPDX-License-Identifier: LGPL-3.0-only
 
 import json
 import logging
@@ -365,6 +365,8 @@ def plan_extraction(
         override_basename="adapter_model",
         max_shard_size=-1,
         safe_serialization=options.safe_serialization,
+        use_async=options.async_write,
+        max_write_threads=options.write_threads,
     )
 
     name_to_wi = all_weights_map(model_ref, options)
