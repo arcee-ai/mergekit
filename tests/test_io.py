@@ -32,3 +32,21 @@ class TestTensorWriter:
             writer.finalize()
 
             assert os.path.exists(os.path.join(d, "model.safetensors"))
+
+    def test_async_writer(self):
+        with tempfile.TemporaryDirectory() as d:
+            writer = TensorWriter(
+                d, safe_serialization=True, use_async=True, max_shard_size=1
+            )
+            for i in range(4):
+                writer.save_tensor(f"t{i + 1}", torch.randn(16))
+            writer.finalize()
+
+            assert all(
+                [
+                    os.path.exists(
+                        os.path.join(d, f"model-{i + 1:05d}-of-00004.safetensors")
+                    )
+                    for i in range(4)
+                ]
+            )

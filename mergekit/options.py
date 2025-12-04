@@ -1,5 +1,5 @@
 # Copyright (C) 2025 Arcee AI
-# SPDX-License-Identifier: BUSL-1.1
+# SPDX-License-Identifier: LGPL-3.0-only
 
 import functools
 import logging
@@ -37,6 +37,8 @@ class MergeOptions(BaseModel, frozen=True):
     multi_gpu: bool = False
     num_threads: Optional[int] = None
     gpu_rich: bool = False
+    async_write: bool = False
+    write_threads: int = 1
 
     def apply_global_options(self):
         if self.verbosity > 1:
@@ -108,6 +110,8 @@ OPTION_HELP = {
     "num_threads": "Number of threads to use for parallel CPU operations",
     "verbosity": "Verbose logging (repeat for more verbosity)",
     "gpu_rich": "Alias for --cuda --low-cpu-memory --read-to-gpu --multi-gpu",
+    "async_write": "Write output shards asynchronously (faster execution, higher memory use)",
+    "write_threads": "Number of threads to use for asynchronous writes",
 }
 
 OPTION_CATEGORIES = {
@@ -132,6 +136,8 @@ OPTION_CATEGORIES = {
     "verbosity": "Miscellaneous",
     "quiet": "Miscellaneous",
     "lora_merge_dtype": "Miscellaneous",
+    "async_write": "Performance",
+    "write_threads": "Performance",
 }
 
 

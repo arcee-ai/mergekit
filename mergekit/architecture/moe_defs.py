@@ -1,5 +1,5 @@
 # Copyright (C) 2025 Arcee AI
-# SPDX-License-Identifier: BUSL-1.1
+# SPDX-License-Identifier: LGPL-3.0-only
 
 from typing import ClassVar, List, Optional
 
@@ -100,4 +100,44 @@ class Qwen3MoeModuleArchitecture(ModuleArchitecture, BaseModel):
             if ".mlp." in weight_info.name:
                 continue
             res.append(weight_info)
+        return res
+
+
+AFMOE_PARTIAL_INFO = NAME_TO_ARCH["_AfmoePartialForCausalLM"][0]
+AFMOE_PARTIAL_MODULE_ARCH = AFMOE_PARTIAL_INFO.modules["default"].architecture
+
+
+class AfmoeModuleArchitecture(ModuleArchitecture, BaseModel):
+    ARCHITECTURE_NAME: ClassVar[str] = "AfmoeForCausalLM"
+    num_experts: int
+
+    def name(self) -> str:
+        return "afmoe"
+
+    @classmethod
+    def from_config(cls, config: PretrainedConfig):
+        return AfmoeModuleArchitecture(num_experts=config.num_experts)
+
+    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return AFMOE_PARTIAL_MODULE_ARCH.pre_weights(config)
+
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return AFMOE_PARTIAL_MODULE_ARCH.post_weights(config)
+
+    def num_layers_config_key(self) -> str:
+        return AFMOE_PARTIAL_MODULE_ARCH.num_layers_config_key()
+
+    def layer_weights(
+        self, index: int, config: PretrainedConfig
+    ) -> Optional[List[WeightInfo]]:
+        res = AFMOE_PARTIAL_MODULE_ARCH.layer_weights(index, config) or []
+        prefix = f"model.layers.{index}"
+        for expert_idx in range(self.num_experts):
+            for param in ("up_proj", "gate_proj", "down_proj"):
+                res.append(
+                    WeightInfo(
+                        name=prefix + f".mlp.experts.{expert_idx}.{param}.weight",
+                        optional=True,
+                    )
+                )
         return res

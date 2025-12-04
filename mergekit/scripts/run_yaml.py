@@ -1,5 +1,5 @@
 # Copyright (C) 2025 Arcee AI
-# SPDX-License-Identifier: BUSL-1.1
+# SPDX-License-Identifier: LGPL-3.0-only
 
 
 import click

@@ -1,5 +1,5 @@
 # Copyright (C) 2025 Arcee AI
-# SPDX-License-Identifier: BUSL-1.1
+# SPDX-License-Identifier: LGPL-3.0-only
 
 import logging
 from typing import Dict, List, Optional
@@ -28,8 +28,8 @@ class InputModelDefinition(BaseModel, frozen=True):
 
 class RawPyTorchMergeConfig(BaseModel, frozen=True):
     merge_method: str
-    parameters: Optional[Dict[str, ParameterSetting]]
     models: List[InputModelDefinition]
+    parameters: Optional[Dict[str, ParameterSetting]] = None
     dtype: Optional[str] = None
     base_model: Optional[str] = None
 
@@ -92,6 +92,8 @@ def plan_flat_merge(
         out_path=out_path,
         max_shard_size=options.out_shard_size,
         safe_serialization=options.safe_serialization,
+        use_async=options.async_write,
+        max_write_threads=options.write_threads,
     )
 
     save_tasks = []
@@ -169,7 +171,7 @@ def construct_param_dicts(
 ):
     global_params = {}
     for param_def in merge_method.parameters():
-        if param_def.name in config.parameters:
+        if config.parameters and param_def.name in config.parameters:
             value = evaluate_setting(tensor_name, config.parameters[param_def.name])
             if value is not None:
                 global_params[param_def.name] = value
@@ -192,7 +194,8 @@ def construct_param_dicts(
             ):
                 tensor_params[mr][param_def.name] = value
             elif value := evaluate_setting(
-                tensor_name, config.parameters.get(param_def.name, [])
+                tensor_name,
+                config.parameters.get(param_def.name, []) if config.parameters else [],
             ):
                 tensor_params[mr][param_def.name] = value
             elif param_def.required:
