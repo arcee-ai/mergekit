@@ -130,7 +130,9 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
                 continue
 
             if num_present == 0:
-                token_configs[token] = TokenEmbeddingConfig(source=ZeroEmbedding())
+                token_configs[token] = TokenEmbeddingConfig(
+                    source=ZeroEmbedding(kind="zero")
+                )
                 logging.warning(f"Token {repr(token)} not found in any model")
                 continue
 
@@ -152,7 +154,10 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
         cfg: TokenEmbeddingConfig,
     ) -> torch.Tensor:
         if isinstance(cfg.source, ZeroEmbedding):
-            pass
+            any_tensor = next(iter(tensors.values()))
+            embed = torch.zeros(
+                any_tensor.shape[1], dtype=any_tensor.dtype, device=any_tensor.device
+            )
         elif isinstance(cfg.source, ModelTokenEmbedding):
             model = cfg.source.model
             assert (

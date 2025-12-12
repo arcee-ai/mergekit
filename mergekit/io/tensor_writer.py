@@ -39,6 +39,7 @@ class TensorWriter:
         use_async: bool = False,
         max_write_threads: int = 1,
     ) -> None:
+        out_path = os.path.abspath(os.path.expanduser(out_path))
         os.makedirs(out_path, exist_ok=True)
 
         self.out_path = out_path
