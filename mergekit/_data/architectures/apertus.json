@@ -1,0 +1,72 @@
+{
+    "model_type": "apertus",
+    "architectures": [
+        "ApertusForCausalLM"
+    ],
+    "pre_weights": [
+        {
+            "name": "model.embed_tokens.weight",
+            "is_embed": true
+        }
+    ],
+    "post_weights": [
+        {
+            "name": "model.norm.weight"
+        },
+        {
+            "name": "lm_head.weight",
+            "is_embed": true,
+            "optional": true,
+            "tied_names": [
+                "model.embed_tokens.weight"
+            ]
+        }
+    ],
+    "num_layers_config_key": "num_hidden_layers",
+    "layer_templates": {
+        "weights": [
+            {
+                "name": "model.layers.${layer_index}.attention_layernorm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.feedforward_layernorm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.act_fn.alpha_n"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.act_fn.alpha_p"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.act_fn.beta"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.act_fn.eps"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.down_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.mlp.up_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.k_norm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.k_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.q_norm.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.q_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.v_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.o_proj.weight"
+            }
+        ]
+    }
+}
