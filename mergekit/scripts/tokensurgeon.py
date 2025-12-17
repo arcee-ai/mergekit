@@ -17,6 +17,7 @@ from mergekit.architecture import (
     WeightInfo,
     arch_info_for_config,
 )
+from mergekit.architecture.auto import infer_architecture_info
 from mergekit.common import ModelReference, set_config_value
 from mergekit.io.tasks import (
     LoaderCache,
@@ -98,6 +99,8 @@ def get_arch_info(
 ) -> ConfiguredModelArchitecture:
     cfg = model.config(trust_remote_code=options.trust_remote_code)
     arch_info = arch_info_for_config(cfg)
+    if arch_info is None:
+        arch_info = infer_architecture_info((model,), model, options)
     return ConfiguredModelArchitecture(info=arch_info, config=cfg)
 
 
@@ -205,6 +208,8 @@ def get_out_arch_info(
     cfg_donor = donor.config(trust_remote_code=common_options.trust_remote_code)
     cfg_out = model.config(trust_remote_code=common_options.trust_remote_code)
     arch_info_out = arch_info_for_config(cfg_out)
+    if arch_info_out is None:
+        arch_info_out = infer_architecture_info((model,), model, common_options)
     set_config_value(
         cfg_out, arch_info_out.vocab_size_config_key or "vocab_size", new_vocab_size
     )
