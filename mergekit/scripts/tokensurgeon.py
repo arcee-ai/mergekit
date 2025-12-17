@@ -208,6 +208,8 @@ def get_out_arch_info(
     cfg_donor = donor.config(trust_remote_code=common_options.trust_remote_code)
     cfg_out = model.config(trust_remote_code=common_options.trust_remote_code)
     arch_info_out = arch_info_for_config(cfg_out)
+    if arch_info_out is None:
+        arch_info_out = infer_architecture_info((model,), model, common_options)
     set_config_value(
         cfg_out, arch_info_out.vocab_size_config_key or "vocab_size", new_vocab_size
     )
