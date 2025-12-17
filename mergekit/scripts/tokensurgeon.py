@@ -17,6 +17,7 @@ from mergekit.architecture import (
     WeightInfo,
     arch_info_for_config,
 )
+from mergekit.architecture.auto import infer_architecture_info
 from mergekit.common import ModelReference, set_config_value
 from mergekit.io.tasks import (
     LoaderCache,
@@ -98,6 +99,8 @@ def get_arch_info(
 ) -> ConfiguredModelArchitecture:
     cfg = model.config(trust_remote_code=options.trust_remote_code)
     arch_info = arch_info_for_config(cfg)
+    if arch_info is None:
+        arch_info = infer_architecture_info((model,), model, options)
     return ConfiguredModelArchitecture(info=arch_info, config=cfg)
 
 
