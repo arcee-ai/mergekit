@@ -94,6 +94,15 @@ def get_architecture_info(
             raise RuntimeError(
                 "Must specify --allow-crimes to attempt to mix different architectures"
             )
+        # Prefer using the base_model's architecture when mixing different families
+        # to ensure the output layout matches the base.
+        if config.base_model is not None:
+            try:
+                idx = models.index(config.base_model)
+                return model_arch_info[idx]
+            except ValueError:
+                # base_model not in referenced models; fall back to first
+                pass
         return model_arch_info[0]
 
     # try to infer from all models
