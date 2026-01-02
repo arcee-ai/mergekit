@@ -462,7 +462,10 @@ def build_embedding_matrix(
         ):
             res[donor_idx] = orig_embed[orig_idx]
             stats.byte_match += 1
-        elif allow_prefix and (orig_idx := match_prefix(token, safe_orig_vocab)) is not None:
+        elif (
+            allow_prefix
+            and (orig_idx := match_prefix(token, safe_orig_vocab)) is not None
+        ):
             res[donor_idx] = orig_embed[orig_idx]
             stats.prefix_match += 1
         else:
