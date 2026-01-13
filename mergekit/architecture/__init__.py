@@ -19,6 +19,7 @@ from mergekit.architecture.base import (
 from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.architecture.moe_defs import (
     AfmoeModuleArchitecture,
+    Glm4MoeModuleArchitecture,
     MixtralModuleArchitecture,
     Qwen3MoeModuleArchitecture,
 )
@@ -58,6 +59,13 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
             architectures=[arch_name],
             model_type="afmoe",
         )
+    elif arch_name == Glm4MoeModuleArchitecture.ARCHITECTURE_NAME:
+        module = Glm4MoeModuleArchitecture.from_config(config)
+        return ModelArchitecture(
+            modules={"default": ModuleDefinition(architecture=module)},
+            architectures=[arch_name],
+            model_type="glm4_moe",
+        )
     elif arch_name in NAME_TO_ARCH:
         candidates = list(NAME_TO_ARCH[arch_name])
         if len(candidates) == 1:
@@ -82,11 +90,17 @@ def get_architecture_info(
     models = config.referenced_models()
     if not models:
         raise ValueError("No models referenced in config")
+    print(f"models: {models}")
+    # model_arch_info = [
+    #     arch_info_for_config(m.config(trust_remote_code=options.trust_remote_code))
+    #     for m in models
+    # ]
+    model_arch_info = []
+    for m in models:
+        print(f"m: {m}")
+        print(f"m.config(trust_remote_code=options.trust_remote_code): {m.config(trust_remote_code=options.trust_remote_code)}")
+        model_arch_info.append(arch_info_for_config(m.config(trust_remote_code=options.trust_remote_code)))
 
-    model_arch_info = [
-        arch_info_for_config(m.config(trust_remote_code=options.trust_remote_code))
-        for m in models
-    ]
     if all(arch is not None for arch in model_arch_info):
         if not options.allow_crimes and any(
             arch != model_arch_info[0] for arch in model_arch_info

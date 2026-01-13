@@ -20,6 +20,13 @@ except ImportError:
 else:
     ALL_OUTPUT_ARCHITECTURES.append(Qwen3MoE())
 
+try:
+    from mergekit.moe.glm4 import Glm4MoE
+except ImportError:
+    pass
+else:
+    ALL_OUTPUT_ARCHITECTURES.append(Glm4MoE())
+
 __all__ = [
     "ALL_OUTPUT_ARCHITECTURES",
     "MoEOutputArchitecture",

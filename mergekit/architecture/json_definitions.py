@@ -182,6 +182,8 @@ def _load_all_architectures() -> (
         for arch_name in arch_info.architectures:
             name_to_arch[arch_name] = name_to_arch.get(arch_name, [])
             name_to_arch[arch_name].append(arch_info)
+    print(f"name_to_arch: {name_to_arch.keys()}")
+    # print(f"architectures: {architectures}")
     return architectures, name_to_arch
 
 

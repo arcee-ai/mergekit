@@ -141,3 +141,72 @@ class AfmoeModuleArchitecture(ModuleArchitecture, BaseModel):
                     )
                 )
         return res
+
+
+GLM4_INFO = NAME_TO_ARCH["Glm4MoeForCausalLM"][0]
+GLM4_MODULE_ARCH = GLM4_INFO.modules["default"].architecture
+
+print(f"GLM4_INFO: {GLM4_INFO}")
+print(f"GLM4_MODULE_ARCH: {GLM4_MODULE_ARCH}")
+
+class Glm4MoeModuleArchitecture(ModuleArchitecture, BaseModel):
+    ARCHITECTURE_NAME: ClassVar[str] = "Glm4MoeForCausalLM"
+    num_experts: int
+
+    def name(self) -> str:
+        return "glm4_moe"
+
+    @classmethod
+    def from_config(cls, config: PretrainedConfig):
+        return Glm4MoeModuleArchitecture(num_experts=config.n_routed_experts)
+
+    def pre_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return GLM4_MODULE_ARCH.pre_weights(config)
+
+    def post_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
+        return GLM4_MODULE_ARCH.post_weights(config)
+
+    def num_layers_config_key(self) -> str:
+        return GLM4_MODULE_ARCH.num_layers_config_key()
+
+    def layer_weights(
+        self, index: int, config: PretrainedConfig
+    ) -> Optional[List[WeightInfo]]:
+        prefix = f"model.layers.{index}"
+        tensor_names = []
+        if index < config.first_k_dense_replace:
+            res = []
+            for weight_info in GLM4_MODULE_ARCH.layer_weights(index, config):
+                res.append(weight_info)
+            # print(f"index: {index} and res: {res}")
+            return res
+        else:
+            for expert_idx in range(self.num_experts):
+                tensor_names.append(
+                    prefix + f".mlp.experts.{expert_idx}.gate_proj.weight"
+                )
+                tensor_names.append(
+                    prefix + f".mlp.experts.{expert_idx}.up_proj.weight"
+                )
+                tensor_names.append(
+                    prefix + f".mlp.experts.{expert_idx}.down_proj.weight"
+                )
+            tensor_names.append(prefix + ".mlp.gate.weight")
+            # Add shared expert weights (optional - will be present if using shared expert)
+            # Mark as optional so they can be missing if no shared expert is used
+            shared_expert_names = [
+                (prefix + ".mlp.shared_expert.gate_proj.weight", True),
+                (prefix + ".mlp.shared_expert.up_proj.weight", True),
+                (prefix + ".mlp.shared_expert.down_proj.weight", True),
+            ]
+            
+            res = []
+            for name in tensor_names:
+                res.append(WeightInfo(name=name))
+            for name, optional in shared_expert_names:
+                res.append(WeightInfo(name=name, optional=optional))
+            for weight_info in GLM4_MODULE_ARCH.layer_weights(index, config):
+                if ".mlp." in weight_info.name:
+                    continue
+                res.append(weight_info)
+            return res
