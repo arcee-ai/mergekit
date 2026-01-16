@@ -253,7 +253,7 @@ class MergePlanner:
             .layer_weights(index=s.layer_range[0] + layer_offset)
             for s in sources
         ]
-        
+
         for idx, w_o in enumerate(weights_out):
             self.plan_tensor(
                 weight=w_o,

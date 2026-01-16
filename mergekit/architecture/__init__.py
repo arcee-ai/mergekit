@@ -90,17 +90,11 @@ def get_architecture_info(
     models = config.referenced_models()
     if not models:
         raise ValueError("No models referenced in config")
-    print(f"models: {models}")
-    # model_arch_info = [
-    #     arch_info_for_config(m.config(trust_remote_code=options.trust_remote_code))
-    #     for m in models
-    # ]
-    model_arch_info = []
-    for m in models:
-        print(f"m: {m}")
-        print(f"m.config(trust_remote_code=options.trust_remote_code): {m.config(trust_remote_code=options.trust_remote_code)}")
-        model_arch_info.append(arch_info_for_config(m.config(trust_remote_code=options.trust_remote_code)))
 
+    model_arch_info = [
+        arch_info_for_config(m.config(trust_remote_code=options.trust_remote_code))
+        for m in models
+    ]
     if all(arch is not None for arch in model_arch_info):
         if not options.allow_crimes and any(
             arch != model_arch_info[0] for arch in model_arch_info

@@ -149,6 +149,7 @@ GLM4_MODULE_ARCH = GLM4_INFO.modules["default"].architecture
 print(f"GLM4_INFO: {GLM4_INFO}")
 print(f"GLM4_MODULE_ARCH: {GLM4_MODULE_ARCH}")
 
+
 class Glm4MoeModuleArchitecture(ModuleArchitecture, BaseModel):
     ARCHITECTURE_NAME: ClassVar[str] = "Glm4MoeForCausalLM"
     num_experts: int
