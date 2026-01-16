@@ -40,7 +40,6 @@ def run_merge(
         raise RuntimeError("No output requested")
 
     arch_info = get_architecture_info(merge_config, options)
-    print(f"arch_info: {arch_info}")
     # initialize loader cache and set options
     loader_cache = LoaderCache()
     loader_cache.setup(options=options)
