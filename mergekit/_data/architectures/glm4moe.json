@@ -28,10 +28,12 @@
                 "name": "model.layers.${layer_index}.post_attention_layernorm.weight"
             },
             {
-                "name": "model.layers.${layer_index}.self_attn.q_norm.weight"
+                "name": "model.layers.${layer_index}.self_attn.q_norm.weight",
+                "optional": true
             },
             {
-                "name": "model.layers.${layer_index}.self_attn.k_norm.weight"
+                "name": "model.layers.${layer_index}.self_attn.k_norm.weight",
+                "optional": true
             },
             {
                 "name": "model.layers.${layer_index}.self_attn.q_proj.weight"

@@ -192,14 +192,11 @@ class Glm4MoeModuleArchitecture(ModuleArchitecture, BaseModel):
                 )
             tensor_names.append(prefix + ".mlp.gate.weight")
             tensor_names.append(prefix + ".mlp.gate.e_score_correction_bias")
-            # Add shared expert weights (optional - will be present if using shared expert)
-            # Mark as optional so they can be missing if no shared expert is used
             shared_expert_names = [
                 (prefix + ".mlp.shared_experts.gate_proj.weight", False),
                 (prefix + ".mlp.shared_experts.up_proj.weight", False),
                 (prefix + ".mlp.shared_experts.down_proj.weight", False),
             ]
-            
             res = []
             for name in tensor_names:
                 res.append(WeightInfo(name=name))
