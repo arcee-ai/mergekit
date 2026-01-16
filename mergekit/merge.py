@@ -256,6 +256,8 @@ def _copy_tokenizer(
             "tokenizer.model",
             "added_tokens.json",
             "merges.txt",
+            "chat_template.jinja",
+            "generation_config.json",
         ]:
             if os.path.exists(os.path.join(donor_local_path, file_name)):
                 shutil.copy(
