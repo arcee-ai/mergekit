@@ -20,7 +20,7 @@ from typing_extensions import Generic, TypeVar
 ValueT = TypeVar("ValueT")
 
 
-class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
+class Task(ABC, BaseModel, Generic[ValueT], frozen=True, arbitrary_types_allowed=True):
     """
     Abstract base class representing a task in a computational graph.
 
