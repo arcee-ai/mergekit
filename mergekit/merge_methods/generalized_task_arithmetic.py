@@ -179,12 +179,6 @@ class GTATask(Task[torch.Tensor]):
             divisor = weights.sum(dim=0)
             divisor[divisor.abs() < 1e-8] = 1
 
-        if self.normalize:
-            mixed_delta /= divisor
-
-        if self.lambda_ != 1:
-            mixed_delta *= self.lambda_
-            
         param_key = self.weight_info.name
         subspace_input = [tv["delta"] for tv in tvs]
 
@@ -194,7 +188,13 @@ class GTATask(Task[torch.Tensor]):
             mixed_delta = compute_and_sum_svd_mem_reduction(subspace_input, param_key, deltas.device)
         elif self.method.name() in ["task_arithmetic_sb", "ties_sb"]:
             mixed_delta = subspace_boosting(param_key, mixed_delta, svd_thresh=self.svd_thresh, cumsum=self.cumsum)
-        
+
+        if self.normalize:
+            mixed_delta /= divisor
+
+        if self.lambda_ != 1:
+            mixed_delta *= self.lambda_
+
         return (base + mixed_delta).to(base.dtype)
 
     def group_label(self) -> Optional[str]:
