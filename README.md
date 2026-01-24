@@ -1,5 +1,9 @@
 # mergekit
 
+[![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
+[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/arcee-ai/mergekit/pre-commit.yml?label=Tests)](https://github.com/arcee-ai/mergekit/actions/workflows/pre-commit.yml)
+[![Arcee Discord](https://img.shields.io/badge/Arcee%20Discord-Arcee%20Discord?logo=discord&logoColor=white&color=5865F2)](https://discord.gg/arceeai)
+
 `mergekit` is a toolkit for merging pre-trained language models. `mergekit` uses an out-of-core approach to perform unreasonably elaborate merges in resource-constrained situations. Merges can be run entirely on CPU or accelerated with as little as 8 GB of VRAM. Many merging algorithms are supported, with more coming as they catch my attention.
 
 ## Contents
@@ -7,7 +11,9 @@
 - [Why Merge Models?](#why-merge-models)
 - [Features](#features)
 - [Installation](#installation)
-- [Contributing](#contributing)
+- [Community & Support](#community--support)
+  - [Contributing](#contributing)
+  - [Community Tools](#community-tools)
 - [Usage](#usage)
 - [Merge Configuration](#merge-configuration)
   - [Parameter Specification](#parameter-specification)
@@ -67,11 +73,20 @@ ERROR: File "setup.py" or "setup.cfg" not found. Directory cannot be installed i
 (A "pyproject.toml" file was found, but editable mode currently requires a setuptools-based build.)
 ```
 
-You may need to upgrade pip to > 21.3 with the command `python3 -m pip install --upgrade pip`
+You may need to upgrade pip to > 21.3 with the command `python3 -m pip install --upgrade pip`.
 
-## Contributing
+## Community & Support
+
+- **Issues**: [GitHub Issues](https://github.com/arcee-ai/mergekit/issues)
+- **Discussions**: [Arcee Discord](https://discord.gg/arceeai)
+
+### Contributing
 
 We welcome contributions to `mergekit`! If you have ideas for new merge methods, features, or other improvements, please check out our [contributing guide](CONTRIBUTING.md) for details on how to get started.
+
+### Community Tools
+
+- **[FrankensteinAI](https://frankenstein-ai.com/)**: For those who prefer a browser-based experience without local setup or hardware wrangling, the team at FrankensteinAI has built a hosted platform powered by `mergekit`. Also features a community gallery and leaderboard for sharing and comparing merged models.
 
 ## Usage
 

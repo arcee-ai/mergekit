@@ -17,6 +17,7 @@ from mergekit.architecture import (
     WeightInfo,
     arch_info_for_config,
 )
+from mergekit.architecture.auto import infer_architecture_info
 from mergekit.common import ModelReference, set_config_value
 from mergekit.io.tasks import (
     LoaderCache,
@@ -98,6 +99,8 @@ def get_arch_info(
 ) -> ConfiguredModelArchitecture:
     cfg = model.config(trust_remote_code=options.trust_remote_code)
     arch_info = arch_info_for_config(cfg)
+    if arch_info is None:
+        arch_info = infer_architecture_info((model,), model, options)
     return ConfiguredModelArchitecture(info=arch_info, config=cfg)
 
 
@@ -205,6 +208,8 @@ def get_out_arch_info(
     cfg_donor = donor.config(trust_remote_code=common_options.trust_remote_code)
     cfg_out = model.config(trust_remote_code=common_options.trust_remote_code)
     arch_info_out = arch_info_for_config(cfg_out)
+    if arch_info_out is None:
+        arch_info_out = infer_architecture_info((model,), model, common_options)
     set_config_value(
         cfg_out, arch_info_out.vocab_size_config_key or "vocab_size", new_vocab_size
     )
@@ -399,13 +404,38 @@ def build_embedding_matrix(
     LOG.info(f"Building new tensor for {weight_info.name}")
     stats = TokenAssignmentStats()
     out_vocab_size = max(len(donor_vocab), max(donor_vocab.values()) + 1)
+    orig_rows = orig_embed.shape[0]
+    donor_rows = donor_embed.shape[0]
+    safe_orig_vocab = {tok: idx for tok, idx in orig_vocab.items() if idx < orig_rows}
+    safe_donor_vocab = {
+        tok: idx for tok, idx in donor_vocab.items() if idx < donor_rows
+    }
+    dropped_orig = len(orig_vocab) - len(safe_orig_vocab)
+    dropped_donor = len(donor_vocab) - len(safe_donor_vocab)
+    if dropped_orig:
+        LOG.warning(
+            "Skipping %d original tokens with ids >= %d rows for %s",
+            dropped_orig,
+            orig_rows,
+            weight_info.name,
+        )
+    if dropped_donor:
+        LOG.warning(
+            "Skipping %d donor tokens with ids >= %d rows for %s",
+            dropped_donor,
+            donor_rows,
+            weight_info.name,
+        )
+        oob_donor_ids = [idx for idx in donor_vocab.values() if idx >= donor_rows]
+        if oob_donor_ids:
+            junk_tokens = list(sorted(set(junk_tokens).union(oob_donor_ids)))
 
     if options.method == ApproximationMethod.SPARSE_TOKEN_BASIS:
         token_basis = compute_token_basis(
             orig_embed,
             donor_embed,
-            orig_vocab,
-            donor_vocab,
+            safe_orig_vocab,
+            safe_donor_vocab,
             junk_tokens,
             options,
         )
@@ -420,16 +450,22 @@ def build_embedding_matrix(
     )
     new_tokens = []
     for token, donor_idx in donor_vocab.items():
-        if token in orig_vocab:
-            orig_idx = orig_vocab[token]
+        if donor_idx >= donor_rows:
+            continue
+        if token in safe_orig_vocab:
+            orig_idx = safe_orig_vocab[token]
             res[donor_idx] = orig_embed[orig_idx]
             stats.exact_match += 1
         elif (
-            allow_byte and (orig_idx := match_byte_token(token, orig_vocab)) is not None
+            allow_byte
+            and (orig_idx := match_byte_token(token, safe_orig_vocab)) is not None
         ):
             res[donor_idx] = orig_embed[orig_idx]
             stats.byte_match += 1
-        elif allow_prefix and (orig_idx := match_prefix(token, orig_vocab)) is not None:
+        elif (
+            allow_prefix
+            and (orig_idx := match_prefix(token, safe_orig_vocab)) is not None
+        ):
             res[donor_idx] = orig_embed[orig_idx]
             stats.prefix_match += 1
         else:
@@ -460,8 +496,8 @@ def build_embedding_matrix(
             new_embeds = compute_new_embeddings(
                 orig_embed,
                 donor_embed,
-                orig_vocab,
-                donor_vocab,
+                safe_orig_vocab,
+                safe_donor_vocab,
                 target_tokens=new_tokens[base_idx : base_idx + batch_size],
                 is_lm_head=is_lm_head,
                 token_basis=token_basis,
