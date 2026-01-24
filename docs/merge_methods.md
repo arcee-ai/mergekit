@@ -293,14 +293,12 @@ For inactive parameters, the base model value is preserved. Unique contributions
 **Variants:**
 
 - `ram`: The base RAM method without rescaling. Unique parameters are preserved as-is, shared parameters are averaged.
-- `ramplus_tl`: RAM Plus (Tensor-Local) extends RAM by applying an adaptive rescaling factor `λ` to unique contributions, compensating for signal dilution caused by averaging shared parameters. The "Tensor-Local" suffix indicates that the overlap-unique ratio `ρ` is computed per-tensor rather than globally. The rescaling formula is: `λ = 1 + r · clip(ρ, 0, α)`, where `ρ` is the ratio of shared to unique parameter counts for each model within each tensor.
+- `ramplus_tl`: RAM+ extends RAM by applying an adaptive rescaling factor `λ` to unique contributions, compensating for signal dilution caused by averaging shared parameters. The rescaling formula is: `λ = 1 + r · clip(ρ, 0, α)`, where `ρ` is the ratio of shared to unique parameter counts for each model within each tensor. `mergekit` implements a tensor-local variant, in which the overlap-unique ratio `ρ` is computed per-tensor rather than globally.
 
 **Use Cases:**
 
-- Merging multiple RL-trained agents from different tasks into a single generalist model
-- Combining agentic models that require specialized reasoning behaviors
 - Scenarios where task vectors are sparse and heterogeneous (common in RL fine-tuning)
-- Preserving unique model specializations while resolving conflicts in shared parameter regions
+- Merging multiple RL-trained agents from different tasks into a single generalist model
 
 **Inputs:** Requires a `base_model` and one or more other models.
 
