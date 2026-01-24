@@ -188,6 +188,25 @@ class TestBasicMerges:
         )
         run_and_check_merge(config)
 
+    def test_ram_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="ram",
+            base_model=model_c,
+        )
+        run_and_check_merge(config)
+
+    def test_ramplus_tl_merge(self, model_a, model_b, model_c):
+        config = self.two_model_config(
+            model_a,
+            model_b,
+            merge_method="ramplus_tl",
+            base_model=model_c,
+            params={"r": 0.05, "alpha": 1.0},
+        )
+        run_and_check_merge(config)
+
     def test_multislerp_merge(self, model_a, model_b, model_c):
         config = self.two_model_config(
             model_a,

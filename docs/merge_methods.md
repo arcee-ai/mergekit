@@ -17,6 +17,7 @@
   - [DELLA (`della`, `della_linear`)](#della-della-della_linear)
   - [Model Breadcrumbs (`breadcrumbs`, `breadcrumbs_ties`)](#model-breadcrumbs-breadcrumbs-breadcrumbs_ties)
   - [SCE (`sce`)](#sce-sce)
+  - [RAM (`ram`, `ramplus_tl`)](#ram-ram-ramplus_tl)
 - [Specialized Methods](#specialized-methods)
   - [Model Stock (`model_stock`)](#model-stock-model_stock)
   - [Nearswap (`nearswap`)](#nearswap-nearswap)
@@ -276,6 +277,41 @@ Finally, the (variance-selected, calculated-weighted, and sign-agreed) task vect
 - `select_topk` (global): The fraction of parameter positions to retain based on their variance values across the different input models' task vectors. For each parameter position, variance is calculated across all task vectors. Only positions corresponding to the `select_topk` fraction with the highest variances are kept (i.e., their values in all task vectors are preserved for the next steps). Positions with lower variance are zeroed out in all task vectors. Set to 1.0 (default) to disable this variance-based selection step. This corresponds to `τ` (tau) in the reference paper.
 
 **Reference:** [FuseChat: Knowledge Fusion of Chat Models](https://arxiv.org/abs/2408.07990)
+
+### RAM (`ram`, `ramplus_tl`)
+
+**Concept:** Reinforced Agent Merging (RAM) is a task vector method specifically designed for merging reinforcement learning (RL)-trained agents. The key insight is that on-policy RL induces task vectors that are highly sparse and heterogeneous, unlike the denser vectors from supervised fine-tuning. Traditional averaging methods dilute critical task-specific behaviors in this setting.
+
+RAM addresses this by classifying each parameter into three categories based on how many models modify it:
+
+- **Inactive**: No models modify this parameter (magnitude below `epsilon`)
+- **Unique**: Exactly one model modifies this parameter
+- **Shared**: Multiple models modify this parameter
+
+For inactive parameters, the base model value is preserved. Unique contributions are summed directly (preserving task-specific behaviors), while shared contributions are averaged (resolving conflicts). This selective merging strategy prevents the dilution of specialized agent behaviors.
+
+**Variants:**
+
+- `ram`: The base RAM method without rescaling. Unique parameters are preserved as-is, shared parameters are averaged.
+- `ramplus_tl`: RAM+ extends RAM by applying an adaptive rescaling factor `λ` to unique contributions, compensating for signal dilution caused by averaging shared parameters. The rescaling formula is: `λ = 1 + r · clip(ρ, 0, α)`, where `ρ` is the ratio of shared to unique parameter counts for each model within each tensor. `mergekit` implements a tensor-local variant, in which the overlap-unique ratio `ρ` is computed per-tensor rather than globally.
+
+**Use Cases:**
+
+- Scenarios where task vectors are sparse and heterogeneous (common in RL fine-tuning)
+- Merging multiple RL-trained agents from different tasks into a single generalist model
+
+**Inputs:** Requires a `base_model` and one or more other models.
+
+**Key Parameters:**
+
+- `epsilon` (global): Threshold for determining if a parameter is modified (values with absolute magnitude at or below `epsilon` are treated as inactive/unchanged). Default `1e-5`
+
+For `ramplus_tl` only:
+
+- `r` (global): Rescaling strength that controls the amplification of unique contributions. Higher values increase the reinforcement of unique parameters. Default `0.1`
+- `alpha` (global): Stability bound that clamps the overlap-unique ratio `ρ`, limiting the maximum rescaling factor. Default `0.2`
+
+**Reference:** [Reinforced Agent Merging](https://arxiv.org/abs/2601.13572)
 
 ---
 
