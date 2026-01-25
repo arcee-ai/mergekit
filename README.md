@@ -173,13 +173,15 @@ The `source` field determines the vocabulary of the output model:
 
 ##### Token Embedding Handling
 
-When merging models with different vocabularies, mergekit uses smart defaults to handle token embeddings:
+When a tokenizer is configured, each input model's embedding matrix is adjusted to match the output vocabulary before being passed to the merge method. For tokens a model already has, its own embedding is used. For tokens a model is *missing*, a fallback embedding is assigned using these rules:
 
-- If a token exists in the base model, its embedding is used as the default
-- If only one model has the token, that model's embedding is used
-- Otherwise, an average of all available embeddings is used
+- If the base model has the token, use the base model's embedding
+- If only one model has the token, use that model's embedding
+- Otherwise, use an average of all available embeddings
 
-You can override these defaults for specific tokens:
+The merge method then combines these per-model embeddings (original and filled-in) to produce the final output. This means the final embedding for a token present in multiple models is determined by your merge method (SLERP, linear, TIES, etc.), not simply taken from one model.
+
+You can override these defaults for specific tokens. Any tokens listed here that don't already exist in the output vocabulary will be added automatically, making this useful for introducing new special tokens.
 
 ```yaml
 tokenizer:
@@ -200,6 +202,11 @@ tokenizer:
         kind: "model_token"
         model: "path/to/model"
         token: "<|original_token|>"  # or use token_id: 1234
+
+    # Use a zero embedding
+    <|unused|>:
+      source:
+        kind: "zero"
 ```
 
 ##### Practical Example
