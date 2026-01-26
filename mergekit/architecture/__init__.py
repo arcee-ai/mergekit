@@ -17,6 +17,7 @@ from mergekit.architecture.base import (
     WeightInfo,
 )
 from mergekit.architecture.json_definitions import NAME_TO_ARCH
+from mergekit.architecture.deepseek_v3 import DeepseekV3HybridMoeModuleArchitecture
 from mergekit.architecture.moe_defs import (
     AfmoeModuleArchitecture,
     MixtralModuleArchitecture,
@@ -57,6 +58,13 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
             modules={"default": ModuleDefinition(architecture=module)},
             architectures=[arch_name],
             model_type="afmoe",
+        )
+    elif arch_name == DeepseekV3HybridMoeModuleArchitecture.ARCHITECTURE_NAME:
+        module = DeepseekV3HybridMoeModuleArchitecture.from_config(config)
+        return ModelArchitecture(
+            modules={"default": ModuleDefinition(architecture=module)},
+            architectures=[arch_name],
+            model_type="deepseek_v3",
         )
     elif arch_name in NAME_TO_ARCH:
         candidates = list(NAME_TO_ARCH[arch_name])
