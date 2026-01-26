@@ -40,7 +40,6 @@ def run_merge(
         raise RuntimeError("No output requested")
 
     arch_info = get_architecture_info(merge_config, options)
-
     # initialize loader cache and set options
     loader_cache = LoaderCache()
     loader_cache.setup(options=options)
@@ -256,6 +255,8 @@ def _copy_tokenizer(
             "tokenizer.model",
             "added_tokens.json",
             "merges.txt",
+            "chat_template.jinja",
+            "generation_config.json",
         ]:
             if os.path.exists(os.path.join(donor_local_path, file_name)):
                 shutil.copy(
