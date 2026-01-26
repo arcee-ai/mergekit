@@ -171,13 +171,11 @@ class Glm4MoeModuleArchitecture(ModuleArchitecture, BaseModel):
         self, index: int, config: PretrainedConfig
     ) -> Optional[List[WeightInfo]]:
         prefix = f"model.layers.{index}"
-        tensor_names = []
+
         if index < config.first_k_dense_replace:
-            res = []
-            for weight_info in GLM4_MODULE_ARCH.layer_weights(index, config):
-                res.append(weight_info)
-            return res
+            return GLM4_MODULE_ARCH.layer_weights(index, config)
         else:
+            tensor_names = []
             for expert_idx in range(self.num_experts):
                 tensor_names.append(
                     prefix + f".mlp.experts.{expert_idx}.gate_proj.weight"
