@@ -94,16 +94,20 @@ def get_gate_params(
         num_experts = len(experts)
         hidden_size = model_cfg.hidden_size
         
-        # We initialize in float32 for mathematical stability during orthogonalization
-        gates = torch.empty((num_layers, num_experts, hidden_size), dtype=torch.float32)
+        # 1. Determine the target dtype
+        # We check if a specific dtype was requested, otherwise use model default
+        target_dtype = getattr(model_cfg, "torch_dtype", torch.float16)
         
-        for i in range(num_layers):
-            # Orthogonal initialization ensures experts start in 
-            # maximally different directions in the latent space.
-            torch.nn.init.orthogonal_(gates[i])
+        # 2. Initialize in float32 for mathematical stability
+        # We create a list of tensors to match how "hidden" mode returns data
+        gate_vecs = []
+        for _ in range(num_layers):
+            layer_gate = torch.empty((num_experts, hidden_size), dtype=torch.float32)
+            torch.nn.init.orthogonal_(layer_gate)
+            # 3. Cast to the target dtype and move to the requested device
+            gate_vecs.append(layer_gate.to(dtype=target_dtype, device=device if device != "auto" else "cpu"))
             
-        # Return casted to the model's working dtype (usually float16 or bfloat16)
-        return gates.to(dtype=out_dtype)
+        return gate_vecs
     elif mode == "uniform_random":
         in_features = model_cfg.hidden_size
         scale = math.sqrt(1.0 / in_features)
