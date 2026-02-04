@@ -88,6 +88,22 @@ def get_gate_params(
         return torch.randn(
             (model_cfg.num_hidden_layers, len(experts), model_cfg.hidden_size)
         )
+    # NEW test Orthogonal Initialization
+    elif mode == "orthogonal":
+        num_layers = model_cfg.num_hidden_layers
+        num_experts = len(experts)
+        hidden_size = model_cfg.hidden_size
+        
+        # We initialize in float32 for mathematical stability during orthogonalization
+        gates = torch.empty((num_layers, num_experts, hidden_size), dtype=torch.float32)
+        
+        for i in range(num_layers):
+            # Orthogonal initialization ensures experts start in 
+            # maximally different directions in the latent space.
+            torch.nn.init.orthogonal_(gates[i])
+            
+        # Return casted to the model's working dtype (usually float16 or bfloat16)
+        return gates.to(dtype=out_dtype)
     elif mode == "uniform_random":
         in_features = model_cfg.hidden_size
         scale = math.sqrt(1.0 / in_features)
