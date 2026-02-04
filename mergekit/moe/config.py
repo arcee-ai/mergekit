@@ -32,9 +32,6 @@ class MoEMergeConfig(BaseModel):
 
     # Updated to use Literal for strict validation and added "orthogonal"
     gate_mode: Literal[
-        "hidden", "cheap_embed", "random", "uniform_random", "orthogonal"
-    ] = "hidden"
-    gate_mode: Literal[
         "hidden",
         "cheap_embed",
         "random",
