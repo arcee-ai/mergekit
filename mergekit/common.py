@@ -153,9 +153,9 @@ class ModelReference(BaseModel, frozen=True):
         self, cache_dir: Optional[str] = None, ignore_lora: bool = False
     ) -> str:
         if not ignore_lora:
-            assert (
-                self.lora is None
-            ), "LoRA not merged - use .merged() to get a local path"
+            assert self.lora is None, (
+                "LoRA not merged - use .merged() to get a local path"
+            )
 
         path = self.model.path
         if not os.path.exists(path):

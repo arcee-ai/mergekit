@@ -93,11 +93,11 @@ def get_gate_params(
         num_layers = model_cfg.num_hidden_layers
         num_experts = len(experts)
         hidden_size = model_cfg.hidden_size
-        
+
         # 1. Determine the target dtype
         # We check if a specific dtype was requested, otherwise use model default
         target_dtype = getattr(model_cfg, "torch_dtype", torch.float16)
-        
+
         # 2. Initialize in float32 for mathematical stability
         # We create a list of tensors to match how "hidden" mode returns data
         gate_vecs = []
@@ -105,8 +105,12 @@ def get_gate_params(
             layer_gate = torch.empty((num_experts, hidden_size), dtype=torch.float32)
             torch.nn.init.orthogonal_(layer_gate)
             # 3. Cast to the target dtype and move to the requested device
-            gate_vecs.append(layer_gate.to(dtype=target_dtype, device=device if device != "auto" else "cpu"))
-            
+            gate_vecs.append(
+                layer_gate.to(
+                    dtype=target_dtype, device=device if device != "auto" else "cpu"
+                )
+            )
+
         return gate_vecs
     elif mode == "uniform_random":
         in_features = model_cfg.hidden_size
