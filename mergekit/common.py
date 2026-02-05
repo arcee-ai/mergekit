@@ -153,9 +153,9 @@ class ModelReference(BaseModel, frozen=True):
         self, cache_dir: Optional[str] = None, ignore_lora: bool = False
     ) -> str:
         if not ignore_lora:
-            assert (
-                self.lora is None
-            ), "LoRA not merged - use .merged() to get a local path"
+            assert self.lora is None, (
+                "LoRA not merged - use .merged() to get a local path"
+            )
 
         path = self.model.path
         if not os.path.exists(path):
@@ -400,7 +400,7 @@ def get_torch_accelerator_count(accelerator_name: Optional[str] = None):
     if accelerator_name is not None:
         accelerator = torch.device(accelerator_name)
         # if user passes the device index in `accelerator_name`, then 1
-        if accelerator.index != None:
+        if accelerator.index is not None:
             return 1
         torch_accelerator_module = getattr(torch, accelerator.type)
     else:

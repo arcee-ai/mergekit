@@ -11,7 +11,7 @@ def llama_rope_rotationmat(theta: torch.Tensor) -> torch.Tensor:
         theta: Tensor of shape (..., n_heads, head_dim // 2) representing the angles for the rotation.
     """
     # theta shape: (..., n_heads, head_dim // 2)
-    n_heads = theta.shape[-2]
+    theta.shape[-2]
     head_dim = theta.shape[-1] * 2
     theta_p = torch.cat([theta, theta], dim=-1)
     cos_theta = torch.cos(theta_p)

@@ -168,9 +168,9 @@ def _load_architecture_json(text: str) -> ModelArchitecture:
         raise RuntimeError(f"Unexpected architecture kind: {data['kind']}")
 
 
-def _load_all_architectures() -> (
-    Tuple[List[ModelArchitecture], Dict[str, List[ModelArchitecture]]]
-):
+def _load_all_architectures() -> Tuple[
+    List[ModelArchitecture], Dict[str, List[ModelArchitecture]]
+]:
     architectures: List[ModelArchitecture] = []
     for f in importlib.resources.files(mergekit._data.architectures).iterdir():
         if f.is_file() and f.name.lower().endswith(".json"):

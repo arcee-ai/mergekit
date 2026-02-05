@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Literal  # Ensure Literal is imported
 
 from pydantic import BaseModel
 
@@ -29,13 +29,24 @@ class MoEMergeConfig(BaseModel):
 
     base_model: ModelReference
     experts: List[Expert]
-    gate_mode: str = (
-        "hidden"  # possible values: "hidden", "cheap_embed", "random", "uniform_random"
-    )
+
+    # Updated to use Literal for strict validation and added "orthogonal"
+    gate_mode: Literal[
+        "hidden",
+        "cheap_embed",
+        "random",
+        "uniform_random",
+        "orthogonal",
+        "hidden_avg",
+        "hidden_last",
+    ] = "hidden"
+
     # "hidden" uses hidden state vectors for the given prompts for each layer
     # "cheap_embed" uses the average of token embeddings for the prompts, same for each layer
-    # "random" is random
+    # "random" is standard normal distribution (torch.randn)
     # "uniform_random" matches default initialization for torch.nn.Linear
+    # "orthogonal" ensures gate vectors are orthogonal for better expert specialization
+
     dtype: Optional[str] = None
     experts_per_token: int = 2
     shared_experts: Optional[List[Expert]] = None
