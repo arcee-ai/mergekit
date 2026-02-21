@@ -116,7 +116,7 @@ class MergePlanner:
         for module_name in self.config.modules:
             module_out = self.config.modules[module_name]
             module_arch = self.arch_info.modules[module_name].architecture
-            
+
             if module_out.models:
                 slices_in = []
                 base_included = False
@@ -128,7 +128,6 @@ class MergePlanner:
                     model_cfg = model_in.model.config(
                         trust_remote_code=self.options.trust_remote_code
                     )
-                    print(f" module_name: {module_name}, model_in: {model_in}, model_cfg: {model_cfg}")
                     num_layers = module_arch.num_layers(model_cfg)
                     slices_in.append(
                         InputSliceDefinition(
