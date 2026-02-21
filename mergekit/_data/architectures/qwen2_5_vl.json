@@ -17,7 +17,7 @@
                     "Qwen2_5ForCausalLM"
                 ],
                 "model_type": "qwen2_5",
-                "num_layers_config_key": "num_hidden_layers",
+                "num_layers_config_key": "text_config.num_hidden_layers",
                 "pre_weights": [
                     {
                         "name": "model.embed_tokens.weight",
