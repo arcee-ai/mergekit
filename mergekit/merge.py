@@ -258,7 +258,7 @@ def _copy_tokenizer(
             "chat_template.jinja",
             "generation_config.json",
             "chat_template.json",
-            "video_preprocessor_config.json"
+            "video_preprocessor_config.json",
         ]:
             if os.path.exists(os.path.join(donor_local_path, file_name)):
                 shutil.copy(
