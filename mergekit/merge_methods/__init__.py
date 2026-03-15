@@ -1,6 +1,7 @@
 # Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
+import mergekit.merge_methods.core_space
 import mergekit.merge_methods.multislerp
 import mergekit.merge_methods.nearswap
 import mergekit.merge_methods.ram
