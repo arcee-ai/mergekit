@@ -39,9 +39,9 @@ def run_and_check_merge(
         index_exists = os.path.exists(index_path)
         single_shard_exists = os.path.exists(index_path.replace(".index.json", ""))
         assert index_exists or single_shard_exists, "No model produced by merge"
-        assert os.path.exists(
-            os.path.join(tmpdir, "config.json")
-        ), "No config json produced by merge"
+        assert os.path.exists(os.path.join(tmpdir, "config.json")), (
+            "No config json produced by merge"
+        )
 
         if check_nan:
             # check for NaN in output

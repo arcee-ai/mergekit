@@ -472,7 +472,7 @@ def build_embedding_matrix(
             new_tokens.append(token)
             stats.to_approximate += 1
 
-    donor_tokenizer = transformers.AutoTokenizer.from_pretrained(
+    transformers.AutoTokenizer.from_pretrained(
         options.donor.model.path,
         revision=options.donor.model.revision,
         trust_remote_code=True,

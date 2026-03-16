@@ -42,7 +42,7 @@ def __merge_method(
         (tensor_param.annotation is None)
         or (not hasattr(tensor_param.annotation, "__origin__"))
         or not (
-            tensor_param.annotation.__origin__ == list
+            tensor_param.annotation.__origin__ is list
             and tensor_param.annotation.__args__ == (torch.Tensor,)
         )
     ):
@@ -89,7 +89,7 @@ def __merge_method(
                 )
             elif (
                 hasattr(arg_info.annotation, "__origin__")
-                and arg_info.annotation.__origin__ == list
+                and arg_info.annotation.__origin__ is list
                 and arg_info.annotation.__args__[0] in (float, int)
             ):
                 default_value = arg_info.default
