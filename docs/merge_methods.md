@@ -383,6 +383,10 @@ For `ramplus_tl` only:
 
 - `scale` (per-model, optional): A scalar to multiply the tensor by. Useful for scaling specific layers, e.g., `{"filter": "down_proj", "value": 0.5}`
 
+- `noise_scale` (per-model, optional)
+- `noise_seed` (per-model, optional)
+- `noise_variance` (per-model, optional): Boolean toggle whether to scale the noise based on the tensor's standard deviation.
+
 ---
 
 ## Summary
