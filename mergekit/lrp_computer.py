@@ -227,33 +227,19 @@ class LRPComputer:
         """
         importance_scores = {}
 
-        # Enable gradients for all parameters
-        self.model.zero_grad()
-
-        # Forward pass with gradient computation
+        # Forward pass
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             output_hidden_states=True,
         )
 
-        # Compute gradients aggregated across all batch items
         logits = outputs.logits
         target_token_idx = logits.shape[1] - 1
-
-        # Aggregate gradients across all prompts in the batch
         batch_size = logits.shape[0]
-        total_grad = torch.zeros_like(logits[0, target_token_idx, :])
 
-        for i in range(batch_size):
-            target_logit = logits[i, target_token_idx, :].max()
-            target_logit.backward(retain_graph=True)
-            total_grad += logits.grad[i, target_token_idx, :].clone() if logits.grad is not None else logits[i, target_token_idx, :]
-
-        # Clear gradients before accumulating parameter gradients
+        # Compute gradients for each prompt in batch, accumulated into parameters
         self.model.zero_grad()
-
-        # Now compute gradients w.r.t. each parameter using the aggregated logits
         for i in range(batch_size):
             target_logit = logits[i, target_token_idx, :].max()
             target_logit.backward(retain_graph=(i < batch_size - 1))
