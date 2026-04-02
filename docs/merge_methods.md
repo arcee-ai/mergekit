@@ -22,6 +22,7 @@
   - [Model Stock (`model_stock`)](#model-stock-model_stock)
   - [Nearswap (`nearswap`)](#nearswap-nearswap)
   - [Arcee Fusion (`arcee_fusion`)](#arcee-fusion-arcee_fusion)
+  - [LRP Merge (`lrp`)](#lrp-merge-lrp)
   - [Passthrough (`passthrough`)](#passthrough-passthrough)
 - [Summary](#summary)
 - [Contributing](#contributing)
@@ -367,6 +368,35 @@ For `ramplus_tl` only:
 **Key Parameters:** None beyond standard model selection
 
 **Reference:** [MergeKit v0.1 Release Blog](https://www.arcee.ai/blog/meet-mergekit-v0-1-arcee-fusion-expanded-model-support-multi-gpu-acceleration)
+
+### LRP Merge (`lrp`)
+
+**Concept:** Layer-wise Relevance Propagation (LRP) merge uses importance scores computed via LRP to determine which weights to keep during merging. LRP was originally developed for explaining neural network predictions by propagating relevance scores backward through the network. In the merge context, weights with higher LRP relevance scores are considered more important and are given priority during the sparsification step of merging.
+
+**Use Cases:**
+
+- Merging models when you have pre-computed LRP importance scores
+- Combining fine-tuned models while preserving the most relevant parameter changes
+- Scenario where magnitude-based importance is insufficient and gradient-based attribution is preferred
+
+**Inputs:** Requires a `base_model` and one or more other models. When LRP score tensors (suffixed with `_lrp`) are available for the models being merged, they will be used for importance scoring. Otherwise, the method falls back to magnitude-based importance.
+
+**Key Parameters:**
+
+- `density` (global): Fraction of weights to retain in the merge, based on importance scores. Default `0.7`
+- `weight` (per-model): Weight for each model's contribution to the merge
+
+**Algorithm:**
+1. Compute task vectors (deltas) for each model: `delta = fine_tuned - base`
+2. Retrieve LRP importance scores (or fall back to `|delta|` magnitude)
+3. Select top-k most important weights using `density * numel`
+4. Apply mask to deltas: `sparse_delta = delta * mask`
+5. Compute weighted average of sparse deltas
+6. Add merged deltas to base: `result = base + merged_deltas`
+
+**Reference:** [LRP-Merge in MergeKit](https://github.com/arcee-ai/mergekit)
+
+For more details, see the [LRP Merge detailed documentation](lrp_merge.md).
 
 ### Passthrough (`passthrough`)
 
