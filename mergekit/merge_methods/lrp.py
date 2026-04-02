@@ -91,11 +91,12 @@ class LRPMergeTask(Task[torch.Tensor]):
         if not weight_tensors:
             return base_tensor
 
-        # Rectify embedding sizes
-        rectify_embed_sizes(self.weight_info, [base_tensor] + list(weight_tensors.values()))
+        # Rectify embedding sizes - store in named variable so modifications persist
+        all_tensors = [base_tensor] + list(weight_tensors.values())
+        rectify_embed_sizes(self.weight_info, all_tensors)
 
-        # Ensure base tensor has the same shape as weight tensors after rectification
-        base_tensor = base_tensor.to(weight_tensors[list(weight_tensors.keys())[0]].dtype)
+        # After rectification, update base_tensor reference to modified tensor
+        base_tensor = all_tensors[0]
 
         # Initialize merged deltas
         merged_deltas = torch.zeros_like(base_tensor)
