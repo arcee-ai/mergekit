@@ -74,103 +74,6 @@ class LRPComputer:
             self.model = self.model.to("cpu")
         self.model.eval()
 
-    def compute_relevance_epsilon(
-        self,
-        activations: Dict[str, torch.Tensor],
-        relevance: Dict[str, torch.Tensor],
-        layer_name: str,
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Epsilon rule: R_j = sum_k (z_jk / (sum_j z_jk + epsilon)) * R_k
-
-        Adds small epsilon to denominators to avoid division by zero.
-        """
-        epsilon = self.config.epsilon
-        new_relevance = {}
-
-        for name, act in activations.items():
-            # Compute z_jk = activation of neuron j to neuron k
-            z = act + epsilon * torch.sign(act)
-            z_sum = z.sum(dim=-1, keepdim=True)
-            z_norm = z / (z_sum + epsilon)
-
-            # Distribute relevance backwards
-            if name in relevance:
-                new_relevance[name] = z_norm * relevance[name]
-
-        return new_relevance
-
-    def compute_relevance_gamma(
-        self,
-        activations: Dict[str, torch.Tensor],
-        relevance: Dict[str, torch.Tensor],
-        layer_name: str,
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Gamma rule: Enhances positive contributions by gamma factor.
-
-        R_j = sum_k ((z_jk)^+ / sum_j (z_jk)^+ + gamma * (z_jk)^-) * R_k
-        """
-        gamma = 1.0 + self.config.gamma  # gamma is added to positive part
-        new_relevance = {}
-
-        for name, act in activations.items():
-            # Separate positive and negative parts
-            act_pos = F.relu(act)
-            act_neg = F.relu(-act)
-
-            # Normalize positive part
-            pos_sum = act_pos.sum(dim=-1, keepdim=True)
-            pos_norm = act_pos / (pos_sum + 1e-9)
-
-            # Apply gamma to negative part
-            neg_sum = act_neg.sum(dim=-1, keepdim=True)
-            neg_norm = gamma * act_neg / (neg_sum + 1e-9)
-
-            # Combine
-            z_norm = pos_norm + neg_norm
-
-            if name in relevance:
-                new_relevance[name] = z_norm * relevance[name]
-
-        return new_relevance
-
-    def compute_relevance_alpha_beta(
-        self,
-        activations: Dict[str, torch.Tensor],
-        relevance: Dict[str, torch.Tensor],
-        layer_name: str,
-    ) -> Dict[str, torch.Tensor]:
-        """
-        Alpha-beta rule: Separates positive and negative contributions.
-
-        R = alpha * R^+ + beta * R^-
-        where alpha + beta = 1
-        """
-        alpha = self.config.alpha
-        beta = self.config.beta
-        new_relevance = {}
-
-        for name, act in activations.items():
-            # Separate positive and negative parts
-            act_pos = F.relu(act)
-            act_neg = F.relu(-act)
-
-            # Normalize each separately
-            pos_sum = act_pos.sum(dim=-1, keepdim=True)
-            neg_sum = act_neg.sum(dim=-1, keepdim=True)
-
-            pos_norm = act_pos / (pos_sum + 1e-9)
-            neg_norm = act_neg / (neg_sum + 1e-9)
-
-            # Combine with alpha and beta
-            z_norm = alpha * pos_norm - beta * neg_norm
-
-            if name in relevance:
-                new_relevance[name] = z_norm * relevance[name]
-
-        return new_relevance
-
     def compute_layer_relevance(
         self,
         layer_input: torch.Tensor,
@@ -199,14 +102,14 @@ class LRPComputer:
             denominator = layer_output.abs().sum(dim=-1, keepdim=True) + epsilon
             relevance_input = (numerator / denominator) * relevance_output
         elif rule == "gamma":
-            # Gamma rule: enhance positive contributions
+            # Gamma rule: enhance positive contributions with (1 + gamma) factor
             gamma = self.config.gamma
             pos_output = F.relu(layer_output)
             neg_output = F.relu(-layer_output)
-            pos_weight = pos_output / (pos_output.sum(dim=-1, keepdim=True) + 1e-9)
-            neg_weight = (
-                gamma * neg_output / (neg_output.sum(dim=-1, keepdim=True) + 1e-9)
+            pos_weight = (
+                (1 + gamma) * pos_output / (pos_output.sum(dim=-1, keepdim=True) + 1e-9)
             )
+            neg_weight = neg_output / (neg_output.sum(dim=-1, keepdim=True) + 1e-9)
             relevance_input = (pos_weight - neg_weight) * relevance_output
         elif rule == "alpha_beta":
             # Alpha-beta rule
@@ -363,11 +266,13 @@ class LRPComputer:
                 ),
                 layer_name=layer_name,
             )
-            importance_scores[name] = (
-                rel.abs().mean(dim=0).reshape(param.shape).cpu()
-                if rel.shape != param.shape
-                else rel.abs().cpu()
-            )
+            # rel shape is (batch*seq, hidden_size); reduce to param shape safely
+            reduced = rel.abs().mean(dim=0)  # (hidden_size,)
+            if reduced.numel() == param.numel():
+                importance_scores[name] = reduced.reshape(param.shape).cpu()
+            else:
+                # shapes don't align — fall back to magnitude
+                importance_scores[name] = param.data.abs().cpu()
 
         return importance_scores
 

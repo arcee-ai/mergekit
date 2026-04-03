@@ -243,7 +243,7 @@ class MergePlanner:
             ),
             base_model=base_model,
         )
-        if lrp_scores:
+        if lrp_scores and self._method.name() == "lrp":
             make_task_kwargs["lrp_scores"] = lrp_scores
 
         tensor_task = tensor_merge_method.make_task(**make_task_kwargs)
