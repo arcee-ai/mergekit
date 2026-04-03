@@ -38,34 +38,20 @@ class LRPMergeTask(Task[torch.Tensor]):
     ) -> torch.Tensor:
         """
         Compute binary mask for top-k most important weights.
-
-        Args:
-            importance: Importance scores tensor
-            density: Fraction of weights to keep (0.0 to 1.0)
-
-        Returns:
-            Binary mask (1 = keep, 0 = discard)
+        Uses the same argsort pattern as mergekit.sparsify.magnitude().
         """
         if density <= 0:
             return torch.zeros_like(importance, dtype=torch.bool)
         if density >= 1.0:
             return torch.ones_like(importance, dtype=torch.bool)
 
-        numel = importance.numel()
-        k = max(1, int(density * numel))
-        k = min(k, numel)
-
-        # Use argsort to guarantee exactly k elements (avoids threshold issues with ties)
-        flat_importance = importance.flatten()
-        if flat_importance.device.type == "cpu":
-            flat_importance = flat_importance.float()
-        topk_indices = torch.argsort(flat_importance, descending=True)[:k]
-        flat_mask = torch.zeros(
-            importance.numel(), dtype=torch.bool, device=importance.device
-        )
-        flat_mask[topk_indices] = True
-
-        return flat_mask.reshape(importance.shape)
+        k = max(1, int(density * importance.numel()))
+        w = importance.abs().view(-1)
+        if w.device.type == "cpu":
+            w = w.float()
+        mask = torch.zeros_like(importance)
+        mask.view(-1)[torch.argsort(w, descending=True)[:k]] = 1
+        return mask.bool()
 
     def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
         """
