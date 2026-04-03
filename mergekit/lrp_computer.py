@@ -213,6 +213,10 @@ class LRPComputer:
         """
         Compute importance using the configured LRP rule by propagating relevance
         backward through each layer's activations.
+
+        Relevance starts at the final token logits, is projected back through the
+        lm_head weight to hidden_size, then propagated through each layer activation
+        using the configured LRP rule.
         """
         importance_scores = {}
 
@@ -241,9 +245,22 @@ class LRPComputer:
         for h in handles:
             h.remove()
 
-        # Use output logits as initial relevance signal
+        # Initial relevance: (vocab_size,) from final token logits
         logits = outputs.logits  # (batch, seq, vocab)
-        relevance = logits[:, -1, :].abs().mean(dim=0)  # (vocab,)
+        relevance_vocab = logits[:, -1, :].abs().mean(dim=0)  # (vocab_size,)
+
+        # Project relevance from vocab_size -> hidden_size via lm_head weight.
+        # lm_head.weight shape is (vocab_size, hidden_size), so W^T @ R_vocab
+        # gives a (hidden_size,) relevance signal that can be broadcast over layers.
+        hidden_relevance = None
+        for name, param in self.model.named_parameters():
+            if "lm_head" in name and param.dim() == 2:
+                # param: (vocab_size, hidden_size)
+                if param.shape[0] == relevance_vocab.shape[0]:
+                    hidden_relevance = (
+                        (relevance_vocab.unsqueeze(0) @ param.float()).squeeze(0).abs()
+                    )  # (hidden_size,)
+                    break
 
         # Propagate relevance through each named parameter using the chosen rule
         for name, param in self.model.named_parameters():
@@ -253,25 +270,30 @@ class LRPComputer:
                 importance_scores[name] = param.data.abs().cpu()
                 continue
 
-            # Flatten act to match relevance broadcast shape
+            # Flatten act to (tokens, features)
             act_flat = act.reshape(-1, act.shape[-1]) if act.dim() > 1 else act
+            feat_dim = act_flat.shape[-1]
+
+            # Build a relevance signal matching act_flat's feature dimension
+            if hidden_relevance is not None and hidden_relevance.numel() == feat_dim:
+                # Broadcast (hidden_size,) across all tokens
+                rel_signal = hidden_relevance.expand_as(act_flat)
+            else:
+                # Fall back to uniform signal scaled by mean activation magnitude
+                rel_signal = act_flat.abs().mean() * torch.ones_like(act_flat)
 
             rel = self.compute_layer_relevance(
                 layer_input=act_flat,
                 layer_output=act_flat,
-                relevance_output=(
-                    relevance.expand_as(act_flat)
-                    if relevance.shape == act_flat.shape[-1:]
-                    else relevance.mean() * torch.ones_like(act_flat)
-                ),
+                relevance_output=rel_signal,
                 layer_name=layer_name,
             )
-            # rel shape is (batch*seq, hidden_size); reduce to param shape safely
-            reduced = rel.abs().mean(dim=0)  # (hidden_size,)
+
+            # Reduce (tokens, features) -> param shape safely
+            reduced = rel.abs().mean(dim=0)  # (features,)
             if reduced.numel() == param.numel():
                 importance_scores[name] = reduced.reshape(param.shape).cpu()
             else:
-                # shapes don't align — fall back to magnitude
                 importance_scores[name] = param.data.abs().cpu()
 
         return importance_scores
