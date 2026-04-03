@@ -28,7 +28,7 @@ class LRPMergeTask(Task[torch.Tensor]):
     model_weights: ImmutableMap[ModelReference, float]
     density: float
     weight_info: WeightInfo
-    lrp_scores: Optional[Dict[str, str]] = None  # model_ref_str -> lrp_path
+    lrp_scores: Optional[ImmutableMap[str, str]] = None  # model_ref_str -> lrp_path
     _cached_lrp_scores: Optional[Dict[str, torch.Tensor]] = (
         None  # model_ref_str -> {tensor_name -> importance}
     )
@@ -250,5 +250,5 @@ class LRPMerge(MergeMethod):
             model_weights=ImmutableMap(model_weights),
             density=density,
             weight_info=output_weight,
-            lrp_scores=lrp_scores,
+            lrp_scores=ImmutableMap(lrp_scores) if lrp_scores else None,
         )
