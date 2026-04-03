@@ -53,6 +53,26 @@ def rescaled_masked_tensor(
     return masked * (before_scale / after_scale)
 
 
+def build_mask(importance: torch.Tensor, density: float) -> torch.Tensor:
+    """Return a boolean mask keeping the top `density` fraction of elements by importance.
+
+    Uses the same argsort-based selection as magnitude() to guarantee exactly k
+    elements are selected regardless of tied values.
+    """
+    if density <= 0:
+        return torch.zeros_like(importance, dtype=torch.bool)
+    if density >= 1:
+        return torch.ones_like(importance, dtype=torch.bool)
+
+    k = max(1, int(density * importance.numel()))
+    w = importance.abs().view(-1)
+    if w.device.type == "cpu":
+        w = w.float()
+    mask = torch.zeros_like(importance)
+    mask.view(-1)[torch.argsort(w, descending=True)[:k]] = 1
+    return mask.bool()
+
+
 def magnitude(
     tensor: torch.Tensor, density: float, rescale_norm: Optional[RescaleNorm] = None
 ) -> torch.Tensor:
@@ -61,17 +81,9 @@ def magnitude(
         return tensor
 
     k = int(density * tensor.numel())
-
     assert k > 0, "not gonna zero out the whole tensor buddy"
-    mask = torch.zeros_like(tensor)
-    w = tensor.abs().view(-1)
-    if w.device.type == "cpu":
-        w = w.float()
-    topk = torch.argsort(w, descending=True)[:k]
-    mask.view(-1)[topk] = 1
-
-    res = rescaled_masked_tensor(tensor, mask, rescale_norm)
-    return res
+    mask = build_mask(tensor, density)
+    return rescaled_masked_tensor(tensor, mask, rescale_norm)
 
 
 def magnitude_outliers(

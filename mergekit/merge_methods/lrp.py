@@ -15,6 +15,7 @@ from mergekit.merge_methods.base import (
     MergeTensorInput,
 )
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
+from mergekit.sparsify import build_mask
 
 
 class LRPMergeTask(Task[torch.Tensor]):
@@ -32,26 +33,6 @@ class LRPMergeTask(Task[torch.Tensor]):
 
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
-
-    def _compute_topk_mask(
-        self, importance: torch.Tensor, density: float
-    ) -> torch.Tensor:
-        """
-        Compute binary mask for top-k most important weights.
-        Uses the same argsort pattern as mergekit.sparsify.magnitude().
-        """
-        if density <= 0:
-            return torch.zeros_like(importance, dtype=torch.bool)
-        if density >= 1.0:
-            return torch.ones_like(importance, dtype=torch.bool)
-
-        k = max(1, int(density * importance.numel()))
-        w = importance.abs().view(-1)
-        if w.device.type == "cpu":
-            w = w.float()
-        mask = torch.zeros_like(importance)
-        mask.view(-1)[torch.argsort(w, descending=True)[:k]] = 1
-        return mask.bool()
 
     def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
         """
@@ -133,7 +114,7 @@ class LRPMergeTask(Task[torch.Tensor]):
                 importance = delta.abs()
 
             # Sparsify based on importance
-            mask = self._compute_topk_mask(importance, self.density)
+            mask = build_mask(importance, self.density)
             sparse_delta = delta * mask
 
             # Weighted averaging
