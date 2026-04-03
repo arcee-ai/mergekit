@@ -24,7 +24,6 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -32,6 +31,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LRPConfig:
     """Configuration for LRP computation."""
+
     model_path: str
     output_path: str
     sample_prompts: List[str] = field(default_factory=list)
@@ -42,7 +42,9 @@ class LRPConfig:
     gamma: float = 0.25
     alpha: float = 1.0
     beta: float = 0.0
-    device: str = field(default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu")
+    device: str = field(
+        default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu"
+    )
 
 
 class LRPComputer:
@@ -62,7 +64,9 @@ class LRPComputer:
 
         self.model = AutoModelForCausalLM.from_pretrained(
             self.config.model_path,
-            torch_dtype=torch.float16 if self.config.device == "cuda" else torch.float32,
+            torch_dtype=(
+                torch.float16 if self.config.device == "cuda" else torch.float32
+            ),
             device_map="auto" if self.config.device == "cuda" else None,
             low_cpu_mem_usage=True,
         )
@@ -200,7 +204,9 @@ class LRPComputer:
             pos_output = F.relu(layer_output)
             neg_output = F.relu(-layer_output)
             pos_weight = pos_output / (pos_output.sum(dim=-1, keepdim=True) + 1e-9)
-            neg_weight = gamma * neg_output / (neg_output.sum(dim=-1, keepdim=True) + 1e-9)
+            neg_weight = (
+                gamma * neg_output / (neg_output.sum(dim=-1, keepdim=True) + 1e-9)
+            )
             relevance_input = (pos_weight - neg_weight) * relevance_output
         elif rule == "alpha_beta":
             # Alpha-beta rule
@@ -210,7 +216,9 @@ class LRPComputer:
             neg_output = F.relu(-layer_output)
             pos_weight = pos_output / (pos_output.sum(dim=-1, keepdim=True) + 1e-9)
             neg_weight = neg_output / (neg_output.sum(dim=-1, keepdim=True) + 1e-9)
-            relevance_input = (alpha * pos_weight - beta * neg_weight) * relevance_output
+            relevance_input = (
+                alpha * pos_weight - beta * neg_weight
+            ) * relevance_output
         else:
             # Fallback: gradient-based importance
             relevance_input = layer_input.abs() * relevance_output.abs().mean()
@@ -281,7 +289,9 @@ class LRPComputer:
             )
         else:
             # No samples provided, use magnitude fallback
-            logger.info("No sample prompts provided, using magnitude-based importance...")
+            logger.info(
+                "No sample prompts provided, using magnitude-based importance..."
+            )
             for name, param in self.model.named_parameters():
                 self.relevance_scores[name] = torch.abs(param.data).cpu()
 
@@ -319,7 +329,7 @@ def compute_lrp_for_model(
     model_path: str,
     output_path: str,
     sample_prompts: Optional[List[str]] = None,
-    **kwargs
+    **kwargs,
 ) -> Dict[str, torch.Tensor]:
     """
     Compute LRP scores for a model.
@@ -345,7 +355,7 @@ def compute_lrp_for_model(
         model_path=model_path,
         output_path=output_path,
         sample_prompts=sample_prompts or default_prompts,
-        **kwargs
+        **kwargs,
     )
 
     computer = LRPComputer(config)
@@ -356,50 +366,34 @@ def compute_lrp_for_model(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Compute LRP scores for a model"
-    )
+    parser = argparse.ArgumentParser(description="Compute LRP scores for a model")
     parser.add_argument("--model", required=True, help="Path to the HuggingFace model")
     parser.add_argument("--output", required=True, help="Where to save LRP scores")
     parser.add_argument(
         "--rule",
         default="epsilon",
         choices=["epsilon", "gamma", "alpha_beta"],
-        help="LRP rule to use"
+        help="LRP rule to use",
     )
     parser.add_argument(
-        "--epsilon",
-        type=float,
-        default=1e-9,
-        help="Epsilon value for epsilon rule"
+        "--epsilon", type=float, default=1e-9, help="Epsilon value for epsilon rule"
     )
     parser.add_argument(
-        "--gamma",
-        type=float,
-        default=0.25,
-        help="Gamma value for gamma rule"
+        "--gamma", type=float, default=0.25, help="Gamma value for gamma rule"
     )
     parser.add_argument(
-        "--alpha",
-        type=float,
-        default=1.0,
-        help="Alpha value for alpha_beta rule"
+        "--alpha", type=float, default=1.0, help="Alpha value for alpha_beta rule"
     )
     parser.add_argument(
-        "--beta",
-        type=float,
-        default=0.0,
-        help="Beta value for alpha_beta rule"
+        "--beta", type=float, default=0.0, help="Beta value for alpha_beta rule"
     )
     parser.add_argument(
         "--device",
         default="cuda" if torch.cuda.is_available() else "cpu",
-        help="Device for computation"
+        help="Device for computation",
     )
     parser.add_argument(
-        "--prompts",
-        nargs="+",
-        help="Sample prompts for LRP computation"
+        "--prompts", nargs="+", help="Sample prompts for LRP computation"
     )
 
     args = parser.parse_args()
