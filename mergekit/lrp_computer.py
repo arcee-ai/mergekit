@@ -77,7 +77,7 @@ class LRPComputer:
     def compute_relevance_epsilon(
         self,
         activations: Dict[str, torch.Tensor],
-        relevance: torch.Tensor,
+        relevance: Dict[str, torch.Tensor],
         layer_name: str,
     ) -> Dict[str, torch.Tensor]:
         """
@@ -103,7 +103,7 @@ class LRPComputer:
     def compute_relevance_gamma(
         self,
         activations: Dict[str, torch.Tensor],
-        relevance: torch.Tensor,
+        relevance: Dict[str, torch.Tensor],
         layer_name: str,
     ) -> Dict[str, torch.Tensor]:
         """
@@ -138,7 +138,7 @@ class LRPComputer:
     def compute_relevance_alpha_beta(
         self,
         activations: Dict[str, torch.Tensor],
-        relevance: torch.Tensor,
+        relevance: Dict[str, torch.Tensor],
         layer_name: str,
     ) -> Dict[str, torch.Tensor]:
         """
