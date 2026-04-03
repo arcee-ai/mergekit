@@ -35,7 +35,6 @@ class LRPConfig:
     model_path: str
     output_path: str
     sample_prompts: List[str] = field(default_factory=list)
-    batch_size: int = 1
     max_length: int = 512
     lrp_rule: str = "epsilon"
     epsilon: float = 1e-9
