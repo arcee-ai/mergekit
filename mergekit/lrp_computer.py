@@ -276,7 +276,7 @@ class LRPComputer:
 
         return importance_scores
 
-    def save_relevance_scores(self, output_format: str = "safetensors") -> None:
+    def save_relevance_scores(self) -> None:
         """Save computed relevance scores to disk."""
         output_path = Path(self.config.output_path)
         output_path.mkdir(parents=True, exist_ok=True)
@@ -340,7 +340,6 @@ def compute_lrp_for_model(
     computer = LRPComputer(config)
     scores = computer.compute_all_relevance_scores()
     computer.save_relevance_scores()
-
     return scores
 
 
