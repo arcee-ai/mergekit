@@ -55,12 +55,15 @@ class LRPMergeTask(Task[torch.Tensor]):
         k = max(1, int(density * numel))
         k = min(k, numel)
 
-        # Use topk for efficiency
+        # Use argsort to guarantee exactly k elements (avoids threshold issues with ties)
+        mask = torch.zeros_like(importance)
         flat_importance = importance.flatten()
-        top_k_values, _ = torch.topk(flat_importance, k)
-        threshold = top_k_values[-1]
+        if flat_importance.device.type == "cpu":
+            flat_importance = flat_importance.float()
+        topk_indices = torch.argsort(flat_importance, descending=True)[:k]
+        mask.flatten()[topk_indices] = 1
 
-        return (importance >= threshold).to(importance.dtype)
+        return mask.bool()
 
     def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
         """
