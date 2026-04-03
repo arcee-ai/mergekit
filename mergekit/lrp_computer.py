@@ -145,13 +145,15 @@ class LRPComputer:
         )
 
         logits = outputs.logits
-        target_token_idx = logits.shape[1] - 1
         batch_size = logits.shape[0]
+
+        # Use attention_mask to find each prompt's last real (non-padding) token
+        last_token_indices = attention_mask.sum(dim=1) - 1  # (batch,)
 
         # Compute gradients for each prompt in batch, accumulated into parameters
         self.model.zero_grad()
         for i in range(batch_size):
-            target_logit = logits[i, target_token_idx, :].max()
+            target_logit = logits[i, last_token_indices[i], :].max()
             target_logit.backward(retain_graph=(i < batch_size - 1))
 
         # Collect gradients for each parameter
@@ -244,9 +246,14 @@ class LRPComputer:
         for h in handles:
             h.remove()
 
-        # Initial relevance: (vocab_size,) from final token logits
+        # Initial relevance: gather last real token per prompt using attention_mask,
+        # then average across the batch to get a (vocab_size,) signal.
         logits = outputs.logits  # (batch, seq, vocab)
-        relevance_vocab = logits[:, -1, :].abs().mean(dim=0)  # (vocab_size,)
+        last_token_indices = attention_mask.sum(dim=1) - 1  # (batch,)
+        last_logits = logits[
+            torch.arange(logits.shape[0], device=logits.device), last_token_indices
+        ]  # (batch, vocab)
+        relevance_vocab = last_logits.abs().mean(dim=0)  # (vocab_size,)
 
         # Project relevance from vocab_size -> hidden_size via lm_head weight.
         # lm_head.weight shape is (vocab_size, hidden_size), so W^T @ R_vocab
