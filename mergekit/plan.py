@@ -134,6 +134,7 @@ class MergePlanner:
                             layer_range=[0, num_layers],
                             model=model_in.model,
                             parameters=model_in.parameters,
+                            lrp_path=model_in.lrp_path,
                         )
                     )
 

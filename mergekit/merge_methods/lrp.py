@@ -29,9 +29,27 @@ class LRPMergeTask(Task[torch.Tensor]):
     density: float
     weight_info: WeightInfo
     lrp_scores: Optional[Dict[str, str]] = None  # model_ref_str -> lrp_path
+    _cached_lrp_scores: Optional[Dict[str, torch.Tensor]] = (
+        None  # model_ref_str -> {tensor_name -> importance}
+    )
 
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
+
+    def _get_lrp_scores(self, model_ref_str: str) -> Optional[Dict[str, torch.Tensor]]:
+        """Load and cache LRP scores for a model."""
+        if self._cached_lrp_scores is None:
+            self._cached_lrp_scores = {}
+
+        if model_ref_str in self._cached_lrp_scores:
+            return self._cached_lrp_scores[model_ref_str]
+
+        if self.lrp_scores and model_ref_str in self.lrp_scores:
+            data = torch.load(self.lrp_scores[model_ref_str], map_location="cpu")
+            self._cached_lrp_scores[model_ref_str] = data
+            return data
+
+        return None
 
     def _compute_topk_mask(
         self, importance: torch.Tensor, density: float
@@ -121,10 +139,10 @@ class LRPMergeTask(Task[torch.Tensor]):
 
             # Get LRP importance scores if available from lrp_scores parameter
             importance = None
-            if self.lrp_scores is not None:
-                ref_str = str(ref)
-                if ref_str in self.lrp_scores:
-                    lrp_data = torch.load(self.lrp_scores[ref_str], map_location="cpu")
+            ref_str = str(ref)
+            if self.lrp_scores is not None and ref_str in self.lrp_scores:
+                lrp_data = self._get_lrp_scores(ref_str)
+                if lrp_data is not None:
                     importance = lrp_data.get(self.weight_info.name)
 
             # Fallback to magnitude-based importance
