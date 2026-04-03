@@ -47,6 +47,7 @@ class LazyPickleLoader(TensorLoader):
     index: Dict[str, DeferredLoad]
     device: Optional[str] = None
     archive_path: str
+    _cached_archive: Optional[Dict[str, torch.Tensor]] = None
 
     def __init__(self, path: str, device: Optional[str] = None):
         self.archive_path = path
@@ -68,8 +69,11 @@ class LazyPickleLoader(TensorLoader):
         if isinstance(value, torch.Tensor):
             return value.to(self.device) if self.device else value
 
-        data = torch.load(self.archive_path, map_location=self.device)
-        return data[key]
+        if self._cached_archive is None:
+            self._cached_archive = torch.load(
+                self.archive_path, map_location=self.device
+            )
+        return self._cached_archive[key]
 
     def keys(self) -> Sequence[str]:
         return self.index.keys()
