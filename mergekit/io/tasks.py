@@ -121,6 +121,28 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
         return self.per_gpu
 
 
+class LoadLRPScores(Task[torch.Tensor]):
+    """Loads pre-computed LRP importance scores from a .pt file."""
+
+    lrp_path: str
+    tensor_name: str
+    device: Optional[str] = None
+
+    def arguments(self) -> Dict[str, Task]:
+        return {}
+
+    def execute(self) -> torch.Tensor:
+        data = torch.load(self.lrp_path, map_location=self.device or "cpu")
+        # lrp_computer.py saves {param_name: importance_tensor} dict
+        return data[self.tensor_name]
+
+    def priority(self) -> int:
+        return -999
+
+    def group_label(self) -> Optional[str]:
+        return self.tensor_name
+
+
 class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
     weight_info: ImmutableMap[ModelReference, WeightInfo]
     dtype: Optional[str] = None
@@ -139,6 +161,53 @@ class GatherTensors(Task[Dict[ModelReference, torch.Tensor]]):
             )
             for (model, wi) in self.weight_info.items()
         }
+
+    def group_label(self) -> Optional[str]:
+        return max(t.group_label() or "" for t in self.arguments().values())
+
+    def priority(self) -> int:
+        return -10
+
+    def execute(self, **kwargs) -> Dict[ModelReference, torch.Tensor]:
+        key2model = {
+            f"{str(model)}:{wi.name}": model for (model, wi) in self.weight_info.items()
+        }
+        return {
+            key2model[key]: kwargs[key] for key in key2model if kwargs[key] is not None
+        }
+
+
+class GatherTensorsWithLRP(Task[Dict[ModelReference, torch.Tensor]]):
+    """Extended GatherTensors that also loads LRP scores when available."""
+
+    weight_info: ImmutableMap[ModelReference, WeightInfo]
+    dtype: Optional[str] = None
+    device: Optional[str] = None
+    lrp_scores: ImmutableMap[
+        ModelReference, Dict[str, str]
+    ]  # model -> {weight_name -> lrp_path}
+
+    def arguments(self) -> Dict[str, Task]:
+        args = {
+            f"{str(model)}:{wi.name}": LoadTensor(
+                model=model,
+                tensor=wi.name,
+                dtype=wi.force_dtype or self.dtype,
+                device=self.device,
+                optional=wi.optional,
+                aliases=wi.aliases,
+                tied_names=wi.tied_names,
+            )
+            for (model, wi) in self.weight_info.items()
+        }
+        # Add LRP tensor loading tasks
+        for model, weight_to_path in self.lrp_scores.items():
+            for weight_name, lrp_path in weight_to_path.items():
+                key = f"{str(model)}:{weight_name}_lrp"
+                args[key] = LoadLRPScores(
+                    lrp_path=lrp_path, tensor_name=weight_name, device=self.device
+                )
+        return args
 
     def group_label(self) -> Optional[str]:
         return max(t.group_label() or "" for t in self.arguments().values())

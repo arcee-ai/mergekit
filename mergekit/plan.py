@@ -3,7 +3,7 @@
 
 import logging
 from functools import lru_cache
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from mergekit import merge_methods
 from mergekit.architecture import (
@@ -161,6 +161,7 @@ class MergePlanner:
         weights_in: List[WeightInfo],
         models: List[ModelReference],
         cfg_reader: ConfigReader,
+        sources: Optional[List[InputSliceDefinition]] = None,
     ):
         if weight.optional:
             # check if any input weights are present
@@ -201,6 +202,14 @@ class MergePlanner:
                     default=p.default_value,
                 )
 
+        # Build LRP scores mapping if sources provide lrp_path
+        # lrp_scores: model_ref_str -> lrp_path
+        lrp_scores: Dict[str, str] = {}
+        if sources:
+            for source in sources:
+                if source.lrp_path:
+                    lrp_scores[str(source.model)] = source.lrp_path
+
         gather_tensors = GatherTensors(
             weight_info=ImmutableMap(data=dict(zip(models, weights_in))),
             dtype=self.config.dtype,
@@ -222,7 +231,7 @@ class MergePlanner:
                 base_model=base_model,
             )
 
-        tensor_task = tensor_merge_method.make_task(
+        make_task_kwargs = dict(
             output_weight=weight,
             tensors=tensor_input_task,
             parameters=ImmutableMap(data=global_params),
@@ -233,6 +242,10 @@ class MergePlanner:
             ),
             base_model=base_model,
         )
+        if lrp_scores:
+            make_task_kwargs["lrp_scores"] = lrp_scores
+
+        tensor_task = tensor_merge_method.make_task(**make_task_kwargs)
         self._tensors.append((weight, tensor_task))
 
     def plan_layer(
@@ -260,6 +273,7 @@ class MergePlanner:
                 weights_in=[weights_in[j][idx] for j in range(len(weights_in))],
                 models=[s.model for s in sources],
                 cfg_reader=cfg_reader.with_t(t),
+                sources=sources,
             )
 
         self._current_module_layers += 1
