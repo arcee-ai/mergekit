@@ -130,6 +130,8 @@ class LRPMergeTask(Task[torch.Tensor]):
             if self.lrp_scores is not None and ref_str in self.lrp_scores:
                 lrp_data = torch.load(self.lrp_scores[ref_str], map_location="cpu")
                 importance = lrp_data.get(self.weight_info.name)
+                if importance is not None:
+                    importance = importance.to(delta.device)
 
             # Fallback to magnitude-based importance
             if importance is None:
