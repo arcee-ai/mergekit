@@ -282,11 +282,16 @@ class LRPComputer:
             if self.config.device == "cuda":
                 inputs = {k: v.to(self.config.device) for k, v in inputs.items()}
 
-            # Compute importance
-            self.relevance_scores = self.compute_gradient_importance(
-                inputs["input_ids"],
-                inputs["attention_mask"],
-            )
+            if self.config.lrp_rule in ("epsilon", "gamma", "alpha_beta"):
+                self.relevance_scores = self._compute_lrp_importance(
+                    inputs["input_ids"],
+                    inputs["attention_mask"],
+                )
+            else:
+                self.relevance_scores = self.compute_gradient_importance(
+                    inputs["input_ids"],
+                    inputs["attention_mask"],
+                )
         else:
             # No samples provided, use magnitude fallback
             logger.info(
@@ -296,6 +301,75 @@ class LRPComputer:
                 self.relevance_scores[name] = torch.abs(param.data).cpu()
 
         return self.relevance_scores
+
+    def _compute_lrp_importance(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Compute importance using the configured LRP rule by propagating relevance
+        backward through each layer's activations.
+        """
+        importance_scores = {}
+
+        # Collect activations via forward hooks
+        activations: Dict[str, torch.Tensor] = {}
+
+        def make_hook(name):
+            def hook(module, inp, out):
+                activations[name] = (
+                    out.detach() if isinstance(out, torch.Tensor) else out[0].detach()
+                )
+
+            return hook
+
+        handles = []
+        for name, module in self.model.named_modules():
+            handles.append(module.register_forward_hook(make_hook(name)))
+
+        with torch.no_grad():
+            outputs = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_hidden_states=True,
+            )
+
+        for h in handles:
+            h.remove()
+
+        # Use output logits as initial relevance signal
+        logits = outputs.logits  # (batch, seq, vocab)
+        relevance = logits[:, -1, :].abs().mean(dim=0)  # (vocab,)
+
+        # Propagate relevance through each named parameter using the chosen rule
+        for name, param in self.model.named_parameters():
+            layer_name = ".".join(name.split(".")[:-1])
+            act = activations.get(layer_name)
+            if act is None:
+                importance_scores[name] = param.data.abs().cpu()
+                continue
+
+            # Flatten act to match relevance broadcast shape
+            act_flat = act.reshape(-1, act.shape[-1]) if act.dim() > 1 else act
+
+            rel = self.compute_layer_relevance(
+                layer_input=act_flat,
+                layer_output=act_flat,
+                relevance_output=(
+                    relevance.expand_as(act_flat)
+                    if relevance.shape == act_flat.shape[-1:]
+                    else relevance.mean() * torch.ones_like(act_flat)
+                ),
+                layer_name=layer_name,
+            )
+            importance_scores[name] = (
+                rel.abs().mean(dim=0).reshape(param.shape).cpu()
+                if rel.shape != param.shape
+                else rel.abs().cpu()
+            )
+
+        return importance_scores
 
     def save_relevance_scores(self, output_format: str = "safetensors") -> None:
         """Save computed relevance scores to disk."""

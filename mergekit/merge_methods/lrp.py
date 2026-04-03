@@ -95,12 +95,14 @@ class LRPMergeTask(Task[torch.Tensor]):
         if not weight_tensors:
             return base_tensor
 
-        # Rectify embedding sizes - store in named variable so modifications persist
-        all_tensors = [base_tensor] + list(weight_tensors.values())
+        # Rectify embedding sizes - operate on a list so all tensors are updated
+        refs = list(weight_tensors.keys())
+        all_tensors = [base_tensor] + [weight_tensors[r] for r in refs]
         rectify_embed_sizes(self.weight_info, all_tensors)
 
-        # After rectification, update base_tensor reference to modified tensor
+        # Propagate rectified tensors back to base and weight_tensors
         base_tensor = all_tensors[0]
+        weight_tensors = {r: all_tensors[i + 1] for i, r in enumerate(refs)}
 
         # Initialize merged deltas
         merged_deltas = torch.zeros_like(base_tensor)
@@ -114,6 +116,7 @@ class LRPMergeTask(Task[torch.Tensor]):
             raise ValueError("Sum of model weights cannot be zero")
 
         # Process each model
+        _lrp_cache: Dict[str, Any] = {}
         for ref, fine_tuned_weight in weight_tensors.items():
             # Validate tensor shape
             if fine_tuned_weight.shape != base_tensor.shape:
@@ -128,8 +131,10 @@ class LRPMergeTask(Task[torch.Tensor]):
             importance = None
             ref_str = str(ref)
             if self.lrp_scores is not None and ref_str in self.lrp_scores:
-                lrp_data = torch.load(self.lrp_scores[ref_str], map_location="cpu")
-                importance = lrp_data.get(self.weight_info.name)
+                lrp_path = self.lrp_scores[ref_str]
+                if lrp_path not in _lrp_cache:
+                    _lrp_cache[lrp_path] = torch.load(lrp_path, map_location="cpu")
+                importance = _lrp_cache[lrp_path].get(self.weight_info.name)
                 if importance is not None:
                     importance = importance.to(delta.device)
 

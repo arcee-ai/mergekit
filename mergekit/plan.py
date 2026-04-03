@@ -326,6 +326,7 @@ class MergePlanner:
                 config_reader.for_tensor(tensor_name=weight_info.name).for_out_slice(
                     definition.slices[0]
                 ),
+                sources=definition.slices[0].sources,
             )
 
         for out_slice in definition.slices:
@@ -343,6 +344,7 @@ class MergePlanner:
                 config_reader.for_tensor(tensor_name=weight_info.name).for_out_slice(
                     definition.slices[-1]
                 ),
+                sources=definition.slices[-1].sources,
             )
 
     def plan_to_disk(self, out_path: str) -> List[Task]:
