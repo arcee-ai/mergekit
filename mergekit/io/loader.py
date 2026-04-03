@@ -32,7 +32,6 @@ class TensorLoader(ABC):
         device: Optional[str] = None,
     ) -> "TensorLoader":
         if shard_path.lower().endswith(".safetensors"):
-            # not a subclass of TensorLoader, but exposes same api
             return safetensors.safe_open(
                 shard_path, framework="pt", device=device or "cpu"
             )
@@ -47,10 +46,13 @@ class LazyPickleLoader(TensorLoader):
     zip_reader: TorchArchiveReader
     index: Dict[str, DeferredLoad]
     device: Optional[str] = None
+    archive_path: str
 
     def __init__(self, path: str, device: Optional[str] = None):
+        self.archive_path = path
         self.zip_reader = TorchArchiveReader(path)
         self.device = device
+
         with torch_lazy_load():
             self.index = torch.load(path, pickle_module=LazyUnpickleModule)
 
@@ -58,7 +60,16 @@ class LazyPickleLoader(TensorLoader):
         if key not in self.index:
             raise KeyError(key)
 
-        return self.index[key].execute(self.zip_reader, map_location=self.device)
+        value = self.index[key]
+
+        if hasattr(value, "execute"):
+            return value.execute(self.zip_reader, map_location=self.device)
+
+        if isinstance(value, torch.Tensor):
+            return value.to(self.device) if self.device else value
+
+        data = torch.load(self.archive_path, map_location=self.device)
+        return data[key]
 
     def keys(self) -> Sequence[str]:
         return self.index.keys()
