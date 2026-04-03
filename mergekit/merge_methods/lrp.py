@@ -28,6 +28,7 @@ class LRPMergeTask(Task[torch.Tensor]):
     model_weights: ImmutableMap[ModelReference, float]
     density: float
     weight_info: WeightInfo
+    lrp_scores: Optional[Dict[str, str]] = None  # model_ref_str -> lrp_path
 
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
@@ -78,18 +79,13 @@ class LRPMergeTask(Task[torch.Tensor]):
                 raise ValueError("No tensors provided for merging")
             base_tensor = torch.zeros_like(first_tensor)
 
-        # Collect non-base, non-LRP tensors
+        # Collect non-base tensors
         weight_tensors = {}
-        lrp_tensors = {}
 
         for ref, tensor in tensors.items():
             if ref == self.base_model:
                 continue
-            ref_str = str(ref)
-            if ref_str.endswith("_lrp"):
-                lrp_tensors[ref_str[:-4]] = tensor
-            else:
-                weight_tensors[ref] = tensor
+            weight_tensors[ref] = tensor
 
         if not weight_tensors:
             return base_tensor
@@ -123,8 +119,13 @@ class LRPMergeTask(Task[torch.Tensor]):
             # Compute delta (task vector)
             delta = fine_tuned_weight - base_tensor
 
-            # Get LRP importance scores if available
-            importance = lrp_tensors.get(str(ref))
+            # Get LRP importance scores if available from lrp_scores parameter
+            importance = None
+            if self.lrp_scores is not None:
+                ref_str = str(ref)
+                if ref_str in self.lrp_scores:
+                    lrp_data = torch.load(self.lrp_scores[ref_str], map_location="cpu")
+                    importance = lrp_data.get(self.weight_info.name)
 
             # Fallback to magnitude-based importance
             if importance is None:
@@ -196,6 +197,7 @@ class LRPMerge(MergeMethod):
         parameters: ImmutableMap[str, Any],
         tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
         base_model: Optional[ModelReference],
+        lrp_scores: Optional[Dict[str, str]] = None,
         **_kwargs,
     ) -> Task:
         """Create the LRP merge task with proper validation."""
@@ -230,4 +232,5 @@ class LRPMerge(MergeMethod):
             model_weights=ImmutableMap(model_weights),
             density=density,
             weight_info=output_weight,
+            lrp_scores=lrp_scores,
         )

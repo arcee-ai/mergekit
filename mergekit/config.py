@@ -56,11 +56,13 @@ class InputSliceDefinition(BaseModel):
     model: ModelReference
     layer_range: Tuple[int, int]
     parameters: Optional[Dict[str, ParameterSetting]] = None
+    lrp_path: Optional[str] = None
 
 
 class InputModelDefinition(BaseModel):
     model: ModelReference
     parameters: Optional[Dict[str, ParameterSetting]] = None
+    lrp_path: Optional[str] = None
 
 
 class OutputSliceDefinition(BaseModel):
