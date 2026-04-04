@@ -4,6 +4,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
 
+import torch
 from pydantic import BaseModel, Field
 from transformers import PretrainedConfig
 
@@ -117,10 +118,16 @@ class ConfiguredModuleArchitecture(
         ]
 
 
+ConfiguredModuleArchitecture.model_rebuild()
+
+
 class ModuleDefinition(BaseModel, frozen=True, arbitrary_types_allowed=True):
     architecture: ModuleArchitecture
     weight_prefix: Optional[str] = None
     subfolder: Optional[str] = None
+
+
+ModuleDefinition.model_rebuild()
 
 
 class ModelArchitecture(BaseModel, frozen=True):
@@ -151,3 +158,6 @@ class ConfiguredModelArchitecture(BaseModel, frozen=True, arbitrary_types_allowe
             config=self.config,
             weight_prefix=self.info.modules[module_name].weight_prefix,
         )
+
+
+ConfiguredModelArchitecture.model_rebuild()
