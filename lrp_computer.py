@@ -39,6 +39,8 @@ class LRPComputer:
         self.model = None
         self.tokenizer = None
         self.relevance_scores: Dict[str, torch.Tensor] = {}
+        self.activations: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
+        self.hooks: List[Any] = []
 
     def load_model(self) -> None:
         """Load the model and tokenizer."""
@@ -92,23 +94,26 @@ class LRPComputer:
         R_j = sum_k (z_jk / (sum_j z_jk + epsilon)) * R_k
         """
         epsilon = self.config.epsilon
+        
+        # Ensure activations and weights are on same device
+        activations = activations.to(weights.device)
+        output_relevance = output_relevance.to(weights.device)
 
-        # Compute forward pass contribution
-        z = torch.matmul(activations, weights.t())
-
+        # Compute forward pass contribution z = xW^T
+        z = F.linear(activations, weights)
+        
         # Add epsilon for numerical stability
-        z_sign = torch.sign(z)
-        z_stable = z + epsilon * z_sign
+        z_stable = z + epsilon * torch.sign(z)
 
-        # Compute redistribution
+        # Compute redistribution factor s = R_out / z_stable
         s = output_relevance / z_stable
-        c = torch.matmul(s, weights)
-
-        # Relevance for inputs
-        input_relevance = activations * c
-
-        # Relevance for weights (approximated)
-        weight_relevance = torch.abs(weights) * torch.abs(output_relevance.mean(dim=0, keepdim=True).t())
+        
+        # Flatten batch and sequence: (B, S, F) -> (N, F)
+        x_flat = activations.reshape(-1, activations.shape[-1])
+        s_flat = s.reshape(-1, s.shape[-1])
+        
+        # Relevance for weights: |W_ij * x_i * s_j| summed over batch/seq
+        weight_relevance = weights.abs() * (s_flat.abs().t() @ x_flat.abs())
 
         return weight_relevance
 
@@ -123,19 +128,26 @@ class LRPComputer:
         Adds positive contributions with a gamma factor.
         """
         gamma = self.config.gamma
+        epsilon = self.config.epsilon
+        
+        activations = activations.to(weights.device)
+        output_relevance = output_relevance.to(weights.device)
 
         # Separate positive contributions
         weights_pos = torch.clamp(weights, min=0)
+        w_gamma = weights + gamma * weights_pos
 
         # Forward pass with enhanced weights
-        z = torch.matmul(activations, (weights_pos + gamma * weights_pos).t())
-        z = z + self.config.epsilon * torch.sign(z)
+        z = F.linear(activations, w_gamma)
+        z = z + epsilon * torch.sign(z)
 
         # Redistribute relevance
         s = output_relevance / z
-        c = torch.matmul(s, weights)
-
-        weight_relevance = torch.abs(weights) * torch.abs(output_relevance.mean(dim=0, keepdim=True).t())
+        
+        x_flat = activations.reshape(-1, activations.shape[-1])
+        s_flat = s.reshape(-1, s.shape[-1])
+        
+        weight_relevance = weights.abs() * (s_flat.abs().t() @ x_flat.abs())
 
         return weight_relevance
 
@@ -151,21 +163,27 @@ class LRPComputer:
         """
         alpha = self.config.alpha
         beta = self.config.beta
+        epsilon = self.config.epsilon
+        
+        activations = activations.to(weights.device)
+        output_relevance = output_relevance.to(weights.device)
 
         weights_pos = torch.clamp(weights, min=0)
         weights_neg = torch.clamp(weights, max=0)
 
         # Positive and negative forward passes
-        z_pos = torch.matmul(activations, weights_pos.t())
-        z_neg = torch.matmul(activations, weights_neg.t())
+        z_pos = F.linear(activations, weights_pos)
+        z_neg = F.linear(activations, weights_neg)
 
         z = alpha * z_pos + beta * z_neg
-        z = z + self.config.epsilon * torch.sign(z)
+        z = z + epsilon * torch.sign(z)
 
         s = output_relevance / z
-        c = torch.matmul(s, weights)
-
-        weight_relevance = torch.abs(weights) * torch.abs(output_relevance.mean(dim=0, keepdim=True).t())
+        
+        x_flat = activations.reshape(-1, activations.shape[-1])
+        s_flat = s.reshape(-1, s.shape[-1])
+        
+        weight_relevance = weights.abs() * (s_flat.abs().t() @ x_flat.abs())
 
         return weight_relevance
 
@@ -222,9 +240,9 @@ class LRPComputer:
         # If we have sample activations, use proper LRP rules
         if sample_activations is not None:
             # Create dummy output relevance (normally from backward pass)
-            output_relevance = torch.ones(
-                sample_activations.shape[0],
-                tensor.shape[0],
+            # Match the shape of the output activations
+            output_relevance = torch.ones_like(
+                F.linear(sample_activations, tensor) if tensor.dim() == 2 else sample_activations,
                 device=tensor.device
             )
 
@@ -248,6 +266,28 @@ class LRPComputer:
 
         return relevance
 
+    def _register_hooks(self) -> None:
+        """Register forward hooks to collect activations."""
+        self.activations = {}
+        self.hooks = []
+        
+        def get_hook(name):
+            def hook(module, input, output):
+                # Store detached tensors; move to CPU if memory is an issue
+                self.activations[name] = (input[0].detach(), output.detach())
+            return hook
+            
+        for name, module in self.model.named_modules():
+            if isinstance(module, torch.nn.Linear):
+                handle = module.register_forward_hook(get_hook(name))
+                self.hooks.append(handle)
+
+    def _remove_hooks(self) -> None:
+        """Remove previously registered hooks."""
+        for handle in self.hooks:
+            handle.remove()
+        self.hooks = []
+
     def compute_all_relevance_scores(self) -> Dict[str, torch.Tensor]:
         """
         Compute relevance scores for all model weights.
@@ -269,12 +309,21 @@ class LRPComputer:
                 max_length=self.config.max_length
             ).to(self.config.device)
 
-            # Get sample activations (simplified - use embedding as proxy)
+            # Get sample activations via forward pass with hooks
+            self._register_hooks()
             with torch.no_grad():
-                outputs = self.model(**inputs, output_hidden_states=True)
+                self.model(**inputs, output_hidden_states=False)
+            self._remove_hooks()
         else:
             # No samples provided, use magnitude fallback
             print("No sample prompts provided, using magnitude-based importance...")
+
+        # Map module names to parameter names
+        # Most parameters in transformer layers follow {module_name}.weight or {module_name}.bias
+        parameter_to_module = {}
+        for mod_name, _ in self.model.named_modules():
+            parameter_to_module[f"{mod_name}.weight"] = mod_name
+            parameter_to_module[f"{mod_name}.bias"] = mod_name
 
         # Compute relevance for each parameter
         for name, param in self.model.named_parameters():
@@ -283,10 +332,17 @@ class LRPComputer:
 
             print(f"Processing {name}...")
 
+            # Try to find captured activations for this parameter's module
+            module_name = parameter_to_module.get(name)
+            act_data = self.activations.get(module_name)
+            
+            # Pass input activations (the first element of act_data tuple)
+            sample_act = act_data[0] if act_data is not None else None
+
             # Compute relevance for this parameter
             relevance = self.compute_relevance_for_tensor(
                 name, param.data,
-                sample_activations=None  # Simplified - would need proper activations
+                sample_activations=sample_act
             )
 
             self.relevance_scores[name] = relevance.cpu()
