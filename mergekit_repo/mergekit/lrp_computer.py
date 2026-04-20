@@ -18,7 +18,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -42,7 +42,9 @@ class LRPConfig:
     gamma: float = 0.25
     alpha: float = 1.0
     beta: float = 0.0
-    device: str = field(default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu")
+    device: str = field(
+        default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu"
+    )
 
 
 class LRPComputer:
@@ -65,7 +67,9 @@ class LRPComputer:
 
         self.model = AutoModelForCausalLM.from_pretrained(
             self.config.model_path,
-            torch_dtype=torch.float16 if self.config.device == "cuda" else torch.float32,
+            torch_dtype=(
+                torch.float16 if self.config.device == "cuda" else torch.float32
+            ),
             device_map="auto" if self.config.device == "cuda" else None,
             low_cpu_mem_usage=True,
         )
@@ -176,17 +180,27 @@ class LRPComputer:
         if sample_activations is not None:
             # Create dummy output relevance
             output_relevance = torch.ones_like(
-                F.linear(sample_activations, tensor) if tensor.dim() == 2 else sample_activations,
-                device=tensor.device
+                (
+                    F.linear(sample_activations, tensor)
+                    if tensor.dim() == 2
+                    else sample_activations
+                ),
+                device=tensor.device,
             )
 
             rule = self.config.lrp_rule
             if rule == "epsilon":
-                return self.compute_relevance_epsilon(sample_activations, tensor, output_relevance)
+                return self.compute_relevance_epsilon(
+                    sample_activations, tensor, output_relevance
+                )
             elif rule == "gamma":
-                return self.compute_relevance_gamma(sample_activations, tensor, output_relevance)
+                return self.compute_relevance_gamma(
+                    sample_activations, tensor, output_relevance
+                )
             elif rule == "alpha_beta":
-                return self.compute_relevance_alpha_beta(sample_activations, tensor, output_relevance)
+                return self.compute_relevance_alpha_beta(
+                    sample_activations, tensor, output_relevance
+                )
         
         return torch.abs(tensor)
 
@@ -372,41 +386,41 @@ def main():
         "--rule",
         default="epsilon",
         choices=["epsilon", "gamma", "alpha_beta"],
-        help="LRP rule to use"
+        help="LRP rule to use",
     )
     parser.add_argument(
         "--epsilon",
         type=float,
         default=1e-9,
-        help="Epsilon value for epsilon rule"
+        help="Epsilon value for epsilon rule",
     )
     parser.add_argument(
         "--gamma",
         type=float,
         default=0.25,
-        help="Gamma value for gamma rule"
+        help="Gamma value for gamma rule",
     )
     parser.add_argument(
         "--alpha",
         type=float,
         default=1.0,
-        help="Alpha value for alpha_beta rule"
+        help="Alpha value for alpha_beta rule",
     )
     parser.add_argument(
         "--beta",
         type=float,
         default=0.0,
-        help="Beta value for alpha_beta rule"
+        help="Beta value for alpha_beta rule",
     )
     parser.add_argument(
         "--device",
         default="cuda" if torch.cuda.is_available() else "cpu",
-        help="Device for computation"
+        help="Device for computation",
     )
     parser.add_argument(
         "--prompts",
         nargs="+",
-        help="Sample prompts for LRP computation"
+        help="Sample prompts for LRP computation",
     )
 
     args = parser.parse_args()

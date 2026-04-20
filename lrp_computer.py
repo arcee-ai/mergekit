@@ -4,13 +4,14 @@ This module provides functionality to compute LRP relevance scores for model wei
 which can then be used by the LRP-Merge method for intelligent model merging.
 """
 
-import torch
-import torch.nn.functional as F
-from typing import Dict, List, Optional, Tuple, Any
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import json
 from dataclasses import dataclass
 from pathlib import Path
-import json
+from typing import Any, Dict, List, Optional, Tuple
+
+import torch
+import torch.nn.functional as F
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 @dataclass
@@ -87,7 +88,7 @@ class LRPComputer:
         self,
         activations: torch.Tensor,
         weights: torch.Tensor,
-        output_relevance: torch.Tensor
+        output_relevance: torch.Tensor,
     ) -> torch.Tensor:
         """
         Compute relevance using LRP-epsilon rule.
@@ -121,7 +122,7 @@ class LRPComputer:
         self,
         activations: torch.Tensor,
         weights: torch.Tensor,
-        output_relevance: torch.Tensor
+        output_relevance: torch.Tensor,
     ) -> torch.Tensor:
         """
         Compute relevance using LRP-gamma rule.
@@ -155,7 +156,7 @@ class LRPComputer:
         self,
         activations: torch.Tensor,
         weights: torch.Tensor,
-        output_relevance: torch.Tensor
+        output_relevance: torch.Tensor,
     ) -> torch.Tensor:
         """
         Compute relevance using LRP-alpha_beta rule.
@@ -224,7 +225,7 @@ class LRPComputer:
         self,
         tensor_name: str,
         tensor: torch.Tensor,
-        sample_activations: Optional[torch.Tensor] = None
+        sample_activations: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Compute relevance scores for a specific tensor.
@@ -242,8 +243,12 @@ class LRPComputer:
             # Create dummy output relevance (normally from backward pass)
             # Match the shape of the output activations
             output_relevance = torch.ones_like(
-                F.linear(sample_activations, tensor) if tensor.dim() == 2 else sample_activations,
-                device=tensor.device
+                (
+                    F.linear(sample_activations, tensor)
+                    if tensor.dim() == 2
+                    else sample_activations
+                ),
+                device=tensor.device,
             )
 
             if self.config.lrp_rule == "epsilon":
@@ -306,7 +311,7 @@ class LRPComputer:
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=self.config.max_length
+                max_length=self.config.max_length,
             ).to(self.config.device)
 
             # Get sample activations via forward pass with hooks
@@ -341,8 +346,7 @@ class LRPComputer:
 
             # Compute relevance for this parameter
             relevance = self.compute_relevance_for_tensor(
-                name, param.data,
-                sample_activations=sample_act
+                name, param.data, sample_activations=sample_act
             )
 
             self.relevance_scores[name] = relevance.cpu()
@@ -357,21 +361,13 @@ class LRPComputer:
         if output_format == "safetensors":
             try:
                 from safetensors.torch import save_file
-                save_file(
-                    self.relevance_scores,
-                    output_path / "lrp_scores.safetensors"
-                )
+
+                save_file(self.relevance_scores, output_path / "lrp_scores.safetensors")
             except ImportError:
                 print("safetensors not available, using torch.save")
-                torch.save(
-                    self.relevance_scores,
-                    output_path / "lrp_scores.pt"
-                )
+                torch.save(self.relevance_scores, output_path / "lrp_scores.pt")
         else:
-            torch.save(
-                self.relevance_scores,
-                output_path / "lrp_scores.pt"
-            )
+            torch.save(self.relevance_scores, output_path / "lrp_scores.pt")
 
         # Save metadata
         metadata = {
@@ -392,7 +388,7 @@ def compute_lrp_for_model(
     model_path: str,
     output_path: str,
     sample_prompts: Optional[List[str]] = None,
-    **kwargs
+    **kwargs,
 ) -> Dict[str, torch.Tensor]:
     """
     Convenience function to compute LRP scores for a model.
@@ -416,7 +412,7 @@ def compute_lrp_for_model(
         model_path=model_path,
         output_path=output_path,
         sample_prompts=sample_prompts or default_prompts,
-        **kwargs
+        **kwargs,
     )
 
     computer = LRPComputer(config)
@@ -432,9 +428,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute LRP scores for a model")
     parser.add_argument("model_path", help="Path to the HuggingFace model")
     parser.add_argument("output_path", help="Where to save LRP scores")
-    parser.add_argument("--rule", default="epsilon", choices=["epsilon", "gamma", "alpha_beta"])
-    parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--prompts", nargs="+", help="Sample prompts for LRP computation")
+    parser.add_argument(
+        "--rule", default="epsilon", choices=["epsilon", "gamma", "alpha_beta"]
+    )
+    parser.add_argument(
+        "--device", default="cuda" if torch.cuda.is_available() else "cpu"
+    )
+    parser.add_argument(
+        "--prompts", nargs="+", help="Sample prompts for LRP computation"
+    )
 
     args = parser.parse_args()
 

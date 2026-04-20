@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
 import os
-import subprocess
 import shutil
+import subprocess
 import sys
 
 # Config file is auto injected
 
-BASE_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0" #model can be user-specific
+BASE_MODEL = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"  # model can be user-specific
 
 # These placeholders will be replaced by absolute paths from the notebook
 MODEL_1 = "./models/tinyllama-global-full"
@@ -18,7 +18,7 @@ OUTPUT_DIR = "./models/merged-model"
 # Toggle this if GPU available
 USE_CUDA = True
 
-#validation
+# validation
 
 def validate():
     print("Step 1: Checking local model paths...")
@@ -80,7 +80,7 @@ def run_merge():
         "lrp_config.yaml",
         OUTPUT_DIR,
         "--copy-tokenizer",
-        "--allow-crimes"
+        "--allow-crimes",
     ]
 
     if USE_CUDA:
@@ -111,6 +111,7 @@ def main():
     run_merge()
 
     print("\n✓ ALL DONE")
+
 
 if __name__ == "__main__":
     main()

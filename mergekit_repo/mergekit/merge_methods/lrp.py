@@ -22,6 +22,7 @@ class LRPMergeTask(Task[torch.Tensor]):
     Performs LRP-based merging using Layer-wise Relevance Propagation scores
     to determine which weights to keep during model merging.
     """
+
     gather_tensors: MergeTensorInput
     base_model: Optional[ModelReference]
     model_weights: ImmutableMap[ModelReference, float]
@@ -31,7 +32,9 @@ class LRPMergeTask(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    def _compute_topk_mask(self, importance: torch.Tensor, density: float) -> torch.Tensor:
+    def _compute_topk_mask(
+        self, importance: torch.Tensor, density: float
+    ) -> torch.Tensor:
         """
         Compute binary mask for top-k most important weights.
 
@@ -207,7 +210,9 @@ class LRPMerge(MergeMethod):
                 model_weights[model_ref] = weight
 
         if not model_weights:
-            raise ValueError("At least one fine-tuned model (other than base) is required for LRP merge")
+            raise ValueError(
+                "At least one fine-tuned model (other than base) is required for LRP merge"
+            )
 
         # Get density parameter
         try:

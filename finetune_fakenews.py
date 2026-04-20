@@ -10,32 +10,35 @@ Recommended small models for CPU training:
 - TinyLlama/TinyLlama-1.1B-Chat-v1.0 (1.1B params) - Requires more memory
 """
 
-import argparse
+import logging
 import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
-import logging
 
+import pandas as pd
 import torch
 from torch.utils.data import Dataset
-import pandas as pd
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    TrainingArguments,
-    Trainer,
     DataCollatorForLanguageModeling,
+    Trainer,
+    TrainingArguments,
 )
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 class FakeNewsDataset(Dataset):
     """Dataset for fake news classification."""
 
-    def __init__(self, texts: List[str], labels: List[str], tokenizer, max_length: int = 128):
+    def __init__(
+        self, texts: List[str], labels: List[str], tokenizer, max_length: int = 128
+    ):
         self.texts = texts
         self.labels = labels
         self.tokenizer = tokenizer
@@ -43,8 +46,7 @@ class FakeNewsDataset(Dataset):
 
         # Create prompts
         self.prompts = [
-            self._create_prompt(text, label)
-            for text, label in zip(texts, labels)
+            self._create_prompt(text, label) for text, label in zip(texts, labels)
         ]
 
     def _create_prompt(self, text: str, label: str) -> str:
@@ -66,7 +68,7 @@ Classification: {label}"""
             truncation=True,
             max_length=self.max_length,
             padding="max_length",
-            return_tensors="pt"
+            return_tensors="pt",
         )
 
         return {
@@ -86,18 +88,20 @@ def load_dataset(dataset_path: str, max_samples: Optional[int] = None) -> tuple:
     text_column = None
     label_column = None
 
-    for possible_text in ['text', 'content', 'statement', 'article', 'title']:
+    for possible_text in ["text", "content", "statement", "article", "title"]:
         if possible_text in df.columns:
             text_column = possible_text
             break
 
-    for possible_label in ['label', 'category', 'truth', 'class']:
+    for possible_label in ["label", "category", "truth", "class"]:
         if possible_label in df.columns:
             label_column = possible_label
             break
 
     if text_column is None or label_column is None:
-        logger.error(f"Could not find text/label columns. Available: {list(df.columns)}")
+        logger.error(
+            f"Could not find text/label columns. Available: {list(df.columns)}"
+        )
         sys.exit(1)
 
     texts = df[text_column].tolist()
@@ -105,7 +109,9 @@ def load_dataset(dataset_path: str, max_samples: Optional[int] = None) -> tuple:
 
     # Normalize labels
     labels = [str(l).upper().strip() for l in labels]
-    labels = ["FAKE" if l in ["FAKE", "0", "FALSE", "FALSE", "F"] else "REAL" for l in labels]
+    labels = [
+        "FAKE" if l in ["FAKE", "0", "FALSE", "FALSE", "F"] else "REAL" for l in labels
+    ]
 
     if max_samples:
         texts = texts[:max_samples]
@@ -121,7 +127,7 @@ def load_dataset(dataset_path: str, max_samples: Optional[int] = None) -> tuple:
 def setup_lora(model, r: int = 8, alpha: int = 32, dropout: float = 0.1):
     """Setup LoRA for efficient fine-tuning."""
     try:
-        from peft import LoraConfig, get_peft_model, TaskType
+        from peft import LoraConfig, TaskType, get_peft_model
 
         config = LoraConfig(
             r=r,
@@ -207,7 +213,9 @@ def fine_tune_model(
         model_kwargs["load_in_4bit"] = True
         logger.info("Loading model in 4-bit mode")
     elif (use_8bit or use_4bit) and not has_cuda:
-        logger.warning("8-bit/4-bit quantization requires CUDA. Using full precision on CPU.")
+        logger.warning(
+            "8-bit/4-bit quantization requires CUDA. Using full precision on CPU."
+        )
 
     try:
         model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
@@ -222,7 +230,7 @@ def fine_tune_model(
         model = model.to("cpu")
 
     # Enable gradient checkpointing for memory efficiency (if supported)
-    if hasattr(model, 'gradient_checkpointing_enable'):
+    if hasattr(model, "gradient_checkpointing_enable"):
         model.gradient_checkpointing_enable()
         logger.info("Gradient checkpointing enabled")
 
@@ -294,81 +302,58 @@ def main():
         description="Fine-tune TinyLlama for fake news detection"
     )
 
-    parser.add_argument(
-        "--dataset",
-        required=True,
-        help="Path to training dataset CSV"
-    )
+    parser.add_argument("--dataset", required=True, help="Path to training dataset CSV")
 
     parser.add_argument(
-        "--output",
-        required=True,
-        help="Output directory for fine-tuned model"
+        "--output", required=True, help="Output directory for fine-tuned model"
     )
 
     parser.add_argument(
         "--model",
         default="gpt2",
-        help="Base model to fine-tune (default: gpt2 for CPU, ~124M params)"
+        help="Base model to fine-tune (default: gpt2 for CPU, ~124M params)",
     )
 
     parser.add_argument(
-        "--epochs",
-        type=int,
-        default=3,
-        help="Number of training epochs"
+        "--epochs", type=int, default=3, help="Number of training epochs"
     )
 
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=1, # Default to 1 for CPU stability
-        help="Training batch size"
+        default=1,  # Default to 1 for CPU stability
+        help="Training batch size",
     )
 
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=2e-5,
-        help="Learning rate"
-    )
+    parser.add_argument("--lr", type=float, default=2e-5, help="Learning rate")
 
     parser.add_argument(
-        "--use-lora",
-        action="store_true",
-        help="Use LoRA for efficient fine-tuning"
+        "--use-lora", action="store_true", help="Use LoRA for efficient fine-tuning"
     )
 
-    parser.add_argument(
-        "--lora-r",
-        type=int,
-        default=16,
-        help="LoRA rank"
-    )
+    parser.add_argument("--lora-r", type=int, default=16, help="LoRA rank")
 
     parser.add_argument(
-        "--max-samples",
-        type=int,
-        help="Limit training samples (for testing)"
+        "--max-samples", type=int, help="Limit training samples (for testing)"
     )
 
     parser.add_argument(
         "--use-8bit",
         action="store_true",
-        help="Use 8-bit quantization (requires CUDA, saves memory)"
+        help="Use 8-bit quantization (requires CUDA, saves memory)",
     )
 
     parser.add_argument(
         "--use-4bit",
         action="store_true",
-        help="Use 4-bit quantization (requires CUDA, saves more memory)"
+        help="Use 4-bit quantization (requires CUDA, saves more memory)",
     )
 
     parser.add_argument(
         "--max-length",
         type=int,
         default=128,
-        help="Maximum sequence length (default: 128, lower = less memory)"
+        help="Maximum sequence length (default: 128, lower = less memory)",
     )
 
     args = parser.parse_args()
@@ -397,9 +382,9 @@ def main():
         max_length=args.max_length,
     )
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Fine-tuned model saved to:", args.output)
-    print("="*60)
+    print("=" * 60)
 
 
 if __name__ == "__main__":
