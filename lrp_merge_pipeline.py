@@ -20,6 +20,7 @@ USE_CUDA = True
 
 # validation
 
+
 def validate():
     print("Step 1: Checking local model paths...")
 
@@ -32,6 +33,7 @@ def validate():
 
 
 # YAML GENERATION
+
 
 def generate_yaml():
     print("Step 2: Generating YAML...")
@@ -62,7 +64,9 @@ models:
     print("\nYAML Generated:\n")
     print(yaml)
 
+
 # MERGE EXECUTION
+
 
 def run_merge():
     print("\nStep 3: Running merge...\n")

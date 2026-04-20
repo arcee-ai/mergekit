@@ -24,7 +24,6 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -32,6 +31,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LRPConfig:
     """Configuration for LRP computation."""
+
     model_path: str
     output_path: str
     sample_prompts: List[str] = field(default_factory=list)
@@ -87,7 +87,7 @@ class LRPComputer:
         Epsilon rule: R_j = sum_k (z_jk / (sum_j z_jk + epsilon)) * R_k
         """
         epsilon = self.config.epsilon
-        
+
         # Ensure tensor devices match
         activations = activations.to(weights.device)
         output_relevance = output_relevance.to(weights.device)
@@ -95,15 +95,15 @@ class LRPComputer:
         # z = xW^T
         z = F.linear(activations, weights)
         z_stable = z + epsilon * torch.sign(z)
-        
+
         s = output_relevance / z_stable
-        
+
         x_flat = activations.reshape(-1, activations.shape[-1])
         s_flat = s.reshape(-1, s.shape[-1])
-        
+
         # Weight relevance: |W_ij * x_i * s_j|
         weight_relevance = weights.abs() * (s_flat.abs().t() @ x_flat.abs())
-        
+
         return weight_relevance
 
     def compute_relevance_gamma(
@@ -117,7 +117,7 @@ class LRPComputer:
         """
         gamma = self.config.gamma
         epsilon = self.config.epsilon
-        
+
         activations = activations.to(weights.device)
         output_relevance = output_relevance.to(weights.device)
 
@@ -128,10 +128,10 @@ class LRPComputer:
         z = z + epsilon * torch.sign(z)
 
         s = output_relevance / z
-        
+
         x_flat = activations.reshape(-1, activations.shape[-1])
         s_flat = s.reshape(-1, s.shape[-1])
-        
+
         weight_relevance = weights.abs() * (s_flat.abs().t() @ x_flat.abs())
 
         return weight_relevance
@@ -148,7 +148,7 @@ class LRPComputer:
         alpha = self.config.alpha
         beta = self.config.beta
         epsilon = self.config.epsilon
-        
+
         activations = activations.to(weights.device)
         output_relevance = output_relevance.to(weights.device)
 
@@ -162,10 +162,10 @@ class LRPComputer:
         z = z + epsilon * torch.sign(z)
 
         s = output_relevance / z
-        
+
         x_flat = activations.reshape(-1, activations.shape[-1])
         s_flat = s.reshape(-1, s.shape[-1])
-        
+
         weight_relevance = weights.abs() * (s_flat.abs().t() @ x_flat.abs())
 
         return weight_relevance
@@ -201,7 +201,7 @@ class LRPComputer:
                 return self.compute_relevance_alpha_beta(
                     sample_activations, tensor, output_relevance
                 )
-        
+
         return torch.abs(tensor)
 
     def compute_gradient_importance(
@@ -245,10 +245,13 @@ class LRPComputer:
         """Register forward hooks to collect activations."""
         self.activations = {}
         self.hooks = []
+
         def get_hook(name):
             def hook(module, input, output):
                 self.activations[name] = (input[0].detach(), output.detach())
+
             return hook
+
         for name, module in self.model.named_modules():
             if isinstance(module, torch.nn.Linear):
                 self.hooks.append(module.register_forward_hook(get_hook(name)))
@@ -340,7 +343,7 @@ def compute_lrp_for_model(
     model_path: str,
     output_path: str,
     sample_prompts: Optional[List[str]] = None,
-    **kwargs
+    **kwargs,
 ) -> Dict[str, torch.Tensor]:
     """
     Compute LRP scores for a model.
@@ -366,7 +369,7 @@ def compute_lrp_for_model(
         model_path=model_path,
         output_path=output_path,
         sample_prompts=sample_prompts or default_prompts,
-        **kwargs
+        **kwargs,
     )
 
     computer = LRPComputer(config)
@@ -377,9 +380,7 @@ def compute_lrp_for_model(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Compute LRP scores for a model"
-    )
+    parser = argparse.ArgumentParser(description="Compute LRP scores for a model")
     parser.add_argument("--model", required=True, help="Path to the HuggingFace model")
     parser.add_argument("--output", required=True, help="Where to save LRP scores")
     parser.add_argument(

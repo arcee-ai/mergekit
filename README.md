@@ -346,7 +346,7 @@ tokenizer = AutoTokenizer.from_pretrained("path/to/merged-model")
 
 ## mergekit
 
-> [!NOTE]  
+> [!NOTE]
 > [Charles Goddard](https://github.com/cg123), author of `mergekit`, has joined [arcee.ai](https://www.arcee.ai/). Development of `mergekit` continues with their backing and it remains open source. For more details, see the blog post [here](https://blog.arcee.ai/arcee-and-mergekit-unite/).
 
 # mergekit

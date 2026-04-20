@@ -10,6 +10,7 @@ Recommended small models for CPU training:
 - TinyLlama/TinyLlama-1.1B-Chat-v1.0 (1.1B params) - Requires more memory
 """
 
+import argparse
 import logging
 import os
 import sys
