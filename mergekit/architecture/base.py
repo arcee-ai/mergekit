@@ -151,3 +151,9 @@ class ConfiguredModelArchitecture(BaseModel, frozen=True, arbitrary_types_allowe
             config=self.config,
             weight_prefix=self.info.modules[module_name].weight_prefix,
         )
+
+
+ConfiguredModuleArchitecture.model_rebuild()
+ModuleDefinition.model_rebuild()
+ConfiguredModelArchitecture.model_rebuild()
+WeightInfo.model_rebuild()
