@@ -112,7 +112,8 @@ class LRPMergeTask(Task[torch.Tensor], frozen=True):
                     importance = importance.to(delta.device)
 
             if importance is None:
-                importance = delta.abs()
+                # MULTIMODAL FIX: Treat missing importance as passthrough for this model
+                continue
 
             if importance.shape != delta.shape:
                 importance = delta.abs()

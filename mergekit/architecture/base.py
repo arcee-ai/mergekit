@@ -4,6 +4,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
 
+import torch
 from pydantic import BaseModel, Field
 from transformers import PretrainedConfig
 

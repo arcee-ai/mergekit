@@ -159,13 +159,28 @@ def infer_architecture_info(
 
     def _wi(template: str, prefix: str) -> WeightInfo:
         full_name = prefix + template
-        optional = (full_name.replace("${layer_index}", "0") not in in_all_models) or (
+        # MULTIMODAL FIX: Check all layers for optionality, not just layer 0
+        num_layers = module_layer_counts[prefix]
+        optional = False
+        for i in range(num_layers):
+            layer_name = full_name.replace("${layer_index}", str(i))
+            if layer_name not in in_all_models:
+                optional = True
+                break
+
+        if not optional and tied_keys is not None:
+            optional = any(
+                re.search(pat, full_name.replace("${layer_index}", "0"))
+                for pat in tied_keys
+            )
+
+        is_embed = (full_name in embed_names) or (
             tied_keys is not None
-            and any(re.search(pat, full_name) for pat in tied_keys)
+            and any(
+                re.search(pat, full_name.replace("${layer_index}", "0"))
+                for pat in tied_keys
+            )
         )
-        is_embed = (full_name in embed_names) or any(
-            re.search(pat, full_name) for pat in tied_keys
-        )  # strictly speaking you can have tied non-embedding/lm-head weights
         # but i've never seen it so let's not worry about it until this breaks something
         return WeightInfo(
             name=template,
