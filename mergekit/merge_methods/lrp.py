@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import gc
+import logging
 import time
 from typing import Any, Dict, List, Optional
 
@@ -20,6 +21,7 @@ from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 from mergekit.sparsify import build_mask
 
 _TASK_COUNTER = 0
+logger = logging.getLogger(__name__)
 
 
 class LRPMergeTask(Task[torch.Tensor], frozen=True):
@@ -104,8 +106,18 @@ class LRPMergeTask(Task[torch.Tensor], frozen=True):
                 lrp_path = self.lrp_scores[ref_str]
                 if lrp_path not in _lrp_cache:
                     try:
-                        _lrp_cache[lrp_path] = torch.load(lrp_path, map_location="cpu")
-                    except Exception:
+                        if lrp_path.endswith(".safetensors"):
+                            from safetensors.torch import load_file
+
+                            _lrp_cache[lrp_path] = load_file(lrp_path)
+                        else:
+                            _lrp_cache[lrp_path] = torch.load(
+                                lrp_path, map_location="cpu"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to load LRP scores from {lrp_path}: {e}"
+                        )
                         _lrp_cache[lrp_path] = {}
                 importance = _lrp_cache[lrp_path].get(self.weight_info.name)
                 if importance is not None:

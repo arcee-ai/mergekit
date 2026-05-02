@@ -157,22 +157,30 @@ def infer_architecture_info(
             f"  {repr(prefix or 'default')} with {module_layer_counts[prefix]} layers, {len(module_templates[prefix])} templates, and {len(module_loose_weights[prefix])} loose weights"
         )
 
-    def _wi(template: str, prefix: str) -> WeightInfo:
+    def _wi(template: str, prefix: str, num_layers: int = 1) -> WeightInfo:
         full_name = prefix + template
-        # MULTIMODAL FIX: Check all layers for optionality, not just layer 0
-        num_layers = module_layer_counts[prefix]
-        optional = False
-        for i in range(num_layers):
-            layer_name = full_name.replace("${layer_index}", str(i))
-            if layer_name not in in_all_models:
-                optional = True
-                break
+        # A template is optional if ANY of its layer instantiations are missing
+        # from in_all_models. Required for hybrid architectures like Qwen3.5
+        # (alternating self_attn / linear_attn per layer) where layer 0 may have
+        # both kinds of weights but later layers may have only one. Without this,
+        # layer 0 satisfies the lookup, but the planner emits required LoadTensor
+        # for `linear_attn.norm.weight` at every layer index 0..N-1 — and a
+        # self_attn-only layer raises at execute time.
+        if "${layer_index}" in full_name:
+            layer_optional = any(
+                full_name.replace("${layer_index}", str(i)) not in in_all_models
+                for i in range(num_layers)
+            )
+        else:
+            layer_optional = full_name not in in_all_models
 
-        if not optional and tied_keys is not None:
-            optional = any(
+        optional = layer_optional or (
+            tied_keys is not None
+            and any(
                 re.search(pat, full_name.replace("${layer_index}", "0"))
                 for pat in tied_keys
             )
+        )
 
         is_embed = (full_name in embed_names) or (
             tied_keys is not None
@@ -189,15 +197,17 @@ def infer_architecture_info(
         )
 
     module_archs = {}
-    for prefix in module_prefixes:
+    for prefix in module_layer_counts.keys():
         num_layers = module_layer_counts[prefix]
         module_archs[prefix or "default"] = JsonModuleArchitecture(
             definition=JsonModuleArchDef(
                 model_type="",
                 architectures=[],
-                pre_weights=[_wi(t, "") for t in module_loose_weights[prefix]],
+                pre_weights=[
+                    _wi(t, "", num_layers) for t in module_loose_weights[prefix]
+                ],
                 layer_templates=JsonLayerTemplates(
-                    weights=[_wi(t, "") for t in module_templates[prefix]]
+                    weights=[_wi(t, "", num_layers) for t in module_templates[prefix]]
                 ),
                 post_weights=[],
                 num_layers_config_key=None,
