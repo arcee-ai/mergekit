@@ -13,6 +13,7 @@ from mergekit.config import (
 from mergekit.io import LazyTensorLoader
 from tests.common import (
     make_gpt2size,
+    make_picogranite,
     make_picollama,
     make_picoLlaVa,
     run_and_check_merge,
@@ -52,6 +53,50 @@ def vlm_c(tmp_path_factory):
 @pytest.fixture(scope="session")
 def gpt2_like(tmp_path_factory):
     return make_gpt2size(tmp_path_factory.mktemp("gpt2_like"))
+
+
+@pytest.fixture(scope="session")
+def granite_a(tmp_path_factory):
+    return make_picogranite(tmp_path_factory.mktemp("granite_a"))
+
+
+@pytest.fixture(scope="session")
+def granite_b(tmp_path_factory):
+    return make_picogranite(tmp_path_factory.mktemp("granite_b"))
+
+
+class TestGraniteMerges:
+    def test_granite_copy(self, granite_a):
+        config = MergeConfiguration(
+            merge_method="passthrough",
+            models=[InputModelDefinition(model=granite_a)],
+            dtype="bfloat16",
+        )
+        run_and_check_merge(config)
+
+    def test_granite_linear_merge(self, granite_a, granite_b):
+        config = MergeConfiguration(
+            merge_method="linear",
+            models=[
+                InputModelDefinition(model=granite_a, parameters={"weight": 0.6}),
+                InputModelDefinition(model=granite_b, parameters={"weight": 0.4}),
+            ],
+            dtype="bfloat16",
+        )
+        run_and_check_merge(config)
+
+    def test_granite_slerp(self, granite_a, granite_b):
+        config = MergeConfiguration(
+            merge_method="slerp",
+            base_model=granite_a,
+            models=[
+                InputModelDefinition(model=granite_a),
+                InputModelDefinition(model=granite_b),
+            ],
+            parameters={"t": 0.5},
+            dtype="bfloat16",
+        )
+        run_and_check_merge(config)
 
 
 class TestBasicMerges:
