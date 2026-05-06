@@ -10,14 +10,14 @@ this project are:
 - Base URL: `https://api.atlascloud.ai/v1`
 - Chat endpoint: `https://api.atlascloud.ai/v1/chat/completions`
 - Default model: `deepseek-ai/DeepSeek-V3.1`
-- Local credentials file: `.env.atlascloud.local`
+- Local credentials file: `.env`
 
 ## Local Setup
 
 1. Copy the example file:
 
    ```bash
-   cp .env.atlascloud.example .env.atlascloud.local
+   cp .env.atlascloud.example .env
    ```
 
 2. Fill in the API key:
@@ -39,11 +39,11 @@ this project are:
 Run the provider smoke test:
 
 ```bash
-mergekit-atlascloud-test --env-file .env.atlascloud.local
+mergekit-atlascloud-test --env-file .env
 ```
 
 ## Notes
 
-- `.env.atlascloud.local` is git-ignored and intended for local credentials only.
+- `.env` is already git-ignored and intended for local credentials only.
 - The smoke test uses the OpenAI-compatible AtlasCloud chat endpoint with a
   minimal prompt and does not change any core merge behavior.

@@ -121,7 +121,6 @@ celerybeat.pid
 
 # Environments
 .env
-.env.atlascloud.local
 .venv
 env/
 venv/

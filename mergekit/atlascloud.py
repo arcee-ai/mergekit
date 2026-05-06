@@ -10,7 +10,7 @@ from urllib import error, request
 
 DEFAULT_BASE_URL = "https://api.atlascloud.ai/v1"
 DEFAULT_MODEL = "deepseek-ai/DeepSeek-V3.1"
-DEFAULT_ENV_FILE = ".env.atlascloud.local"
+DEFAULT_ENV_FILE = ".env"
 
 
 def _parse_env_file(env_file: Optional[str]) -> dict[str, str]:
