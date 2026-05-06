@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -44,6 +44,7 @@ mergekit-yaml = "mergekit.scripts.run_yaml:main"
 mergekit-legacy = "mergekit.scripts.legacy:main"
 mergekit-layershuffle = "mergekit.scripts.layershuffle:main"
 bakllama = "mergekit.scripts.bakllama:main"
+mergekit-atlascloud-test = "mergekit.scripts.atlascloud:main"
 mergekit-moe = "mergekit.scripts.moe:main"
 mergekit-tokensurgeon = "mergekit.scripts.tokensurgeon:main"
 mergekit-extract-lora = "mergekit.scripts.extract_lora:main"

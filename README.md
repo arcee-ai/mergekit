@@ -27,6 +27,7 @@
 - [Multi-Stage Merging (`mergekit-multi`)](#multi-stage-merging-mergekit-multi)
 - [Raw PyTorch Model Merging (`mergekit-pytorch`)](#raw-pytorch-model-merging-mergekit-pytorch)
 - [Tokenizer Transplantation (`mergekit-tokensurgeon`)](#tokenizer-transplantation-mergekit-tokensurgeon)
+- [AtlasCloud Provider](#atlascloud-provider)
 - [Citation](#citation)
 
 ## Why Merge Models?
@@ -334,6 +335,14 @@ Use `mergekit-pytorch --help` for detailed options.
 ## Tokenizer Transplantation (`mergekit-tokensurgeon`)
 
 `mergekit-tokensurgeon` is a specialized tool for transplanting tokenizers between models, allowing you to align the vocabulary of one model with another. This is particularly useful for cheaply producing draft models for speculative decoding or for cross-tokenizer knowledge distillation. See the [documentation](docs/tokensurgeon.md) for more details and how to use it.
+
+## AtlasCloud Provider
+
+If you want a project-local AtlasCloud setup for API smoke testing, use the
+OpenAI-compatible provider settings described in
+[`docs/atlascloud_provider.md`](docs/atlascloud_provider.md). This does not
+change mergekit's core merge flow; it adds a local credentials path and a small
+`mergekit-atlascloud-test` command for connectivity checks.
 
 ## Citation
 
