@@ -51,7 +51,7 @@ class AtlasCloudConfig:
         merged_env.update(_parse_env_file(env_file))
         merged_env.update(dict(os.environ if env is None else env))
 
-        api_key = merged_env.get("ATLASCLOUD_API_KEY") or merged_env.get("OPENAI_API_KEY")
+        api_key = merged_env.get("ATLASCLOUD_API_KEY")
         if not api_key:
             raise ValueError(
                 "Missing ATLASCLOUD_API_KEY. Set it in the environment or in "
@@ -86,18 +86,12 @@ def extract_message_text(payload: Mapping) -> str:
 def chat_completion(
     config: AtlasCloudConfig,
     prompt: str,
-    system_prompt: Optional[str] = None,
     timeout: int = 60,
 ) -> dict:
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
     payload = json.dumps(
         {
             "model": config.model,
-            "messages": messages,
+            "messages": [{"role": "user", "content": prompt}],
         }
     ).encode("utf-8")
 

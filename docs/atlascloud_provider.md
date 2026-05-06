@@ -42,16 +42,6 @@ Run the provider smoke test:
 mergekit-atlascloud-test --env-file .env.atlascloud.local
 ```
 
-Override the model or endpoint if needed:
-
-```bash
-mergekit-atlascloud-test \
-  --env-file .env.atlascloud.local \
-  --model deepseek-ai/DeepSeek-V3.1 \
-  --base-url https://api.atlascloud.ai/v1 \
-  --show-json
-```
-
 ## Notes
 
 - `.env.atlascloud.local` is git-ignored and intended for local credentials only.
