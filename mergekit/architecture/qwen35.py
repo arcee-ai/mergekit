@@ -213,6 +213,13 @@ class Qwen35MtpModuleArchitecture(ModuleArchitecture, BaseModel, frozen=True):
                 self.num_experts or getattr(_text_config(config), "num_experts", 0) or 0
             )
             res.append(WeightInfo(name=f"{prefix}.mlp.gate.weight", optional=True))
+            res.extend(
+                WeightInfo(name=f"{prefix}.mlp.{name}", optional=True)
+                for name in (
+                    "experts.gate_up_proj",
+                    "experts.down_proj",
+                )
+            )
             for expert_idx in range(num_experts):
                 for proj in ("gate_proj", "up_proj", "down_proj"):
                     res.append(

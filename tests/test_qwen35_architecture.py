@@ -174,6 +174,8 @@ def test_qwen35_moe_architecture_covers_transformers_keys_and_mtp_experts():
     assert "model.language_model.layers.0.mlp.experts.gate_up_proj" in arch_keys
     assert "model.language_model.layers.0.mlp.shared_expert_gate.weight" in arch_keys
     assert "model.language_model.layers.3.self_attn.q_proj.weight" in arch_keys
+    assert "mtp.layers.0.mlp.experts.gate_up_proj" in arch_keys
+    assert "mtp.layers.0.mlp.experts.down_proj" in arch_keys
     assert "mtp.layers.0.mlp.experts.3.down_proj.weight" in arch_keys
     assert "mtp.layers.0.mlp.shared_expert_gate.weight" in arch_keys
 
