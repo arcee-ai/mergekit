@@ -322,23 +322,15 @@ def qwen35_architecture_for_config(config: PretrainedConfig) -> ModelArchitectur
         modules["vision_tower"] = ModuleDefinition(
             architecture=Qwen35VisionModuleArchitecture()
         )
-        if _cfg(config, "text_config.mtp_num_hidden_layers", 0):
-            modules["mtp"] = ModuleDefinition(
-                architecture=Qwen35MtpModuleArchitecture(
-                    is_moe=is_moe,
-                    num_experts=num_experts,
-                    num_layers_key=mtp_num_layers_key,
-                )
+
+    if _cfg(config, mtp_num_layers_key, 0):
+        modules["mtp"] = ModuleDefinition(
+            architecture=Qwen35MtpModuleArchitecture(
+                is_moe=is_moe,
+                num_experts=num_experts,
+                num_layers_key=mtp_num_layers_key,
             )
-    else:
-        if _cfg(config, "mtp_num_hidden_layers", 0):
-            modules["mtp"] = ModuleDefinition(
-                architecture=Qwen35MtpModuleArchitecture(
-                    is_moe=is_moe,
-                    num_experts=num_experts,
-                    num_layers_key=mtp_num_layers_key,
-                )
-            )
+        )
 
     return ModelArchitecture(
         modules=modules,
