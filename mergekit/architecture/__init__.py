@@ -23,6 +23,10 @@ from mergekit.architecture.moe_defs import (
     MixtralModuleArchitecture,
     Qwen3MoeModuleArchitecture,
 )
+from mergekit.architecture.qwen35 import (
+    QWEN35_ARCHITECTURES,
+    qwen35_architecture_for_config,
+)
 from mergekit.options import MergeOptions
 
 if TYPE_CHECKING:
@@ -66,6 +70,8 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
             architectures=[arch_name],
             model_type="glm4_moe",
         )
+    elif arch_name in QWEN35_ARCHITECTURES:
+        return qwen35_architecture_for_config(config)
     elif arch_name in NAME_TO_ARCH:
         candidates = list(NAME_TO_ARCH[arch_name])
         if len(candidates) == 1:
