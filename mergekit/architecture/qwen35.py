@@ -14,7 +14,6 @@ from mergekit.architecture.base import (
 )
 from mergekit.common import get_config_value
 
-
 QWEN35_DENSE_ARCHITECTURES = {
     "Qwen3_5ForConditionalGeneration",
     "Qwen3_5ForCausalLM",

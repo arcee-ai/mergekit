@@ -154,9 +154,7 @@ def test_qwen35_dense_architecture_covers_transformers_keys():
         (_moe_config(), Qwen3_5MoeForConditionalGeneration),
     ],
 )
-def test_qwen35_full_attention_bias_covers_output_projection_bias(
-    config, model_cls
-):
+def test_qwen35_full_attention_bias_covers_output_projection_bias(config, model_cls):
     config.text_config.attention_bias = True
     model = model_cls(config)
     state_keys = set(model.state_dict().keys())
@@ -187,9 +185,7 @@ def test_qwen35_moe_architecture_covers_transformers_keys_and_mtp_experts():
         (_moe_text_config(), Qwen3_5MoeForCausalLM),
     ],
 )
-def test_qwen35_text_only_architecture_uses_top_level_mtp_config_key(
-    config, model_cls
-):
+def test_qwen35_text_only_architecture_uses_top_level_mtp_config_key(config, model_cls):
     model = model_cls(config)
     arch = arch_info_for_config(config)
     arch_keys = {weight.name for weight in arch.all_weights(config)}
