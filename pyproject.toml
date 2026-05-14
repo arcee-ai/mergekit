@@ -50,6 +50,7 @@ mergekit-extract-lora = "mergekit.scripts.extract_lora:main"
 mergekit-evolve = "mergekit.scripts.evolve:main"
 mergekit-pytorch = "mergekit.scripts.merge_raw_pytorch:main"
 mergekit-multi = "mergekit.scripts.multimerge:main"
+mergekit-check-compat = "mergekit.scripts.check_compat:main"
 
 [tool.setuptools]
 packages = [
