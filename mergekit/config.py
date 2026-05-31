@@ -1,6 +1,7 @@
 # Copyright (C) 2025 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
+import fnmatch
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
@@ -11,6 +12,31 @@ from mergekit.common import ModelReference
 from mergekit.tokenizer.config import TokenizerConfig
 
 ScalarOrGradient: TypeAlias = Union[float, List[float]]
+
+_GLOB_CHARS = frozenset("*?[")
+
+
+def _filter_matches(filter_str: str, tensor_name: str) -> bool:
+    """Return True if filter_str matches tensor_name.
+
+    Matching rules (evaluated in order):
+    1. ``"*"`` matches everything (handled by caller, kept for clarity).
+    2. If filter_str contains any glob metacharacter (``*``, ``?``, ``[``),
+       use :func:`fnmatch.fnmatch` so users can write precise patterns such as
+       ``"*self_attn*"`` to avoid accidentally matching ``"linear_attn"``.
+    3. Otherwise fall back to the original substring check (``filter in tensor_name``).
+
+    **Why this matters for hybrid-attention models** (e.g. FLA / linear-attention
+    architectures): a filter of ``"attn"`` substring-matches *both* ``self_attn``
+    and ``linear_attn`` weights, causing unintended parameter blending of SSM state
+    tensors (``A_log``, ``dt_bias``, etc.) that must remain intact.  Users can opt
+    into exact control by writing ``filter: "*self_attn*"`` in their merge YAML.
+    """
+    if not filter_str or not tensor_name:
+        return False
+    if _GLOB_CHARS.intersection(filter_str):
+        return fnmatch.fnmatch(tensor_name, f"*{filter_str}*")
+    return filter_str in tensor_name
 
 
 class ConditionalParameter(BaseModel):
@@ -43,7 +69,7 @@ def evaluate_setting(
                 if (
                     (cond.filter is None)
                     or (cond.filter == "*")
-                    or (tensor_name and cond.filter in tensor_name)
+                    or (tensor_name and _filter_matches(cond.filter, tensor_name))
                 ):
                     res = evaluate_setting(tensor_name, cond.value, t)
                     return res
