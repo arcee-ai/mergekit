@@ -88,6 +88,44 @@ def test_mixtral_old_checkpoint_names_convert_to_v5_layout():
     )
 
 
+def test_mixtral_writer_keys_convert_to_v5_layout():
+    sources = {
+        "model.layers.0.mlp.experts.0.w1.weight": torch.full((2, 3), 1.0),
+        "model.layers.0.mlp.experts.1.w1.weight": torch.full((2, 3), 2.0),
+        "model.layers.0.mlp.experts.0.w3.weight": torch.full((2, 3), 3.0),
+        "model.layers.0.mlp.experts.1.w3.weight": torch.full((2, 3), 4.0),
+    }
+
+    converted = convert_checkpoint_tensors(
+        "mixtral",
+        sources,
+        "model.layers.0.mlp.experts.gate_up_proj",
+    )
+
+    torch.testing.assert_close(
+        converted,
+        torch.stack(
+            [
+                torch.cat(
+                    [
+                        sources["model.layers.0.mlp.experts.0.w1.weight"],
+                        sources["model.layers.0.mlp.experts.0.w3.weight"],
+                    ],
+                    dim=0,
+                ),
+                torch.cat(
+                    [
+                        sources["model.layers.0.mlp.experts.1.w1.weight"],
+                        sources["model.layers.0.mlp.experts.1.w3.weight"],
+                    ],
+                    dim=0,
+                ),
+            ],
+            dim=0,
+        ),
+    )
+
+
 def test_key_conversion_requires_complete_single_pattern_groups():
     assert not can_convert_checkpoint_keys(
         "mixtral",

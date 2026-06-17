@@ -149,8 +149,7 @@ def main(
     force_population_size: Optional[int],
 ):
     warnings.warn(
-        "mergekit-evolve is deprecated and is not part of the Transformers v5 "
-        "modernization path. It may be removed in a future mergekit release.",
+        "mergekit-evolve is deprecated and is likely to be removed in a future release.",
         DeprecationWarning,
         stacklevel=2,
     )
