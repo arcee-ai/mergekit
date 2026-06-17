@@ -9,6 +9,7 @@ from typing import Dict, Optional, Tuple
 import torch
 
 from mergekit.architecture import WeightInfo
+from mergekit.architecture.conversion import convert_checkpoint_tensors
 from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
 from mergekit.graph import Task
 from mergekit.io.lazy_tensor_loader import LazyTensorLoader
@@ -90,17 +91,36 @@ class LoadTensor(Task[Optional[torch.Tensor]]):
                 return name
         return None
 
+    def _load_converted_tensor(
+        self, loader: LazyTensorLoader
+    ) -> Optional[torch.Tensor]:
+        model_type = self.model.config(
+            trust_remote_code=LoaderCache().trust_remote_code
+        ).model_type
+        source_tensors = {
+            key: (lambda key=key: loader.get_tensor(key, device=self.device or "cpu"))
+            for key in loader.index.tensor_paths
+        }
+        for target in [self.tensor] + list(self.aliases or []):
+            tensor = convert_checkpoint_tensors(model_type, source_tensors, target)
+            if tensor is not None:
+                return tensor.to(self.device or "cpu")
+        return None
+
     def execute(self) -> Optional[torch.Tensor]:
         loader = LoaderCache().get(self.model)
         name = self._resolve_name(loader)
-        if not name:
+        if name:
+            x = loader.get_tensor(name, device=self.device or "cpu")
+        else:
+            x = self._load_converted_tensor(loader)
+        if x is None:
             if not self.optional:
                 raise RuntimeError(
                     f"Tensor {self.tensor} required but not present in model {self.model}"
                 )
             return None
 
-        x = loader.get_tensor(name, device=self.device or "cpu")
         if self.dtype and (dtype := dtype_from_name(self.dtype)) != x.dtype:
             x = x.to(dtype=dtype)
         return x

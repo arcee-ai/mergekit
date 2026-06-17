@@ -4,7 +4,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Tuple
 
-import torch  # required for Pydantic to resolve PretrainedConfig's torch.dtype forward reference
+import torch  # noqa: F401
 from pydantic import BaseModel, Field
 from transformers import PretrainedConfig
 

@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import logging
-from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
 
 from transformers import PretrainedConfig
@@ -20,8 +19,6 @@ from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.architecture.moe_defs import (
     AfmoeModuleArchitecture,
     Glm4MoeModuleArchitecture,
-    MixtralModuleArchitecture,
-    Qwen3MoeModuleArchitecture,
 )
 from mergekit.options import MergeOptions
 
@@ -38,21 +35,7 @@ def arch_info_for_config(config: PretrainedConfig) -> Optional[ModelArchitecture
         raise RuntimeError("More than one architecture in config?")
     arch_name = config.architectures[0]
 
-    if arch_name == MixtralModuleArchitecture.ARCHITECTURE_NAME:
-        module = MixtralModuleArchitecture.from_config(config)
-        return ModelArchitecture(
-            modules={"default": ModuleDefinition(architecture=module)},
-            architectures=[arch_name],
-            model_type="mixtral",
-        )
-    elif arch_name == Qwen3MoeModuleArchitecture.ARCHITECTURE_NAME:
-        module = Qwen3MoeModuleArchitecture.from_config(config)
-        return ModelArchitecture(
-            modules={"default": ModuleDefinition(architecture=module)},
-            architectures=[arch_name],
-            model_type="qwen3_moe",
-        )
-    elif arch_name == AfmoeModuleArchitecture.ARCHITECTURE_NAME:
+    if arch_name == AfmoeModuleArchitecture.ARCHITECTURE_NAME:
         module = AfmoeModuleArchitecture.from_config(config)
         return ModelArchitecture(
             modules={"default": ModuleDefinition(architecture=module)},

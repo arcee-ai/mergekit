@@ -5,6 +5,7 @@ import importlib.util
 import logging
 import os
 import time
+import warnings
 from typing import List, Optional
 
 import click
@@ -147,6 +148,12 @@ def main(
     load_in_4bit: bool,
     force_population_size: Optional[int],
 ):
+    warnings.warn(
+        "mergekit-evolve is deprecated and is likely to be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     config = EvolMergeConfiguration.model_validate(
         yaml.safe_load(open(genome_config_path, "r", encoding="utf-8"))
     )
