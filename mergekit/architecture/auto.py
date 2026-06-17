@@ -106,6 +106,56 @@ def get_transformers_info(model: ModelReference, options: MergeOptions) -> tuple
     return ignore_on_save, tied_keys, embed_names, tensor_names
 
 
+def _target_present_in_all_models(
+    target_name: str,
+    model_tensor_names: dict[ModelReference, set[str]],
+    model_types: dict[ModelReference, str],
+    use_transformers_layout: bool,
+) -> bool:
+    if use_transformers_layout:
+        return all(
+            can_convert_checkpoint_keys(
+                model_types.get(model),
+                model_tensor_names[model],
+                target_name,
+            )
+            for model in model_tensor_names
+        )
+    return all(target_name in names for names in model_tensor_names.values())
+
+
+def _template_present_in_all_models(
+    full_name_template: str,
+    num_layers: Optional[int],
+    model_tensor_names: dict[ModelReference, set[str]],
+    model_types: dict[ModelReference, str],
+    use_transformers_layout: bool,
+) -> bool:
+    if "${layer_index}" not in full_name_template:
+        return _target_present_in_all_models(
+            full_name_template,
+            model_tensor_names,
+            model_types,
+            use_transformers_layout,
+        )
+    if num_layers is None:
+        return _target_present_in_all_models(
+            full_name_template.replace("${layer_index}", "0"),
+            model_tensor_names,
+            model_types,
+            use_transformers_layout,
+        )
+    return all(
+        _target_present_in_all_models(
+            full_name_template.replace("${layer_index}", str(layer_idx)),
+            model_tensor_names,
+            model_types,
+            use_transformers_layout,
+        )
+        for layer_idx in range(num_layers)
+    )
+
+
 @lru_cache(maxsize=128)
 def infer_architecture_info(
     models: Tuple[ModelReference, ...],
@@ -120,8 +170,6 @@ def infer_architecture_info(
     if base_model is None:
         base_model = models.pop(0)
     raw_tensor_names = set().union(*model_tensor_names.values())
-    in_all_models = raw_tensor_names.intersection(*model_tensor_names.values())
-
     ignore_on_save, tied_keys, embed_names, transformer_tensor_names = (
         get_transformers_info(base_model, options)
     )
@@ -184,20 +232,19 @@ def infer_architecture_info(
             f"  {repr(prefix or 'default')} with {module_layer_counts[prefix]} layers, {len(module_templates[prefix])} templates, and {len(module_loose_weights[prefix])} loose weights"
         )
 
-    def _wi(template: str, prefix: str) -> WeightInfo:
+    def _wi(
+        template: str,
+        prefix: str,
+        num_layers: Optional[int] = None,
+    ) -> WeightInfo:
         full_name = prefix + template
-        sample_name = full_name.replace("${layer_index}", "0")
-        if transformer_tensor_names:
-            present_in_all = all(
-                can_convert_checkpoint_keys(
-                    model_types.get(model),
-                    model_tensor_names[model],
-                    sample_name,
-                )
-                for model in model_tensor_names
-            )
-        else:
-            present_in_all = sample_name in in_all_models
+        present_in_all = _template_present_in_all_models(
+            full_name,
+            num_layers,
+            model_tensor_names,
+            model_types,
+            use_transformers_layout=bool(transformer_tensor_names),
+        )
         optional = (not present_in_all) or (
             tied_keys is not None
             and any(re.search(pat, full_name) for pat in tied_keys)
@@ -221,7 +268,10 @@ def infer_architecture_info(
                 architectures=[],
                 pre_weights=[_wi(t, "") for t in module_loose_weights[prefix]],
                 layer_templates=JsonLayerTemplates(
-                    weights=[_wi(t, "") for t in module_templates[prefix]]
+                    weights=[
+                        _wi(t, "", num_layers=num_layers)
+                        for t in module_templates[prefix]
+                    ]
                 ),
                 post_weights=[],
                 num_layers_config_key=None,
