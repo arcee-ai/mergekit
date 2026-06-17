@@ -123,7 +123,7 @@ This guide provides detailed information about the various model merging algorit
 - `max_iter` (global): Maximum iterations for the Karcher mean algorithm. Default `10`
 - `tol` (global): Convergence tolerance. Default `1e-5`
 
-**Reference:** [Wikipedia: Karcher mean](https://en.wikipedia.org/wiki/Karcher_mean)
+**Reference:** [Functionality-Oriented LLM Merging on the Fisher-Rao Manifold](https://arxiv.org/abs/2603.04972)
 
 ---
 
