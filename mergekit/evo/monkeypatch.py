@@ -1,8 +1,7 @@
-# Copyright (C) 2025 Arcee AI
+# Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 
-import torch
 import transformers
 
 
@@ -95,34 +94,3 @@ def monkeypatch_lmeval_vllm():
     lm_eval.models.vllm_causallms.VLLM.AUTO_MODEL_CLASS = (
         transformers.AutoModelForCausalLM
     )
-
-
-class NoInit:
-    def __enter__(self):
-        def noop(*args, **kwargs):
-            pass
-
-        (k, u, n) = (
-            torch.nn.init.kaiming_uniform_,
-            torch.nn.init.uniform_,
-            torch.nn.init.normal_,
-        )
-        torch.nn.init.kaiming_uniform_ = noop
-        torch.nn.init.uniform_ = noop
-        torch.nn.init.normal_ = noop
-
-        transformers.modeling_utils._init_weights = False
-        self.funcs = (k, u, n)
-
-    def __exit__(self, *args):
-        (k, u, n) = self.funcs
-        (
-            torch.nn.init.kaiming_uniform_,
-            torch.nn.init.uniform_,
-            torch.nn.init.normal_,
-        ) = (
-            k,
-            u,
-            n,
-        )
-        transformers.modeling_utils._init_weights = True

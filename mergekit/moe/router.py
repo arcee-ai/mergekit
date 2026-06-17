@@ -1,4 +1,4 @@
-# Copyright (C) 2025 Arcee AI
+# Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import logging
@@ -113,15 +113,23 @@ def get_gate_params(
             )
 
     elif mode in ("hidden", "hidden_avg", "hidden_last"):
+        kwargs = {}
+        if load_in_4bit:
+            kwargs["quantization_config"] = transformers.BitsAndBytesConfig(
+                load_in_4bit=True
+            )
+        elif load_in_8bit:
+            kwargs["quantization_config"] = transformers.BitsAndBytesConfig(
+                load_in_8bit=True
+            )
         model = AutoModelForCausalLM.from_pretrained(
             model_ref.model.path,
             revision=model_ref.model.revision,
             torch_dtype=torch.bfloat16,
             device_map=device,
             low_cpu_mem_usage=True,
-            load_in_4bit=load_in_4bit,
-            load_in_8bit=load_in_8bit,
             trust_remote_code=trust_remote_code,
+            **kwargs,
         )
 
         def _do_it(tokenized):
