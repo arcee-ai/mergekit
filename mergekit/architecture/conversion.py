@@ -72,5 +72,42 @@ def convert_checkpoint_tensors(
     return tensor if isinstance(tensor, torch.Tensor) else None
 
 
+def can_convert_checkpoint_keys(
+    model_type: Optional[str],
+    source_keys: set[str],
+    target_key: str,
+) -> bool:
+    """Return whether source checkpoint keys can produce a target model key."""
+    if target_key in source_keys:
+        return True
+    if not model_type:
+        return False
+
+    transforms = get_checkpoint_conversion_mapping(model_type)
+    if not transforms:
+        return False
+
+    available = set(source_keys)
+    for transform in transforms:
+        additions = set()
+        target_sources = set()
+        for source_key in sorted(available, key=_natural_sort_key):
+            renamed_key, source_pattern = transform.rename_source_key(source_key)
+            if source_pattern is None:
+                continue
+            if isinstance(transform, WeightRenaming):
+                additions.add(renamed_key)
+            elif renamed_key == target_key:
+                target_sources.add(source_pattern)
+
+        available.update(additions)
+        if target_key in available:
+            return True
+        if target_sources and set(transform.source_patterns).issubset(target_sources):
+            return True
+
+    return False
+
+
 def has_checkpoint_conversion(model_type: Optional[str]) -> bool:
     return bool(model_type and get_checkpoint_conversion_mapping(model_type))

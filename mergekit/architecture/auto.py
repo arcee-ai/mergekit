@@ -8,12 +8,14 @@ from functools import lru_cache
 from typing import List, Optional, Tuple
 
 import torch
+from transformers.initialization import no_init_weights
 
 from mergekit.architecture.base import (
     ModelArchitecture,
     ModuleDefinition,
     WeightInfo,
 )
+from mergekit.architecture.conversion import can_convert_checkpoint_keys
 from mergekit.architecture.json_definitions import (
     JsonLayerTemplates,
     JsonModuleArchDef,
@@ -50,44 +52,58 @@ def get_transformers_info(model: ModelReference, options: MergeOptions) -> tuple
             f"Unable to load config for {model.model} - tied/ignored weights will not be detected",
             exc_info=e,
         )
-        return None, None, None
+        return None, None, None, None
+    model_obj = None
     try:
-        with torch.device("meta"):
-            model = auto_cls.from_pretrained(
-                model.model.path,
-                revision=model.model.revision,
+        with torch.device("meta"), no_init_weights():
+            model_obj = auto_cls.from_config(
+                cfg,
                 trust_remote_code=options.trust_remote_code,
-                device_map="meta",
             )
     except Exception as e:
         LOG.warning(
-            f"Unable to load model {model.model} with transformers - tied/ignored weights will not be detected",
+            f"Unable to instantiate model {model.model} with transformers config",
             exc_info=e,
         )
-        return None, None, None
+    if model_obj is None:
+        try:
+            with torch.device("meta"):
+                model_obj = auto_cls.from_pretrained(
+                    model.model.path,
+                    revision=model.model.revision,
+                    trust_remote_code=options.trust_remote_code,
+                    device_map="meta",
+                )
+        except Exception as e:
+            LOG.warning(
+                f"Unable to load model {model.model} with transformers - tied/ignored weights will not be detected",
+                exc_info=e,
+            )
+            return None, None, None, None
 
-    ignore_on_save = getattr(model, "_keys_to_ignore_on_save", None)
+    ignore_on_save = getattr(model_obj, "_keys_to_ignore_on_save", None)
     if _get_tied_weight_keys is None:
         LOG.warning(
             "Unable to get tied weights - incompatible transformers version",
         )
         tied_keys = None
     else:
-        tied_keys = _get_tied_weight_keys(model)
+        tied_keys = _get_tied_weight_keys(model_obj)
     if ignore_on_save is not None:
         ignore_on_save = set(ignore_on_save)
 
     embed_names = set()
-    _embed_out = model.get_output_embeddings()
-    _embed_in = model.get_input_embeddings()
-    for name, module in model.named_modules():
+    _embed_out = model_obj.get_output_embeddings()
+    _embed_in = model_obj.get_input_embeddings()
+    for name, module in model_obj.named_modules():
         if (
             isinstance(module, torch.nn.Embedding)
             or module == _embed_out
             or module == _embed_in
         ):
             embed_names.add(name + ".weight")
-    return ignore_on_save, tied_keys, embed_names
+    tensor_names = list(model_obj.state_dict().keys())
+    return ignore_on_save, tied_keys, embed_names, tensor_names
 
 
 @lru_cache(maxsize=128)
@@ -103,10 +119,21 @@ def infer_architecture_info(
     models = list(models)
     if base_model is None:
         base_model = models.pop(0)
-    all_tensor_names = set().union(*model_tensor_names.values())
-    in_all_models = all_tensor_names.intersection(*model_tensor_names.values())
+    raw_tensor_names = set().union(*model_tensor_names.values())
+    in_all_models = raw_tensor_names.intersection(*model_tensor_names.values())
 
-    ignore_on_save, tied_keys, embed_names = get_transformers_info(base_model, options)
+    ignore_on_save, tied_keys, embed_names, transformer_tensor_names = (
+        get_transformers_info(base_model, options)
+    )
+    if transformer_tensor_names:
+        all_tensor_names = set(transformer_tensor_names)
+        model_types = {
+            model: model.config(trust_remote_code=options.trust_remote_code).model_type
+            for model in model_tensor_names
+        }
+    else:
+        all_tensor_names = raw_tensor_names
+        model_types = {}
 
     module_prefixes = set()
     module_layer_counts = defaultdict(int)
@@ -159,7 +186,19 @@ def infer_architecture_info(
 
     def _wi(template: str, prefix: str) -> WeightInfo:
         full_name = prefix + template
-        optional = (full_name.replace("${layer_index}", "0") not in in_all_models) or (
+        sample_name = full_name.replace("${layer_index}", "0")
+        if transformer_tensor_names:
+            present_in_all = all(
+                can_convert_checkpoint_keys(
+                    model_types.get(model),
+                    model_tensor_names[model],
+                    sample_name,
+                )
+                for model in model_tensor_names
+            )
+        else:
+            present_in_all = sample_name in in_all_models
+        optional = (not present_in_all) or (
             tied_keys is not None
             and any(re.search(pat, full_name) for pat in tied_keys)
         )
