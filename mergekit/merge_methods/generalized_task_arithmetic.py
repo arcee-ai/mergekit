@@ -18,7 +18,7 @@ from mergekit.merge_methods.base import (
     MergeTensorInput,
 )
 from mergekit.sparsify import RescaleNorm, SparsificationMethod, sparsify
-
+from mergekit.subspace_helpers import iso_c, compute_and_sum_svd_mem_reduction, subspace_boosting
 
 class ConsensusMethod(str, Enum):
     count = "count"
@@ -55,6 +55,8 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
                 name="rescale", required=False, default_value=self.default_rescale
             ),
             ConfigParameterDef(name="lambda", required=False, default_value=1.0),
+            ConfigParameterDef(name="svd_thresh", required=False, default_value=0.01),
+            ConfigParameterDef(name="cumsum", required=False, default_value=True),
         ]
 
     def tensor_parameters(self) -> List[ConfigParameterDef]:
@@ -96,6 +98,8 @@ class GeneralizedTaskArithmeticMerge(MergeMethod, BaseModel, frozen=True):
             lambda_=parameters["lambda"],
             rescale_norm=RescaleNorm.l1 if parameters["rescale"] else None,
             weight_info=output_weight,
+            svd_thresh=parameters["svd_thresh"],
+            cumsum=parameters["cumsum"],
         )
 
 
@@ -109,6 +113,8 @@ class GTATask(Task[torch.Tensor]):
     normalize: bool
     lambda_: float
     rescale_norm: Optional[RescaleNorm]
+    svd_thresh: float
+    cumsum: bool
 
     def uses_accelerator(self) -> bool:
         return True
@@ -130,7 +136,6 @@ class GTATask(Task[torch.Tensor]):
         )
         if not tvs:
             return base
-
         # sparsify
         if self.method.sparsification_method:
             for tv_info in tvs:
@@ -148,9 +153,8 @@ class GTATask(Task[torch.Tensor]):
                     rescale_norm=self.rescale_norm,
                     **kwargs,
                 )
-
         deltas = torch.stack([tv["delta"] for tv in tvs], dim=0)
-
+        
         weights = torch.tensor(
             [tv["weight"] for tv in tvs], dtype=deltas.dtype, device=deltas.device
         )
@@ -174,6 +178,16 @@ class GTATask(Task[torch.Tensor]):
             mixed_delta = weighted_deltas.sum(dim=0)
             divisor = weights.sum(dim=0)
             divisor[divisor.abs() < 1e-8] = 1
+
+        param_key = self.weight_info.name
+        subspace_input = [tv["delta"] for tv in tvs]
+
+        if self.method.name() == "iso_c":
+            mixed_delta = iso_c(subspace_input, param_key, deltas.device)
+        elif self.method.name() == "tsvm":
+            mixed_delta = compute_and_sum_svd_mem_reduction(subspace_input, param_key, deltas.device)
+        elif self.method.name() in ["task_arithmetic_sb", "ties_sb"]:
+            mixed_delta = subspace_boosting(param_key, mixed_delta, svd_thresh=self.svd_thresh, cumsum=self.cumsum)
 
         if self.normalize:
             mixed_delta /= divisor
