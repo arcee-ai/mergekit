@@ -35,7 +35,13 @@
                 "name": "model.layers.${layer_index}.mlp.up_proj.weight"
             },
             {
+                "name": "model.layers.${layer_index}.self_attn.q_norm.weight"
+            },
+            {
                 "name": "model.layers.${layer_index}.self_attn.q_proj.weight"
+            },
+            {
+                "name": "model.layers.${layer_index}.self_attn.k_norm.weight"
             },
             {
                 "name": "model.layers.${layer_index}.self_attn.k_proj.weight"
