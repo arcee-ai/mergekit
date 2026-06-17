@@ -3,7 +3,6 @@
 
 
 import transformers
-from transformers.initialization import no_init_weights
 
 
 def monkeypatch_lmeval_shuffle():
