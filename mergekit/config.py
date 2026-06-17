@@ -10,7 +10,7 @@ from typing_extensions import Literal, TypeAlias
 from mergekit.common import ModelReference
 from mergekit.tokenizer.config import TokenizerConfig
 
-ScalarOrGradient: TypeAlias = Union[float, List[float]]
+ScalarOrGradient: TypeAlias = Union[float, str, List[float], List[str]]
 
 
 class ConditionalParameter(BaseModel):

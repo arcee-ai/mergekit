@@ -197,3 +197,27 @@ def sparsify(
         )
     else:
         raise NotImplementedError(method)
+
+
+def build_mask(importance: torch.Tensor, density: float) -> torch.Tensor:
+    """Create a binary mask based on importance scores and desired density."""
+    if density >= 1.0:
+        return torch.ones_like(importance)
+    if density <= 0.0:
+        return torch.zeros_like(importance)
+
+    k = int(density * importance.numel())
+    if k <= 0:
+        return torch.zeros_like(importance)
+    if k >= importance.numel():
+        return torch.ones_like(importance)
+
+    mask = torch.zeros_like(importance)
+    w = importance.abs().view(-1)
+    if w.device.type == "cpu":
+        w = w.float()
+
+    # Use topk for performance on large tensors
+    _, topk_indices = torch.topk(w, k, sorted=False)
+    mask.view(-1)[topk_indices] = 1
+    return mask

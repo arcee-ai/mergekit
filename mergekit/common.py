@@ -291,6 +291,12 @@ class ImmutableMap(Generic[T_K, T_V]):
     def __getitem__(self, key: T_K) -> T_V:
         return self.data[key]
 
+    def __contains__(self, key: Any) -> bool:
+        return key in self.data
+
+    def get(self, key: T_K, default: Optional[T_V] = None) -> Optional[T_V]:
+        return self.data.get(key, default)
+
     def __len__(self) -> int:
         return len(self.data)
 

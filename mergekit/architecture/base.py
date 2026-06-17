@@ -38,6 +38,7 @@ class WeightInfo(BaseModel, frozen=True):
 def _prefix_weight(weight: WeightInfo, prefix: Optional[str] = None) -> WeightInfo:
     if prefix is None:
         return weight
+
     return WeightInfo(
         name=prefix + weight.name,
         aliases=tuple(prefix + alias for alias in weight.aliases or ()) or None,
@@ -66,7 +67,7 @@ class ModuleArchitecture(ABC):
         ...
 
     def num_layers_config_key(self) -> str:
-        """Key in config that represents number of layers"""
+        """Key in config that represents number of layers."""
         return "num_hidden_layers"
 
     def num_layers(self, config: PretrainedConfig) -> int:
@@ -76,9 +77,12 @@ class ModuleArchitecture(ABC):
     def all_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         """Return all weights associated with a model."""
         num_layers = self.num_layers(config)
+
         res = list(self.pre_weights(config))
+
         for layer_idx in range(num_layers):
             res.extend(self.layer_weights(layer_idx, config))
+
         res.extend(self.post_weights(config))
         return res
 
@@ -133,13 +137,17 @@ class ModelArchitecture(BaseModel, frozen=True):
 
     def all_weights(self, config: PretrainedConfig) -> List[WeightInfo]:
         res = []
+
         for module in self.modules.values():
             for weight_info in module.architecture.all_weights(config=config):
                 res.append(_prefix_weight(weight_info, module.weight_prefix))
+
         return res
 
 
-class ConfiguredModelArchitecture(BaseModel, frozen=True, arbitrary_types_allowed=True):
+class ConfiguredModelArchitecture(
+    BaseModel, frozen=True, arbitrary_types_allowed=True
+):
     info: ModelArchitecture
     config: PretrainedConfig
 
@@ -155,4 +163,6 @@ class ConfiguredModelArchitecture(BaseModel, frozen=True, arbitrary_types_allowe
 
 
 ConfiguredModuleArchitecture.model_rebuild()
+ModuleDefinition.model_rebuild()
 ConfiguredModelArchitecture.model_rebuild()
+WeightInfo.model_rebuild()
