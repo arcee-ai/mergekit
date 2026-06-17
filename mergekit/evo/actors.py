@@ -1,4 +1,4 @@
-# Copyright (C) 2025 Arcee AI
+# Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import gc
@@ -15,6 +15,7 @@ import ray.util.queue
 import ray.util.scheduling_strategies
 import torch
 import transformers
+from transformers.initialization import no_init_weights
 from transformers.utils import is_flash_attn_2_available
 
 from mergekit.architecture.base import ConfiguredModelArchitecture
@@ -32,7 +33,6 @@ from mergekit.evo.config import EvolMergeConfiguration
 from mergekit.evo.genome import InvalidGenotypeError, ModelGenome
 from mergekit.evo.helpers import _eval_model, evaluate_model, merge_model
 from mergekit.evo.monkeypatch import (
-    NoInit,
     monkeypatch_lmeval_shuffle,
     monkeypatch_lmeval_vllm,
 )
@@ -187,7 +187,7 @@ class InMemoryMergeEvaluator(MergeActorBase):
         if is_flash_attn_2_available():
             model_kwargs["attn_implementation"] = "flash_attention_2"
 
-        with NoInit():
+        with no_init_weights():
             inner_model = (
                 transformers.AutoModelForCausalLM.from_config(
                     cfg_out,

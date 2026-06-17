@@ -1,4 +1,4 @@
-# Copyright (C) 2025 Arcee AI
+# Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import logging
@@ -11,7 +11,12 @@ from transformers.models.qwen3_moe import Qwen3MoeConfig
 
 from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.moe.arch import MoEOutputArchitecture
-from mergekit.moe.common import copy_tensor_out, initialize_io, select_dtype
+from mergekit.moe.common import (
+    convert_and_save_checkpoint_tensors,
+    initialize_io,
+    noise_and_scale,
+    select_dtype,
+)
 from mergekit.moe.config import MoEMergeConfig
 from mergekit.options import MergeOptions
 
@@ -94,21 +99,7 @@ class Qwen3MoE(MoEOutputArchitecture):
         ):
             tensor_name = weight_info.name
             if ".mlp." in tensor_name:
-                for expert_idx, expert in enumerate(config.experts):
-                    expert_name = tensor_name.replace(
-                        ".mlp.", f".mlp.experts.{expert_idx}."
-                    )
-                    expert_loader = loaders.get(expert.source_model)
-                    copy_tensor_out(
-                        weight_info,
-                        expert_loader,
-                        writer,
-                        expert=expert,
-                        is_residual="down_proj" in tensor_name,
-                        output_name=expert_name,
-                        out_dtype=out_dtype,
-                        clone=merge_options.clone_tensors,
-                    )
+                continue
             else:
                 tensor = base_loader.get_tensor(
                     tensor_name,
@@ -123,6 +114,43 @@ class Qwen3MoE(MoEOutputArchitecture):
                     tensor.to(dtype=out_dtype),
                     clone=merge_options.clone_tensors,
                 )
+
+        for layer_idx in tqdm.trange(base_cfg.num_hidden_layers, desc="Expert weights"):
+            layer_prefix = f"model.layers.{layer_idx}.mlp"
+            gate_up_sources = {}
+            down_sources = {}
+            for expert_idx, expert in enumerate(config.experts):
+                expert_loader = loaders.get(expert.source_model)
+                for param in ("gate_proj", "up_proj", "down_proj"):
+                    source_name = f"model.layers.{layer_idx}.mlp.{param}.weight"
+                    tensor = expert_loader.get_tensor(source_name)
+                    tensor = noise_and_scale(
+                        tensor,
+                        expert,
+                        is_residual=param == "down_proj",
+                    )
+                    expert_name = f"{layer_prefix}.experts.{expert_idx}.{param}.weight"
+                    if param == "down_proj":
+                        down_sources[expert_name] = tensor
+                    else:
+                        gate_up_sources[expert_name] = tensor
+
+            convert_and_save_checkpoint_tensors(
+                "qwen3_moe",
+                gate_up_sources,
+                f"{layer_prefix}.experts.gate_up_proj",
+                writer,
+                out_dtype=out_dtype,
+                clone=merge_options.clone_tensors,
+            )
+            convert_and_save_checkpoint_tensors(
+                "qwen3_moe",
+                down_sources,
+                f"{layer_prefix}.experts.down_proj",
+                writer,
+                out_dtype=out_dtype,
+                clone=merge_options.clone_tensors,
+            )
 
         for layer_idx, weight in enumerate(
             tqdm.tqdm(router_weights, desc="Router weights")

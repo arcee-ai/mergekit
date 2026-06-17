@@ -1,4 +1,4 @@
-# Copyright (C) 2025 Arcee AI
+# Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import logging
@@ -8,12 +8,19 @@ import torch
 import tqdm
 import transformers
 
-from mergekit.architecture import WeightInfo
-from mergekit.architecture.moe_defs import MISTRAL_INFO
+from mergekit.architecture.json_definitions import NAME_TO_ARCH
 from mergekit.moe.arch import MoEOutputArchitecture
-from mergekit.moe.common import copy_tensor_out, initialize_io, select_dtype
+from mergekit.moe.common import (
+    convert_and_save_checkpoint_tensors,
+    copy_tensor_out,
+    initialize_io,
+    noise_and_scale,
+    select_dtype,
+)
 from mergekit.moe.config import MoEMergeConfig
 from mergekit.options import MergeOptions
+
+MISTRAL_INFO = NAME_TO_ARCH["MistralForCausalLM"][0]
 
 
 class MixtralMoE(MoEOutputArchitecture):
@@ -81,22 +88,8 @@ class MixtralMoE(MoEOutputArchitecture):
             )
         return out_cfg
 
-    def _remap_weight_name(self, weight: WeightInfo) -> str:
-        if ".mlp." not in weight.name:
-            # Everything but MLP is identical to base Mistral
-            return weight.name
-
-        res = weight.name
-        for needle, replacement in [
-            (".mlp.gate_proj", ".block_sparse_moe.experts.{expert_idx}.w1"),
-            (".mlp.down_proj", ".block_sparse_moe.experts.{expert_idx}.w2"),
-            (".mlp.up_proj", ".block_sparse_moe.experts.{expert_idx}.w3"),
-        ]:
-            res = res.replace(needle, replacement)
-        return res
-
     def _router_weight_name(self, layer_idx: int) -> str:
-        return f"model.layers.{layer_idx}.block_sparse_moe.gate.weight"
+        return f"model.layers.{layer_idx}.mlp.gate.weight"
 
     def write_model(
         self,
@@ -129,21 +122,8 @@ class MixtralMoE(MoEOutputArchitecture):
             MISTRAL_INFO.all_weights(base_cfg),
             desc="Weights",
         ):
-            tensor_name = self._remap_weight_name(weight_info)
-            if "{expert_idx}" in tensor_name:
-                for expert_index, expert in enumerate(config.experts):
-                    expert_name = tensor_name.replace("{expert_idx}", str(expert_index))
-                    expert_loader = loaders.get(expert.source_model)
-                    copy_tensor_out(
-                        weight_info,
-                        expert_loader,
-                        writer,
-                        expert=expert,
-                        out_dtype=out_dtype,
-                        output_name=expert_name,
-                        clone=merge_options.clone_tensors,
-                        is_residual="down_proj" in tensor_name,
-                    )
+            if ".mlp." in weight_info.name:
+                continue
             else:
                 copy_tensor_out(
                     weight_info,
@@ -152,6 +132,49 @@ class MixtralMoE(MoEOutputArchitecture):
                     out_dtype=out_dtype,
                     clone=merge_options.clone_tensors,
                 )
+
+        for layer_idx in tqdm.trange(base_cfg.num_hidden_layers, desc="Expert weights"):
+            layer_prefix = f"model.layers.{layer_idx}.mlp"
+            gate_up_sources = {}
+            down_sources = {}
+            for expert_idx, expert in enumerate(config.experts):
+                expert_loader = loaders.get(expert.source_model)
+                for source_param, expert_param in [
+                    ("gate_proj", "w1"),
+                    ("down_proj", "w2"),
+                    ("up_proj", "w3"),
+                ]:
+                    source_name = f"model.layers.{layer_idx}.mlp.{source_param}.weight"
+                    tensor = expert_loader.get_tensor(source_name)
+                    tensor = noise_and_scale(
+                        tensor,
+                        expert,
+                        is_residual=source_param == "down_proj",
+                    )
+                    expert_name = (
+                        f"{layer_prefix}.experts.{expert_idx}.{expert_param}.weight"
+                    )
+                    if source_param == "down_proj":
+                        down_sources[expert_name] = tensor
+                    else:
+                        gate_up_sources[expert_name] = tensor
+
+            convert_and_save_checkpoint_tensors(
+                "mixtral",
+                gate_up_sources,
+                f"{layer_prefix}.experts.gate_up_proj",
+                writer,
+                out_dtype=out_dtype,
+                clone=merge_options.clone_tensors,
+            )
+            convert_and_save_checkpoint_tensors(
+                "mixtral",
+                down_sources,
+                f"{layer_prefix}.experts.down_proj",
+                writer,
+                out_dtype=out_dtype,
+                clone=merge_options.clone_tensors,
+            )
 
         for layer_idx, weight in enumerate(
             tqdm.tqdm(router_weights, desc="Router weights")

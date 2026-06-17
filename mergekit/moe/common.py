@@ -1,4 +1,4 @@
-# Copyright (C) 2025 Arcee AI
+# Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import logging
@@ -9,6 +9,7 @@ import tqdm
 import transformers
 
 from mergekit.architecture import WeightInfo
+from mergekit.architecture.conversion import convert_checkpoint_tensors
 from mergekit.common import ModelReference, dtype_from_name
 from mergekit.io import LazyTensorLoader, TensorWriter
 from mergekit.merge import MergeOptions
@@ -99,5 +100,25 @@ def copy_tensor_out(
     writer.save_tensor(
         out_tensor_name,
         tensor.to(dtype=out_dtype),
+        clone=clone,
+    )
+
+
+def convert_and_save_checkpoint_tensors(
+    model_type: str,
+    source_tensors: Dict[str, torch.Tensor],
+    target_name: str,
+    writer: TensorWriter,
+    out_dtype: Optional[torch.dtype] = None,
+    clone: bool = False,
+):
+    tensor = convert_checkpoint_tensors(model_type, source_tensors, target_name)
+    if tensor is None:
+        raise RuntimeError(
+            f"Unable to convert {len(source_tensors)} source tensors to {target_name}"
+        )
+    writer.save_tensor(
+        target_name,
+        tensor.to(dtype=out_dtype).contiguous(),
         clone=clone,
     )
