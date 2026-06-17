@@ -115,9 +115,13 @@ def get_gate_params(
     elif mode in ("hidden", "hidden_avg", "hidden_last"):
         kwargs = {}
         if load_in_4bit:
-            kwargs["load_in_4bit"] = True
-        if load_in_8bit:
-            kwargs["load_in_8bit"] = True
+            kwargs["quantization_config"] = transformers.BitsAndBytesConfig(
+                load_in_4bit=True
+            )
+        elif load_in_8bit:
+            kwargs["quantization_config"] = transformers.BitsAndBytesConfig(
+                load_in_8bit=True
+            )
         model = AutoModelForCausalLM.from_pretrained(
             model_ref.model.path,
             revision=model_ref.model.revision,
