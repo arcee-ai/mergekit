@@ -22,9 +22,9 @@ def landmark_pca_approximate(
     num_points, d_a = points_a.shape
     batch_size, _ = targets.shape
     _, d_b = points_b.shape
-    assert (
-        points_a.shape[0] == points_b.shape[0]
-    ), "Number of points in A and B must match"
+    assert points_a.shape[0] == points_b.shape[0], (
+        "Number of points in A and B must match"
+    )
     assert targets.shape == (batch_size, d_a)
 
     effective_dim = min(d_a, d_b)

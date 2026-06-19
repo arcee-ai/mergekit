@@ -285,18 +285,18 @@ class TestTokenizerMerges:
 
         def _check_result(model_path: str):
             cfg = LlamaConfig.from_pretrained(model_path)
-            assert (
-                cfg.vocab_size == padded_size
-            ), f"Expected vocab size {padded_size}, got {cfg.vocab_size}"
+            assert cfg.vocab_size == padded_size, (
+                f"Expected vocab size {padded_size}, got {cfg.vocab_size}"
+            )
             check_tokenizer(
                 expected_size=real_vocab_size,
                 must_contain=["<|im_start|>", "<|im_end|>"],
             )(model_path)
 
             emb_out = ModelEmbeddings(model_path)
-            assert (
-                emb_out.embed_tokens.shape[0] == padded_size
-            ), "Embedding size mismatch"
+            assert emb_out.embed_tokens.shape[0] == padded_size, (
+                "Embedding size mismatch"
+            )
 
         run_and_check_merge(config, validate=_check_result)
 

@@ -73,14 +73,10 @@ def batch_omp(
             # Project onto existing basis
             projections = torch.bmm(
                 q[:, :, :t].transpose(1, 2), new_atom.unsqueeze(-1)
-            ).squeeze(
-                -1
-            )  # (B, t)
+            ).squeeze(-1)  # (B, t)
             residual = new_atom - torch.bmm(
                 q[:, :, :t], projections.unsqueeze(-1)
-            ).squeeze(
-                -1
-            )  # (B, D)
+            ).squeeze(-1)  # (B, D)
             norm = torch.clamp(torch.norm(residual, dim=1), min=eps)
             # Update R and Q
             r[:, :t, t] = projections
@@ -218,9 +214,9 @@ def batch_mp_rope(
     B, D_a = targets.shape
     N, _ = points_a.shape
     _, D_b = points_b.shape
-    assert (
-        points_a.shape[0] == points_b.shape[0]
-    ), "Number of points in A and B must match"
+    assert points_a.shape[0] == points_b.shape[0], (
+        "Number of points in A and B must match"
+    )
     device = targets.device
     if k > N:
         raise ValueError(f"Cannot select {k} points from {N} candidates")
