@@ -12,6 +12,7 @@
   - [Karcher Mean (`karcher`)](#karcher-mean-karcher)
 - [Task Vector Methods](#task-vector-methods)
   - [Task Arithmetic (`task_arithmetic`)](#task-arithmetic-task_arithmetic)
+  - [Core Space (`core_space`)](#core-space)
   - [TIES-Merging (`ties`)](#ties-merging-ties)
   - [DARE (`dare_linear`, `dare_ties`)](#dare-dare_linear-dare_ties)
   - [DELLA (`della`, `della_linear`)](#della-della-della_linear)
@@ -149,6 +150,46 @@ This guide provides detailed information about the various model merging algorit
 - `lambda` (global): Scaling factor applied to the summed task vectors before adding back to the base. Default `1.0`
 
 **Reference:** [Editing Models with Task Arithmetic](https://arxiv.org/abs/2212.04089)
+
+### Core Space (`core_space`)
+
+**Concept**: Merges LoRA-adapted models by projecting them into a shared, aligned core space using SVD-based reference bases. Operates in a compact subspace for efficiency while preserving information.
+
+**Algorithm**:
+
+1. Extract LoRA matrices (B, A) from each model where ΔW = B @ A
+2. Compute reference bases via SVD: concatenate all B matrices horizontally and A matrices vertically, then compute orthonormal bases U_B and V_A
+3. Project to core space: Core_i = U_B^T @ B_i @ A_i @ V_A
+4. Merge in core space using weighted average
+5. Reconstruct: ΔW_merged = U_B @ Core_merged @ V_A^T, then W_final = W_base + ΔW_merged
+
+**Inputs**: Requires 2 or more models, plus one `base_model`.
+
+**Parameters**:
+
+- `weight` (per-model, float, default: 1.0): Weight for each model. Currently uses equal weights.
+
+**Use Cases**:
+
+- Efficiently merging multiple LoRA adapters
+- Multi-task model creation from specialized adapters
+- When adapters have different ranks
+- Resource-constrained environments
+
+**Example**:
+
+```yaml
+models:
+  - model: meta-llama/Llama-2-7b-hf
+  - model: username/llama2-lora-math
+  - model: username/llama2-lora-code
+
+merge_method: core_space
+base_model: meta-llama/Llama-2-7b-hf
+dtype: bfloat16
+```
+
+**Reference**: [Accurate and Efficient Low-Rank Model Merging in Core Space](https://arxiv.org/abs/2509.17786) (Panariello et al., NeurIPS 2025)
 
 ### TIES-Merging (`ties`)
 

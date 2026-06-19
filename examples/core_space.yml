@@ -1,0 +1,11 @@
+models:
+  - model: gpt2
+    parameters:
+      weight: 0.5
+  - model: gpt2
+    parameters:
+      weight: 1.0
+
+merge_method: core_space
+base_model: gpt2
+dtype: float32
