@@ -62,3 +62,27 @@ class TestChatTemplate:
             config,
             validate=lambda p: check_chat_template(p, "{{messages[0]['content']}}"),
         )
+
+    def test_template_long_literal_jinja(self, model_base, model_b):
+        template = (
+            "{% for message in messages %}"
+            + "{{ message['role'] }}: {{ message['content'] }}\n"
+            + "{% endfor %}"
+            + "{# "
+            + "x" * 300
+            + " #}"
+        )
+        config = MergeConfiguration(
+            merge_method="linear",
+            models=[
+                InputModelDefinition(model=model_base, parameters={"weight": 0.5}),
+                InputModelDefinition(model=model_b, parameters={"weight": 0.5}),
+            ],
+            base_model=model_base,
+            dtype="bfloat16",
+            chat_template=template,
+        )
+        run_and_check_merge(
+            config,
+            validate=lambda p: check_chat_template(p, "x" * 300),
+        )

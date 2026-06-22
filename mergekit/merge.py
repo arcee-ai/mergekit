@@ -186,10 +186,15 @@ def _set_chat_template(
         LOG.info(f"Auto-selected chat template: {chat_template}")
 
     elif (
-        t := importlib.resources.files(chat_templates).joinpath(
-            chat_template + ".jinja"
-        )
-    ).is_file():
+        len(chat_template) < 256
+        and "\n" not in chat_template
+        and "{" not in chat_template
+        and (
+            t := importlib.resources.files(chat_templates).joinpath(
+                chat_template + ".jinja"
+            )
+        ).is_file()
+    ):
         chat_template = t.read_text()
 
     elif len(chat_template) < 20 or "{" not in chat_template:
