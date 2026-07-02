@@ -2,13 +2,19 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Tuple
+from typing import Annotated, Dict, List, Optional, Tuple
 
-import torch  # noqa: F401
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, GetPydanticSchema
+from pydantic_core import core_schema
 from transformers import PretrainedConfig
 
 from mergekit.common import get_config_value
+
+# PretrainedConfig became a dataclass in transformers>=5 with a TYPE_CHECKING-only torch reference, which breaks pydantic's default schema resolution; treat it as opaque instead.
+_ConfigField = Annotated[
+    PretrainedConfig,
+    GetPydanticSchema(lambda tp, _handler: core_schema.is_instance_schema(tp)),
+]
 
 
 class WeightInfo(BaseModel, frozen=True):
@@ -87,7 +93,7 @@ class ConfiguredModuleArchitecture(
     BaseModel, frozen=True, arbitrary_types_allowed=True
 ):
     info: ModuleArchitecture
-    config: PretrainedConfig
+    config: _ConfigField
     weight_prefix: Optional[str] = None
 
     def num_layers(self) -> int:
@@ -141,7 +147,7 @@ class ModelArchitecture(BaseModel, frozen=True):
 
 class ConfiguredModelArchitecture(BaseModel, frozen=True, arbitrary_types_allowed=True):
     info: ModelArchitecture
-    config: PretrainedConfig
+    config: _ConfigField
 
     def all_weights(self) -> List[WeightInfo]:
         return self.info.all_weights(self.config)
