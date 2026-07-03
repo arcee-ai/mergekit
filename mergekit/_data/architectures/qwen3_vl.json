@@ -22,6 +22,18 @@
                     {
                         "name": "model.language_model.embed_tokens.weight",
                         "is_embed": true
+                    },
+                    {
+                        "name": "model.language_model.layers.linear_attn.in_proj_qkv.weight",
+                        "optional": true
+                    },
+                    {
+                        "name": "model.language_model.layers.linear_attn.in_proj_z.weight",
+                        "optional": true
+                    },
+                    {
+                        "name": "model.language_model.layers.linear_attn.out_proj.weight",
+                        "optional": true
                     }
                 ],
                 "post_weights": [
@@ -71,6 +83,38 @@
                         },
                         {
                             "name": "model.language_model.layers.${layer_index}.self_attn.o_proj.weight"
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.in_proj_qkv.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.in_proj_z.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.out_proj.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.dt_bias",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.A_log",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.D",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.conv1d.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.conv1d.bias",
+                            "optional": true
                         }
                     ]
                 }
