@@ -69,8 +69,9 @@ def check_architecture(
     for param in shape_params:
         vals = {name: _safe_get(cfg, param) for name, cfg in resolved.items()}
         table[param] = vals
-        unique = {v for v in vals.values() if v is not None}
-        if len(unique) > 1:
+        non_none = {v for v in vals.values() if v is not None}
+        has_none = any(v is None for v in vals.values())
+        if len(non_none) > 1 or (non_none and has_none):
             detail = ", ".join(f"{n}={v}" for n, v in vals.items())
             issues.append(
                 Issue(
@@ -104,8 +105,9 @@ def check_rope(configs: Dict[str, Any]) -> Tuple[Dict[str, Dict], List[Issue]]:
 
     thetas = {name: _get_rope_theta(cfg) for name, cfg in resolved.items()}
     table["rope_theta"] = thetas
-    unique_thetas = {v for v in thetas.values() if v is not None}
-    if len(unique_thetas) > 1:
+    non_none_thetas = {v for v in thetas.values() if v is not None}
+    has_none_theta = any(v is None for v in thetas.values())
+    if len(non_none_thetas) > 1 or (non_none_thetas and has_none_theta):
         detail = ", ".join(f"{n}={v}" for n, v in thetas.items())
         issues.append(
             Issue(
@@ -140,7 +142,9 @@ def check_rope(configs: Dict[str, Any]) -> Tuple[Dict[str, Dict], List[Issue]]:
     return table, issues
 
 
-def check_vocab(tokenizers: Dict[str, Any]) -> Tuple[Dict[str, Dict], List[Issue]]:
+def check_vocab(
+    tokenizers: Dict[str, Any], tokenizer_source: Optional[str] = None
+) -> Tuple[Dict[str, Dict], List[Issue]]:
     table: Dict[str, Dict] = {}
     issues: List[Issue] = []
 
@@ -149,22 +153,31 @@ def check_vocab(tokenizers: Dict[str, Any]) -> Tuple[Dict[str, Dict], List[Issue
     unique_sizes = set(vocab_sizes.values())
     if len(unique_sizes) > 1:
         detail = ", ".join(f"{n}={v}" for n, v in vocab_sizes.items())
-        larger_has_fim = any(
-            vocab_sizes[n] > min(unique_sizes)
-            and any(tok in tokenizers[n].get_vocab() for tok in FIM_TOKENS)
-            for n in tokenizers
-        )
-        msg = (
-            f"Vocabulary size mismatch ({detail}). MergeKit will truncate to the "
-            "base model's vocab. "
-        )
-        if larger_has_fim:
-            msg += (
-                "FIM tokens (<PRE>, <MID>, <SUF>, <EOT>) in the larger-vocab model "
-                "will be dropped. Consider: resize_tok_vocab.py or set "
-                "`tokenizer_source: union` in config."
+        if tokenizer_source == "union":
+            issues.append(
+                Issue(
+                    "INFO",
+                    f"Vocabulary size mismatch ({detail}). Tokenizer source is "
+                    "'union' — all tokens from both models will be kept.",
+                )
             )
-        issues.append(Issue("WARNING", msg))
+        else:
+            larger_has_fim = any(
+                vocab_sizes[n] > min(unique_sizes)
+                and any(tok in tokenizers[n].get_vocab() for tok in FIM_TOKENS)
+                for n in tokenizers
+            )
+            msg = (
+                f"Vocabulary size mismatch ({detail}). MergeKit will truncate to the "
+                "base model's vocab. "
+            )
+            if larger_has_fim:
+                msg += (
+                    "FIM tokens (<PRE>, <MID>, <SUF>, <EOT>) in the larger-vocab model "
+                    "will be dropped. Consider: resize_tok_vocab.py or set "
+                    "`tokenizer_source: union` in config."
+                )
+            issues.append(Issue("WARNING", msg))
 
     return table, issues
 
@@ -239,7 +252,7 @@ def _format_table(rows: Dict[str, Dict], model_names: List[str]) -> str:
     lines = [" " * label_w + "".join(n.ljust(col_w) for n in model_names)]
     for param, vals in rows.items():
         row = param.ljust(label_w)
-        unique = {str(v) for v in vals.values() if v is not None}
+        unique = {str(v) if v is not None else "N/A" for v in vals.values()}
         for name in model_names:
             v = vals.get(name)
             cell = "N/A" if v is None else str(v)
@@ -334,7 +347,23 @@ def main(config_file: str, merge_options: MergeOptions):
         all_rows.update(rows)
         all_issues.extend(issues)
 
-    for fn in (check_vocab, check_fim_tokens, check_chat_template):
+    if merge_config.tokenizer_source is not None:
+        tok_source = (
+            merge_config.tokenizer_source
+            if isinstance(merge_config.tokenizer_source, str)
+            else str(merge_config.tokenizer_source)
+        )
+    elif merge_config.tokenizer is not None:
+        src = merge_config.tokenizer.source
+        tok_source = src if isinstance(src, str) else str(src)
+    else:
+        tok_source = None
+
+    rows, issues = check_vocab(tokenizers, tokenizer_source=tok_source)
+    all_rows.update(rows)
+    all_issues.extend(issues)
+
+    for fn in (check_fim_tokens, check_chat_template):
         rows, issues = fn(tokenizers)
         all_rows.update(rows)
         all_issues.extend(issues)
