@@ -19,6 +19,14 @@ LOG = logging.getLogger(__name__)
 
 FIM_TOKENS = ["<PRE>", "<SUF>", "<MID>", "<EOT>"]
 
+_SHAPE_PARAMS = frozenset([
+    "hidden_size",
+    "num_hidden_layers",
+    "num_attention_heads",
+    "num_key_value_heads",
+    "intermediate_size",
+])
+
 
 @dataclass
 class Issue:
@@ -42,27 +50,18 @@ def _safe_get(cfg: Any, attr: str, default: Any = None) -> Any:
 
 
 def _get_rope_theta(cfg: Any) -> Optional[float]:
-    if hasattr(cfg, "rope_theta"):
-        return cfg.rope_theta
-    if hasattr(cfg, "rope_parameters") and isinstance(cfg.rope_parameters, dict):
-        return cfg.rope_parameters.get("rope_theta")
-    # Some configs (e.g. Ministral3) embed rope_theta inside rope_scaling
+    # Some configs (e.g. Ministral3) embed rope_theta inside rope_scaling dict;
+    # check there first so we don't return a class-level default instead.
     scaling = getattr(cfg, "rope_scaling", None)
     if isinstance(scaling, dict) and "rope_theta" in scaling:
         return scaling["rope_theta"]
-    return None
+    return getattr(cfg, "rope_theta", None)
 
 
 def check_architecture(
     configs: Dict[str, Any],
 ) -> Tuple[Dict[str, Dict], List[Issue]]:
-    shape_params = [
-        "hidden_size",
-        "num_hidden_layers",
-        "num_attention_heads",
-        "num_key_value_heads",
-        "intermediate_size",
-    ]
+    shape_params = list(_SHAPE_PARAMS)
     table: Dict[str, Dict] = {}
     issues: List[Issue] = []
     resolved = {name: _resolve_config(cfg) for name, cfg in configs.items()}
@@ -245,7 +244,12 @@ def _format_table(rows: Dict[str, Dict], model_names: List[str]) -> str:
             v = vals.get(name)
             cell = "N/A" if v is None else str(v)
             row += cell.ljust(col_w)
-        row += _STATUS["match"] if len(unique) <= 1 else _STATUS["warn"]
+        if len(unique) <= 1:
+            row += _STATUS["match"]
+        elif param in _SHAPE_PARAMS:
+            row += _STATUS["error"]
+        else:
+            row += _STATUS["warn"]
         lines.append(row)
     return "\n".join(lines)
 
