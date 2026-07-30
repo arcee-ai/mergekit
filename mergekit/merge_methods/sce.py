@@ -56,15 +56,15 @@ def sce_mask(
     tvs: torch.Tensor, density: float, mask_dtype: Optional[torch.dtype] = None
 ):
     if density <= 0:
-        return torch.zeros_like(tvs, dtype=mask_dtype)
+        return torch.zeros_like(tvs[0], dtype=mask_dtype)
     if density >= 1:
-        return torch.ones_like(tvs, dtype=mask_dtype)
+        return torch.ones_like(tvs[0], dtype=mask_dtype)
 
     var = torch.var(tvs, dim=0, unbiased=False)
     nonzero = torch.count_nonzero(var)
     k = int(nonzero * density)
     if k == 0:
-        return torch.zeros_like(tvs, dtype=mask_dtype)
+        return torch.zeros_like(var, dtype=mask_dtype)
 
     _, indices = torch.topk(var.abs().view(-1), k=k, largest=True)
     mask = torch.zeros_like(var, dtype=mask_dtype)
