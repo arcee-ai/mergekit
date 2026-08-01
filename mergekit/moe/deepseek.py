@@ -118,6 +118,7 @@ class DeepseekMoE(MoEOutputArchitecture):
         )
         if out_dtype is not None:
             out_cfg["torch_dtype"] = str(out_dtype).removeprefix("torch.")
+        os.makedirs(out_path, exist_ok=True)
         with open(os.path.join(out_path, "config.json"), "w", encoding="utf-8") as f:
             json.dump(out_cfg, f, indent=4)
 
