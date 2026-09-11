@@ -554,7 +554,7 @@ def test_integer_coefficient_boundaries_pack_exactly(scope):
     assert len(results) == 2
 
 
-def test_empty_non_base_axis_has_a_dtype_without_validating_a_fake_value():
+def test_constrained_non_base_coefficients_accept_empty_axis():
     def kernel(
         batch: TensorBatch,
         weight: Annotated[

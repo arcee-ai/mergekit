@@ -585,9 +585,6 @@ class BatchedMergeMethod(MergeMethod):
     ) -> Tuple[torch.Tensor, ...]:
         from mergekit.merge_methods.batching import prepare_batches
 
-        # Preparation validates every group before any kernel is invoked. Packing
-        # happens one chunk at a time. Outputs that alias a workspace may retain
-        # its storage, just like outputs with retained autograd graphs.
         prepared = prepare_batches(
             groups, parameters, self.spec, options, input_dtypes=input_dtypes
         )

@@ -94,7 +94,6 @@ class GeneralizedTaskArithmeticMerge(GroupMergeMethod):
         if not entries:
             return base
 
-        # Fill one owned buffer incrementally; retain no list of full-sized deltas.
         # Sparsification sees independent tensors so filling later rows cannot
         # invalidate tensors saved for backward by an earlier row.
         deltas = base.new_empty((len(entries), *base.shape))

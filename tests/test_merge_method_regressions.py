@@ -344,8 +344,7 @@ def test_task_arithmetic_values_and_gradients(method_name, rescale):
 
 @torch.inference_mode()
 def test_task_arithmetic_peak_memory():
-    # Inputs are borrowed; scratch should be one packed buffer plus a bounded
-    # number of single-weight temporaries, not several copies of every delta.
+    # Allow one delta buffer and three single-weight temporaries.
     inputs = [{"w": torch.randn(256, 256)} for _ in range(17)]
     weight_bytes = inputs[0]["w"].nbytes
     with torch.profiler.profile(profile_memory=True) as profile:

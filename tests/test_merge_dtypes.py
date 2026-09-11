@@ -380,8 +380,7 @@ def test_dtype_intermediates_released_between_chunks(batched, dtype, device, dir
     options = dict(
         dtype=dtype,
         out_dtype=torch.float16,
-        # Exactly one group in the target dtype fits. Using source byte sizes
-        # instead would incorrectly pack multiple groups together.
+        # Exactly one group in the target dtype fits.
         batch_options=BatchOptions(max_bytes=2 * 16 * target_dtype.itemsize),
     )
     if direct:

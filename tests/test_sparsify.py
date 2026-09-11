@@ -21,8 +21,6 @@ class TestMagnitude:
             method=SparsificationMethod.magnitude_outliers,
             gamma=gamma,
         )
-        # This also covers rounding n_top to zero: a -0 slice endpoint must
-        # not discard every selected weight.
         largest_kept = 12 - int(gamma * 12)
         expected = tensor * ((tensor > largest_kept - 6) & (tensor <= largest_kept))
         torch.testing.assert_close(result, expected)

@@ -19,8 +19,7 @@ class DynamicThresholdFusion:
     def approximate_quantiles(self, tensor, q):
         flat_tensor = tensor.reshape(-1)
         if flat_tensor.numel() > _QUANTILE_SAMPLE_SIZE:
-            # Uniform sampling with replacement bounds index storage by the
-            # sample size, unlike a full permutation of a potentially huge weight.
+            # Sampling with replacement bounds index storage by the sample size.
             flat_tensor = flat_tensor[
                 torch.randint(
                     flat_tensor.numel(),
@@ -35,7 +34,6 @@ class DynamicThresholdFusion:
         return sorted_tensor[quantile_indices]
 
     def calculate_dynamic_threshold(self, importance_scores):
-        # Use one sample and sort for all three statistics.
         q1, median, q3 = self.approximate_quantiles(
             importance_scores, torch.tensor([0.25, 0.5, 0.75])
         )

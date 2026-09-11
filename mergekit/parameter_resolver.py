@@ -1,11 +1,7 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""Resolve configured parameters for both graph planners.
-
-Adapters provide tensor names and settings in descending precedence. Filtering,
-gradients, defaults, validation, and per-input targeting are shared here.
-"""
+"""Resolve parameter filters, gradients, and defaults in descending precedence."""
 
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Tuple
 
