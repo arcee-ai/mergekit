@@ -69,7 +69,12 @@ def karcher_merge_tensors(tensors, alphas, max_iter=10, tol=1e-5):
     return scale * mean
 
 
-def _karcher_merge(
+@merge_method(
+    name="karcher",
+    pretty_name="Karcher Mean",
+    reference_url="https://en.wikipedia.org/wiki/Karcher_mean",
+)
+def karcher_merge_method(
     group: TensorGroup,
     max_iter: int = 10,
     tol: float = 1e-5,
@@ -79,11 +84,3 @@ def _karcher_merge(
         return tensors[0]
     alphas = [1.0 / len(tensors)] * len(tensors)
     return karcher_merge_tensors(tensors, alphas, max_iter=max_iter, tol=tol)
-
-
-karcher_merge_method = merge_method(
-    _karcher_merge,
-    name="karcher",
-    pretty_name="Karcher Mean",
-    reference_url="https://en.wikipedia.org/wiki/Karcher_mean",
-)

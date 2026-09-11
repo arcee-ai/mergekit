@@ -12,7 +12,19 @@ from mergekit.merge_methods.base import (
 from mergekit.merge_methods.easy_define import merge_method
 
 
-def _model_stock_merge(group: TensorGroup, filter_wise: bool = False) -> torch.Tensor:
+@merge_method(
+    name="model_stock",
+    pretty_name="Model Stock",
+    optional_tensor_policy=OptionalTensorPolicy.BASE_OR_SKIP,
+    reference_url="https://arxiv.org/abs/2403.19522",
+    contract=InputContract(
+        base=BasePolicy.REQUIRED,
+        min_inputs=3,
+    ),
+)
+def model_stock_merge_method(
+    group: TensorGroup, filter_wise: bool = False
+) -> torch.Tensor:
     all_weights = [group.base.tensor] + [entry.tensor for entry in group.non_base]
     w_0, ws = all_weights[0], all_weights[1:]
     out_shape = w_0.shape
@@ -51,16 +63,3 @@ def _model_stock_merge(group: TensorGroup, filter_wise: bool = False) -> torch.T
     )
     average = sum(ws) / count
     return (t * average + (1 - t) * w_0).reshape(out_shape)
-
-
-model_stock_merge_method = merge_method(
-    _model_stock_merge,
-    name="model_stock",
-    pretty_name="Model Stock",
-    optional_tensor_policy=OptionalTensorPolicy.BASE_OR_SKIP,
-    reference_url="https://arxiv.org/abs/2403.19522",
-    contract=InputContract(
-        base=BasePolicy.REQUIRED,
-        min_inputs=3,
-    ),
-)

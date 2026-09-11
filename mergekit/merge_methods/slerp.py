@@ -78,20 +78,7 @@ def slerp(
     return result.reshape(v0.shape)
 
 
-def _slerp_merge(
-    batch: TensorBatch,
-    t: Annotated[torch.Tensor, BatchParameter(float)],
-) -> torch.Tensor:
-    if not batch.tensors[0].is_floating_point():
-        raise TypeError("SLERP requires floating-point tensors")
-    base_index = batch.base_index
-    if base_index is None or len(batch.tensors) != 2:
-        raise ValueError("SLERP requires a base and one other input")
-    return slerp(t, batch.tensors[base_index], batch.tensors[1 - base_index])
-
-
-slerp_merge_method = merge_method(
-    _slerp_merge,
+@merge_method(
     name="slerp",
     pretty_name="SLERP",
     reference_url="https://en.wikipedia.org/wiki/Slerp",
@@ -102,3 +89,13 @@ slerp_merge_method = merge_method(
         max_inputs=2,
     ),
 )
+def slerp_merge_method(
+    batch: TensorBatch,
+    t: Annotated[torch.Tensor, BatchParameter(float)],
+) -> torch.Tensor:
+    if not batch.tensors[0].is_floating_point():
+        raise TypeError("SLERP requires floating-point tensors")
+    base_index = batch.base_index
+    if base_index is None or len(batch.tensors) != 2:
+        raise ValueError("SLERP requires a base and one other input")
+    return slerp(t, batch.tensors[base_index], batch.tensors[1 - base_index])

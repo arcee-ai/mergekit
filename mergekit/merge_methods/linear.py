@@ -12,7 +12,12 @@ from mergekit.merge_methods.base import (
 from mergekit.merge_methods.easy_define import merge_method
 
 
-def _linear_merge(
+@merge_method(
+    name="linear",
+    pretty_name="Linear",
+    reference_url="https://arxiv.org/abs/2203.05482",
+)
+def linear_merge(
     batch: TensorBatch,
     weight: Annotated[torch.Tensor, BatchParameter(float, ParameterScope.INPUT)],
     normalize: bool = True,
@@ -33,11 +38,3 @@ def _linear_merge(
     if normalize:
         result.div_(denominator)
     return result.to(first.dtype)
-
-
-linear_merge = merge_method(
-    _linear_merge,
-    name="linear",
-    pretty_name="Linear",
-    reference_url="https://arxiv.org/abs/2203.05482",
-)

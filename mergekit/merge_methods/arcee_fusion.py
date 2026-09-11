@@ -54,15 +54,7 @@ def _compute_importance(params: torch.Tensor, base: torch.Tensor) -> torch.Tenso
     return diff * kl_div
 
 
-def _arcee_fusion_merge(group: TensorGroup) -> torch.Tensor:
-    tensors = [group.base.tensor, group.non_base[0].tensor]
-    importance = _compute_importance(tensors[1], tensors[0])
-    fusion_mask, _ = DynamicThresholdFusion().compute_fusion_mask(importance)
-    return tensors[0] + (tensors[1] - tensors[0]) * fusion_mask
-
-
-arcee_fusion_merge_method = merge_method(
-    _arcee_fusion_merge,
+@merge_method(
     name="arcee_fusion",
     pretty_name="Arcee Fusion",
     optional_tensor_policy=OptionalTensorPolicy.PASSTHROUGH_SINGLETON,
@@ -73,3 +65,8 @@ arcee_fusion_merge_method = merge_method(
         max_inputs=2,
     ),
 )
+def arcee_fusion_merge_method(group: TensorGroup) -> torch.Tensor:
+    tensors = [group.base.tensor, group.non_base[0].tensor]
+    importance = _compute_importance(tensors[1], tensors[0])
+    fusion_mask, _ = DynamicThresholdFusion().compute_fusion_mask(importance)
+    return tensors[0] + (tensors[1] - tensors[0]) * fusion_mask

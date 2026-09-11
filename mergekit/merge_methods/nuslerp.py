@@ -50,7 +50,17 @@ def nuslerp(
     return result.reshape(out_shape)
 
 
-def _nuslerp_merge(
+@merge_method(
+    name="nuslerp",
+    pretty_name="NuSLERP",
+    optional_tensor_policy=OptionalTensorPolicy.PASSTHROUGH_SINGLETON,
+    contract=InputContract(
+        base=BasePolicy.OPTIONAL,
+        min_non_base=2,
+        max_non_base=2,
+    ),
+)
+def nuslerp_merge_method(
     group: TensorGroup,
     weight: PerNonBase[float],
     nuslerp_row_wise: bool = False,
@@ -77,16 +87,3 @@ def _nuslerp_merge(
         dim=0 if nuslerp_row_wise else -1,
         flatten=nuslerp_flatten,
     )
-
-
-nuslerp_merge_method = merge_method(
-    _nuslerp_merge,
-    name="nuslerp",
-    pretty_name="NuSLERP",
-    optional_tensor_policy=OptionalTensorPolicy.PASSTHROUGH_SINGLETON,
-    contract=InputContract(
-        base=BasePolicy.OPTIONAL,
-        min_non_base=2,
-        max_non_base=2,
-    ),
-)
