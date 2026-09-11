@@ -66,7 +66,9 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
         return self.gather_tensors.group_label()
 
     def uses_accelerator(self) -> bool:
-        return True
+        from mergekit import merge_methods
+
+        return merge_methods.get(self.method_name).spec.uses_accelerator
 
     def execute(
         self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs

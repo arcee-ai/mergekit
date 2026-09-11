@@ -173,6 +173,8 @@ class InputContract:
         group_name: Optional[str] = None,
     ) -> None:
         label = f" for {group_name}" if group_name else ""
+        if any(input_id is None for input_id in input_ids):
+            raise ValueError("Merge input IDs cannot be None")
         if len(set(input_ids)) != len(input_ids):
             raise ValueError(f"Duplicate merge inputs{label}")
 
@@ -237,6 +239,8 @@ class TensorEntry:
     is_base: bool = False
 
     def __post_init__(self):
+        if self.id is None:
+            raise ValueError("Merge input IDs cannot be None")
         try:
             hash(self.id)
         except TypeError as error:
@@ -394,6 +398,7 @@ class MergeMethodSpec:
     pretty_name: Optional[str] = None
     reference_url: Optional[str] = None
     optional_tensor_policy: OptionalTensorPolicy = OptionalTensorPolicy.ERROR
+    uses_accelerator: bool = True
 
     def __post_init__(self):
         object.__setattr__(self, "parameters", tuple(self.parameters))

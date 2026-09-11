@@ -25,5 +25,6 @@ passthrough_merge_method = from_group_kernel(
     _passthrough_merge,
     name="passthrough",
     pretty_name="Passthrough",
+    uses_accelerator=False,
     contract=InputContract(min_inputs=1, max_inputs=1),
 )

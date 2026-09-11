@@ -160,6 +160,11 @@ The kernel receives `[B, N, *weight_shape]` and returns `[B, *weight_shape]`. It
 preserve the output axis: reductions for norms, means, and dot products must not
 accidentally combine different outputs. Linear and SLERP have native batched
 implementations; SLERP stays entirely in Torch on the input device.
+SLERP reduces norms and dot products in chunks and writes its output in chunks,
+bounding full-precision inference scratch even for oversized individual weights.
+It selects interpolation coefficients per output before applying them to weights,
+without materializing both spherical and linear results. Source tensors, packed
+inputs, outputs, and retained autograd graphs still require their own storage.
 
 Ordinary parameters broadcast across groups. Use `PerGroupValues` to explicitly vary
 a parameter along the outer batch axis; the wrapper avoids ambiguity with shared
@@ -218,7 +223,8 @@ them. `method.supports_batching` distinguishes a native numerical kernel from a
 
 ## Metadata and base inputs
 
-`TensorEntry.id` is an opaque hashable identifier. The core method API does not require
+`TensorEntry.id` is an opaque, non-`None` hashable identifier (`None` is reserved for
+the absence of a base). The core method API does not require
 `ModelReference`; direct callers can use strings or integer positions.
 
 `TensorGroup.metadata` carries lightweight output information such as its name and
@@ -241,6 +247,18 @@ The computation graph uses a generic `ExecuteMergeMethodTask`; individual method
 not define tasks. The YAML planner resolves configured values and builds that adapter.
 Other consumers can construct `MergeBatch` directly without importing graph or config
 types.
+
+The YAML and raw-PyTorch planners use the same parameter resolver. Each adapter
+supplies settings in descending precedence; the resolver applies filters, gradients,
+validated defaults, requiredness, and input/base targeting from the method spec.
+Shared parameters match the output tensor name; per-input parameters match each
+source tensor's name. An implicitly added base receives all-input parameters from
+the same global settings/defaults as an explicit input.
+
+Methods may set `uses_accelerator=False` when constructing or registering their
+spec to execute on the storage device instead of requesting a transfer to the math
+device. Passthrough uses this for both plain copies and scaled copies. This is a
+graph scheduling hint; direct calls always operate on the supplied devices.
 
 The current YAML graph adapter still submits one logical output at a time; it does
 not yet coalesce graph tasks. State-dict callers already batch compatible outputs.

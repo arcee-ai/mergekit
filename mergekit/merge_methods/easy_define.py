@@ -105,6 +105,7 @@ def _spec_from_function(
     reference_url: Optional[str] = None,
     contract: Optional[InputContract] = None,
     optional_tensor_policy: OptionalTensorPolicy = OptionalTensorPolicy.ERROR,
+    uses_accelerator: bool = True,
 ) -> MergeMethodSpec:
     arguments = list(inspect.signature(func).parameters.values())
     hints = get_type_hints(func, include_extras=True)
@@ -126,6 +127,7 @@ def _spec_from_function(
         reference_url=reference_url,
         contract=contract or InputContract(),
         optional_tensor_policy=optional_tensor_policy,
+        uses_accelerator=uses_accelerator,
         parameters=tuple(
             _parameter_spec(arg, hints.get(arg.name), batched) for arg in arguments[1:]
         ),

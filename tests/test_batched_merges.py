@@ -135,9 +135,11 @@ def _reference_slerp(a, b, t):
 @pytest.mark.parametrize(
     "dtype", [torch.float32, torch.float64, torch.float16, torch.bfloat16]
 )
+@pytest.mark.parametrize("chunk_elements", [1024 * 1024, 5])
 def test_slerp_mixed_geometries_varying_coefficients_and_base_order(
-    monkeypatch, device, dtype
+    monkeypatch, device, dtype, chunk_elements
 ):
+    monkeypatch.setattr("mergekit.merge_methods.slerp._CHUNK_ELEMENTS", chunk_elements)
     method = merge_methods.get("slerp")
     calls = _record_calls(monkeypatch, method)
     pairs = [
@@ -278,6 +280,43 @@ def test_native_kernels_keep_autograd_and_borrowed_inputs(method_name, device):
     for tensor, before in zip(sources, copies):
         torch.testing.assert_close(tensor, before)
         assert tensor.grad is not None and tensor.grad.isfinite().all()
+
+
+def test_chunked_slerp_gradients(monkeypatch):
+    from mergekit.merge_methods.slerp import slerp
+
+    monkeypatch.setattr("mergekit.merge_methods.slerp._CHUNK_ELEMENTS", 4)
+    generator = torch.Generator().manual_seed(123)
+    a = torch.randn(2, 5, generator=generator, dtype=torch.float64, requires_grad=True)
+    b = torch.randn(2, 5, generator=generator, dtype=torch.float64, requires_grad=True)
+    t = torch.tensor([0.2, 0.7], dtype=torch.float64, requires_grad=True)
+    assert torch.autograd.gradcheck(lambda a, b, t: slerp(t, a, b), (a, b, t))
+
+    zero = torch.zeros_like(a, requires_grad=True)
+    slerp(t, zero, b).sum().backward()
+    assert zero.grad.isfinite().all()
+    assert b.grad.isfinite().all()
+    assert t.grad.isfinite().all()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA unavailable")
+def test_slerp_large_weight_has_bounded_inference_scratch():
+    a = torch.ones(4096, 2048, device="cuda", dtype=torch.bfloat16)
+    b = torch.full_like(a, 2)
+    torch.cuda.synchronize()
+    initial = torch.cuda.memory_allocated()
+    torch.cuda.reset_peak_memory_stats()
+    result = merge_methods.get("slerp")(
+        MergeBatch.from_tensors([a, b], base_index=0),
+        t=0.5,
+        batch_options=BatchOptions(max_bytes=1),
+    ).one()
+    torch.cuda.synchronize()
+    peak = torch.cuda.max_memory_allocated() - initial
+    # An oversized group still needs packed inputs and an output, but not
+    # weight-sized float32 copies of every intermediate.
+    assert peak <= a.nbytes + b.nbytes + result.nbytes + 32 * 1024 * 1024
+    torch.testing.assert_close(result, torch.full_like(a, 1.5))
 
 
 @pytest.mark.parametrize(

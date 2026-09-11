@@ -290,3 +290,44 @@ def test_sce_zero_variance_preserves_shape(shape, density):
         MergeBatch.from_tensors([base, other, other], base_index=0), select_topk=density
     ).one()
     torch.testing.assert_close(result, other if density == 1 else base)
+
+
+def test_none_input_ids_are_rejected_at_every_entry_point():
+    tensor = torch.ones(2)
+    with pytest.raises(ValueError, match="IDs cannot be None"):
+        MergeBatch.from_tensors([tensor], ids=[None], base_index=0)
+    with pytest.raises(ValueError, match="IDs cannot be None"):
+        InputContract().validate_ids([None, "b"])
+    with pytest.raises(ValueError, match="IDs cannot be None"):
+        merge_state_dicts(
+            {None: {"w": tensor}, "b": {"w": tensor}},
+            "nuslerp",
+            parameters={"weight": [0.5, 0.5]},
+        )
+    with pytest.raises(ValueError, match="IDs cannot be None"):
+        merge_state_dicts({None: {"counter": torch.tensor(0)}}, "passthrough")
+
+
+@pytest.mark.parametrize("scale", [None, 2.0])
+def test_passthrough_graph_does_not_visit_math_device(tmp_path, scale):
+    from safetensors.torch import load_file, save_file
+
+    from mergekit.graph import Executor
+    from mergekit.options import MergeOptions
+    from mergekit.scripts.merge_raw_pytorch import plan_flat_merge
+
+    source = tmp_path / "source.safetensors"
+    output = tmp_path / "output"
+    tensor = torch.arange(6, dtype=torch.float32).reshape(2, 3)
+    save_file({"w": tensor}, source)
+    config = RawPyTorchMergeConfig(
+        merge_method="passthrough",
+        models=[{"model": str(source)}],
+        parameters={} if scale is None else {"scale": scale},
+    )
+    tasks = plan_flat_merge(config, str(output), False, False, MergeOptions())
+    # A transfer to meta followed by a return to CPU would fail. This exercises
+    # actual scheduling and saving without requiring an available accelerator.
+    Executor(tasks, math_device="meta", storage_device="cpu").execute()
+    actual = load_file(output / "model.safetensors")["w"]
+    torch.testing.assert_close(actual, tensor if scale is None else tensor * scale)

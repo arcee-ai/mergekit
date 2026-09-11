@@ -173,7 +173,6 @@ class MergeConfiguration(BaseModel):
 class ConfigReader(BaseModel):
     config: MergeConfiguration
     t: float
-    tensor_name: Optional[str] = None
     slice_out: Optional[OutputSliceDefinition] = None
     module: Optional[OutputModuleDefinition] = None
 
@@ -187,99 +186,24 @@ class ConfigReader(BaseModel):
         return res
 
     def for_out_slice(self, slice: OutputSliceDefinition) -> "ConfigReader":
-        return ConfigReader(
-            config=self.config,
-            t=self.t,
-            tensor_name=self.tensor_name,
-            slice_out=slice,
-            module=self.module,
-        )
-
-    def for_tensor(self, tensor_name: str) -> "ConfigReader":
-        return ConfigReader(
-            config=self.config,
-            t=self.t,
-            tensor_name=tensor_name,
-            slice_out=self.slice_out,
-            module=self.module,
-        )
+        return self.model_copy(update={"slice_out": slice})
 
     def with_t(self, t: float) -> "ConfigReader":
-        return ConfigReader(
-            config=self.config,
-            t=t,
-            tensor_name=self.tensor_name,
-            slice_out=self.slice_out,
-            module=self.module,
-        )
+        return self.model_copy(update={"t": t})
 
-    def for_module(self, module: OutputModuleDefinition) -> "ConfigReader":
-        return ConfigReader(
-            config=self.config,
-            t=self.t,
-            tensor_name=self.tensor_name,
-            slice_out=self.slice_out,
-            module=module,
-        )
-
-    def parameter(
-        self,
-        name: str,
-        model: Optional[ModelReference] = None,
-        default: Any = None,
-        required: bool = False,
-        *,
-        validate: Callable[[Any], Any],
-    ) -> Any:
+    def parameter_sources(
+        self, model: Optional[ModelReference] = None
+    ) -> Iterable[Optional[Dict[str, ParameterSetting]]]:
+        """Yield settings from highest to lowest precedence, without resolving them."""
         if self.slice_out:
-            if model:
-                for s in self.slice_out.sources:
-                    if s.model == model and s.parameters and name in s.parameters:
-                        value = evaluate_setting(
-                            self.tensor_name,
-                            s.parameters[name],
-                            self.t,
-                            validate=validate,
-                        )
-                        if value is not None:
-                            return value
-
-            if self.slice_out.parameters and name in self.slice_out.parameters:
-                value = evaluate_setting(
-                    self.tensor_name,
-                    self.slice_out.parameters[name],
-                    self.t,
-                    validate=validate,
-                )
-                if value is not None:
-                    return value
-
-        if self.module and self.module.parameters and name in self.module.parameters:
-            value = evaluate_setting(
-                self.tensor_name,
-                self.module.parameters[name],
-                self.t,
-                validate=validate,
-            )
-            if value is not None:
-                return value
-
-        if self.config.parameters and name in self.config.parameters:
-            value = evaluate_setting(
-                self.tensor_name,
-                self.config.parameters[name],
-                self.t,
-                validate=validate,
-            )
-            if value is not None:
-                return value
-
-        if required:
-            path_paths = [str(s) for s in [model, self.tensor_name] if s]
-            p = ".".join(path_paths)
-            suffix = f" for {p}" if p else ""
-            raise RuntimeError(f"Missing required parameter {name}{suffix}")
-        return default
+            if model is not None:
+                for source in self.slice_out.sources:
+                    if source.model == model:
+                        yield source.parameters
+            yield self.slice_out.parameters
+        if self.module:
+            yield self.module.parameters
+        yield self.config.parameters
 
 
 class ConfigYamlDumper(yaml.Dumper):

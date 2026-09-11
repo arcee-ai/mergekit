@@ -13,16 +13,17 @@ from pydantic import BaseModel
 import mergekit.merge_methods as merge_methods
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
-from mergekit.config import ParameterSetting, evaluate_setting
+from mergekit.config import ParameterSetting
 from mergekit.graph import Executor, Task
 from mergekit.io import LazyTensorLoader, ShardedTensorIndex
 from mergekit.io.tasks import FinalizeModel, SaveTensor, TensorWriterTask
-from mergekit.merge_methods.base import InputParameterTarget, MergeMethod
+from mergekit.merge_methods.base import MergeMethod
 from mergekit.merge_methods.task_adapter import (
     ExecuteMergeMethodTask,
     TensorDictWrapper,
 )
 from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
+from mergekit.parameter_resolver import resolve_parameters
 
 
 class InputModelDefinition(BaseModel, frozen=True):
@@ -197,59 +198,23 @@ def construct_param_dicts(
         if config.base_model is not None
         else None
     )
-    global_params = {}
-    for param_def in merge_method.spec.shared_parameters:
-        if config.parameters and param_def.name in config.parameters:
-            value = evaluate_setting(
-                tensor_name,
-                config.parameters[param_def.name],
-                validate=param_def.validate,
-            )
-            if value is not None:
-                global_params[param_def.name] = value
-
-        if param_def.name not in global_params:
-            if param_def.required:
-                raise RuntimeError(
-                    f"Missing required parameter {param_def.name} for merge method {merge_method}"
-                )
-            else:
-                global_params[param_def.name] = param_def.default
-
-    tensor_params = {}
-    for param_def in merge_method.spec.input_parameters:
-        for model_def in config.models:
-            mr = ModelReference.model_validate({"model": {"path": model_def.model}})
-            tensor_params[mr] = tensor_params.get(mr, {})
-            if (
-                mr == base_ref
-                and param_def.input_target == InputParameterTarget.NON_BASE
-            ):
-                continue
-            value = evaluate_setting(
-                tensor_name,
-                (model_def.parameters or {}).get(param_def.name, []),
-                validate=param_def.validate,
-            )
-            if value is None:
-                value = evaluate_setting(
-                    tensor_name,
-                    (
-                        config.parameters.get(param_def.name, [])
-                        if config.parameters
-                        else []
-                    ),
-                    validate=param_def.validate,
-                )
-            if value is not None:
-                tensor_params[mr][param_def.name] = value
-            elif param_def.required:
-                raise RuntimeError(
-                    f"Missing required parameter {param_def.name} for model {mr} tensor {tensor_name}"
-                )
-            else:
-                tensor_params[mr][param_def.name] = param_def.default
-    return global_params, tensor_params
+    model_settings = {
+        ModelReference.model_validate(
+            {"model": {"path": model.model}}
+        ): model.parameters
+        for model in config.models
+    }
+    # The planner adds an implicit base too; it must receive ALL-target parameters
+    # from global settings/defaults even when it has no model-level settings.
+    if base_ref is not None:
+        model_settings.setdefault(base_ref, None)
+    return resolve_parameters(
+        merge_method.spec,
+        tensor_name=tensor_name,
+        inputs={model: tensor_name for model in model_settings},
+        sources=lambda model: (model_settings.get(model), config.parameters),
+        base_model=base_ref,
+    )
 
 
 @click.command("mergekit-pytorch", cls=PrettyPrintHelp)

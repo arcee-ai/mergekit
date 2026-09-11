@@ -30,9 +30,9 @@ from mergekit.io.tasks import (
     TensorWriterTask,
 )
 from mergekit.merge_methods import MergeMethod
-from mergekit.merge_methods.base import InputParameterTarget
 from mergekit.merge_methods.task_adapter import ExecuteMergeMethodTask
 from mergekit.options import MergeOptions
+from mergekit.parameter_resolver import resolve_parameters
 from mergekit.tokenizer import BuildTokenizer, PermutedEmbeddings
 
 
@@ -192,35 +192,15 @@ class MergePlanner:
                 return
 
         tensor_merge_method = self._method
-        cfg_g = cfg_reader.for_tensor(weight.name)
-        global_params = {}
-        for p in tensor_merge_method.spec.shared_parameters:
-            global_params[p.name] = cfg_g.parameter(
-                p.name,
-                model=None,
-                required=p.required,
-                default=None if p.required else p.default,
-                validate=p.validate,
-            )
-
         base_model = cfg_reader.base_model
-
-        tensor_params = {}
-        for model, weight_in in zip(models, weights_in):
-            is_base = model == base_model
-            tensor_params[model] = {}
-            cfg_m = cfg_reader.for_tensor(weight_in.name)
-            for p in tensor_merge_method.spec.input_parameters:
-                requires_base_value = p.input_target == InputParameterTarget.ALL
-                if is_base and not requires_base_value:
-                    continue
-                tensor_params[model][p.name] = cfg_m.parameter(
-                    p.name,
-                    model=model,
-                    required=p.required,
-                    default=None if p.required else p.default,
-                    validate=p.validate,
-                )
+        global_params, tensor_params = resolve_parameters(
+            tensor_merge_method.spec,
+            tensor_name=weight.name,
+            inputs={model: w.name for model, w in zip(models, weights_in)},
+            sources=cfg_reader.parameter_sources,
+            base_model=base_model,
+            t=cfg_reader.t,
+        )
 
         gather_tensors = GatherTensors(
             weight_info=ImmutableMap(data=dict(zip(models, weights_in))),
@@ -331,9 +311,7 @@ class MergePlanner:
                 weight_info,
                 [weight_info] * len(definition.slices[0].sources),
                 [s.model for s in definition.slices[0].sources],
-                config_reader.for_tensor(tensor_name=weight_info.name).for_out_slice(
-                    definition.slices[0]
-                ),
+                config_reader.for_out_slice(definition.slices[0]),
             )
 
         for out_slice in definition.slices:
@@ -348,9 +326,7 @@ class MergePlanner:
                 weight_info,
                 [weight_info] * len(definition.slices[0].sources),
                 [s.model for s in definition.slices[-1].sources],
-                config_reader.for_tensor(tensor_name=weight_info.name).for_out_slice(
-                    definition.slices[-1]
-                ),
+                config_reader.for_out_slice(definition.slices[-1]),
             )
 
     def plan_to_disk(self, out_path: str) -> List[Task]:
