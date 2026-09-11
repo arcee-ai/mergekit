@@ -397,8 +397,7 @@ class MergeMethod(ABC):
         Return one tensor per group, in the same order as the input groups.
         Adapters may apply an explicit input dtype before calling this method.
         Any remaining conversion happens when each group/chunk executes; outputs
-        are cast before accumulation. Algorithm parameters are separate from these
-        controls.
+        are cast to out_dtype before being retained.
         """
         groups = tuple(groups)
         if not all(isinstance(group, TensorGroup) for group in groups):
@@ -450,7 +449,7 @@ class MergeMethod(ABC):
         groups: Sequence[TensorGroup],
         parameters: Mapping[str, Any],
     ) -> List[Dict[str, Any]]:
-        # Validate every group before running any tensor math.
+        # A malformed later group must fail before any kernel executes.
         for group in groups:
             self.validate_inputs(
                 [entry.id for entry in group.entries],
@@ -465,8 +464,6 @@ class MergeMethod(ABC):
                 f"Unknown parameter(s) for {self.spec.name}: {', '.join(sorted(unknown))}"
             )
 
-        # Parameter validation is also two-phase so a malformed later group cannot
-        # leave callers with a partially executed batch.
         return [
             self._bind_group_parameters(group, parameters, group_index, len(groups))
             for group_index, group in enumerate(groups)

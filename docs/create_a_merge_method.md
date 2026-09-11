@@ -5,9 +5,8 @@ MergeKit's YAML and raw-PyTorch merge commands.
 
 ## Group kernels
 
-Group kernels operate directly on one logical output at a time, without allocating
-packing buffers. Use them for simple methods, algorithms that need tensor metadata,
-or work that does not benefit from vectorization:
+Group kernels operate on one output at a time. Use them for simple methods,
+algorithms that need tensor metadata, or work that does not benefit from vectorization:
 
 ```python
 import torch
@@ -89,20 +88,15 @@ float32 unless the aligned inputs are float64, in which case they use float64.
 Integer and boolean coefficients use int64 and bool. Kernels may explicitly cast
 coefficients when choosing their intermediate precision.
 
-`ParameterScope` has three values: `SHARED`, `INPUT` (including the base), and
-`NON_BASE`. Scopes do not encode the YAML hierarchy. For example, a shared parameter
-may still be overridden per module or slice and may vary between output tensors
-through filters or gradients. Scope describes the input axis along which the
-resolved value is bound.
+Scope describes which inputs receive a parameter. All scopes support YAML
+overrides per module or slice, filters, and gradients; see
+[Parameter Specification](../README.md#parameter-specification) for precedence.
 
 Unannotated parameters and unsupported or ambiguous annotations are rejected when
 the method is defined.
 
-Configuration gradient endpoints are validated using the parameter's declared type
-before interpolation. For example, `[1e-5, 1e-3]` interpolates for a float parameter
-even when the YAML parser reads the endpoints as strings. String and boolean
-parameters use discrete steps instead. Integer gradients must resolve to an integer;
-fractional results and endpoints outside declared constraints are rejected.
+Gradient endpoints must satisfy the parameter's declared type and constraints.
+Integer gradients must also resolve to an integer after interpolation.
 
 ## Input contracts
 
@@ -153,7 +147,7 @@ interpolated = merge_tensors(
 )
 ```
 
-This always returns a tensor. It accepts a method name or a method object, optional
+`merge_tensors` accepts a method name or a method object, optional
 `ids` for mapping-valued per-input parameters, a `name` for tensor metadata and error
 messages, and `dtype`/`out_dtype` controls. `base_index` refers to the input sequence,
 even when custom IDs are supplied. Use `merge_state_dicts` for checkpoint buffers.
@@ -234,14 +228,12 @@ refers to the supplied tensor order. Groups may use different IDs, input counts,
 shapes, and metadata. The `TensorGroup(entries=..., metadata=...)` constructor
 accepts existing `TensorEntry` and `TensorMetadata` objects.
 
-Logical batches may be heterogeneous. Preparation validates every group, buckets
-compatible work by shape, dtype, device, input count/layout, and execution options,
-then prepares numerical `TensorBatch` inputs one chunk at a time. Singleton chunks
-borrow an `unsqueeze(0)` view of each input, copying only for dtype conversion.
-Larger chunks stack outputs separately for each input. All inputs within a group
-must have matching shapes and devices. Dtypes are aligned during execution,
-including for sequential group kernels. Every group's input contract, tensors, and
-parameters are validated before any kernel executes.
+Every group's input contract, tensors, and parameters are validated before any
+kernel executes. Inputs within a group must have matching shapes and devices;
+dtypes are aligned during execution. Batch kernels group compatible work by shape,
+dtype, device, input count/layout, and Python options. Singleton chunks borrow an
+`unsqueeze(0)` view of each input, copying only for dtype conversion. Larger chunks
+stack outputs separately for each input.
 
 For inputs with different vocabularies, configure
 [`tokenizer`](../README.md#tokenizer-configuration) to align them before merging;
@@ -257,24 +249,14 @@ preserve the output axis: reductions for norms, means, and dot products must not
 accidentally combine different outputs. See the built-in Linear and SLERP methods
 for examples.
 
-Ordinary parameters broadcast across groups. Use `PerGroupValues` to explicitly vary
-a parameter along the outer batch axis; the wrapper avoids ambiguity with shared
-list-valued parameters.
+Ordinary parameters broadcast across groups. Use `PerGroupValues`, as in the
+direct-call example above, to vary a parameter per group without ambiguity with
+shared list-valued parameters.
 
-```python
-from mergekit.merge_methods import BatchOptions, PerGroupValues
-
-result = merge_methods.get("linear")(
-    groups,
-    parameters={"weight": PerGroupValues([weights_for_group_0, weights_for_group_1])},
-    batch_options=BatchOptions(max_bytes=64 * 1024 * 1024, max_groups=128),
-)
-```
-
-The same `batch_options` argument is accepted by `merge_state_dicts`. Limits apply
-to packed input and coefficient buffers, **not** source tensors, retained outputs,
-autograd graphs, or kernel scratch space. A single oversized group executes alone;
-these are packing limits, not a guarantee of total GPU memory usage.
+`BatchOptions(max_bytes=64 * 1024**2, max_groups=128)` limits packed input and
+coefficient buffers by size and group count. Both direct calls and `merge_state_dicts`
+accept `batch_options`. Source tensors, retained outputs, autograd graphs, and kernel
+scratch are outside these limits. A single oversized group executes alone.
 Input conversion occurs per chunk (or per group for sequential methods), and outputs
 are cast to `out_dtype` before being retained.
 Packing budgets use the target input dtype, including when inputs are promoted.
@@ -313,10 +295,9 @@ whether it is an embedding tensor. A base is represented by an entry with
 To make a method available by name, register it:
 
 ```python
-from mergekit.merge_methods import get, register, registered_methods
+from mergekit.merge_methods import register
 
 register(weighted_average)
-assert get("weighted_average") is weighted_average
 ```
 
 `register()` rejects duplicate names. `registered_methods()` returns a tuple of

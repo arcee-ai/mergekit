@@ -27,7 +27,6 @@ def _linear_merge(
         denominator = weight.sum(dim=1).reshape(coefficient_shape)
         if (denominator == 0).any():
             raise ValueError("Cannot normalize weights that sum to zero")
-    # Accumulate in working precision, casting only the result back to input dtype.
     result = torch.zeros_like(first, dtype=dtype)
     for tensor, coefficient in zip(batch.tensors, weight.unbind(1)):
         result.addcmul_(tensor, coefficient.reshape(coefficient_shape))

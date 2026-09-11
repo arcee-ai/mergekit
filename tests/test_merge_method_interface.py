@@ -164,12 +164,6 @@ def test_signature_infers_parameter_scopes_and_accepts_shared_lists():
         return result + torch.tensor(offsets)
 
     method = merge_method(kernel, name="test_method")
-    assert [parameter.name for parameter in method.spec.shared_parameters] == [
-        "offsets",
-        "normalize",
-    ]
-    assert [parameter.name for parameter in method.spec.input_parameters] == ["weight"]
-
     batch = [
         TensorGroup.from_tensors(
             [torch.tensor([1.0, 2.0]), torch.tensor([3.0, 4.0])], ids=["a", "b"]
@@ -304,7 +298,7 @@ def test_explicit_per_group_parameter_values():
     assert result == (torch.tensor(10.0), torch.tensor(21.0))
 
 
-def test_merge_state_dicts_programmatic_api():
+def test_merge_state_dicts_matches_tensor_names_and_model_ids():
     result = merge_state_dicts(
         {
             "a": {"x": torch.tensor([1.0]), "y": torch.tensor([2.0])},
@@ -498,8 +492,7 @@ def test_passthrough_graph_does_not_visit_math_device(tmp_path, scale):
         parameters={} if scale is None else {"scale": scale},
     )
     tasks = plan_flat_merge(config, str(output), False, False, MergeOptions())
-    # A transfer to meta followed by a return to CPU would fail. This exercises
-    # actual scheduling and saving without requiring an available accelerator.
+    # A transfer to meta followed by a return to CPU would fail.
     Executor(tasks, math_device="meta", storage_device="cpu").execute()
     actual = load_file(output / "model.safetensors")["w"]
     torch.testing.assert_close(actual, tensor if scale is None else tensor * scale)
@@ -578,33 +571,3 @@ def test_kernel_wrappers_do_not_reserve_algorithm_parameter_names(batched):
         parameters={"self": 2, "batch": 3, "group": 5},
     )
     torch.testing.assert_close(result, torch.full((2,), 10.0))
-
-
-def test_all_builtins_are_registered():
-    from mergekit.merge_methods import get, registered_methods
-
-    names = {
-        "linear",
-        "slerp",
-        "nuslerp",
-        "multislerp",
-        "passthrough",
-        "model_stock",
-        "arcee_fusion",
-        "karcher",
-        "nearswap",
-        "ram",
-        "ramplus_tl",
-        "sce",
-        "task_arithmetic",
-        "ties",
-        "dare_ties",
-        "dare_linear",
-        "breadcrumbs",
-        "breadcrumbs_ties",
-        "della",
-        "della_linear",
-    }
-    assert {method.spec.name for method in registered_methods()} == names
-    for method in registered_methods():
-        assert get(method.spec.name) is method

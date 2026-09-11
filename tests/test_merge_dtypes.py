@@ -96,8 +96,7 @@ def test_raw_graph_dtype_policy(tmp_path, monkeypatch, dtype, out_dtype, method_
         save_file(tensors, path)
         paths.append(str(path))
 
-    # Inspect gathered inputs before Executor can transfer them to the math device.
-    # This catches late downcasts without requiring a GPU or allocation thresholds.
+    # Input casts must happen before transfer to the math device.
     gather = TensorDictWrapper.execute
     seen = set()
 
