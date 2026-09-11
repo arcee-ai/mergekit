@@ -143,8 +143,13 @@ bfloat16 with float32. Float64 inputs promote the group to float64. Pass
 `dtype=torch.bfloat16` to explicitly cast inputs, or `out_dtype=torch.bfloat16` to
 cast only the merged outputs. Both options leave non-floating buffers unchanged.
 The YAML and raw-PyTorch adapters use the corresponding string-valued `dtype` and
-`out_dtype` settings. Raw-PyTorch merges also copy equal non-floating buffers
-without casting them, and reject differing buffers before dtype conversion.
+`out_dtype` settings. `dtype` selects the input representation used for merging;
+adapters may apply this explicit cast during loading, before device transfer, to
+reduce memory and transfer costs. Without `dtype`, per-group promotion still
+happens in the common method call. Raw-PyTorch loaders cast only floating inputs,
+preserving non-floating buffers for exact comparison. Equal buffers are copied
+without casting; differing buffers are rejected. `out_dtype` applies only to
+merged outputs.
 Direct `MergeBatch` calls accept the same dtype options and
 use the same promotion policy. Algorithm parameters go in the `parameters` mapping,
 separately from dtype and packing controls; no algorithm parameter names are reserved.
@@ -204,8 +209,9 @@ The same `batch_options` argument is accepted by `merge_state_dicts`. Limits app
 to packed input and coefficient buffers, **not** source tensors, retained outputs,
 autograd graphs, or kernel scratch space. A single oversized group executes alone;
 these are packing limits, not a guarantee of total GPU memory usage.
-The common method call converts inputs only for the current chunk (or current group
-for sequential methods), and casts outputs to `out_dtype` before retaining them.
+The common method call performs any remaining input conversion only for the current
+chunk (or current group for sequential methods), and casts outputs to `out_dtype`
+before retaining them. An input already cast by its loader needs no further conversion.
 Packing budgets use the target input dtype, including when inputs are promoted.
 Autograd graphs and outputs that alias converted inputs can retain that storage.
 

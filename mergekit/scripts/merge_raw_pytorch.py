@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 import mergekit.merge_methods as merge_methods
 from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference
+from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
 from mergekit.config import ParameterSetting
 from mergekit.graph import Executor, Task
 from mergekit.io import LazyTensorLoader, ShardedTensorIndex
@@ -62,6 +62,7 @@ class SimpleLoaderCache:
 class SimpleLoadTensor(Task[torch.Tensor]):
     model: str
     tensor_name: str
+    dtype: Optional[str] = None
     device: Optional[str] = None
 
     def arguments(self) -> Dict[str, Task]:
@@ -69,7 +70,14 @@ class SimpleLoadTensor(Task[torch.Tensor]):
 
     def execute(self) -> torch.Tensor:
         loader = SimpleLoaderCache().get(self.model)
-        return loader.get_tensor(self.tensor_name, device=self.device or "cpu")
+        tensor = loader.get_tensor(self.tensor_name, device=self.device or "cpu")
+        if (dtype := dtype_from_name(self.dtype)) is not None:
+            if not dtype.is_floating_point:
+                raise ValueError("dtype must be a floating-point torch.dtype")
+            # Cast before transfer to the math device, preserving checkpoint buffers.
+            if tensor.is_floating_point():
+                tensor = tensor.to(dtype=dtype)
+        return tensor
 
 
 def plan_flat_merge(
@@ -113,13 +121,13 @@ def plan_flat_merge(
     for tensor_name in tqdm.tqdm(list(all_tensor_names), desc="Planning operations"):
         inputs = {
             model_def.model: SimpleLoadTensor(
-                model=model_def.model, tensor_name=tensor_name
+                model=model_def.model, tensor_name=tensor_name, dtype=config.dtype
             )
             for model_def in config.models
         }
         if config.base_model is not None and config.base_model not in inputs:
             inputs[config.base_model] = SimpleLoadTensor(
-                model=config.base_model, tensor_name=tensor_name
+                model=config.base_model, tensor_name=tensor_name, dtype=config.dtype
             )
 
         has_tensor = [

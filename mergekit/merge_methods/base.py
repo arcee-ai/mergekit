@@ -443,8 +443,10 @@ class MergeMethod(ABC):
     ) -> MergedBatch:
         """Validate and merge, promoting inputs per group unless dtype is given.
 
-        Conversion is deferred until each group/chunk executes; outputs are cast
-        before accumulation. Algorithm parameters are separate from these controls.
+        Adapters may apply an explicit input dtype before calling this method.
+        Any remaining conversion happens when each group/chunk executes; outputs
+        are cast before accumulation. Algorithm parameters are separate from these
+        controls.
         """
         from mergekit.merge_methods.dtype import promoted_dtype
 

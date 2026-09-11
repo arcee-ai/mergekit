@@ -9,6 +9,7 @@ from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
 from mergekit.merge_methods import MergeBatch, TensorBatch, merge_state_dicts
+from mergekit.merge_methods.task_adapter import TensorDictWrapper
 from mergekit.options import MergeOptions
 from mergekit.scripts.merge_raw_pytorch import RawPyTorchMergeConfig, plan_flat_merge
 from mergekit.tokenizer import PermutedEmbeddings
@@ -81,16 +82,40 @@ def test_state_dict_rejects_nonfloating_dtype_overrides(option):
 
 @pytest.mark.parametrize("dtype", [None, "bfloat16"])
 @pytest.mark.parametrize("out_dtype", [None, "float64"])
-def test_raw_graph_dtype_policy(tmp_path, dtype, out_dtype):
+@pytest.mark.parametrize("method_name", ["linear", "task_arithmetic"])
+def test_raw_graph_dtype_policy(tmp_path, monkeypatch, dtype, out_dtype, method_name):
     models = mixed_models()
     paths = []
     for index, tensors in enumerate(models):
         path = tmp_path / f"model{index}.safetensors"
         save_file(tensors, path)
         paths.append(str(path))
+
+    # Inspect gathered inputs before Executor can transfer them to the math device.
+    # This catches late downcasts without requiring a GPU or allocation thresholds.
+    gather = TensorDictWrapper.execute
+    seen = set()
+
+    def checked_gather(self, **kwargs):
+        tensors = gather(self, **kwargs)
+        for model, tensor in tensors.items():
+            name = self.tensors[model].tensor_name
+            source = models[paths.index(model.model.path)][name]
+            expected = (
+                source.to(getattr(torch, dtype))
+                if dtype and source.is_floating_point()
+                else source
+            )
+            assert tensor.device.type == "cpu"
+            torch.testing.assert_close(tensor, expected)
+            seen.add((model.model.path, name))
+        return tensors
+
+    monkeypatch.setattr(TensorDictWrapper, "execute", checked_gather)
     config = RawPyTorchMergeConfig(
-        merge_method="linear",
-        models=[{"model": p} for p in paths],
+        merge_method=method_name,
+        models=[{"model": p} for p in paths[1:]],
+        base_model=paths[0],  # The implicitly added base must also be cast early.
         parameters={"weight": 1.0},
         dtype=dtype,
         out_dtype=out_dtype,
@@ -98,15 +123,34 @@ def test_raw_graph_dtype_policy(tmp_path, dtype, out_dtype):
     output = tmp_path / "output"
     tasks = plan_flat_merge(config, str(output), False, False, MergeOptions())
     Executor(tasks, math_device="cpu", storage_device="cpu").execute()
+    assert seen == {
+        (path, name) for path, model in zip(paths, models) for name in model
+    }
     actual = load_file(output / "model.safetensors")
     expected = merge_state_dicts(
         models,
-        "linear",
+        method_name,
+        base=0,
         parameters={"weight": 1.0},
         dtype=getattr(torch, dtype) if dtype else None,
         out_dtype=getattr(torch, out_dtype) if out_dtype else None,
     )
     torch.testing.assert_close(actual, expected)
+
+
+def test_raw_graph_rejects_nonfloating_input_dtype(tmp_path):
+    path = tmp_path / "model.safetensors"
+    save_file({"w": torch.tensor([1.5])}, path)
+    config = RawPyTorchMergeConfig(
+        merge_method="passthrough",
+        models=[{"model": str(path)}],
+        dtype="int64",
+    )
+    tasks = plan_flat_merge(
+        config, str(tmp_path / "output"), False, False, MergeOptions()
+    )
+    with pytest.raises(ValueError, match="floating-point torch.dtype"):
+        Executor(tasks).execute()
 
 
 @pytest.mark.parametrize(
