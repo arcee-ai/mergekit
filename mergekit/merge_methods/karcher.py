@@ -3,11 +3,7 @@
 
 import torch
 
-from mergekit.merge_methods.base import (
-    InputContract,
-    Shared,
-    TensorGroup,
-)
+from mergekit.merge_methods.base import InputContract, TensorGroup
 from mergekit.merge_methods.easy_define import merge_method
 
 
@@ -71,8 +67,8 @@ def karcher_merge_tensors(tensors, alphas, max_iter=10, tol=1e-5):
 
 def _karcher_merge(
     group: TensorGroup,
-    max_iter: Shared[int] = 10,
-    tol: Shared[float] = 1e-5,
+    max_iter: int = 10,
+    tol: float = 1e-5,
 ) -> torch.Tensor:
     tensors = [entry.tensor for entry in group.entries]
     if len(tensors) == 1:

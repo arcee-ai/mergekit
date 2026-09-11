@@ -7,7 +7,6 @@ from mergekit.merge_methods.base import (
     BasePolicy,
     InputContract,
     PerNonBase,
-    Shared,
     TensorGroup,
 )
 from mergekit.merge_methods.easy_define import merge_method
@@ -22,8 +21,8 @@ from mergekit.merge_methods.easy_define import merge_method
 def multislerp(
     group: TensorGroup,
     weight: PerNonBase[float],
-    normalize_weights: Shared[bool] = True,
-    eps: Shared[float] = 1e-8,
+    normalize_weights: bool = True,
+    eps: float = 1e-8,
 ) -> torch.Tensor:
     """
     Implements barycentric interpolation on a hypersphere.

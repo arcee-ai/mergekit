@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-from mergekit.merge_methods.api import merge_state_dicts
+from mergekit.merge_methods.api import merge_state_dicts, merge_tensors
 from mergekit.merge_methods.base import (
     BasePolicy,
     BatchedMergeMethod,
@@ -13,14 +13,12 @@ from mergekit.merge_methods.base import (
     MergeBatch,
     MergeMethod,
     MergeMethodSpec,
-    Option,
     OptionalTensorPolicy,
     ParameterScope,
     PerGroupValues,
     PerInput,
     PerInputValues,
     PerNonBase,
-    Shared,
     TensorBatch,
     TensorEntry,
     TensorGroup,
@@ -43,7 +41,6 @@ __all__ = [
     "BatchParameter",
     "TensorBatch",
     "GroupMergeMethod",
-    "Option",
     "OptionalTensorPolicy",
     "ParameterScope",
     "InputParameterTarget",
@@ -55,9 +52,9 @@ __all__ = [
     "TensorEntry",
     "TensorMetadata",
     "merge_state_dicts",
+    "merge_tensors",
     "InputContract",
     "BasePolicy",
-    "Shared",
     "PerInput",
     "PerNonBase",
     "PerInputValues",

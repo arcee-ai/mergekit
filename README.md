@@ -100,6 +100,28 @@ This will run the merge and write your merged model to `./output-model-directory
 
 For more information on the arguments accepted by `mergekit-yaml` run the command `mergekit-yaml --help`.
 
+### In-memory Python API
+
+Use `merge_tensors` for one output tensor, or `merge_state_dicts` for modules and
+state dictionaries already in memory:
+
+```python
+from mergekit.merge_methods import merge_state_dicts, merge_tensors
+
+merged_tensor = merge_tensors(
+    [tensor_a, tensor_b], "linear", parameters={"weight": [0.25, 0.75]}
+)
+merged_weights = merge_state_dicts(
+    [model_a, model_b], "linear", parameters={"weight": [0.25, 0.75]}
+)
+```
+
+Both accept a method name or an unregistered method object, plus `dtype` and
+`out_dtype`. For base-aware methods, use `base_index` with `merge_tensors` or `base`
+with `merge_state_dicts`. Advanced callers can supply heterogeneous logical batches
+or invoke packed numerical kernels directly. See [Defining Merge Methods](docs/create_a_merge_method.md)
+for custom methods, parameter annotations, and the advanced interfaces.
+
 ### Uploading to Huggingface
 
 When you have a merged model you're happy with, you may want to share it on the Hugging Face Hub. `mergekit` generates a `README.md` for your merge with some basic information for a model card. You can edit it to include more details about your merge, like giving it a good name or explaining what it's good at; rewrite it entirely; or use the generated `README.md` as-is. It is also possible to edit your `README.md` online once it has been uploaded to the Hub.

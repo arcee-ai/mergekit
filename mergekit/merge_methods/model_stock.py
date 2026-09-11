@@ -7,15 +7,12 @@ from mergekit.merge_methods.base import (
     BasePolicy,
     InputContract,
     OptionalTensorPolicy,
-    Shared,
     TensorGroup,
 )
 from mergekit.merge_methods.easy_define import merge_method
 
 
-def _model_stock_merge(
-    group: TensorGroup, filter_wise: Shared[bool] = False
-) -> torch.Tensor:
+def _model_stock_merge(group: TensorGroup, filter_wise: bool = False) -> torch.Tensor:
     all_weights = [group.base.tensor] + [entry.tensor for entry in group.non_base]
     w_0, ws = all_weights[0], all_weights[1:]
     out_shape = w_0.shape

@@ -1,22 +1,26 @@
 from __future__ import annotations
 
+import inspect
+from typing import Annotated, Literal
+
 import pytest
 import torch
+from pydantic import Field, ValidationError
 
 from mergekit.config import MergeConfiguration
 from mergekit.merge_methods import (
     BasePolicy,
+    BatchParameter,
     InputContract,
     MergeBatch,
-    Option,
     PerGroupValues,
     PerInput,
     PerInputValues,
-    Shared,
     TensorBatch,
     TensorEntry,
     TensorGroup,
     merge_state_dicts,
+    merge_tensors,
 )
 from mergekit.merge_methods.easy_define import merge_method
 from mergekit.scripts.merge_raw_pytorch import (
@@ -28,12 +32,107 @@ from mergekit.scripts.merge_raw_pytorch import (
 )
 
 
+@pytest.mark.parametrize("weight", [[0.25, 0.75], {"b": 0.75, "a": 0.25}])
+def test_merge_tensors_aligns_parameters_and_preserves_gradients(weight):
+    a = torch.tensor([1.0, 2.0], dtype=torch.float16, requires_grad=True)
+    b = torch.tensor([3.0, 6.0], dtype=torch.bfloat16, requires_grad=True)
+    result = merge_tensors(
+        [a, b],
+        "linear",
+        ids=["a", "b"],
+        parameters={"weight": weight},
+        dtype=torch.float64,
+        out_dtype=torch.float32,
+    )
+    torch.testing.assert_close(result, torch.tensor([2.5, 5.0]))
+    result.sum().backward()
+    torch.testing.assert_close(a.grad, torch.full_like(a, 0.25))
+    torch.testing.assert_close(b.grad, torch.full_like(b, 0.75))
+
+
+def test_merge_tensors_base_index_refers_to_input_order():
+    result = merge_tensors(
+        [torch.tensor([3.0]), torch.tensor([1.0])],
+        "task_arithmetic",
+        ids=["other", "base"],
+        base_index=1,
+        parameters={"weight": {"other": 0.25}},
+    )
+    torch.testing.assert_close(result, torch.tensor([1.5]))
+    with pytest.raises(ValueError, match="requires a base input"):
+        merge_tensors([torch.ones(1)], "task_arithmetic", parameters={"weight": 1.0})
+    with pytest.raises(ValueError, match="size mismatch for projection"):
+        merge_tensors(
+            [torch.ones(2), torch.ones(3)],
+            "linear",
+            name="projection",
+            parameters={"weight": 1.0},
+        )
+
+
+@pytest.mark.parametrize("input_type", [TensorGroup, TensorBatch])
+def test_plain_annotations_preserve_constraints_defaults_and_requiredness(input_type):
+    def kernel(
+        inputs,
+        scale: Annotated[float, Field(gt=0)],
+        mode: Literal["add", "multiply"] = "multiply",
+    ) -> torch.Tensor:
+        return (
+            inputs.tensors[0] * scale
+            if mode == "multiply"
+            else inputs.tensors[0] + scale
+        )
+
+    kernel.__annotations__["inputs"] = input_type
+    method = merge_method(kernel, name="plain_parameters")
+    source = torch.ones(2)
+    torch.testing.assert_close(
+        merge_tensors([source], method, parameters={"scale": 3}), torch.full((2,), 3.0)
+    )
+    torch.testing.assert_close(
+        merge_tensors([source], method, parameters={"scale": 3, "mode": "add"}),
+        torch.full((2,), 4.0),
+    )
+    with pytest.raises(TypeError, match="Missing required parameter scale"):
+        merge_tensors([source], method)
+    for parameters in ({"scale": 0}, {"scale": 1, "mode": "unknown"}):
+        with pytest.raises(ValidationError):
+            merge_tensors([source], method, parameters=parameters)
+
+
+@pytest.mark.parametrize(
+    "input_type,annotation,message",
+    [
+        (TensorGroup, inspect.Parameter.empty, "must have a type annotation"),
+        (TensorBatch, torch.Tensor, "must be annotated with BatchParameter"),
+        (TensorGroup, PerInputValues[float], "must use PerInput"),
+        (TensorGroup, Annotated[torch.Tensor, BatchParameter(float)], "Group kernels"),
+        (
+            TensorBatch,
+            Annotated[torch.Tensor, BatchParameter(float), BatchParameter(int)],
+            "at most one scope",
+        ),
+    ],
+)
+def test_signature_rejects_missing_or_ambiguous_parameter_types(
+    input_type, annotation, message
+):
+    def kernel(inputs, value) -> torch.Tensor:
+        return inputs.tensors[0]
+
+    kernel.__annotations__["inputs"] = input_type
+    if annotation is not inspect.Parameter.empty:
+        kernel.__annotations__["value"] = annotation
+    with pytest.raises(TypeError, match=message):
+        merge_method(kernel, name="invalid_signature")
+
+
 def test_signature_is_parameter_ssot_and_supports_shared_lists():
     def kernel(
         group: TensorGroup,
         weight: PerInput[float],
-        offsets: Shared[list[float]],
-        normalize: Shared[bool] = True,
+        offsets: list[float],
+        normalize: bool = True,
     ) -> torch.Tensor:
         values = weight.values_for(group.entries)
         result = sum(
@@ -126,7 +225,7 @@ def test_registered_method_can_be_called_directly():
 
 
 def test_explicit_per_group_parameter_values():
-    def kernel(group: TensorGroup, scale: Shared[float]) -> torch.Tensor:
+    def kernel(group: TensorGroup, scale: float) -> torch.Tensor:
         return group.entries[0].tensor * scale
 
     method = merge_method(kernel, name="per_group")
@@ -370,10 +469,10 @@ def test_execution_controls_do_not_reserve_algorithm_parameter_names():
     @merge_method(name="controls")
     def kernel(
         group: TensorGroup,
-        dtype: Shared[float],
-        out_dtype: Shared[float],
-        batch_options: Shared[float],
-        parameters: Shared[float],
+        dtype: float,
+        out_dtype: float,
+        batch_options: float,
+        parameters: float,
     ) -> torch.Tensor:
         return group.tensors[0] * (dtype + out_dtype + batch_options + parameters)
 
@@ -392,9 +491,9 @@ def test_kernel_wrappers_do_not_reserve_algorithm_parameter_names(batched):
 
         def kernel(
             inputs: TensorBatch,
-            self: Option[float],
-            batch: Option[float],
-            group: Option[float],
+            self: float,
+            batch: float,
+            group: float,
         ) -> torch.Tensor:
             return inputs.tensors[0] * (self + batch + group)
 
@@ -402,9 +501,9 @@ def test_kernel_wrappers_do_not_reserve_algorithm_parameter_names(batched):
 
         def kernel(
             inputs: TensorGroup,
-            self: Shared[float],
-            batch: Shared[float],
-            group: Shared[float],
+            self: float,
+            batch: float,
+            group: float,
         ) -> torch.Tensor:
             return inputs.tensors[0] * (self + batch + group)
 

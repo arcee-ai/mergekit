@@ -23,6 +23,34 @@ StateDict = Mapping[str, torch.Tensor]
 StateDictLike = Union[StateDict, torch.nn.Module]
 
 
+def merge_tensors(
+    tensors: Sequence[torch.Tensor],
+    method: Union[str, MergeMethod],
+    *,
+    parameters: Optional[Mapping[str, Any]] = None,
+    ids: Optional[Sequence[Hashable]] = None,
+    base_index: Optional[int] = None,
+    name: Optional[str] = None,
+    dtype: Optional[torch.dtype] = None,
+    out_dtype: Optional[torch.dtype] = None,
+) -> torch.Tensor:
+    """Merge inputs contributing to one output tensor.
+
+    Per-input parameters accept sequences in input order, mappings keyed by ids,
+    or broadcast scalars. The base index always refers to the input sequence.
+    Inputs are borrowed and promoted unless dtype is supplied; out_dtype casts
+    the result. This uses the same validation and execution as a MergeBatch call.
+    Checkpoint buffer handling belongs to merge_state_dicts.
+    """
+    if isinstance(method, str):
+        from mergekit import merge_methods
+
+        method = merge_methods.get(method)
+    batch = MergeBatch.from_tensors(tensors, ids=ids, base_index=base_index, name=name)
+    (result,) = method(batch, parameters=parameters, dtype=dtype, out_dtype=out_dtype)
+    return result
+
+
 def merge_state_dicts(
     models: Union[Mapping[Hashable, StateDictLike], Sequence[StateDictLike]],
     method: Union[str, MergeMethod],

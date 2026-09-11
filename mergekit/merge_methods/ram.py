@@ -5,12 +5,7 @@ from typing import List, Tuple
 
 import torch
 
-from mergekit.merge_methods.base import (
-    BasePolicy,
-    InputContract,
-    Shared,
-    TensorGroup,
-)
+from mergekit.merge_methods.base import BasePolicy, InputContract, TensorGroup
 from mergekit.merge_methods.easy_define import merge_method
 
 BASE_CONTRACT = InputContract(base=BasePolicy.REQUIRED, min_inputs=1, min_non_base=0)
@@ -24,7 +19,7 @@ BASE_CONTRACT = InputContract(base=BasePolicy.REQUIRED, min_inputs=1, min_non_ba
 )
 def ram_merge(
     group: TensorGroup,
-    epsilon: Shared[float] = 1e-5,
+    epsilon: float = 1e-5,
 ) -> torch.Tensor:
     tensors = [entry.tensor for entry in group.non_base]
     base_tensor = group.base.tensor
@@ -56,9 +51,9 @@ def ram_merge(
 )
 def ramplus_tl_merge(
     group: TensorGroup,
-    r: Shared[float] = 0.1,
-    alpha: Shared[float] = 0.2,
-    epsilon: Shared[float] = 1e-5,
+    r: float = 0.1,
+    alpha: float = 0.2,
+    epsilon: float = 1e-5,
 ) -> torch.Tensor:
     tensors = [entry.tensor for entry in group.non_base]
     base_tensor = group.base.tensor

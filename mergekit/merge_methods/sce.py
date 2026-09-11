@@ -5,12 +5,7 @@ from typing import Optional
 
 import torch
 
-from mergekit.merge_methods.base import (
-    BasePolicy,
-    InputContract,
-    Shared,
-    TensorGroup,
-)
+from mergekit.merge_methods.base import BasePolicy, InputContract, TensorGroup
 from mergekit.merge_methods.easy_define import merge_method
 from mergekit.merge_methods.generalized_task_arithmetic import (
     get_mask as sign_consensus_mask,
@@ -25,8 +20,8 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
 )
 def sce_merge(
     group: TensorGroup,
-    int8_mask: Shared[bool] = False,
-    select_topk: Shared[float] = 1.0,
+    int8_mask: bool = False,
+    select_topk: float = 1.0,
 ) -> torch.Tensor:
     tensors = [entry.tensor for entry in group.non_base]
     base_tensor = group.base.tensor

@@ -48,11 +48,6 @@ class BatchParameter:
     target: InputParameterTarget = InputParameterTarget.ALL
 
 
-@dataclass(frozen=True)
-class OptionMarker:
-    """A Python-valued execution option, constant within each packed batch."""
-
-
 T = TypeVar("T")
 
 
@@ -87,10 +82,7 @@ class PerGroupValues(Generic[T]):
         object.__setattr__(self, "values", tuple(values))
 
 
-# These annotations are both documentation and the source of ParameterSpec.scope.
-# At runtime Shared[T] is T and PerInput[T] is PerInputValues[T].
-Shared: TypeAlias = Annotated[T, ParameterMarker(ParameterScope.SHARED)]
-Option: TypeAlias = Annotated[T, OptionMarker()]
+# Ordinary annotations describe shared Python values; these mark per-input values.
 PerInput: TypeAlias = Annotated[
     PerInputValues[T], ParameterMarker(ParameterScope.INPUT)
 ]

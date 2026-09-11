@@ -11,7 +11,7 @@ import torch
 from typing import Annotated
 
 from mergekit.merge_methods import (
-    BatchParameter, Option, ParameterScope, TensorBatch, merge_method,
+    BatchParameter, ParameterScope, TensorBatch, merge_method,
 )
 
 
@@ -19,7 +19,7 @@ from mergekit.merge_methods import (
 def weighted_average(
     batch: TensorBatch,
     weight: Annotated[torch.Tensor, BatchParameter(float, ParameterScope.INPUT)],
-    normalize: Option[bool] = True,
+    normalize: bool = True,
 ) -> torch.Tensor:
     # N borrowed tensors shaped [B, *weight_shape]; weight: [B, N], float32 or float64.
     first = batch.tensors[0]
@@ -44,9 +44,10 @@ scopes, defaults, and requiredness:
 - `BatchParameter(float, ParameterScope.INPUT)` receives `[B, N]`.
 - Adding `target=InputParameterTarget.NON_BASE` excludes the base input from the
   coefficient axis. Base-aware batches use a canonical base-first input layout.
-- `Option[T]` receives a Python value that is constant within a packed batch.
-  Different option values partition work into separate batches. Options must be
-  hashable (for example booleans, strings, enums, or tuples).
+- Ordinary annotations, such as `normalize: bool = True`, receive shared Python
+  values. In batch kernels, each value is constant within a packed batch.
+  Different option values partition work into separate batches. Batch options must
+  be hashable (for example booleans, strings, enums, or tuples).
 - A parameter without a default is required.
 
 `BatchParameter` supports `float`, `int`, and `bool`, including constrained types
@@ -106,8 +107,34 @@ executing any group.
 
 ## Calling a method directly
 
+Use `merge_tensors` for inputs contributing to one output tensor:
+
+```python
+from mergekit.merge_methods import merge_tensors
+
+merged_tensor = merge_tensors(
+    [tensor_a, tensor_b],
+    "linear",
+    parameters={"weight": [0.25, 0.75]},
+)
+
+interpolated = merge_tensors(
+    [base_tensor, other_tensor],
+    "slerp",
+    base_index=0,
+    parameters={"t": 0.3},
+)
+```
+
+This always returns a tensor. It accepts a method name or a method object, optional
+`ids` for mapping-valued per-input parameters, a `name` for tensor metadata and error
+messages, and `dtype`/`out_dtype` controls. `base_index` refers to the input sequence,
+even when custom IDs are supplied. It uses the same validation and execution as the
+logical-batch interface below; checkpoint buffer handling belongs to `merge_state_dicts`.
+
 The decorator constructs a callable method. Construction does not register it;
-registration is only needed for lookup by name. Built-ins are already registered:
+registration is only needed for lookup by name. Built-ins are already registered.
+For multiple outputs or explicit tensor metadata, construct a logical batch:
 
 ```python
 from mergekit import merge_methods
@@ -158,7 +185,7 @@ happens in the common method call. Raw-PyTorch loaders cast only floating inputs
 preserving non-floating buffers for exact comparison. Equal buffers are copied
 without casting; differing buffers are rejected. `out_dtype` applies only to
 merged outputs.
-Direct `MergeBatch` calls accept the same dtype options and
+Both `merge_tensors` and direct `MergeBatch` calls accept the same dtype options and
 use the same promotion policy. Algorithm parameters go in the `parameters` mapping,
 separately from dtype and packing controls; no algorithm parameter names are reserved.
 
@@ -255,16 +282,24 @@ packing buffers. They are an alternative to native batch kernels, particularly f
 algorithms that need tensor metadata or do not benefit from vectorization:
 
 ```python
-from mergekit.merge_methods import Shared, TensorGroup, merge_method
+from mergekit.merge_methods import TensorGroup, merge_method
 
 @merge_method(name="scaled_copy")
-def scaled_copy(group: TensorGroup, scale: Shared[float] = 1.0) -> torch.Tensor:
+def scaled_copy(group: TensorGroup, scale: float = 1.0) -> torch.Tensor:
     return group.entries[0].tensor * scale
 ```
 
-Group kernels use `Shared[T]`, `PerInput[T]`, and `PerNonBase[T]`. Per-input values
-are ordered mappings keyed by `TensorEntry.id`. The signature remains the source
-of parameter validation, including constraints inside `T`.
+Group kernels use ordinary annotations for shared Python values and `PerInput[T]`
+or `PerNonBase[T]` for ordered mappings keyed by `TensorEntry.id`. Shared values
+may include lists and other unhashable types; only batch kernels require hashable
+Python options. The signature remains the source of parameter validation, including
+ordinary `Annotated` constraints such as `Annotated[float, Field(gt=0)]` and
+constraints inside per-input `T`. No `Shared` or `Option` wrapper is needed.
+
+Group kernels receive mappings for per-input values; batch kernels receive tensors
+annotated with `BatchParameter`. These annotations describe different runtime
+types and cannot be interchanged. Unannotated parameters and tensor coefficients
+without `BatchParameter` are rejected when defining the method.
 
 `merge_method` selects execution from the first argument annotation: `TensorBatch`
 for a numerical batch kernel, `TensorGroup` for a sequential group kernel. It can

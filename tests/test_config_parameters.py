@@ -8,7 +8,7 @@ from pydantic import Field, TypeAdapter, ValidationError
 
 from mergekit import merge_methods
 from mergekit.config import ConfigReader, MergeConfiguration, evaluate_setting
-from mergekit.merge_methods import PerInput, Shared, TensorGroup, merge_method
+from mergekit.merge_methods import PerInput, TensorGroup, merge_method
 from mergekit.parameter_resolver import resolve_parameter, resolve_parameters
 from mergekit.scripts.merge_raw_pytorch import (
     RawPyTorchMergeConfig,
@@ -111,7 +111,7 @@ parameters:
     assert shared["normalize"] is False
     assert sorted(p["weight"] for p in per_input.values()) == [1e-5, 1e-4]
 
-    def kernel(group: TensorGroup, mode: Shared[str]) -> torch.Tensor:
+    def kernel(group: TensorGroup, mode: str) -> torch.Tensor:
         return group.entries[0].tensor
 
     method = merge_method(kernel, name="string_option")
@@ -184,7 +184,7 @@ def test_raw_and_yaml_parameter_resolution_agree(method_name, explicit_base):
 @pytest.mark.parametrize("first_matching_scope", range(5))
 def test_precedence_and_distinct_input_output_tensor_names(first_matching_scope):
     def kernel(
-        group: TensorGroup, weight: PerInput[float] = 7, gain: Shared[float] = 8
+        group: TensorGroup, weight: PerInput[float] = 7, gain: float = 8
     ) -> torch.Tensor:
         return group.entries[0].tensor
 
@@ -230,7 +230,7 @@ def test_missing_required_parameters_have_model_and_tensor_context():
 
 
 def test_invalid_defaults_fail_during_parameter_resolution():
-    def kernel(group: TensorGroup, count: Shared[int] = 1.5) -> torch.Tensor:
+    def kernel(group: TensorGroup, count: int = 1.5) -> torch.Tensor:
         return group.entries[0].tensor
 
     method = merge_method(kernel, name="bad_default")

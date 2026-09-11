@@ -15,10 +15,8 @@ from mergekit.merge_methods import (
     InputContract,
     InputParameterTarget,
     MergeBatch,
-    Option,
     ParameterScope,
     PerGroupValues,
-    Shared,
     TensorBatch,
     TensorEntry,
     TensorGroup,
@@ -239,7 +237,7 @@ def test_later_invalid_group_fails_before_any_kernel(monkeypatch, failure):
 
 def test_constraints_survive_both_signature_adapters():
     def group_kernel(
-        group: TensorGroup, scale: Shared[Annotated[float, Field(gt=0)]]
+        group: TensorGroup, scale: Annotated[float, Field(gt=0)]
     ) -> torch.Tensor:
         pytest.fail("Invalid value reached group kernel")
 
@@ -520,16 +518,18 @@ def test_state_dict_per_group_values_keep_alignment_across_buffers():
     assert result["a"].item() == 1 and result["b"].item() == 7
 
 
-def test_native_signature_rejects_ambiguous_annotations():
-    def kernel(batch: TensorBatch, normalize: Shared[bool] = True) -> torch.Tensor:
+def test_native_signature_rejects_group_annotations():
+    from mergekit.merge_methods import PerInput
+
+    def kernel(batch: TensorBatch, weight: PerInput[float]) -> torch.Tensor:
         return sum(batch.tensors)
 
-    with pytest.raises(TypeError, match="BatchParameter or Option"):
+    with pytest.raises(TypeError, match="Batch kernels use BatchParameter"):
         merge_method(kernel, name="invalid")
 
 
 def test_options_are_validated_before_execution():
-    def kernel(batch: TensorBatch, modes: Option[list[str]]) -> torch.Tensor:
+    def kernel(batch: TensorBatch, modes: list[str]) -> torch.Tensor:
         pytest.fail("Unhashable execution options must fail before math")
 
     method = merge_method(kernel, name="options")

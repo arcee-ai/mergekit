@@ -18,7 +18,6 @@ from mergekit.merge_methods.base import (
     MergeMethod,
     MergeMethodSpec,
     OptionalTensorPolicy,
-    OptionMarker,
     ParameterMarker,
     ParameterScope,
     ParameterSpec,
@@ -36,55 +35,54 @@ def _parameter_spec(
         inspect.Parameter.KEYWORD_ONLY,
     ):
         raise TypeError(f"Parameter {argument.name} must accept keyword arguments")
-    if get_origin(annotation) is not Annotated:
-        raise TypeError(f"Parameter {argument.name} must have a scope annotation")
-    value_type, *metadata = get_args(annotation)
-    markers = [
-        m
-        for m in metadata
-        if isinstance(m, (ParameterMarker, BatchParameter, OptionMarker))
-    ]
-    if len(markers) != 1:
+    if annotation is inspect.Parameter.empty:
+        raise TypeError(f"Parameter {argument.name} must have a type annotation")
+    value_type, metadata = annotation, []
+    if get_origin(annotation) is Annotated:
+        value_type, *metadata = get_args(annotation)
+    markers = [m for m in metadata if isinstance(m, (ParameterMarker, BatchParameter))]
+    if len(markers) > 1:
         raise TypeError(
-            f"Parameter {argument.name} must have exactly one scope annotation"
+            f"Parameter {argument.name} must have at most one scope annotation"
         )
-    marker = markers[0]
+    marker = markers[0] if markers else None
     remaining = [m for m in metadata if m is not marker]
     scope = ParameterScope.SHARED
     kwargs = {}
-    if batched:
-        if isinstance(marker, BatchParameter):
-            if value_type is not torch.Tensor or remaining:
-                raise TypeError(
-                    "BatchParameter annotates torch.Tensor; put value constraints inside BatchParameter(value_type)"
-                )
-            value_type = marker.value_type
-            scalar_type = value_type
-            while get_origin(scalar_type) is Annotated:
-                scalar_type = get_args(scalar_type)[0]
-            if scalar_type not in (float, int, bool):
-                raise TypeError(
-                    "BatchParameter requires a bool, int, or float scalar type"
-                )
-            scope = marker.scope
-            kwargs = {"input_target": marker.target, "batch_tensor": True}
-        elif not isinstance(marker, OptionMarker):
+    if isinstance(marker, BatchParameter):
+        if not batched:
             raise TypeError(
-                "Batch kernels use BatchParameter or Option[T], not group-kernel annotations"
+                "Group kernels use PerInput[T] or PerNonBase[T], not BatchParameter"
             )
-    else:
-        if not isinstance(marker, ParameterMarker):
+        if value_type is not torch.Tensor or remaining:
             raise TypeError(
-                "Group kernels use Shared[T], PerInput[T], or PerNonBase[T]"
+                "BatchParameter annotates torch.Tensor; put value constraints inside BatchParameter(value_type)"
             )
+        value_type = marker.value_type
+        scalar_type = value_type
+        while get_origin(scalar_type) is Annotated:
+            scalar_type = get_args(scalar_type)[0]
+        if scalar_type not in (float, int, bool):
+            raise TypeError("BatchParameter requires a bool, int, or float scalar type")
+        scope = marker.scope
+        kwargs = {"input_target": marker.target, "batch_tensor": True}
+    elif isinstance(marker, ParameterMarker):
+        if batched:
+            raise TypeError(
+                "Batch kernels use BatchParameter, not PerInput[T] or PerNonBase[T]"
+            )
+        if get_origin(value_type) is not PerInputValues or remaining:
+            raise TypeError("Put per-input value constraints inside PerInput[T]")
+        value_type = get_args(value_type)[0]
         scope = marker.scope
         kwargs = {"input_target": marker.target}
-        if scope == ParameterScope.INPUT:
-            if get_origin(value_type) is not PerInputValues or remaining:
-                raise TypeError("Put per-input value constraints inside PerInput[T]")
-            value_type = get_args(value_type)[0]
-    if remaining:
-        value_type = Annotated[(value_type, *remaining)]
+    else:
+        if value_type is torch.Tensor:
+            raise TypeError("Tensor coefficients must be annotated with BatchParameter")
+        if value_type is PerInputValues or get_origin(value_type) is PerInputValues:
+            raise TypeError("Per-input values must use PerInput[T] or PerNonBase[T]")
+        # Preserve ordinary Annotated metadata, including Pydantic constraints.
+        value_type = annotation
     return ParameterSpec(
         name=argument.name,
         value_type=value_type,
@@ -129,7 +127,8 @@ def _method_from_function(
         optional_tensor_policy=optional_tensor_policy,
         uses_accelerator=uses_accelerator,
         parameters=tuple(
-            _parameter_spec(arg, hints.get(arg.name), batched) for arg in arguments[1:]
+            _parameter_spec(arg, hints.get(arg.name, inspect.Parameter.empty), batched)
+            for arg in arguments[1:]
         ),
     )
 
@@ -143,6 +142,8 @@ def merge_method(
     """Construct a method, directly or as a decorator, without registering it.
 
     The first argument's TensorBatch or TensorGroup annotation selects execution.
+    Ordinary parameter annotations describe shared Python values; per-input values
+    and numerical coefficient tensors require their respective scope annotations.
     Register the returned method explicitly when it needs lookup by name.
     """
     if func is None:

@@ -7,7 +7,6 @@ from typing_extensions import Annotated
 from mergekit.merge_methods.base import (
     BatchParameter,
     InputContract,
-    Option,
     ParameterScope,
     TensorBatch,
 )
@@ -17,7 +16,7 @@ from mergekit.merge_methods.easy_define import merge_method
 def _linear_merge(
     batch: TensorBatch,
     weight: Annotated[torch.Tensor, BatchParameter(float, ParameterScope.INPUT)],
-    normalize: Option[bool] = True,
+    normalize: bool = True,
 ) -> torch.Tensor:
     first = batch.tensors[0]
     if not first.is_floating_point():

@@ -3,12 +3,7 @@
 
 import torch
 
-from mergekit.merge_methods.base import (
-    BasePolicy,
-    InputContract,
-    Shared,
-    TensorGroup,
-)
+from mergekit.merge_methods.base import BasePolicy, InputContract, TensorGroup
 from mergekit.merge_methods.easy_define import merge_method
 
 
@@ -24,7 +19,7 @@ from mergekit.merge_methods.easy_define import merge_method
         max_non_base=1,
     ),
 )
-def nearswap_merge(group: TensorGroup, t: Shared[float]) -> torch.Tensor:
+def nearswap_merge(group: TensorGroup, t: float) -> torch.Tensor:
     a = group.base.tensor
     b = group.non_base[0].tensor
 

@@ -8,7 +8,6 @@ from mergekit.merge_methods.base import (
     InputContract,
     OptionalTensorPolicy,
     PerNonBase,
-    Shared,
     TensorGroup,
 )
 from mergekit.merge_methods.easy_define import merge_method
@@ -52,8 +51,8 @@ def nuslerp(
 def _nuslerp_merge(
     group: TensorGroup,
     weight: PerNonBase[float],
-    nuslerp_row_wise: Shared[bool] = False,
-    nuslerp_flatten: Shared[bool] = True,
+    nuslerp_row_wise: bool = False,
+    nuslerp_flatten: bool = True,
 ) -> torch.Tensor:
     entries = group.non_base
     tensors = [entry.tensor for entry in entries]
