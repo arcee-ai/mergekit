@@ -34,7 +34,6 @@ def test_optional_weight_cannot_silently_drop_a_configured_base(method_name):
     with pytest.raises(ValueError, match="Base input is not present.*optional.bias"):
         task.execute(tensors)
 
-    # The same pair is valid when the user actually requested a baseless merge.
     baseless = task.model_copy(update={"base_index": None})
     torch.testing.assert_close(baseless.execute(tensors), torch.full((2,), 2**-0.5))
 
@@ -110,12 +109,12 @@ def test_fusion_preserves_scalar_weight_shape():
     other = torch.tensor(2.5)
     result = merge_state_dicts([{"w": base}, {"w": other}], "arcee_fusion", base=0)["w"]
     # A one-element softmax has zero KL divergence, so the zero threshold
-    # selects the other input, just as it does for a length-one vector.
+    # selects the other input.
     torch.testing.assert_close(result, other)
 
 
 def test_fusion_exact_quantiles_and_threshold():
-    # Small inputs retain the original lower-order-statistic convention.
+    # Quantiles select the lower order statistic without interpolation.
     scores = torch.arange(12, dtype=torch.float32).reshape(3, 4).T
     fusion = DynamicThresholdFusion()
     torch.testing.assert_close(
@@ -126,8 +125,7 @@ def test_fusion_exact_quantiles_and_threshold():
 
 
 def test_fusion_sampling_has_bounded_allocations(monkeypatch):
-    # Check allocations, not a particular random-number API: even a huge input
-    # must use scratch proportional to the sample size, not the population.
+    # Sampling scratch scales with the sample size, not the population.
     monkeypatch.setattr(
         "mergekit.merge_methods.arcee_fusion._QUANTILE_SAMPLE_SIZE", 1024
     )

@@ -36,7 +36,7 @@ def merge_tensors(
     Per-input parameters accept sequences in input order, mappings keyed by ids,
     or broadcast scalars. The base index always refers to the input sequence.
     Inputs are borrowed and promoted unless dtype is supplied; out_dtype casts
-    the result. This uses the same validation and execution as a direct method call.
+    the result.
     Checkpoint buffer handling belongs to merge_state_dicts.
     """
     if isinstance(method, str):

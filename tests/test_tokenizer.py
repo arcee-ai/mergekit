@@ -123,7 +123,6 @@ class TestTokenizerMerges:
             base_model=model_base,
             tokenizer_source="base",
         )
-        # Explicit alignment retains the base vocabulary without blind cropping.
         run_and_check_merge(
             config, validate=check_tokenizer(expected_size=64, expected_added_ct=3)
         )

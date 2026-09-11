@@ -116,12 +116,10 @@ merged_weights = merge_state_dicts(
 )
 ```
 
-Both accept a method name or an unregistered method object, plus `dtype` and
+Both accept a method name or a method object, plus `dtype` and
 `out_dtype`. For base-aware methods, use `base_index` with `merge_tensors` or `base`
-with `merge_state_dicts`. Advanced callers can pass lists or tuples of
-`TensorGroup.from_tensors(...)` results for heterogeneous outputs, or invoke packed
-numerical kernels directly. See [Defining Merge Methods](docs/create_a_merge_method.md)
-for custom methods, parameter annotations, and the advanced interfaces.
+with `merge_state_dicts`. See [Defining Merge Methods](docs/create_a_merge_method.md)
+for custom methods and batching.
 
 ### Uploading to Huggingface
 

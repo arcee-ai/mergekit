@@ -42,7 +42,7 @@ also be called directly: `method = merge_method(kernel, name="my_method")`.
 `method.supports_batching` reports whether the kernel is batched; accepting a logical
 batch alone does not imply vectorization.
 
-## A native batch kernel
+## Batch kernels
 
 ```python
 import torch
@@ -164,11 +164,8 @@ interpolated = merge_tensors(
 This always returns a tensor. It accepts a method name or a method object, optional
 `ids` for mapping-valued per-input parameters, a `name` for tensor metadata and error
 messages, and `dtype`/`out_dtype` controls. `base_index` refers to the input sequence,
-even when custom IDs are supplied. It uses the same validation and execution as the
-logical-batch interface below; checkpoint buffer handling belongs to `merge_state_dicts`.
+even when custom IDs are supplied. Use `merge_state_dicts` for checkpoint buffers.
 
-The decorator constructs a callable method. Construction does not register it;
-registration is only needed for lookup by name. Built-ins are already registered.
 For multiple outputs or explicit tensor metadata, pass a sequence of groups:
 
 ```python
@@ -231,12 +228,9 @@ bfloat16 with float32. Float64 inputs promote the group to float64. Pass
 `dtype=torch.bfloat16` to explicitly cast inputs, or `out_dtype=torch.bfloat16` to
 cast only the merged outputs. Both options leave non-floating buffers unchanged.
 The YAML and raw-PyTorch adapters use the corresponding string-valued `dtype` and
-`out_dtype` settings. `dtype` selects the input representation used for merging;
-adapters may apply this explicit cast during loading, before device transfer, to
-reduce memory and transfer costs.
-Both `merge_tensors` and direct method calls accept the same dtype options and
-use the same promotion policy. Algorithm parameters go in the `parameters` mapping,
-separately from dtype and packing controls; no algorithm parameter names are reserved.
+`out_dtype` settings. Explicit input casts may happen during loading, before device
+transfer. These dtype options and promotion rules also apply to `merge_tensors`
+and direct method calls. Pass algorithm parameters in the `parameters` mapping.
 
 ## Batches
 
@@ -257,32 +251,27 @@ then prepares numerical `TensorBatch` inputs one chunk at a time. Singleton chun
 borrow an `unsqueeze(0)` view of each input, copying only for dtype conversion.
 Larger chunks stack outputs separately for each input. All inputs within a group
 must have matching shapes and devices. Dtypes are aligned during execution,
-including for sequential group kernels. Every group is checked before any kernel executes, and kernels must preserve
-the weight shape. Output order always matches logical group order, not bucket order.
+including for sequential group kernels. Every group is checked before any kernel
+executes, and kernels must preserve the weight shape.
 Dense strided inputs need not be contiguous; kernels reshape locally where needed.
 
-Merge methods do not truncate embeddings or repair incompatible tensors. Configure
-`tokenizer: {source: base}` to align inputs to the base vocabulary, or select `union`
-or a specific model's tokenizer. Vocabulary alignment, missing-token initialization,
-and padding happen before merging; hidden dimensions must already match. Direct
-tensor and state-dict callers must perform any alignment themselves.
+For inputs with different vocabularies, configure
+[`tokenizer`](../README.md#tokenizer-configuration) to align them before merging;
+hidden dimensions must already match. Direct tensor and state-dict callers must
+perform any alignment themselves.
 
 Kernel execution disables ambient autocast so input dtype and method-specific
 precision choices determine the arithmetic. Linear and SLERP use float32 for
 float16, bfloat16, and float32 inputs, and float64 for float64 inputs. Linear
 accumulates into one buffer and normalizes before casting back to the input dtype.
 A zero coefficient sum in the working precision is rejected when normalization is
-enabled; nearly cancelling weights can lose accuracy. CPU execution may additionally
-cast the current input internally; no full-precision copy of every input is retained.
+enabled; nearly cancelling weights can lose accuracy.
 
 The kernel receives a tuple of N tensors shaped `[B, *weight_shape]` and returns
 one tensor shaped `[B, *weight_shape]`. It must
 preserve the output axis: reductions for norms, means, and dot products must not
-accidentally combine different outputs. Linear and SLERP have native batched
-implementations.
-SLERP processes weights in chunks to bound full-precision inference scratch.
-Source tensors, packed inputs, outputs, and retained autograd graphs require
-additional storage.
+accidentally combine different outputs. See the built-in Linear and SLERP methods
+for examples.
 
 Ordinary parameters broadcast across groups. Use `PerGroupValues` to explicitly vary
 a parameter along the outer batch axis; the wrapper avoids ambiguity with shared
@@ -302,9 +291,8 @@ The same `batch_options` argument is accepted by `merge_state_dicts`. Limits app
 to packed input and coefficient buffers, **not** source tensors, retained outputs,
 autograd graphs, or kernel scratch space. A single oversized group executes alone;
 these are packing limits, not a guarantee of total GPU memory usage.
-The common method call performs any remaining input conversion only for the current
-chunk (or current group for sequential methods), and casts outputs to `out_dtype`
-before retaining them. An input already cast by its loader needs no further conversion.
+Input conversion occurs per chunk (or per group for sequential methods), and outputs
+are cast to `out_dtype` before being retained.
 Packing budgets use the target input dtype, including when inputs are promoted.
 Autograd graphs and outputs that alias converted inputs can retain that storage.
 
@@ -330,8 +318,7 @@ with two borrowed inputs.
 ## Metadata and base inputs
 
 `TensorEntry.id` is an opaque, non-`None` hashable identifier (`None` is reserved for
-the absence of a base). The core method API does not require
-`ModelReference`; direct callers can use strings or integer positions.
+the absence of a base). Strings or integer positions can be used as IDs.
 
 `TensorGroup.metadata` carries lightweight output information such as its name and
 whether it is an embedding tensor. A base is represented by an entry with
@@ -339,8 +326,7 @@ whether it is an embedding tensor. A base is represented by an entry with
 
 ## Registration
 
-Method construction has no registration side effects. To make a method available
-by name, register the constructed object explicitly:
+To make a method available by name, register it:
 
 ```python
 from mergekit.merge_methods import get, register, registered_methods
@@ -350,12 +336,11 @@ assert get("weighted_average") is weighted_average
 ```
 
 `register()` rejects duplicate names. `registered_methods()` returns a tuple of
-currently registered methods. Passing a method object to `merge_state_dicts` or
-calling it directly never requires registration.
+currently registered methods. Built-ins are already registered; custom methods
+can be called without registration by passing the method object.
 
 All built-ins are assembled in `mergekit/merge_methods/registry.py`. Add the method
-import and its object to that module's registration sequence. Class-based families
-such as TIES/DARE use the same `register()` function as function-based methods.
+import and its object to that module's registration sequence.
 
 Read method metadata directly from `method.spec.name`, `method.spec.pretty_name`,
 and `method.spec.reference_url`.
@@ -365,8 +350,7 @@ and `method.spec.reference_url`.
 The decorator is the usual authoring path, but signature inference is optional.
 `GroupMergeMethod` subclasses can provide a `MergeMethodSpec` and implement
 `merge_group(group, **parameters)`. A native numerical kernel can instead be
-wrapped with `BatchedMergeMethod(spec, implementation)`. Both use the same group
-sequence interface, validation, dtype handling, and registration.
+wrapped with `BatchedMergeMethod(spec, implementation)`.
 
 Use explicit `ParameterSpec` objects from `mergekit.merge_methods.base` when a
 method's parameters depend on its construction options or cannot be expressed in
@@ -377,21 +361,14 @@ parameter.
 
 ## Execution adapters
 
-Direct callers use `MergeMethod.__call__` to validate and bind parameters before
-execution. The computation graph uses a generic `ExecuteMergeMethodTask`, built
-with `from_parameters()` from already-resolved planner settings. It binds per-input
-values to stable integer positions during planning and uses the same internal
-execution path without repeating scalar validation or parameter binding. Missing
-optional inputs retain their original positions and coefficients; loaded tensor
-shapes, devices, and input contracts are still checked at execution time. Singleton
-batches borrow input views without compatibility bucketing or packing.
+The computation graph uses `ExecuteMergeMethodTask.from_parameters()` with
+resolved planner settings. Missing optional inputs retain their positions and
+coefficients; loaded tensor shapes, devices, and input contracts are checked at
+execution time.
 
-The YAML and raw-PyTorch planners use the same parameter resolver. Each adapter
-supplies settings in descending precedence; the resolver applies filters, gradients,
-validated defaults, requiredness, and input/base targeting from the method spec.
-Shared parameters match the output tensor name; per-input parameters match each
-source tensor's name. An implicitly added base receives all-input parameters from
-the same global settings/defaults as an explicit input.
+In YAML and raw-PyTorch configurations, shared parameter filters match the output
+tensor name; per-input filters match each source tensor's name. An implicitly
+added base receives all-input parameters from global settings and defaults.
 
 Methods may set `uses_accelerator=False` when constructing or registering their
 spec to execute on the storage device instead of requesting a transfer to the math

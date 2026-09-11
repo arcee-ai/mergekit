@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""Computation-graph adapters for consumer-neutral merge methods."""
+"""Computation-graph adapters for merge methods."""
 
 import logging
 from typing import Any, Dict, Mapping, Optional, Tuple, Union
@@ -73,9 +73,8 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
     ) -> "ExecuteMergeMethodTask":
         """Bind already-resolved planner parameters to stable input positions.
 
-        Model references stop at the loader boundary. Retaining these positions
-        when optional inputs are absent keeps coefficients attached to the right
-        tensors without resolving or validating scalar settings again.
+        Retaining these positions when optional inputs are absent keeps
+        coefficients attached to the right tensors.
         """
         from mergekit import merge_methods
 
