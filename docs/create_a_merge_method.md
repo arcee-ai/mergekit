@@ -1,8 +1,7 @@
 # Defining Merge Methods
 
-Merge methods are ordinary, synchronous tensor operations. They do not depend on
-MergeKit's configuration format, model loaders, or computation graph. Those systems
-adapt their inputs to the same callable method interface used by in-memory callers.
+Merge methods are synchronous tensor operations callable from Python or through
+MergeKit's YAML and raw-PyTorch merge commands.
 
 ## Group kernels
 
@@ -28,9 +27,9 @@ result = merge_tensors([torch.ones(3)], scaled_copy, parameters={"scale": 2.0})
 Group kernels use ordinary annotations for shared Python values and `PerInput[T]`
 or `PerNonBase[T]` for ordered mappings keyed by `TensorEntry.id`. Shared values
 may include lists and other unhashable types; only batch kernels require hashable
-Python options. The signature remains the source of parameter validation, including
+Python options. Parameters are validated against their annotations, including
 ordinary `Annotated` constraints such as `Annotated[float, Field(gt=0)]` and
-constraints inside per-input `T`. No `Shared` or `Option` wrapper is needed.
+constraints inside per-input `T`.
 
 Group kernels receive mappings for per-input values; batch kernels receive tensors
 annotated with `BatchParameter`. These annotations describe different runtime
@@ -76,8 +75,7 @@ def weighted_average(
     return result.to(first.dtype)  # [B, *weight_shape]
 ```
 
-The function signature is the single source of truth for parameter names, types,
-scopes, defaults, and requiredness:
+The function signature defines parameter names, types, scopes, and defaults:
 
 - `Annotated[Tensor, BatchParameter(float)]` receives coefficients shaped `[B]`.
 - `BatchParameter(float, ParameterScope.INPUT)` receives `[B, N]`.
@@ -96,8 +94,6 @@ inside `BatchParameter(...)`; its enclosing annotation describes the kernel's
 float32 unless the aligned inputs are float64, in which case they use float64.
 Integer and boolean coefficients use int64 and bool. Kernels may explicitly cast
 coefficients when choosing their intermediate precision.
-Annotations therefore describe the actual runtime kernel types without pretending
-that a batched coefficient is still a Python float.
 
 Scopes do not encode the YAML hierarchy. For example, a shared parameter may still be
 overridden per module or slice and may vary between output tensors through filters or
@@ -237,11 +233,7 @@ cast only the merged outputs. Both options leave non-floating buffers unchanged.
 The YAML and raw-PyTorch adapters use the corresponding string-valued `dtype` and
 `out_dtype` settings. `dtype` selects the input representation used for merging;
 adapters may apply this explicit cast during loading, before device transfer, to
-reduce memory and transfer costs. Without `dtype`, per-group promotion still
-happens in the common method call. Raw-PyTorch loaders cast only floating inputs,
-preserving non-floating buffers for exact comparison. Equal buffers are copied
-without casting; differing buffers are rejected. `out_dtype` applies only to
-merged outputs.
+reduce memory and transfer costs.
 Both `merge_tensors` and direct method calls accept the same dtype options and
 use the same promotion policy. Algorithm parameters go in the `parameters` mapping,
 separately from dtype and packing controls; no algorithm parameter names are reserved.
@@ -252,14 +244,12 @@ A `TensorGroup` contains the inputs for one logical output tensor. Pass a list o
 tuple of groups to a method; it returns a tuple of tensors with one output per
 group, in input order. Unpack a singleton result with
 `(merged_tensor,) = method([group], ...)`. An empty sequence returns an empty tuple.
-No outer batch object is needed.
 
 `TensorGroup.from_tensors(tensors, ids=..., base_index=..., name=..., is_embed=...)`
 borrows the supplied tensors. IDs default to integer positions; `base_index` always
 refers to the supplied tensor order. Groups may use different IDs, input counts,
-shapes, and metadata. The explicit `TensorGroup(entries=..., metadata=...)`
-constructor remains available when callers already have `TensorEntry` and
-`TensorMetadata` objects.
+shapes, and metadata. The `TensorGroup(entries=..., metadata=...)` constructor
+accepts existing `TensorEntry` and `TensorMetadata` objects.
 
 Logical batches may be heterogeneous. Preparation validates every group, buckets
 compatible work by shape, dtype, device, input count/layout, and execution options,
@@ -282,20 +272,17 @@ precision choices determine the arithmetic. Linear and SLERP use float32 for
 float16, bfloat16, and float32 inputs, and float64 for float64 inputs. Linear
 accumulates into one buffer and normalizes before casting back to the input dtype.
 A zero coefficient sum in the working precision is rejected when normalization is
-enabled; nearly cancelling weights can lose accuracy. This is ordinary floating-point
-arithmetic, without special handling for cancellation. CPU execution may additionally
+enabled; nearly cancelling weights can lose accuracy. CPU execution may additionally
 cast the current input internally; no full-precision copy of every input is retained.
 
 The kernel receives a tuple of N tensors shaped `[B, *weight_shape]` and returns
 one tensor shaped `[B, *weight_shape]`. It must
 preserve the output axis: reductions for norms, means, and dot products must not
 accidentally combine different outputs. Linear and SLERP have native batched
-implementations; SLERP stays entirely in Torch on the input device.
-SLERP reduces norms and dot products in chunks and writes its output in chunks,
-bounding full-precision inference scratch even for oversized individual weights.
-It selects interpolation coefficients per output before applying them to weights,
-without materializing both spherical and linear results. Source tensors, packed
-inputs, outputs, and retained autograd graphs still require their own storage.
+implementations.
+SLERP processes weights in chunks to bound full-precision inference scratch.
+Source tensors, packed inputs, outputs, and retained autograd graphs require
+additional storage.
 
 Ordinary parameters broadcast across groups. Use `PerGroupValues` to explicitly vary
 a parameter along the outer batch axis; the wrapper avoids ambiguity with shared
@@ -371,7 +358,7 @@ import and its object to that module's registration sequence. Class-based famili
 such as TIES/DARE use the same `register()` function as function-based methods.
 
 Read method metadata directly from `method.spec.name`, `method.spec.pretty_name`,
-and `method.spec.reference_url`; there are no separate metadata accessor methods.
+and `method.spec.reference_url`.
 
 ## Explicit specifications and class-based methods
 
@@ -386,8 +373,7 @@ method's parameters depend on its construction options or cannot be expressed in
 a Python signature. The built-in
 [`GeneralizedTaskArithmeticMerge`](../mergekit/merge_methods/generalized_task_arithmetic.py)
 uses this path for its sparsification-dependent parameters and its `"lambda"`
-parameter. The public specifications, execution classes, `TensorEntry`, and
-`TensorMetadata` remain available; ordinary callers do not need to construct them.
+parameter.
 
 ## Execution adapters
 
@@ -399,9 +385,6 @@ execution path without repeating scalar validation or parameter binding. Missing
 optional inputs retain their original positions and coefficients; loaded tensor
 shapes, devices, and input contracts are still checked at execution time. Singleton
 batches borrow input views without compatibility bucketing or packing.
-
-Individual methods do not define graph tasks. Other consumers can pass sequences
-of `TensorGroup` objects directly without importing graph or config types.
 
 The YAML and raw-PyTorch planners use the same parameter resolver. Each adapter
 supplies settings in descending precedence; the resolver applies filters, gradients,
@@ -415,11 +398,8 @@ spec to execute on the storage device instead of requesting a transfer to the ma
 device. Passthrough uses this for both plain copies and scaled copies. This is a
 graph scheduling hint; direct calls always operate on the supplied devices.
 
-The current YAML graph adapter still submits one logical output at a time; it does
-not yet coalesce graph tasks. State-dict callers already batch compatible outputs.
-The numerical boundary allows a future scheduler to load directly into packed
-buffers without changing kernels. Missing-optional-weight fallback is handled by
-the graph adapter through the method spec's optional-tensor policy, not by weakening
-the numerical kernel's arity contract. Outside those explicit fallbacks, base-aware
-methods require a configured base to be present: a missing base weight must not
-silently select a baseless variant of the algorithm.
+The YAML graph adapter submits one logical output at a time. State-dict callers
+batch compatible outputs. The graph adapter handles missing optional weights
+according to the method spec's optional-tensor policy. Outside those fallbacks,
+base-aware methods require a configured base to be present: a missing base weight
+must not silently select a baseless variant of the algorithm.

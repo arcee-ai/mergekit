@@ -1,9 +1,8 @@
 """Measure merge compute with already-loaded inputs, excluding loading and saving.
 
 Run with: python benchmarks/merge_methods.py [--device cuda] [--threads 1]
-The graph adapter still merges one output at a time. Compare its complete execute()
-with a direct kernel call to expose adapter costs. The legacy linear reference
-reproduces main's low-precision numerical path, not its graph overhead.
+Compare the graph adapter's execute() with a direct kernel call to measure
+adapter overhead for a single output.
 """
 
 import argparse
@@ -17,13 +16,6 @@ from mergekit.common import ImmutableMap, ModelReference
 from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods import TensorBatch
 from mergekit.merge_methods.task_adapter import ExecuteMergeMethodTask
-
-
-def legacy_linear(tensors):
-    stacked = torch.stack(list(tensors.values()))
-    weight = torch.tensor([0.25, 0.75], dtype=stacked.dtype, device=stacked.device)
-    weight = weight.reshape(2, *((1,) * (stacked.ndim - 1)))
-    return (stacked * weight).sum(0) / weight.sum(0)
 
 
 @torch.inference_mode()
@@ -79,8 +71,6 @@ def main():
                     "graph_adapter": lambda: task.execute(tensors),
                     "direct_kernel": lambda: method.merge_batch(batch, **coefficients),
                 }
-                if name == "linear":
-                    paths["legacy_numerics"] = lambda: legacy_linear(tensors)
                 for label, fn in paths.items():
                     fn()
                     measurement = Timer(

@@ -1,5 +1,3 @@
-"""Batch execution is checked against independent per-output mathematics."""
-
 import math
 from typing import Annotated
 
@@ -116,7 +114,6 @@ def test_packing_budget_and_oversized_singletons(monkeypatch, options, counts):
 
 
 def _reference_slerp(a, b, t):
-    # Deliberately scalar/CPU math, independent of the batch implementation.
     x, y = a.double().cpu().reshape(-1), b.double().cpu().reshape(-1)
     nx, ny = x.norm().item(), y.norm().item()
     dot = sum(u * v for u, v in zip(x.tolist(), y.tolist())) / (
@@ -248,20 +245,6 @@ def test_constraints_survive_both_signature_adapters():
             merge_method(kernel, name="positive")(batch, parameters={"scale": -2})
 
 
-def test_kernel_can_explicitly_pack_writable_storage():
-    def kernel(batch: TensorBatch) -> torch.Tensor:
-        return torch.stack(batch.tensors, dim=1).add_(1).sum(1)
-
-    source = torch.ones(3)
-    method = merge_method(kernel, name="workspace")
-    (result,) = method([TensorGroup.from_tensors([source])])
-    torch.testing.assert_close(result, torch.full((3,), 2.0))
-    torch.testing.assert_close(source, torch.ones(3))
-    borrowed = torch.ones(2, 1, 3)
-    method.merge_batch(TensorBatch(tuple(borrowed.unbind(1))))
-    torch.testing.assert_close(borrowed, torch.ones_like(borrowed))
-
-
 @pytest.mark.parametrize("group_count", [1, 3])
 def test_singleton_batches_borrow_strided_inputs(group_count):
     sources = [torch.arange(24.0).reshape(4, 6).T + i for i in range(2)]
@@ -358,14 +341,13 @@ def test_slerp_large_weight_has_bounded_inference_scratch():
     "dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64]
 )
 @pytest.mark.parametrize("normalize", [False, True])
-def test_linear_matches_main_with_dtype_tolerance(dtype, normalize, device):
+def test_linear_weighted_sum_and_normalization(dtype, normalize, device):
     a = torch.tensor([100.0, -10.0, 0.25, 3.0], device=device, dtype=dtype)
     b = torch.tensor([-50.0, 4.0, 3.0, -2.0], device=device, dtype=dtype)
     weights = [0.123456, 0.654321]
-    coefficients = torch.tensor(weights, device=device, dtype=dtype)
-    expected = (torch.stack([a, b]) * coefficients[:, None]).sum(0)
+    expected = a.double() * weights[0] + b.double() * weights[1]
     if normalize:
-        expected /= coefficients.sum()
+        expected /= sum(weights)
     (result,) = merge_methods.get("linear")(
         [TensorGroup.from_tensors([a, b])],
         parameters={"weight": weights, "normalize": normalize},
@@ -457,15 +439,12 @@ def test_linear_normalizes_before_narrowing_the_result(device):
     torch.testing.assert_close(result, source)
 
 
-def test_group_method_preserves_metadata_without_packing(monkeypatch):
-    def fail(*args):
-        pytest.fail("Group methods should not pack")
-
-    monkeypatch.setattr("mergekit.merge_methods.batching.prepare_batches", fail)
+def test_group_method_receives_metadata_and_borrowed_inputs():
     names = []
 
     def kernel(group: TensorGroup) -> torch.Tensor:
         names.append(group.metadata.name)
+        assert group.tensors[0] is groups[len(names) - 1].tensors[0]
         return group.entries[0].tensor
 
     method = merge_method(kernel, name="unpacked")

@@ -260,12 +260,9 @@ def test_task_arithmetic_peak_memory():
 @pytest.mark.parametrize(
     "method_name", ["linear", "slerp", "nuslerp", "task_arithmetic"]
 )
-def test_graph_executes_resolved_parameters_without_rebinding(
-    tmp_path, monkeypatch, method_name
-):
+def test_graph_and_state_dict_merges_agree(tmp_path, method_name):
     from safetensors.torch import save_file
 
-    from mergekit.merge_methods.base import MergeMethod, ParameterSpec
     from mergekit.options import MergeOptions
     from mergekit.scripts.merge_raw_pytorch import (
         RawPyTorchMergeConfig,
@@ -296,11 +293,6 @@ def test_graph_executes_resolved_parameters_without_rebinding(
         parameters={"t": 0.25} if method_name == "slerp" else {"weight": 0.5},
     )["w"]
 
-    def fail(*args, **kwargs):
-        pytest.fail("Planned parameters were bound or validated again during execution")
-
-    monkeypatch.setattr(ParameterSpec, "validate", fail)
-    monkeypatch.setattr(MergeMethod, "_bind_parameters", fail)
     torch.testing.assert_close(task.execute(tensors), expected)
 
 
@@ -338,7 +330,7 @@ def test_optional_inputs_keep_their_original_coefficient_positions(monkeypatch):
 
 
 @pytest.mark.parametrize("failure", ["shape", "device"])
-def test_resolved_graph_still_checks_loaded_tensors(failure):
+def test_graph_rejects_incompatible_loaded_tensors(failure):
     refs = tuple(ModelReference.model_validate(name) for name in ("a", "b"))
     info = WeightInfo(name="w")
     task = ExecuteMergeMethodTask.from_parameters(

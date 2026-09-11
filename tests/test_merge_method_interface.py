@@ -148,7 +148,7 @@ def test_signature_rejects_missing_or_ambiguous_parameter_types(
         merge_method(kernel, name="invalid_signature")
 
 
-def test_signature_is_parameter_ssot_and_supports_shared_lists():
+def test_signature_infers_parameter_scopes_and_accepts_shared_lists():
     def kernel(
         group: TensorGroup,
         weight: PerInput[float],
@@ -408,7 +408,7 @@ def test_state_dict_merge_rejects_broadcastable_weights():
     ],
 )
 @pytest.mark.parametrize("shape", [(3, 2), (2, 3)])
-def test_no_method_crops_embeddings(method_name, count, shape):
+def test_methods_reject_mismatched_embedding_shapes(method_name, count, shape):
     from mergekit import merge_methods
     from mergekit.merge_methods import TensorMetadata
 

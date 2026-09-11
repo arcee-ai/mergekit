@@ -1,12 +1,7 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""Consumer-neutral interfaces for tensor merge methods.
-
-Merge methods operate on in-memory tensors. Configuration readers, model loaders, and
-the computation graph are adapters around this module rather than part of the method
-interface itself.
-"""
+"""Tensor merge interfaces, input contracts, and parameter binding."""
 
 from __future__ import annotations
 
@@ -337,7 +332,6 @@ class TensorBatch:
     Inputs have matching shapes, dtypes, and devices, but may have arbitrary
     strides. Kernels must not modify them. Use clone() for writable storage,
     contiguous() for an individual contiguous input, or stack() to pack inputs.
-    No model IDs or configuration objects cross this boundary.
     """
 
     tensors: Tuple[torch.Tensor, ...]
@@ -631,11 +625,7 @@ class BatchedMergeMethod(MergeMethod):
 
 
 class GroupMergeMethod(MergeMethod):
-    """A method that operates on one logical tensor group at a time.
-
-    Group methods deliberately avoid packing: a sequential kernel should not pay
-    the memory cost of packing or lose access to logical tensor metadata.
-    """
+    """A method that receives unpacked inputs and metadata for one output at a time."""
 
     @abstractmethod
     def merge_group(self, group: TensorGroup, /, **parameters: Any) -> torch.Tensor: ...

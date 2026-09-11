@@ -157,16 +157,12 @@ Below are the primary elements of a configuration file:
 - `tokenizer` or `tokenizer_source`: Determines how to construct a tokenizer for the merged model.
 - `chat_template`: Specifies a chat template for the merged model.
 
-Methods control their own intermediate precision, independently of ambient PyTorch
-autocast. Linear uses one float32 accumulator for float16, bfloat16, and float32
-inputs, and float64 for float64 inputs, then casts to the aligned input dtype.
-SLERP uses the same intermediate precision with bounded scratch. Floating batch
-coefficients follow this policy too, so low-precision merges do not require device
-support for float64. Normalized linear merges reject weights that sum to zero in
-the working precision; nearly cancelling weights can lose accuracy.
-Singleton calls borrow their inputs. Selecting `dtype: bfloat16` sets the input
-representation, not every intermediate's precision. Architecture-specific forced
-dtypes still take precedence over `dtype` and `out_dtype` for those weights.
+Methods control their intermediate precision independently of PyTorch autocast.
+Linear and SLERP compute in float32 for float16, bfloat16, and float32 inputs, and
+float64 for float64 inputs, then cast back to the aligned input dtype. Normalized
+linear merges reject weights that sum to zero in the working precision; nearly
+cancelling weights can lose accuracy. Architecture-specific forced dtypes take
+precedence over `dtype` and `out_dtype` for those weights.
 
 ### Parameter Specification
 
@@ -195,9 +191,8 @@ The tokenizer behavior can be configured in two ways: using the new `tokenizer` 
 The `tokenizer` field provides fine-grained control over vocabulary and embeddings:
 
 Inputs with different vocabulary sizes must be aligned using this configuration
-(or `tokenizer_source`) before merging. Merge methods no longer truncate embedding
-matrices to their common size. Use `source: base` to retain the base vocabulary,
-`source: union` to combine vocabularies, or a model path to select its vocabulary.
+(or `tokenizer_source`) before merging. Use `source: base` to retain the base
+vocabulary, `source: union` to combine vocabularies, or a model path to select its vocabulary.
 Embedding hidden dimensions must match regardless of tokenizer configuration.
 
 ```yaml
