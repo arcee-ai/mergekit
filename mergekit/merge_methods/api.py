@@ -17,7 +17,7 @@ from mergekit.merge_methods.base import (
     TensorGroup,
     TensorMetadata,
 )
-from mergekit.merge_methods.dtype import align_dtype
+from mergekit.merge_methods.dtype import promoted_dtype
 
 StateDict = Mapping[str, torch.Tensor]
 StateDictLike = Union[StateDict, torch.nn.Module]
@@ -41,7 +41,9 @@ def merge_state_dicts(
     floating-point weights are batched up to batch_options' packing limits.
     Non-floating buffers are copied only when every input agrees exactly.
     Floating inputs are promoted independently for each weight unless dtype
-    explicitly selects their representation. out_dtype casts only merged outputs.
+    explicitly selects their representation. Inputs are converted per execution
+    chunk; out_dtype casts outputs before they are retained. Autograd graphs and
+    outputs that alias inputs may extend the lifetime of conversion storage.
     """
 
     for name, value in (("dtype", dtype), ("out_dtype", out_dtype)):
@@ -115,29 +117,31 @@ def merge_state_dicts(
         resolved_parameters[name] = value
 
     groups = tuple(
-        align_dtype(
-            TensorGroup(
-                entries=tuple(
-                    TensorEntry(
-                        id=input_id,
-                        tensor=state_dict[name],
-                        is_base=input_id == base,
-                    )
-                    for input_id, state_dict in state_dicts
-                ),
-                metadata=TensorMetadata(name=name),
+        TensorGroup(
+            entries=tuple(
+                TensorEntry(
+                    id=input_id,
+                    tensor=state_dict[name],
+                    is_base=input_id == base,
+                )
+                for input_id, state_dict in state_dicts
             ),
-            dtype,
+            metadata=TensorMetadata(name=name),
         )
         for name in merge_names
     )
-    merged = method(
-        MergeBatch(groups=groups), batch_options=batch_options, **resolved_parameters
+    batch = MergeBatch(groups=groups)
+    # Validate and plan with borrowed tensors. Conversion happens only when a
+    # group/chunk executes, and outputs are cast before they are retained.
+    bound = method._bind_parameters(batch, resolved_parameters, allow_mixed_dtype=True)
+    merged = method._execute(
+        batch,
+        bound,
+        batch_options or BatchOptions(),
+        input_dtypes=[dtype or promoted_dtype(group) for group in groups],
+        out_dtype=out_dtype,
     )
-    results = {
-        name: tensor.to(dtype=out_dtype) if out_dtype is not None else tensor
-        for name, tensor in zip(merge_names, merged.tensors)
-    }
+    results = dict(zip(merge_names, merged.tensors))
     results.update(copied)
     return {name: results[name] for name in tensor_names}
 

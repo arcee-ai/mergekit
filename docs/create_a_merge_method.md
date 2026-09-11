@@ -200,6 +200,10 @@ The same `batch_options` argument is accepted by `merge_state_dicts`. Limits app
 to packed input and coefficient buffers, **not** source tensors, retained outputs,
 autograd graphs, or kernel scratch space. A single oversized group executes alone;
 these are packing limits, not a guarantee of total GPU memory usage.
+`merge_state_dicts` converts inputs only for the current chunk (or current group
+for sequential methods), and casts outputs to `out_dtype` before retaining them.
+Packing budgets use the target input dtype, including when inputs are promoted.
+Autograd graphs and outputs that alias converted inputs can retain that storage.
 
 ## Ownership and low-level execution
 

@@ -4,7 +4,7 @@
 """Compatibility bucketing and incremental packing for numerical batch kernels."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 from typing_extensions import Annotated, get_args, get_origin
@@ -42,6 +42,7 @@ class _PreparedGroup:
     base_index: Optional[int]
     coefficient_dtypes: Dict[str, torch.dtype]
     packed_bytes: int
+    dtype: torch.dtype
 
 
 @dataclass
@@ -56,7 +57,18 @@ class PreparedBatch:
 
     def pack(self, spec: MergeMethodSpec) -> Tuple[TensorBatch, Dict[str, Any]]:
         first = self.groups[0]
-        tensors = torch.stack([t for group in self.groups for t in group.tensors])
+        sources = [t for group in self.groups for t in group.tensors]
+        if all(t.dtype == first.dtype for t in sources):
+            tensors = torch.stack(sources)
+        else:
+            # Copy directly into the target dtype; avoid separate conversion buffers.
+            tensors = torch.empty(
+                (len(sources), *sources[0].shape),
+                dtype=first.dtype,
+                device=sources[0].device,
+            )
+            for index, source in enumerate(sources):
+                tensors[index].copy_(source)
         tensors = tensors.reshape(
             len(self.groups), len(first.entries), *tensors.shape[1:]
         )
@@ -87,11 +99,15 @@ def prepare_batches(
     parameters: List[Dict[str, Any]],
     spec: MergeMethodSpec,
     options: BatchOptions,
+    *,
+    input_dtypes: Optional[Sequence[torch.dtype]] = None,
 ) -> List[PreparedBatch]:
-    """Bucket aligned groups and validate execution options without tensor math.
+    """Bucket compatible groups and validate execution options without tensor math.
 
     Base-aware methods get a canonical base-first layout. Remaining inputs retain
     their relative order; coefficient mappings are aligned to that same layout.
+    Optional input_dtypes specify conversion at packing time, and determine both
+    compatibility and buffer sizes without allocating converted source tensors.
     """
     buckets = {}
     for index, (group, bound) in enumerate(zip(batch.groups, parameters)):
@@ -104,10 +120,11 @@ def prepare_batches(
         if not tensors:
             raise ValueError("Numerical batch kernels require at least one input")
         first = tensors[0]
+        target_dtype = input_dtypes[index] if input_dtypes is not None else first.dtype
 
         execution_options = []
         coefficient_dtypes = {}
-        packed_bytes = sum(t.numel() * t.element_size() for t in tensors)
+        packed_bytes = sum(t.numel() for t in tensors) * target_dtype.itemsize
         for parameter in spec.parameters:
             value = bound[parameter.name]
             if parameter.batch_tensor:
@@ -116,7 +133,7 @@ def prepare_batches(
                     if parameter.scope == ParameterScope.INPUT
                     else [value]
                 )
-                dtype = _coefficient_dtype(parameter.value_type, first.dtype)
+                dtype = _coefficient_dtype(parameter.value_type, target_dtype)
                 coefficient_dtypes[parameter.name] = dtype
                 itemsize = {
                     torch.bool: 1,
@@ -135,7 +152,7 @@ def prepare_batches(
                 execution_options.append((parameter.name, type(value), value))
         key = (
             first.shape,
-            first.dtype,
+            target_dtype,
             first.device,
             len(entries),
             base_index,
@@ -151,6 +168,7 @@ def prepare_batches(
                 base_index,
                 coefficient_dtypes,
                 packed_bytes,
+                target_dtype,
             )
         )
 

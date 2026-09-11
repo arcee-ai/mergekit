@@ -110,9 +110,8 @@ def test_raw_graph_dtype_policy(tmp_path, dtype, out_dtype):
         torch.testing.assert_close(actual[name], expected[name])
 
 
-@pytest.mark.parametrize(
-    "device",
-    [
+@pytest.fixture(
+    params=[
         "cpu",
         pytest.param(
             "cuda",
@@ -122,6 +121,10 @@ def test_raw_graph_dtype_policy(tmp_path, dtype, out_dtype):
         ),
     ],
 )
+def device(request):
+    return request.param
+
+
 @pytest.mark.parametrize("autocast_dtype", [torch.float16, torch.bfloat16])
 def test_linear_ignores_ambient_autocast(device, autocast_dtype):
     tensors = [torch.tensor([100000.0, 1.001, 1.002], device=device)] * 2
@@ -192,3 +195,89 @@ def test_yaml_mixed_checkpoint_precisions(tmp_path, dtype, out_dtype):
             assert loader.get_tensor(name).dtype == torch.float32
 
     run_and_check_merge(config, validate=check)
+
+
+@pytest.mark.parametrize("batched", [False, True])
+@pytest.mark.parametrize("dtype", [None, torch.float64])
+@torch.no_grad()
+def test_dtype_intermediates_released_between_chunks(batched, dtype, device):
+    import weakref
+
+    from mergekit.merge_methods import (
+        BatchOptions,
+        TensorGroup,
+        from_batch_kernel,
+        from_group_kernel,
+    )
+
+    models = [
+        {
+            f"w{i}": torch.full((16,), i + offset, dtype=source_dtype, device=device)
+            for i in range(5)
+        }
+        for offset, source_dtype in ((1, torch.float16), (3, torch.bfloat16))
+    ]
+    target_dtype = dtype or torch.float32
+    previous = []
+    calls = []
+
+    def check_inputs(tensors):
+        # Check owners, including the base of packed views, so a view cannot hide
+        # retained storage. Sources and final (float16) outputs remain live.
+        assert all(ref() is None for ref in previous)
+        previous.clear()
+        for tensor in tensors:
+            assert tensor.dtype == target_dtype
+            owner = tensor if tensor._base is None else tensor._base
+            previous.append(weakref.ref(owner))
+        calls.append(1)
+
+    def batch_kernel(batch: TensorBatch) -> torch.Tensor:
+        check_inputs([batch.tensors])
+        assert batch.tensors.shape[0] == 1
+        result = batch.tensors.sum(dim=1)
+        previous.append(weakref.ref(result))
+        return result
+
+    def group_kernel(group: TensorGroup) -> torch.Tensor:
+        check_inputs(group.tensors)
+        result = group.tensors[0] + group.tensors[1]
+        previous.append(weakref.ref(result))
+        return result
+
+    factory, kernel = (
+        (from_batch_kernel, batch_kernel)
+        if batched
+        else (from_group_kernel, group_kernel)
+    )
+    result = merge_state_dicts(
+        models,
+        factory(kernel, name="check_lifetimes"),
+        dtype=dtype,
+        out_dtype=torch.float16,
+        # Exactly one group in the target dtype fits. Using source byte sizes
+        # instead would incorrectly pack multiple groups together.
+        batch_options=BatchOptions(max_bytes=2 * 16 * target_dtype.itemsize),
+    )
+    assert len(calls) == 5
+    assert all(ref() is None for ref in previous)
+    for i, tensor in enumerate(result.values()):
+        torch.testing.assert_close(
+            tensor, torch.full((16,), 2 * i + 4, dtype=torch.float16, device=device)
+        )
+
+
+@pytest.mark.parametrize("dtype", [None, torch.float64])
+def test_incremental_dtype_conversion_preserves_autograd(dtype, device):
+    a = torch.ones(3, dtype=torch.float16, device=device, requires_grad=True)
+    b = torch.ones(3, dtype=torch.bfloat16, device=device, requires_grad=True)
+    result = merge_state_dicts(
+        [{"w": a}, {"w": b}],
+        "linear",
+        parameters={"weight": [0.25, 0.75]},
+        dtype=dtype,
+        out_dtype=torch.float32,
+    )["w"]
+    result.sum().backward()
+    torch.testing.assert_close(a.grad, torch.full_like(a, 0.25))
+    torch.testing.assert_close(b.grad, torch.full_like(b, 0.75))
