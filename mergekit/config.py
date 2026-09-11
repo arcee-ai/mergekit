@@ -10,7 +10,8 @@ from typing_extensions import Literal, TypeAlias
 from mergekit.common import ModelReference
 from mergekit.tokenizer.config import TokenizerConfig
 
-ScalarOrGradient: TypeAlias = Union[float, List[float]]
+ScalarParameter: TypeAlias = Union[bool, int, float, str]
+ScalarOrGradient: TypeAlias = Union[ScalarParameter, List[ScalarParameter]]
 
 
 class ConditionalParameter(BaseModel):
@@ -23,13 +24,15 @@ ParameterSetting: TypeAlias = Union[
 ]
 
 
-def evaluate_setting(
-    tensor_name: str, setting: ParameterSetting, t: float = 0
-) -> Optional[float]:
+def evaluate_setting(tensor_name: str, setting: ParameterSetting, t: float = 0) -> Any:
     if isinstance(setting, (float, int, bool, str)):
         return setting
     elif isinstance(setting, list):
-        if all(isinstance(e, (int, float)) for e in setting):
+        if not setting:
+            return None
+        if all(
+            isinstance(e, (int, float)) and not isinstance(e, bool) for e in setting
+        ):
             scaled = t * (len(setting) - 1)
             i0 = int(scaled)
             i1 = min(len(setting) - 1, i0 + 1)

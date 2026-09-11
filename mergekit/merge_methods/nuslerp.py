@@ -1,130 +1,17 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-from typing import Any, Dict, List, Optional
-
 import torch
-from torch._tensor import Tensor
-from typing_extensions import override
 
-from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference
-from mergekit.graph import Task
 from mergekit.merge_methods.base import (
-    ConfigParameterDef,
-    MergeMethod,
-    MergeTensorInput,
+    BasePolicy,
+    InputContract,
+    PerNonBase,
+    Shared,
+    TensorGroup,
+    method_from_function,
 )
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
-
-
-class NuSlerpTask(Task[torch.Tensor]):
-    gather_tensors: MergeTensorInput
-    tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
-    weight_info: WeightInfo
-    row_wise: bool
-    flatten: bool
-    base_model: Optional[ModelReference]
-
-    def uses_accelerator(self) -> bool:
-        return True
-
-    def arguments(self) -> Dict[str, Task]:
-        return {"tensors": self.gather_tensors}
-
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> Tensor:
-        if len(tensors) == 1:
-            return list(tensors.values())[0]
-
-        if self.base_model is not None:
-            if len(tensors) != 3:
-                raise RuntimeError(
-                    "NuSlerp base model can not be one of the two models to merge"
-                )
-            base_tensor = tensors.pop(self.base_model)
-        else:
-            base_tensor = None
-
-        keys = list(tensors.keys())
-        tensors = [tensors[key] for key in keys]
-        weights = [self.tensor_parameters[key]["weight"] for key in keys]
-
-        if len(tensors) != 2:
-            raise RuntimeError(
-                "NuSlerp merge expects exactly two models (plus optional base model)"
-            )
-
-        if abs(sum(weights)) < 1e-6:
-            # this is fairly arbitrary, but it's more sane than exploding
-            t = 0.5
-        else:
-            t = weights[1] / sum(weights)
-
-        if base_tensor is not None:
-            tensors.append(base_tensor)
-        rectify_embed_sizes(self.weight_info, tensors)
-
-        if base_tensor is not None:
-            base_tensor = tensors.pop()
-            return base_tensor + nuslerp(
-                t,
-                tensors[0] - base_tensor,
-                tensors[1] - base_tensor,
-                dim=0 if self.row_wise else -1,
-                flatten=self.flatten,
-            )
-        return nuslerp(
-            t,
-            tensors[0],
-            tensors[1],
-            dim=0 if self.row_wise else -1,
-            flatten=self.flatten,
-        )
-
-
-class NuSlerpMerge(MergeMethod):
-    def name(self) -> str:
-        return "nuslerp"
-
-    @override
-    def pretty_name(self):
-        return "NuSLERP"
-
-    def parameters(self) -> List[ConfigParameterDef]:
-        return [
-            ConfigParameterDef(
-                name="nuslerp_row_wise",
-                required=False,
-                default_value=False,
-            ),
-            ConfigParameterDef(
-                name="nuslerp_flatten",
-                required=False,
-                default_value=True,
-            ),
-        ]
-
-    def tensor_parameters(self) -> List[ConfigParameterDef]:
-        return [ConfigParameterDef(name="weight", required=True)]
-
-    def make_task(
-        self,
-        *,
-        output_weight: WeightInfo,
-        tensors: MergeTensorInput,
-        base_model: Optional[ModelReference],
-        parameters: ImmutableMap[str, Any],
-        tensor_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]],
-        **_kwargs,
-    ) -> Task:
-        return NuSlerpTask(
-            gather_tensors=tensors,
-            tensor_parameters=tensor_parameters,
-            weight_info=output_weight,
-            row_wise=parameters["nuslerp_row_wise"],
-            flatten=parameters["nuslerp_flatten"],
-            base_model=base_model,
-        )
 
 
 def nuslerp(
@@ -149,17 +36,60 @@ def nuslerp(
 
     v0_u = _normalize(v0)
     v1_u = _normalize(v1)
-
     cos_theta = torch.sum(v0_u * v1_u, dim=-1, keepdim=True)
     theta = torch.acos(cos_theta.clamp(-1, 1))
     sin_theta = torch.sin(theta)
-
     colinear = (sin_theta.abs() < eps).squeeze()
 
-    res = (torch.sin((1 - t) * theta) * v0 + torch.sin(t * theta) * v1) / sin_theta
-    # Use linear interpolation for (nearly) colinear vectors
-    res[colinear] = (1 - t) * v0[colinear] + t * v1[colinear]
+    result = (torch.sin((1 - t) * theta) * v0 + torch.sin(t * theta) * v1) / sin_theta
+    result[colinear] = (1 - t) * v0[colinear] + t * v1[colinear]
 
     if dim != -1 and not flatten:
-        res = res.transpose(dim, -1)
-    return res.view(out_shape)
+        result = result.transpose(dim, -1)
+    return result.view(out_shape)
+
+
+def _nuslerp_merge(
+    group: TensorGroup,
+    weight: PerNonBase[float],
+    nuslerp_row_wise: Shared[bool] = False,
+    nuslerp_flatten: Shared[bool] = True,
+) -> torch.Tensor:
+    entries = group.non_base
+    tensors = [entry.tensor for entry in entries]
+    weights = weight.values_for(entries)
+    total = sum(weights)
+    t = 0.5 if abs(total) < 1e-6 else weights[1] / total
+    base_tensor = group.base.tensor if group.base else None
+    rectified = tensors + ([base_tensor] if base_tensor is not None else [])
+    rectify_embed_sizes(group.metadata, rectified)
+    tensors = rectified[:2]
+    if base_tensor is not None:
+        base_tensor = rectified[-1]
+        return base_tensor + nuslerp(
+            t,
+            tensors[0] - base_tensor,
+            tensors[1] - base_tensor,
+            dim=0 if nuslerp_row_wise else -1,
+            flatten=nuslerp_flatten,
+        )
+    return nuslerp(
+        t,
+        tensors[0],
+        tensors[1],
+        dim=0 if nuslerp_row_wise else -1,
+        flatten=nuslerp_flatten,
+    )
+
+
+nuslerp_merge_method = method_from_function(
+    _nuslerp_merge,
+    name="nuslerp",
+    pretty_name="NuSLERP",
+    contract=InputContract(
+        base=BasePolicy.OPTIONAL,
+        min_inputs=2,
+        min_non_base=2,
+        max_non_base=2,
+    ),
+)

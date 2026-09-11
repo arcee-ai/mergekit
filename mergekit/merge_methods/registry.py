@@ -3,28 +3,28 @@
 
 from typing import Dict, List
 
-from mergekit.merge_methods.arcee_fusion import ArceeFusionMerge
+from mergekit.merge_methods.arcee_fusion import arcee_fusion_merge_method
 from mergekit.merge_methods.base import MergeMethod
 from mergekit.merge_methods.generalized_task_arithmetic import (
     ConsensusMethod,
     GeneralizedTaskArithmeticMerge,
 )
-from mergekit.merge_methods.karcher import KarcherMerge
-from mergekit.merge_methods.linear import LinearMerge
-from mergekit.merge_methods.model_stock import ModelStockMerge
-from mergekit.merge_methods.nuslerp import NuSlerpMerge
-from mergekit.merge_methods.passthrough import PassthroughMerge
-from mergekit.merge_methods.slerp import SlerpMerge
+from mergekit.merge_methods.karcher import karcher_merge_method
+from mergekit.merge_methods.linear import linear_merge
+from mergekit.merge_methods.model_stock import model_stock_merge_method
+from mergekit.merge_methods.nuslerp import nuslerp_merge_method
+from mergekit.merge_methods.passthrough import passthrough_merge_method
+from mergekit.merge_methods.slerp import slerp_merge_method
 from mergekit.sparsify import SparsificationMethod
 
 STATIC_MERGE_METHODS: List[MergeMethod] = [
-    LinearMerge(),
-    SlerpMerge(),
-    NuSlerpMerge(),
-    PassthroughMerge(),
-    ModelStockMerge(),
-    ArceeFusionMerge(),
-    KarcherMerge(),
+    linear_merge,
+    slerp_merge_method,
+    nuslerp_merge_method,
+    passthrough_merge_method,
+    model_stock_merge_method,
+    arcee_fusion_merge_method,
+    karcher_merge_method,
     # generalized task arithmetic methods
     GeneralizedTaskArithmeticMerge(
         consensus_method=None,

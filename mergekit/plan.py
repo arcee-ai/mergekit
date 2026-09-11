@@ -30,6 +30,8 @@ from mergekit.io.tasks import (
     TensorWriterTask,
 )
 from mergekit.merge_methods import MergeMethod
+from mergekit.merge_methods.base import InputParameterTarget
+from mergekit.merge_methods.task_adapter import ExecuteMergeMethodTask
 from mergekit.options import MergeOptions
 from mergekit.tokenizer import BuildTokenizer, PermutedEmbeddings
 
@@ -155,6 +157,18 @@ class MergePlanner:
                 module_out.slices = [OutputSliceDefinition(sources=slices_in)]
                 module_out.models = None
 
+        # Validate method-level structure once, before building or executing any
+        # per-tensor tasks.
+        if hasattr(self._method, "spec"):
+            for module_name, module_out in self.config.modules.items():
+                for slice_idx, output_slice in enumerate(module_out.slices):
+                    slice_base = output_slice.base_model or base_model
+                    self._method.validate_inputs(
+                        [source.model for source in output_slice.sources],
+                        slice_base,
+                        group_name=f"{module_name}.slices[{slice_idx}]",
+                    )
+
     def plan_tensor(
         self,
         weight: WeightInfo,
@@ -194,10 +208,14 @@ class MergePlanner:
             tensor_params[model] = {}
             cfg_m = cfg_reader.for_tensor(weight_in.name)
             for p in tensor_merge_method.tensor_parameters():
+                requires_base_value = (
+                    getattr(p, "input_target", InputParameterTarget.NON_BASE)
+                    == InputParameterTarget.ALL
+                )
                 tensor_params[model][p.name] = cfg_m.parameter(
                     p.name,
                     model=model,
-                    required=p.required and not is_base,
+                    required=p.required and (not is_base or requires_base_value),
                     default=p.default_value,
                 )
 
@@ -222,17 +240,30 @@ class MergePlanner:
                 base_model=base_model,
             )
 
-        tensor_task = tensor_merge_method.make_task(
-            output_weight=weight,
-            tensors=tensor_input_task,
-            parameters=ImmutableMap(data=global_params),
-            tensor_parameters=ImmutableMap(
-                data={
-                    key: ImmutableMap(data=tensor_params[key]) for key in tensor_params
-                }
-            ),
-            base_model=base_model,
+        immutable_tensor_params = ImmutableMap(
+            data={key: ImmutableMap(data=tensor_params[key]) for key in tensor_params}
         )
+        if hasattr(tensor_merge_method, "spec"):
+            tensor_merge_method.validate_inputs(
+                models, base_model, group_name=weight.name
+            )
+            tensor_task = ExecuteMergeMethodTask(
+                method_name=tensor_merge_method.name(),
+                gather_tensors=tensor_input_task,
+                model_order=tuple(models),
+                parameters=ImmutableMap(data=global_params),
+                input_parameters=immutable_tensor_params,
+                base_model=base_model,
+                output_weight=weight,
+            )
+        else:
+            tensor_task = tensor_merge_method.make_task(
+                output_weight=weight,
+                tensors=tensor_input_task,
+                parameters=ImmutableMap(data=global_params),
+                tensor_parameters=immutable_tensor_params,
+                base_model=base_model,
+            )
         self._tensors.append((weight, tensor_task))
 
     def plan_layer(

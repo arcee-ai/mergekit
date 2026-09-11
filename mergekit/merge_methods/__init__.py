@@ -1,15 +1,32 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-import mergekit.merge_methods.multislerp
-import mergekit.merge_methods.nearswap
-import mergekit.merge_methods.ram
-import mergekit.merge_methods.sce
-from mergekit.merge_methods.base import MergeMethod
+from mergekit.merge_methods.api import merge_state_dicts
+from mergekit.merge_methods.base import (
+    BasePolicy,
+    InputContract,
+    MergeBatch,
+    MergedBatch,
+    MergeMethod,
+    MergeMethodSpec,
+    PerGroupValues,
+    PerInput,
+    PerInputValues,
+    PerNonBase,
+    Shared,
+    TensorEntry,
+    TensorGroup,
+    TensorMetadata,
+)
 from mergekit.merge_methods.generalized_task_arithmetic import (
     GeneralizedTaskArithmeticMerge,
 )
+from mergekit.merge_methods.multislerp import multislerp as multislerp
+from mergekit.merge_methods.nearswap import nearswap_merge as nearswap_merge
+from mergekit.merge_methods.ram import ram_merge as ram_merge
+from mergekit.merge_methods.ram import ramplus_tl_merge as ramplus_tl_merge
 from mergekit.merge_methods.registry import REGISTERED_MERGE_METHODS
+from mergekit.merge_methods.sce import sce_merge as sce_merge
 
 
 def get(method: str) -> MergeMethod:
@@ -20,7 +37,26 @@ def get(method: str) -> MergeMethod:
 
 __all__ = [
     "MergeMethod",
+    "MergeMethodSpec",
+    "MergeBatch",
+    "MergedBatch",
+    "TensorGroup",
+    "TensorEntry",
+    "TensorMetadata",
+    "merge_state_dicts",
+    "InputContract",
+    "BasePolicy",
+    "Shared",
+    "PerInput",
+    "PerNonBase",
+    "PerInputValues",
+    "PerGroupValues",
+    "multislerp",
+    "nearswap_merge",
+    "ram_merge",
+    "ramplus_tl_merge",
     "get",
     "GeneralizedTaskArithmeticMerge",
     "REGISTERED_MERGE_METHODS",
+    "sce_merge",
 ]

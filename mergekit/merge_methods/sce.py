@@ -1,10 +1,16 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-from typing import List, Optional
+from typing import Optional
 
 import torch
 
+from mergekit.merge_methods.base import (
+    BasePolicy,
+    InputContract,
+    Shared,
+    TensorGroup,
+)
 from mergekit.merge_methods.easy_define import merge_method
 from mergekit.merge_methods.generalized_task_arithmetic import (
     get_mask as sign_consensus_mask,
@@ -15,13 +21,15 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
     name="sce",
     pretty_name="SCE",
     reference_url="https://arxiv.org/abs/2408.07990",
+    contract=InputContract(base=BasePolicy.REQUIRED, min_inputs=1, min_non_base=0),
 )
 def sce_merge(
-    tensors: List[torch.Tensor],
-    base_tensor: torch.Tensor,
-    int8_mask: bool = False,
-    select_topk: float = 1.0,
+    group: TensorGroup,
+    int8_mask: Shared[bool] = False,
+    select_topk: Shared[float] = 1.0,
 ) -> torch.Tensor:
+    tensors = [entry.tensor for entry in group.non_base]
+    base_tensor = group.base.tensor
     if not tensors:
         return base_tensor
     mask_dtype = torch.int8 if int8_mask else base_tensor.dtype
