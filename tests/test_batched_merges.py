@@ -338,6 +338,30 @@ def test_linear_precision_against_double_reference(dtype, normalize, device):
     torch.testing.assert_close(result, expected.to(dtype))
 
 
+@pytest.mark.parametrize(
+    "dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64]
+)
+def test_linear_nearly_cancelling_weights_preserve_identical_inputs(dtype, device):
+    source = torch.tensor(
+        [-16.0, -1.0, 0.0, 0.5, 1.0, 16.0], dtype=dtype, device=device
+    )
+    groups = tuple(MergeBatch.from_tensors([source] * 3).groups[0] for _ in range(2))
+    results = merge_methods.get("linear")(
+        MergeBatch(groups),
+        parameters={"weight": PerGroupValues([[1.0, -1.0, 1e-5], [1.0, -1.0, 2e-5]])},
+    )
+    for result in results:
+        torch.testing.assert_close(result, source)
+
+
+def test_linear_normalizes_before_narrowing_the_result(device):
+    source = torch.full((4,), 60000.0, dtype=torch.float16, device=device)
+    (result,) = merge_methods.get("linear")(
+        MergeBatch.from_tensors([source, source]), parameters={"weight": [1.0, 1.0]}
+    )
+    torch.testing.assert_close(result, source)
+
+
 def test_group_method_preserves_metadata_without_packing(monkeypatch):
     def fail(*args):
         pytest.fail("Group methods should not pack")
@@ -497,7 +521,7 @@ def test_graph_adapter_preserves_optional_singleton_fallback(method_name, count)
         ModelReference.model_validate(name) for name in ["base", "a", "b"][:count]
     )
     weight = WeightInfo(name="optional.bias", optional=True)
-    task = ExecuteMergeMethodTask(
+    task = ExecuteMergeMethodTask.from_parameters(
         method_name=method_name,
         gather_tensors=GatherTensors(
             weight_info=ImmutableMap({r: weight for r in refs})

@@ -434,6 +434,30 @@ class MergeMethod(ABC):
         are cast before accumulation. Algorithm parameters are separate from these
         controls.
         """
+        bound_parameters = self._bind_parameters(batch, parameters or {})
+        return self._execute_resolved(
+            batch,
+            bound_parameters,
+            dtype=dtype,
+            out_dtype=out_dtype,
+            batch_options=batch_options,
+        )
+
+    def _execute_resolved(
+        self,
+        batch: MergeBatch,
+        parameters: List[Dict[str, Any]],
+        *,
+        dtype: Optional[torch.dtype] = None,
+        out_dtype: Optional[torch.dtype] = None,
+        batch_options: Optional[BatchOptions] = None,
+    ) -> Tuple[torch.Tensor, ...]:
+        """Execute checked groups and bound parameters from either entry point.
+
+        Graph adapters resolve configuration during planning and check the loaded
+        groups themselves, including any missing configured base. They must not
+        repeat logical parameter binding here.
+        """
         from mergekit.merge_methods.dtype import promoted_dtype
 
         for name, value in (("dtype", dtype), ("out_dtype", out_dtype)):
@@ -441,10 +465,9 @@ class MergeMethod(ABC):
                 not isinstance(value, torch.dtype) or not value.is_floating_point
             ):
                 raise ValueError(f"{name} must be a floating-point torch.dtype")
-        bound_parameters = self._bind_parameters(batch, parameters or {})
         return self._execute(
             batch,
-            bound_parameters,
+            parameters,
             batch_options or BatchOptions(),
             input_dtypes=[
                 (dtype or promoted_dtype(group)) if group.entries else dtype

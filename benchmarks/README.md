@@ -1,85 +1,66 @@
-# Merge compute benchmark
+# Merge compute benchmarks
 
 Run from the repository root in the project environment:
 
 ```sh
 python benchmarks/merge_methods.py --device cpu --threads 1
 python benchmarks/merge_methods.py --device cuda
-```
-
-This measures the actual `ExecuteMergeMethodTask.execute()` path with already-loaded
-inputs. It excludes graph scheduling, loading, tokenizer alignment, and writing.
-The prepacked comparison excludes input packing and parameter binding; it is not
-an end-to-end alternative. The legacy linear comparison reproduces main's numerical
-implementation, including packing, but excludes its graph-adapter overhead.
-
-## Local CPU observations
-
-The tables below are historical measurements from the full-float32 linear kernel.
-The current linear kernel instead runs its matrix product in the aligned input
-dtype and casts only the small coefficient array. It removes the low-precision
-input conversion buffer described below. Re-run these benchmarks when assessing
-current throughput and memory use; the old timings do not measure this change.
-
-Measured with Torch 2.5.1+cu124, one CPU thread, two 2048×2048 input tensors, and
-weights 0.25/0.75. Times are illustrative medians, not performance guarantees.
-
-| Linear path | bfloat16 (ms) | float32 (ms) |
-| --- | ---: | ---: |
-| Graph adapter, multiply-then-reduce kernel | 107.4 | 78.9 |
-| Graph adapter, matrix-product kernel | 68.3 | 55.5 |
-| Prepacked matrix-product kernel | 52.6 | 27.5 |
-| Legacy low-precision numerics | 51.5 | 82.1 |
-
-The matrix product removes the full weighted-input intermediate while retaining
-float32 accumulation for low-precision inputs and float64 for float64 inputs.
-Low-precision inputs still require a float32 conversion buffer, released before
-normalization. With these shapes, packed inputs occupy 16 MiB in bfloat16 or 32 MiB
-in float32; the bfloat16-to-float32 conversion adds another 32 MiB. Packing limits
-do not include that conversion, outputs, or other kernel scratch space.
-
-The graph adapter still submits **one output at a time**. Small tensors are dominated
-by binding and packing overhead (roughly 0.17 ms for a 32-element linear merge here).
-Cross-output batching benefits in-memory callers, not the current YAML scheduler.
-Further scheduling changes should be measured separately from kernel changes.
-
-CUDA was unavailable for these measurements. On CUDA the script also reports peak
-additional allocated tensor memory, including the returned output but excluding
-already-loaded inputs and any prepacked buffer. It does not report allocator-reserved
-memory or process-wide GPU memory.
-
-## Cross-output batching
-
-`merge_batching.py` compares repeated singleton graph-adapter calls against one
-`merge_state_dicts` call for the same inputs and coefficients:
-
-```sh
-python benchmarks/merge_batching.py --shape 32 --groups 1 256 --threads 1
-python benchmarks/merge_batching.py --shape 2048 2048 --groups 1 4 --threads 1
+python benchmarks/merge_batching.py --device cuda --shape 32 --groups 1 256
 python benchmarks/merge_batching.py --device cuda --shape 2048 2048 --groups 1 4
 ```
 
-Both paths include validation, parameter binding, and packing, and retain all
-outputs. Graph construction, scheduling, loading, tokenizer alignment, and writing
-are excluded. The script checks that outputs agree before measuring. On CUDA it
-reports peak additional allocated memory, including outputs and scratch but
-excluding already-loaded inputs. Use `--max-packed-mib` to vary the state-dict
-packing budget (default 64 MiB).
+`merge_methods.py` measures `ExecuteMergeMethodTask.execute()` with already-loaded
+inputs. Planning (including parameter resolution and binding), graph scheduling,
+loading, tokenizer alignment, and writing are excluded. The prepacked comparison
+also excludes packing and adapter overhead. The legacy linear comparison reproduces
+main's numerical implementation, including packing, but excludes its graph adapter.
 
-Local CPU measurements with Torch 2.5.1+cu124 and one thread:
+`merge_batching.py` compares repeated singleton graph calls with one
+`merge_state_dicts` call. Both paths retain all outputs and include tensor validation
+and packing. Graph parameters are bound before timing; the state-dict API binds
+parameters on each invocation. The script checks that their outputs agree before
+measuring. Use `--max-packed-mib` to vary the state-dict packing budget (64 MiB by
+default).
 
-| Method | Dtype | Outputs × shape | Singleton graph (ms) | State-dict batch (ms) |
-| --- | --- | --- | ---: | ---: |
-| Linear | bfloat16 | 256 × 32 | 50.14 | 14.86 |
-| SLERP | bfloat16 | 256 × 32 | 113.26 | 9.27 |
-| Linear | float32 | 256 × 32 | 46.52 | 13.74 |
-| SLERP | float32 | 256 × 32 | 98.36 | 8.31 |
-| Linear | bfloat16 | 4 × 2048×2048 | 294.15 | 324.98 |
-| SLERP | bfloat16 | 4 × 2048×2048 | 224.23 | 287.34 |
-| Linear | float32 | 4 × 2048×2048 | 243.31 | 250.30 |
-| SLERP | float32 | 4 × 2048×2048 | 301.68 | 277.52 |
+CUDA peak allocation includes returned outputs and scratch, but excludes source
+tensors and prepacked buffers. It does not measure allocator-reserved memory or
+process-wide GPU memory. Run benchmarks without concurrent tests or GPU workloads.
 
-These are illustrative measurements, not performance guarantees. Batching helped
-many small outputs substantially, but was not uniformly faster for large weights.
-Singleton calls through the two APIs were of similar cost. CUDA was unavailable;
-GPU throughput and peak-memory results must be measured on the target hardware.
+## Precision and memory
+
+Linear accumulates in one float32 output buffer (float64 for float64 inputs),
+normalizes using a small coefficient sum reduced in float64, then casts the result
+to the input dtype. It does not cast coefficients to float16/bfloat16. GPU kernels
+consume the low-precision inputs directly; CPU execution may additionally cast the
+current input. Scratch stays bounded independently of the input count.
+
+For two 2048×2048 BF16 inputs, GPU packing needs 16 MiB, the accumulator needs 16 MiB,
+and the returned output needs 8 MiB: 40 MiB extra at peak. For FP32 inputs, the output
+is already the accumulator, giving a 48 MiB peak. Packing limits exclude kernel
+scratch and returned outputs, so batching multiple outputs can increase peak memory.
+
+SLERP retains its chunked, device-local implementation. The graph still executes
+one output at a time; cross-output batching benefits the in-memory API.
+
+## H100 observations
+
+Measured on an NVIDIA H100 PCIe with Torch 2.14.0+cu126 and one CPU thread, using
+weights 0.25/0.75. These are illustrative medians, not performance guarantees.
+For one 2048×2048 output:
+
+| Method | Dtype | Graph execute (ms) | Prepacked kernel (ms) | Graph peak extra (MiB) |
+| --- | --- | ---: | ---: | ---: |
+| Linear | BF16 | 0.241 | 0.121 | 40.00 |
+| Linear | FP32 | 0.240 | 0.105 | 48.00 |
+| SLERP | BF16 | 1.373 | 1.215 | 44.01 |
+| SLERP | FP32 | 1.126 | 0.980 | 60.01 |
+
+The legacy linear numerical path measured 0.107 ms / 40 MiB for BF16 and
+0.156 ms / 80 MiB for FP32. Resolving parameters during planning removes repeated
+binding from graph execution, but tensor checks, packing, and dispatch still cost
+time. These measurements do not establish an end-to-end speedup over main.
+
+For four BF16 2048×2048 outputs, linear took 0.980 ms / 64 MiB as graph singletons
+and 0.823 ms / 120 MiB through the batched state-dict API. SLERP took
+5.398 ms / 68 MiB and 4.713 ms / 92 MiB, respectively. Packing several outputs
+increased memory while reducing execution time for these workloads.

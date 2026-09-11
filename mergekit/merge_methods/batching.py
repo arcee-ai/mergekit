@@ -150,6 +150,20 @@ def prepare_batches(
                         f"Execution option {parameter.name} must be hashable"
                     ) from error
                 execution_options.append((parameter.name, type(value), value))
+        prepared = _PreparedGroup(
+            index,
+            entries,
+            tensors,
+            bound,
+            base_index,
+            coefficient_dtypes,
+            packed_bytes,
+            target_dtype,
+        )
+        # There is nothing to bucket or partition for a singleton. It can use the
+        # common packer immediately, including when it exceeds the packing budget.
+        if len(batch.groups) == 1:
+            return [PreparedBatch([prepared])]
         key = (
             first.shape,
             target_dtype,
@@ -159,18 +173,7 @@ def prepare_batches(
             tuple(coefficient_dtypes.items()),
             tuple(execution_options),
         )
-        buckets.setdefault(key, []).append(
-            _PreparedGroup(
-                index,
-                entries,
-                tensors,
-                bound,
-                base_index,
-                coefficient_dtypes,
-                packed_bytes,
-                target_dtype,
-            )
-        )
+        buckets.setdefault(key, []).append(prepared)
 
     result = []
     for groups in buckets.values():

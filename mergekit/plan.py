@@ -223,16 +223,12 @@ class MergePlanner:
                 base_model=base_model,
             )
 
-        immutable_tensor_params = ImmutableMap(
-            data={key: ImmutableMap(data=tensor_params[key]) for key in tensor_params}
-        )
-        tensor_merge_method.validate_inputs(models, base_model, group_name=weight.name)
-        tensor_task = ExecuteMergeMethodTask(
+        tensor_task = ExecuteMergeMethodTask.from_parameters(
             method_name=tensor_merge_method.spec.name,
             gather_tensors=tensor_input_task,
             model_order=tuple(models),
-            parameters=ImmutableMap(data=global_params),
-            input_parameters=immutable_tensor_params,
+            parameters=global_params,
+            input_parameters=tensor_params,
             base_model=base_model,
             output_weight=weight,
         )

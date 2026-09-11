@@ -14,7 +14,7 @@ from mergekit.merge_methods.task_adapter import ExecuteMergeMethodTask
 def test_optional_weight_cannot_silently_drop_a_configured_base(method_name):
     refs = tuple(ModelReference.model_validate(name) for name in ("base", "a", "b"))
     weight = WeightInfo(name="optional.bias", optional=True)
-    task = ExecuteMergeMethodTask(
+    task = ExecuteMergeMethodTask.from_parameters(
         method_name=method_name,
         gather_tensors=GatherTensors(
             weight_info=ImmutableMap({ref: weight for ref in refs})
@@ -35,7 +35,7 @@ def test_optional_weight_cannot_silently_drop_a_configured_base(method_name):
         task.execute(tensors)
 
     # The same pair is valid when the user actually requested a baseless merge.
-    baseless = task.model_copy(update={"base_model": None, "model_order": refs[1:]})
+    baseless = task.model_copy(update={"base_index": None})
     torch.testing.assert_close(baseless.execute(tensors), torch.full((2,), 2**-0.5))
 
 
@@ -246,3 +246,105 @@ def test_task_arithmetic_peak_memory():
             peak = max(peak, live)
     assert peak <= (16 + 3) * weight_bytes
     assert result["w"].isfinite().all()
+
+
+@pytest.mark.parametrize(
+    "method_name", ["linear", "slerp", "nuslerp", "task_arithmetic"]
+)
+def test_graph_executes_resolved_parameters_without_rebinding(
+    tmp_path, monkeypatch, method_name
+):
+    from safetensors.torch import save_file
+
+    from mergekit.merge_methods.base import MergeMethod, ParameterSpec
+    from mergekit.options import MergeOptions
+    from mergekit.scripts.merge_raw_pytorch import (
+        RawPyTorchMergeConfig,
+        plan_flat_merge,
+    )
+
+    paths = []
+    count = 3 if method_name == "nuslerp" else 2
+    for i in range(count):
+        path = tmp_path / f"{i}.safetensors"
+        save_file({"w": torch.tensor([float(i), 1.0])}, path)
+        paths.append(str(path))
+    config = RawPyTorchMergeConfig(
+        merge_method=method_name,
+        models=[{"model": path} for path in paths],
+        base_model=paths[-1],
+        parameters={"weight": 0.5, "t": 0.25},
+    )
+    tasks = plan_flat_merge(config, str(tmp_path / "out"), False, False, MergeOptions())
+    task = next(t.tensor_task for t in tasks if hasattr(t, "tensor_task"))
+    tensors = {
+        ref: torch.tensor([float(i), 1.0]) for i, ref in enumerate(task.model_order)
+    }
+    expected = merge_state_dicts(
+        [{"w": tensor} for tensor in tensors.values()],
+        method_name,
+        base=count - 1,
+        parameters={"t": 0.25} if method_name == "slerp" else {"weight": 0.5},
+    )["w"]
+
+    def fail(*args, **kwargs):
+        pytest.fail("Planned parameters were bound or validated again during execution")
+
+    monkeypatch.setattr(ParameterSpec, "validate", fail)
+    monkeypatch.setattr(MergeMethod, "_bind_parameters", fail)
+    torch.testing.assert_close(task.execute(tensors), expected)
+
+
+def test_optional_inputs_keep_their_original_coefficient_positions(monkeypatch):
+    from mergekit.merge_methods import PerInput, TensorGroup, merge_method, registry
+
+    @merge_method(name="optional_weighted_sum")
+    def kernel(group: TensorGroup, weight: PerInput[float]) -> torch.Tensor:
+        assert set(weight) == {entry.id for entry in group.entries}
+        return sum(entry.tensor * weight[entry.id] for entry in group.entries)
+
+    monkeypatch.setattr(registry, "_METHODS", {kernel.spec.name: kernel})
+    refs = tuple(ModelReference.model_validate(name) for name in ("a", "missing", "c"))
+    weight = WeightInfo(name="optional.bias", optional=True)
+    task = ExecuteMergeMethodTask.from_parameters(
+        method_name=kernel.spec.name,
+        gather_tensors=GatherTensors(
+            weight_info=ImmutableMap({ref: weight for ref in refs})
+        ),
+        model_order=refs,
+        base_model=None,
+        output_weight=weight,
+        parameters=ImmutableMap({}),
+        input_parameters=ImmutableMap(
+            {
+                ref: ImmutableMap({"weight": value})
+                for ref, value in zip(refs, (2.0, 99.0, 3.0))
+            }
+        ),
+    )
+    actual = task.execute(
+        {refs[0]: torch.tensor([10.0]), refs[2]: torch.tensor([20.0])}
+    )
+    torch.testing.assert_close(actual, torch.tensor([80.0]))
+
+
+@pytest.mark.parametrize("failure", ["shape", "device"])
+def test_resolved_graph_still_checks_loaded_tensors(failure):
+    refs = tuple(ModelReference.model_validate(name) for name in ("a", "b"))
+    info = WeightInfo(name="w")
+    task = ExecuteMergeMethodTask.from_parameters(
+        method_name="linear",
+        gather_tensors=GatherTensors(
+            weight_info=ImmutableMap({ref: info for ref in refs})
+        ),
+        model_order=refs,
+        base_model=None,
+        output_weight=info,
+        parameters=ImmutableMap({"normalize": True}),
+        input_parameters=ImmutableMap(
+            {ref: ImmutableMap({"weight": 0.5}) for ref in refs}
+        ),
+    )
+    other = torch.ones(3) if failure == "shape" else torch.ones(2, device="meta")
+    with pytest.raises(ValueError, match="size mismatch|same device"):
+        task.execute({refs[0]: torch.ones(2), refs[1]: other})

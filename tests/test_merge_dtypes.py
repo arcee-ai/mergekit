@@ -77,7 +77,12 @@ def test_input_cast_and_output_cast_have_distinct_numerics():
 @pytest.mark.parametrize("option", ["dtype", "out_dtype"])
 def test_state_dict_rejects_nonfloating_dtype_overrides(option):
     with pytest.raises(ValueError, match="floating-point torch.dtype"):
-        merge_state_dicts(mixed_models(), "linear", **{option: torch.int64})
+        merge_state_dicts(
+            mixed_models(),
+            "linear",
+            parameters={"weight": 1.0},
+            **{option: torch.int64},
+        )
 
 
 @pytest.mark.parametrize("dtype", [None, "bfloat16"])
@@ -257,17 +262,24 @@ def test_linear_ignores_ambient_autocast(device, autocast_dtype):
 
 
 @torch.inference_mode()
-def test_linear_low_precision_has_no_full_float32_scratch():
-    source = torch.ones(1, 2, 1024, 1024, dtype=torch.bfloat16)
-    coefficients = torch.tensor([[0.5, 0.5]])
+@pytest.mark.parametrize("count", [2, 8])
+def test_linear_scratch_is_bounded_independently_of_input_count(count):
+    source = torch.ones(1, count, 1024, 1024, dtype=torch.bfloat16)
+    coefficients = torch.full((1, count), 1.0 / count)
     with torch.profiler.profile(profile_memory=True) as profile:
         actual = merge_methods.get("linear").merge_batch(
             TensorBatch(source), weight=coefficients
         )
     assert actual.dtype == torch.bfloat16
     torch.testing.assert_close(actual, source[:, 0])
-    # A full float32 conversion of either input is larger than the output.
-    assert max(event.cpu_memory_usage for event in profile.events()) <= actual.nbytes
+    # CPU TensorIterator may cast the current input to FP32, alongside the FP32
+    # accumulator. Scratch must stay bounded independently of the input count.
+    live = peak = 0
+    for event in profile.profiler.kineto_results.events():
+        if event.name() == "[memory]":
+            live += event.nbytes()
+            peak = max(peak, live)
+    assert peak <= 4 * actual.nbytes + 4096
 
 
 def test_embedding_alignment_promotes_before_copying():
@@ -449,3 +461,17 @@ def test_direct_call_validates_dtype_before_execution(option):
 
     with pytest.raises(ValueError, match="floating-point torch.dtype"):
         kernel(MergeBatch.from_tensors([torch.ones(1)]), **{option: torch.int64})
+
+
+def test_raw_graph_linear_cancellation_stays_finite(tmp_path, device):
+    source = torch.tensor([-16.0, -1.0, 0.0, 0.5, 1.0, 16.0], dtype=torch.float16)
+    models = []
+    for index, weight in enumerate([1.0, -1.0, 1e-5]):
+        path = tmp_path / f"model{index}.safetensors"
+        save_file({"w": source}, path)
+        models.append({"model": str(path), "parameters": {"weight": weight}})
+    config = RawPyTorchMergeConfig(merge_method="linear", models=models)
+    output = tmp_path / "output"
+    tasks = plan_flat_merge(config, str(output), False, False, MergeOptions())
+    Executor(tasks, math_device=device).execute()
+    torch.testing.assert_close(load_file(output / "model.safetensors")["w"], source)

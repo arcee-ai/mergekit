@@ -1,8 +1,9 @@
 """Compare singleton graph execution with multi-output state-dict merging.
 
 Inputs and graph tasks are prepared before measurement. Both paths retain all
-outputs and include binding, validation, and packing, but exclude loading,
-scheduling, tokenizer alignment, and saving. CUDA peak allocation includes
+outputs and include tensor validation and packing, but exclude loading,
+scheduling, tokenizer alignment, and saving. Graph parameters are already bound
+during task construction; the state-dict path binds them on each call. CUDA peak allocation includes
 outputs and scratch, not already-loaded inputs or allocator-reserved memory.
 
 Examples (run from the repository root in the project environment):
@@ -30,7 +31,7 @@ def make_paths(models, method_name, batch_options):
     tasks = []
     for name in models[refs[0]]:
         info = WeightInfo(name=name)
-        task = ExecuteMergeMethodTask(
+        task = ExecuteMergeMethodTask.from_parameters(
             method_name=method_name,
             gather_tensors=GatherTensors(
                 weight_info=ImmutableMap({ref: info for ref in refs})
@@ -38,7 +39,9 @@ def make_paths(models, method_name, batch_options):
             model_order=refs,
             base_model=refs[0],
             output_weight=info,
-            parameters=ImmutableMap({} if method_name == "linear" else parameters),
+            parameters=ImmutableMap(
+                {"normalize": True} if method_name == "linear" else parameters
+            ),
             input_parameters=ImmutableMap(
                 {
                     ref: ImmutableMap(

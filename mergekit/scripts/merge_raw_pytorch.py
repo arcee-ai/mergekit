@@ -164,21 +164,17 @@ def plan_flat_merge(
             if config.base_model is not None
             else None
         )
-        immutable_tensor_params = ImmutableMap(
-            data={key: ImmutableMap(data=tensor_params[key]) for key in tensor_params}
-        )
         tensor_input = TensorDictWrapper(tensors=inputs)
         output_weight = WeightInfo(name=tensor_name)
         model_order = tuple(inputs)
-        merge_method.validate_inputs(model_order, base_model, group_name=tensor_name)
-        tensor_task = ExecuteMergeMethodTask(
+        tensor_task = ExecuteMergeMethodTask.from_parameters(
             method_name=merge_method.spec.name,
             gather_tensors=tensor_input,
             model_order=model_order,
             base_model=base_model,
             output_weight=output_weight,
-            parameters=ImmutableMap(global_params),
-            input_parameters=immutable_tensor_params,
+            parameters=global_params,
+            input_parameters=tensor_params,
             dtype=config.dtype,
             out_dtype=config.out_dtype,
         )

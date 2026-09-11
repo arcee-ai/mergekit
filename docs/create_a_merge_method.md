@@ -175,11 +175,12 @@ and padding happen before merging; hidden dimensions must already match. Direct
 tensor and state-dict callers must perform any alignment themselves.
 
 Kernel execution disables ambient autocast so input dtype and method-specific
-precision choices determine the arithmetic. Linear normalizes its small coefficient
-array in float32 (float64 for float64 inputs), then casts coefficients to the input
-dtype for its matrix product. It does not allocate a full float32 input copy.
-Coefficient rounding and backend accumulation affect low-precision results; use
-float32 inputs when that additional precision is needed.
+precision choices determine the arithmetic. Linear accumulates weighted inputs into
+one float32 output buffer (float64 for float64 inputs), then normalizes and casts
+the result to the input dtype. Its small coefficient sum uses float64 to preserve
+residuals from nearly cancelling weights. Coefficients are never rounded to the
+low-precision input dtype. CPU execution may cast the current input internally;
+there is no retained full-precision copy of every input.
 
 The kernel receives `[B, N, *weight_shape]` and returns `[B, *weight_shape]`. It must
 preserve the output axis: reductions for norms, means, and dot products must not
@@ -289,12 +290,17 @@ and `method.spec.reference_url`; there are no separate metadata accessor methods
 
 ## Execution adapters
 
-Every adapter executes through `MergeMethod.__call__`, which validates inputs and
-parameters, selects dtypes, and dispatches to the group or batch strategy. The
-computation graph uses a generic `ExecuteMergeMethodTask`; individual methods do
-not define tasks. The YAML planner resolves configured values and builds that adapter.
-Other consumers can construct `MergeBatch` directly without importing graph or config
-types.
+Direct callers use `MergeMethod.__call__` to validate and bind parameters before
+execution. The computation graph uses a generic `ExecuteMergeMethodTask`, built
+with `from_parameters()` from already-resolved planner settings. It binds per-input
+values to stable integer positions during planning and uses the same internal
+execution path without repeating scalar validation or parameter binding. Missing
+optional inputs retain their original positions and coefficients; loaded tensor
+shapes, devices, and input contracts are still checked at execution time. Singleton
+batches use the common packer without compatibility bucketing.
+
+Individual methods do not define graph tasks. Other consumers can construct
+`MergeBatch` directly without importing graph or config types.
 
 The YAML and raw-PyTorch planners use the same parameter resolver. Each adapter
 supplies settings in descending precedence; the resolver applies filters, gradients,

@@ -45,7 +45,7 @@ def main():
             }
             for name in ("linear", "slerp"):
                 method = merge_methods.get(name)
-                task = ExecuteMergeMethodTask(
+                task = ExecuteMergeMethodTask.from_parameters(
                     method_name=name,
                     gather_tensors=GatherTensors(
                         weight_info=ImmutableMap({r: info for r in refs})
