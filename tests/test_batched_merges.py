@@ -606,7 +606,13 @@ def test_embedding_mismatch_fails_before_bucketing(monkeypatch):
 
 @pytest.mark.parametrize(
     "method_name,count",
-    [("slerp", 2), ("nuslerp", 3), ("arcee_fusion", 2), ("model_stock", 3)],
+    [
+        ("slerp", 2),
+        ("nuslerp", 3),
+        ("arcee_fusion", 2),
+        ("model_stock", 3),
+        ("nearswap", 2),
+    ],
 )
 def test_graph_adapter_preserves_optional_singleton_fallback(method_name, count):
     from mergekit.architecture import WeightInfo
@@ -634,5 +640,15 @@ def test_graph_adapter_preserves_optional_singleton_fallback(method_name, count)
     if method_name == "model_stock":
         assert task.execute({refs[0]: tensor, refs[1]: tensor}) is None
         assert task.execute({refs[1]: tensor}) is None
+    elif method_name == "nearswap":
+        with pytest.raises(ValueError, match="Base input is not present"):
+            task.execute({refs[1]: tensor})
+        required = task.model_copy(
+            update={"output_weight": weight.model_copy(update={"optional": False})}
+        )
+        with pytest.raises(ValueError, match="at least 2 inputs"):
+            required.execute({refs[0]: tensor})
+        with pytest.raises(ValueError, match="at least 2 inputs"):
+            merge_methods.get(method_name).validate_inputs([refs[0]], refs[0])
     else:
         assert task.execute({refs[1]: tensor}) is tensor

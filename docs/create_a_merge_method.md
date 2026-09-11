@@ -226,6 +226,9 @@ executing the batch. Pass `strict=False` to merge their intersection.
 Non-floating buffers, such as BatchNorm counters, must agree exactly across inputs;
 they are copied without numerical merging. Differing buffers raise an error.
 
+Module inputs retain their parameter autograd connections, just like dictionaries
+of live tensors. Use `torch.no_grad()` when you do not need to record merge operations.
+
 `merge_state_dicts` promotes floating inputs independently for each weight. Matching
 bfloat16 inputs remain bfloat16; float16 with bfloat16 promotes to float32, as does
 bfloat16 with float32. Float64 inputs promote the group to float64. Pass

@@ -132,9 +132,12 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
         method = merge_methods.get(self.method_name)
         if self.output_weight.optional and len(entries) < len(self.model_order):
             policy = method.spec.optional_tensor_policy
-            if (
-                len(entries) == 1
-                and policy == OptionalTensorPolicy.PASSTHROUGH_SINGLETON
+            if len(entries) == 1 and (
+                policy == OptionalTensorPolicy.PASSTHROUGH_SINGLETON
+                or (
+                    policy == OptionalTensorPolicy.PASSTHROUGH_BASE_SINGLETON
+                    and entries[0].is_base
+                )
             ):
                 return entries[0].tensor
             if (

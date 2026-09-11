@@ -129,6 +129,7 @@ class OptionalTensorPolicy(str, Enum):
 
     ERROR = "error"
     PASSTHROUGH_SINGLETON = "passthrough_singleton"
+    PASSTHROUGH_BASE_SINGLETON = "passthrough_base_singleton"
     BASE_OR_SKIP = "base_or_skip"
 
 

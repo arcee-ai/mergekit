@@ -3,7 +3,12 @@
 
 import torch
 
-from mergekit.merge_methods.base import BasePolicy, InputContract, TensorGroup
+from mergekit.merge_methods.base import (
+    BasePolicy,
+    InputContract,
+    OptionalTensorPolicy,
+    TensorGroup,
+)
 from mergekit.merge_methods.easy_define import merge_method
 
 
@@ -11,6 +16,7 @@ from mergekit.merge_methods.easy_define import merge_method
     name="nearswap",
     pretty_name="NearSwap",
     reference_url="https://huggingface.co/alchemonaut/QuartetAnemoi-70B-t0.0001",
+    optional_tensor_policy=OptionalTensorPolicy.PASSTHROUGH_BASE_SINGLETON,
     contract=InputContract(
         base=BasePolicy.REQUIRED,
         min_inputs=2,

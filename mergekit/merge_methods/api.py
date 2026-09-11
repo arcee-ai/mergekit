@@ -69,8 +69,10 @@ def merge_state_dicts(
     Non-floating buffers are copied only when every input agrees exactly.
     Floating inputs are promoted independently for each weight unless dtype
     explicitly selects their representation. Inputs are converted per execution
-    chunk; out_dtype casts outputs before they are retained. Autograd graphs and
-    outputs that alias inputs may extend the lifetime of conversion storage.
+    chunk; out_dtype casts outputs before they are retained. Module parameters
+    retain their autograd connections; use torch.no_grad() to avoid recording merge
+    operations. Autograd graphs and outputs that alias inputs may extend the
+    lifetime of conversion storage.
     """
 
     if isinstance(method, str):
@@ -155,7 +157,7 @@ def merge_state_dicts(
 
 def _as_state_dict(model: StateDictLike) -> StateDict:
     if isinstance(model, torch.nn.Module):
-        model = model.state_dict()
+        model = model.state_dict(keep_vars=True)
     if not isinstance(model, Mapping):
         raise TypeError(f"Expected a module or state dict, got {type(model).__name__}")
     if not all(isinstance(name, str) for name in model):

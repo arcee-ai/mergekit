@@ -49,6 +49,28 @@ def test_merge_tensors_aligns_parameters_and_preserves_gradients(weight):
     torch.testing.assert_close(b.grad, torch.full_like(b, 0.75))
 
 
+@pytest.mark.parametrize("method_name", ["linear", "task_arithmetic"])
+def test_module_inputs_preserve_parameter_gradients(method_name):
+    models = [
+        torch.nn.Sequential(
+            torch.nn.Linear(2, 2, bias=False), torch.nn.Linear(2, 2, bias=False)
+        )
+        for _ in range(2)
+    ]
+    parameters = {"weight": [0.25, 0.75] if method_name == "linear" else [0.75]}
+    result = merge_state_dicts(models, method_name, base=0, parameters=parameters)
+    sum(tensor.sum() for tensor in result.values()).backward()
+    for model, coefficient in zip(models, (0.25, 0.75)):
+        for parameter in model.parameters():
+            torch.testing.assert_close(
+                parameter.grad, torch.full_like(parameter, coefficient)
+            )
+
+    with torch.no_grad():
+        result = merge_state_dicts(models, method_name, base=0, parameters=parameters)
+    assert all(not tensor.requires_grad for tensor in result.values())
+
+
 def test_merge_tensors_base_index_refers_to_input_order():
     result = merge_tensors(
         [torch.tensor([3.0]), torch.tensor([1.0])],
