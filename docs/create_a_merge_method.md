@@ -21,13 +21,18 @@ def weighted_average(
     weight: Annotated[torch.Tensor, BatchParameter(float, ParameterScope.INPUT)],
     normalize: Option[bool] = True,
 ) -> torch.Tensor:
-    # tensors: [B, N, *weight_shape], weight: [B, N]
-    tensors = batch.tensors
-    weights = weight.reshape(*weight.shape, *((1,) * (tensors.ndim - 2)))
-    result = (tensors * weights).sum(1)
+    # N borrowed tensors shaped [B, *weight_shape]; weight: [B, N], float64.
+    first = batch.tensors[0]
+    coefficient_shape = (first.shape[0],) + (1,) * (first.ndim - 1)
+    result = torch.zeros_like(first, dtype=torch.float64)
+    for tensor, coefficient in zip(batch.tensors, weight.unbind(1)):
+        result.addcmul_(tensor, coefficient.reshape(coefficient_shape))
     if normalize:
-        result = result / weights.sum(1)
-    return result.to(tensors.dtype)  # [B, *weight_shape]
+        denominator = weight.sum(1).reshape(coefficient_shape)
+        if (denominator == 0).any():
+            raise ValueError("Cannot normalize weights that sum to zero")
+        result.div_(denominator)
+    return result.to(first.dtype)  # [B, *weight_shape]
 ```
 
 The function signature is the single source of truth for parameter names, types,
@@ -45,8 +50,10 @@ scopes, defaults, and requiredness:
 `BatchParameter` supports `float`, `int`, and `bool`, including constrained types
 such as `PositiveFloat` or `Annotated[float, Field(ge=0, le=1)]`. Constraints belong
 inside `BatchParameter(...)`; its enclosing annotation describes the kernel's
-**Tensor** argument, not an individual coefficient. Float coefficients use float32
-(float64 for float64 inputs); integer and boolean coefficients use int64 and bool.
+**Tensor** argument, not an individual coefficient. Float coefficients always use
+float64, preserving Python-float precision independently of the input dtype;
+integer and boolean coefficients use int64 and bool. Kernels may explicitly cast
+coefficients when choosing their intermediate precision.
 Annotations therefore describe the actual runtime kernel types without pretending
 that a batched coefficient is still a Python float.
 
@@ -85,7 +92,7 @@ def base_interpolation(
     batch: TensorBatch,
     t: Annotated[torch.Tensor, BatchParameter(float)],
 ) -> torch.Tensor:
-    a, b = batch.tensors[:, 0], batch.tensors[:, 1]
+    a, b = batch.tensors
     t = t.reshape(t.shape[0], *((1,) * (a.ndim - 1)))
     return (1 - t) * a + t * b
 ```
@@ -162,7 +169,9 @@ one output per group, in input-group order. Unpack a singleton result with
 
 Logical batches may be heterogeneous. Preparation validates every group, buckets
 compatible work by shape, dtype, device, input count/layout, and execution options,
-then incrementally packs numerical `TensorBatch` buffers. All inputs within a group
+then prepares numerical `TensorBatch` inputs one chunk at a time. Singleton chunks
+borrow an `unsqueeze(0)` view of each input, copying only for dtype conversion.
+Larger chunks stack outputs separately for each input. All inputs within a group
 must have matching shapes and devices. Dtypes are aligned during execution,
 including for sequential group kernels. Every group is checked before any kernel executes, and kernels must preserve
 the weight shape. Output order always matches logical group order, not bucket order.
@@ -176,13 +185,14 @@ tensor and state-dict callers must perform any alignment themselves.
 
 Kernel execution disables ambient autocast so input dtype and method-specific
 precision choices determine the arithmetic. Linear accumulates weighted inputs into
-one float32 output buffer (float64 for float64 inputs), then normalizes and casts
-the result to the input dtype. Its small coefficient sum uses float64 to preserve
-residuals from nearly cancelling weights. Coefficients are never rounded to the
-low-precision input dtype. CPU execution may cast the current input internally;
-there is no retained full-precision copy of every input.
+one float64 accumulator, divides by the float64 coefficient sum when normalized,
+then casts the result to the aligned input dtype. A zero coefficient sum is rejected
+when normalization is enabled. Using float64 for both sums reduces errors from
+nearly cancelling weights without special cases. CPU execution may additionally
+cast the current input internally; no full-precision copy of every input is retained.
 
-The kernel receives `[B, N, *weight_shape]` and returns `[B, *weight_shape]`. It must
+The kernel receives a tuple of N tensors shaped `[B, *weight_shape]` and returns
+one tensor shaped `[B, *weight_shape]`. It must
 preserve the output axis: reductions for norms, means, and dot products must not
 accidentally combine different outputs. Linear and SLERP have native batched
 implementations; SLERP stays entirely in Torch on the input device.
@@ -218,18 +228,22 @@ Autograd graphs and outputs that alias converted inputs can retain that storage.
 
 ## Ownership and low-level execution
 
-Logical inputs are borrowed and must not be modified. Packing creates owned working
-storage. `batch.workspace()` returns that storage for an owned batch, or clones it
-for a borrowed batch. Kernels may use it for in-place work when compatible with
-their autograd requirements. Outputs may alias working storage, extending its
-lifetime; a group method may also return a borrowed input unchanged.
+All inputs are borrowed and must not be modified, including inputs assembled by
+the batch preparer. They may have arbitrary strides. Use `tensor.clone()` for
+writable storage, `tensor.contiguous()` when an individual input must be contiguous,
+or `torch.stack(batch.tensors, dim=1)` when a kernel needs a single allocation
+shaped `[B, N, *weight_shape]`. Contiguity does not grant permission to modify an
+input: `contiguous()` may return the original tensor. These allocations belong to
+the kernel and count as scratch, outside packing limits. Outputs may alias inputs
+or working storage, extending their lifetime.
 
 A loader or executor that already has aligned buffers can call
 `method.merge_batch(TensorBatch(...), **aligned_parameters)` directly. This is the
 numerical boundary: callers supply correctly shaped coefficient tensors on the
 input device and resolved Python options, and are responsible for satisfying the
-method's input contract. It does not repeat logical parameter binding. Set
-`owned=True` only when transferring permission to overwrite the buffer.
+method's input contract. It does not repeat logical parameter binding. For example,
+`TensorBatch((a.unsqueeze(0), b.unsqueeze(0)), base_index=0)` represents one output
+with two borrowed inputs.
 
 ## Group kernels
 
@@ -297,7 +311,7 @@ values to stable integer positions during planning and uses the same internal
 execution path without repeating scalar validation or parameter binding. Missing
 optional inputs retain their original positions and coefficients; loaded tensor
 shapes, devices, and input contracts are still checked at execution time. Singleton
-batches use the common packer without compatibility bucketing.
+batches borrow input views without compatibility bucketing or packing.
 
 Individual methods do not define graph tasks. Other consumers can construct
 `MergeBatch` directly without importing graph or config types.

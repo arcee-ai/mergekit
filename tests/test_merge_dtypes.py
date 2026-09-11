@@ -268,18 +268,18 @@ def test_linear_scratch_is_bounded_independently_of_input_count(count):
     coefficients = torch.full((1, count), 1.0 / count)
     with torch.profiler.profile(profile_memory=True) as profile:
         actual = merge_methods.get("linear").merge_batch(
-            TensorBatch(source), weight=coefficients
+            TensorBatch(tuple(source.unbind(1))), weight=coefficients
         )
     assert actual.dtype == torch.bfloat16
     torch.testing.assert_close(actual, source[:, 0])
-    # CPU TensorIterator may cast the current input to FP32, alongside the FP32
+    # CPU TensorIterator may cast the current input to FP64, alongside the FP64
     # accumulator. Scratch must stay bounded independently of the input count.
     live = peak = 0
     for event in profile.profiler.kineto_results.events():
         if event.name() == "[memory]":
             live += event.nbytes()
             peak = max(peak, live)
-    assert peak <= 4 * actual.nbytes + 4096
+    assert peak <= 8 * actual.nbytes + 4096
 
 
 def test_embedding_alignment_promotes_before_copying():
@@ -363,9 +363,9 @@ def test_dtype_intermediates_released_between_chunks(batched, dtype, device, dir
         calls.append(1)
 
     def batch_kernel(batch: TensorBatch) -> torch.Tensor:
-        check_inputs([batch.tensors])
-        assert batch.tensors.shape[0] == 1
-        result = batch.tensors.sum(dim=1)
+        check_inputs(batch.tensors)
+        assert batch.tensors[0].shape[0] == 1
+        result = sum(batch.tensors)
         previous.append(weakref.ref(result))
         return result
 

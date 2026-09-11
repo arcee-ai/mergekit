@@ -21,7 +21,7 @@ from mergekit.merge_methods.base import (
 )
 
 
-def _coefficient_dtype(value_type: Any, tensor_dtype: torch.dtype) -> torch.dtype:
+def _coefficient_dtype(value_type: Any) -> torch.dtype:
     while get_origin(value_type) is Annotated:
         value_type = get_args(value_type)[0]
     if value_type is bool:
@@ -29,7 +29,7 @@ def _coefficient_dtype(value_type: Any, tensor_dtype: torch.dtype) -> torch.dtyp
     if value_type is int:
         return torch.int64
     if value_type is float:
-        return torch.float64 if tensor_dtype == torch.float64 else torch.float32
+        return torch.float64
     raise TypeError("Batched coefficients must be bool, int, or float scalars")
 
 
@@ -40,7 +40,6 @@ class _PreparedGroup:
     tensors: Tuple[torch.Tensor, ...]
     parameters: Dict[str, Any]
     base_index: Optional[int]
-    coefficient_dtypes: Dict[str, torch.dtype]
     packed_bytes: int
     dtype: torch.dtype
 
@@ -57,21 +56,23 @@ class PreparedBatch:
 
     def pack(self, spec: MergeMethodSpec) -> Tuple[TensorBatch, Dict[str, Any]]:
         first = self.groups[0]
-        sources = [t for group in self.groups for t in group.tensors]
-        if all(t.dtype == first.dtype for t in sources):
-            tensors = torch.stack(sources)
-        else:
-            # Copy directly into the target dtype; avoid separate conversion buffers.
-            tensors = torch.empty(
-                (len(sources), *sources[0].shape),
-                dtype=first.dtype,
-                device=sources[0].device,
-            )
-            for index, source in enumerate(sources):
-                tensors[index].copy_(source)
-        tensors = tensors.reshape(
-            len(self.groups), len(first.entries), *tensors.shape[1:]
-        )
+        tensors = []
+        for sources in zip(*(group.tensors for group in self.groups)):
+            if len(sources) == 1:
+                # Borrow even strided singleton inputs; only dtype conversion copies.
+                tensor = sources[0].to(dtype=first.dtype).unsqueeze(0)
+            elif all(t.dtype == first.dtype for t in sources):
+                tensor = torch.stack(sources)
+            else:
+                # Copy into the target dtype without separate conversion buffers.
+                tensor = torch.empty(
+                    (len(sources), *sources[0].shape),
+                    dtype=first.dtype,
+                    device=sources[0].device,
+                )
+                for index, source in enumerate(sources):
+                    tensor[index].copy_(source)
+            tensors.append(tensor)
         kwargs = {}
         for parameter in spec.parameters:
             if not parameter.batch_tensor:
@@ -88,10 +89,10 @@ class PreparedBatch:
                 values.append(value)
             kwargs[parameter.name] = torch.tensor(
                 values,
-                dtype=first.coefficient_dtypes[parameter.name],
-                device=tensors.device,
+                dtype=_coefficient_dtype(parameter.value_type),
+                device=tensors[0].device,
             )
-        return TensorBatch(tensors, base_index=first.base_index, owned=True), kwargs
+        return TensorBatch(tuple(tensors), base_index=first.base_index), kwargs
 
 
 def prepare_batches(
@@ -123,7 +124,6 @@ def prepare_batches(
         target_dtype = input_dtypes[index] or first.dtype
 
         execution_options = []
-        coefficient_dtypes = {}
         packed_bytes = sum(t.numel() for t in tensors) * target_dtype.itemsize
         for parameter in spec.parameters:
             value = bound[parameter.name]
@@ -133,15 +133,9 @@ def prepare_batches(
                     if parameter.scope == ParameterScope.INPUT
                     else [value]
                 )
-                dtype = _coefficient_dtype(parameter.value_type, target_dtype)
-                coefficient_dtypes[parameter.name] = dtype
-                itemsize = {
-                    torch.bool: 1,
-                    torch.int64: 8,
-                    torch.float32: 4,
-                    torch.float64: 8,
-                }[dtype]
-                packed_bytes += len(values) * itemsize
+                packed_bytes += (
+                    len(values) * _coefficient_dtype(parameter.value_type).itemsize
+                )
             else:
                 try:
                     hash(value)
@@ -156,7 +150,6 @@ def prepare_batches(
             tensors,
             bound,
             base_index,
-            coefficient_dtypes,
             packed_bytes,
             target_dtype,
         )
@@ -170,7 +163,6 @@ def prepare_batches(
             first.device,
             len(entries),
             base_index,
-            tuple(coefficient_dtypes.items()),
             tuple(execution_options),
         )
         buckets.setdefault(key, []).append(prepared)

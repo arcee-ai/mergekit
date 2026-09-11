@@ -1,7 +1,7 @@
 """Compare singleton graph execution with multi-output state-dict merging.
 
 Inputs and graph tasks are prepared before measurement. Both paths retain all
-outputs and include tensor validation and packing, but exclude loading,
+outputs and include tensor validation and any packing, but exclude loading,
 scheduling, tokenizer alignment, and saving. Graph parameters are already bound
 during task construction; the state-dict path binds them on each call. CUDA peak allocation includes
 outputs and scratch, not already-loaded inputs or allocator-reserved memory.

@@ -19,24 +19,23 @@ def _linear_merge(
     weight: Annotated[torch.Tensor, BatchParameter(float, ParameterScope.INPUT)],
     normalize: Option[bool] = True,
 ) -> torch.Tensor:
-    tensors = batch.tensors
-    if not tensors.is_floating_point():
+    first = batch.tensors[0]
+    if not first.is_floating_point():
         raise TypeError("Linear merging requires floating-point tensors")
-    # Accumulate into one wide output buffer without converting every input or
-    # rounding coefficients to the input dtype. In particular, nearly cancelling
-    # weights must not overflow float16 during normalization.
-    dtype = torch.float64 if tensors.dtype == torch.float64 else torch.float32
-    weight = weight.to(dtype)
-    coefficient_shape = (tensors.shape[0],) + (1,) * (tensors.ndim - 2)
-    result = torch.zeros_like(tensors[:, 0], dtype=dtype)
-    for tensor, coefficient in zip(tensors.unbind(1), weight.unbind(1)):
+    weight = weight.to(torch.float64)
+    coefficient_shape = (first.shape[0],) + (1,) * (first.ndim - 1)
+    if normalize:
+        denominator = weight.sum(dim=1).reshape(coefficient_shape)
+        if (denominator == 0).any():
+            raise ValueError("Cannot normalize weights that sum to zero")
+    # One accumulator, with the same precision as the coefficient sum. Inputs
+    # remain borrowed; no full-sized conversion of every input is retained.
+    result = torch.zeros_like(first, dtype=torch.float64)
+    for tensor, coefficient in zip(batch.tensors, weight.unbind(1)):
         result.addcmul_(tensor, coefficient.reshape(coefficient_shape))
     if normalize:
-        # The small reduction needs extra precision too: parallel float32 sums
-        # can lose a small residual such as sum([1, -1, 1e-5]).
-        denominator = weight.sum(dim=1, dtype=torch.float64).to(dtype)
-        result.div_(denominator.reshape(coefficient_shape))
-    return result.to(tensors.dtype)
+        result.div_(denominator)
+    return result.to(first.dtype)
 
 
 linear_merge = merge_method(

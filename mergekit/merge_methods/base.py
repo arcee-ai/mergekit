@@ -347,29 +347,33 @@ class BatchOptions:
 
 @dataclass(frozen=True)
 class TensorBatch:
-    """Numerical kernel input with axes [output, input, *weight_shape].
+    """Borrowed inputs, each shaped [output, *weight_shape].
 
-    Source tensors are borrowed by default. The preparer supplies owned packing
-    buffers; kernels may obtain writable storage through workspace(). No model
-    IDs or configuration objects cross this boundary.
+    Inputs have matching shapes, dtypes, and devices, but may have arbitrary
+    strides. Kernels must not modify them. Use clone() for writable storage,
+    contiguous() for an individual contiguous input, or stack() to pack inputs.
+    No model IDs or configuration objects cross this boundary.
     """
 
-    tensors: torch.Tensor
+    tensors: Tuple[torch.Tensor, ...]
     base_index: Optional[int] = None
-    owned: bool = False
 
     def __post_init__(self):
-        if self.tensors.ndim < 2 or min(self.tensors.shape[:2]) < 1:
+        if isinstance(self.tensors, torch.Tensor):
+            raise TypeError("TensorBatch expects a sequence of tensors")
+        object.__setattr__(self, "tensors", tuple(self.tensors))
+        if not self.tensors or any(t.ndim < 1 or t.shape[0] < 1 for t in self.tensors):
             raise ValueError("TensorBatch requires nonempty output and input axes")
-        if (
-            self.base_index is not None
-            and not 0 <= self.base_index < self.tensors.shape[1]
+        first = self.tensors[0]
+        if any(
+            t.shape != first.shape or t.dtype != first.dtype or t.device != first.device
+            for t in self.tensors[1:]
         ):
+            raise ValueError(
+                "TensorBatch inputs must have matching shapes, dtypes, and devices"
+            )
+        if self.base_index is not None and not 0 <= self.base_index < len(self.tensors):
             raise ValueError("base_index is out of range")
-
-    def workspace(self) -> torch.Tensor:
-        """Return writable storage without modifying borrowed source tensors."""
-        return self.tensors if self.owned else self.tensors.clone()
 
 
 @dataclass(frozen=True)
@@ -602,9 +606,9 @@ class BatchedMergeMethod(MergeMethod):
 
     def merge_batch(self, batch: TensorBatch, **parameters: Any) -> torch.Tensor:
         """Execute already-aligned numerical arguments (no logical binding)."""
-        with torch.autocast(device_type=batch.tensors.device.type, enabled=False):
+        with torch.autocast(device_type=batch.tensors[0].device.type, enabled=False):
             result = self.implementation(batch, **parameters)
-        expected = (batch.tensors.shape[0], *batch.tensors.shape[2:])
+        expected = batch.tensors[0].shape
         if not isinstance(result, torch.Tensor) or result.shape != expected:
             raise TypeError(
                 f"Merge method {self.spec.name} must return a tensor of shape {expected}"

@@ -2,7 +2,7 @@
 
 Run with: python benchmarks/merge_methods.py [--device cuda] [--threads 1]
 The graph adapter still merges one output at a time. Compare its complete execute()
-with a prepacked kernel to expose binding/packing costs. The legacy linear reference
+with a direct kernel call to expose adapter costs. The legacy linear reference
 reproduces main's low-precision numerical path, not its graph overhead.
 """
 
@@ -63,19 +63,21 @@ def main():
                         }
                     ),
                 )
-                packed = TensorBatch(
-                    torch.stack(list(tensors.values())).unsqueeze(0), base_index=0
+                batch = TensorBatch(
+                    tuple(t.unsqueeze(0) for t in tensors.values()), base_index=0
                 )
                 coefficients = (
-                    {"weight": torch.tensor([[0.25, 0.75]], device=device)}
+                    {
+                        "weight": torch.tensor(
+                            [[0.25, 0.75]], device=device, dtype=torch.float64
+                        )
+                    }
                     if name == "linear"
-                    else {"t": torch.tensor([0.75], device=device)}
+                    else {"t": torch.tensor([0.75], device=device, dtype=torch.float64)}
                 )
                 paths = {
                     "graph_adapter": lambda: task.execute(tensors),
-                    "prepacked_kernel": lambda: method.merge_batch(
-                        packed, **coefficients
-                    ),
+                    "direct_kernel": lambda: method.merge_batch(batch, **coefficients),
                 }
                 if name == "linear":
                     paths["legacy_numerics"] = lambda: legacy_linear(tensors)
