@@ -12,7 +12,6 @@ from mergekit.merge_methods import (
     BasePolicy,
     BatchParameter,
     InputContract,
-    MergeBatch,
     PerGroupValues,
     PerInput,
     PerInputValues,
@@ -149,9 +148,11 @@ def test_signature_is_parameter_ssot_and_supports_shared_lists():
     ]
     assert [parameter.name for parameter in method.spec.input_parameters] == ["weight"]
 
-    batch = MergeBatch.from_tensors(
-        [torch.tensor([1.0, 2.0]), torch.tensor([3.0, 4.0])], ids=["a", "b"]
-    )
+    batch = [
+        TensorGroup.from_tensors(
+            [torch.tensor([1.0, 2.0]), torch.tensor([3.0, 4.0])], ids=["a", "b"]
+        )
+    ]
     (result,) = method(
         batch, parameters={"weight": {"b": 0.75, "a": 0.25}, "offsets": [10.0, 20.0]}
     )
@@ -188,7 +189,7 @@ def test_contract_validates_entire_batch_before_math_runs():
     )
 
     with pytest.raises(ValueError, match="requires a base input"):
-        method(MergeBatch(groups=(valid, invalid)))
+        method((valid, invalid))
     assert calls == []
 
 
@@ -199,9 +200,11 @@ def test_per_input_values_are_ordered_and_shape_checked(values_type):
         return torch.tensor(value.values_for(group.entries))
 
     method = merge_method(kernel, name="ordered")
-    batch = MergeBatch.from_tensors(
-        [torch.zeros(2), torch.zeros(2)], ids=["second", "first"]
-    )
+    batch = [
+        TensorGroup.from_tensors(
+            [torch.zeros(2), torch.zeros(2)], ids=["second", "first"]
+        )
+    ]
     (result,) = method(
         batch, parameters={"value": values_type([("first", 1), ("second", 2)])}
     )
@@ -212,16 +215,58 @@ def test_per_input_values_are_ordered_and_shape_checked(values_type):
         method(batch, parameters={"value": [1]})
 
 
-def test_registered_method_can_be_called_directly():
+@pytest.mark.parametrize("sequence_type", [list, tuple])
+def test_registered_method_can_be_called_directly(sequence_type):
     from mergekit import merge_methods
 
-    batch = MergeBatch.from_tensors(
-        [torch.tensor([1.0]), torch.tensor([3.0])], ids=["a", "b"]
-    )
+    batch = [
+        TensorGroup.from_tensors(
+            [torch.tensor([1.0]), torch.tensor([3.0])], ids=["a", "b"]
+        )
+    ]
     (result,) = merge_methods.get("linear")(
-        batch, parameters={"weight": {"a": 0.25, "b": 0.75}}
+        sequence_type(batch), parameters={"weight": {"a": 0.25, "b": 0.75}}
     )
     assert torch.equal(result, torch.tensor([2.5]))
+
+
+def test_group_factory_base_and_embedding_metadata():
+    from mergekit import merge_methods
+
+    base = torch.ones(2, 3).T
+    other = torch.full_like(base, 3)
+    group = TensorGroup.from_tensors(
+        [other, base],
+        ids=["other", "base"],
+        base_index=1,
+        name="embedding.weight",
+        is_embed=True,
+    )
+    (result,) = merge_methods.get("task_arithmetic")(
+        [group], parameters={"weight": {"other": 0.25}}
+    )
+    torch.testing.assert_close(result, torch.full_like(base, 1.5))
+    assert group.base.tensor is base
+    assert group.non_base[0].tensor is other
+
+    mismatched = TensorGroup.from_tensors(
+        [base, torch.ones(4, 2)], name="embedding.weight", is_embed=True
+    )
+    with pytest.raises(ValueError, match="embedding.weight.*Align vocabulary rows"):
+        merge_methods.get("linear")([mismatched], parameters={"weight": 1.0})
+
+
+@pytest.mark.parametrize("input_type", [TensorGroup, TensorBatch])
+def test_group_sequence_checks_all_element_types_before_execution(input_type):
+    def kernel(inputs) -> torch.Tensor:
+        pytest.fail("Invalid group sequence reached the kernel")
+
+    kernel.__annotations__["inputs"] = input_type
+    method = merge_method(kernel, name="checked_sequence")
+    group = TensorGroup.from_tensors([torch.ones(1)])
+    with pytest.raises(TypeError, match="sequence of TensorGroup"):
+        method([group, torch.ones(1)])
+    assert method([]) == ()
 
 
 def test_explicit_per_group_parameter_values():
@@ -229,11 +274,9 @@ def test_explicit_per_group_parameter_values():
         return group.entries[0].tensor * scale
 
     method = merge_method(kernel, name="per_group")
-    batch = MergeBatch(
-        groups=(
-            TensorGroup(entries=(TensorEntry("a", torch.tensor(2.0)),)),
-            TensorGroup(entries=(TensorEntry("a", torch.tensor(3.0)),)),
-        )
+    batch = (
+        TensorGroup(entries=(TensorEntry("a", torch.tensor(2.0)),)),
+        TensorGroup(entries=(TensorEntry("a", torch.tensor(3.0)),)),
     )
     result = method(batch, parameters={"scale": PerGroupValues([5.0, 7.0])})
     assert result == (torch.tensor(10.0), torch.tensor(21.0))
@@ -303,14 +346,14 @@ def test_group_adapter_validates_every_group_before_execution(failure):
         return group.entries[0].tensor
 
     method = merge_method(kernel, name="validated")
-    good = MergeBatch.from_tensors([torch.ones(2, 1), torch.ones(2, 1)]).groups[0]
+    good = TensorGroup.from_tensors([torch.ones(2, 1), torch.ones(2, 1)])
     bad_tensor = {
         "shape": lambda: torch.ones(1, 2),
         "device": lambda: torch.ones(2, 1, device="meta"),
     }[failure]()
-    bad = MergeBatch.from_tensors([torch.ones(2, 1), bad_tensor]).groups[0]
+    bad = TensorGroup.from_tensors([torch.ones(2, 1), bad_tensor])
     with pytest.raises(ValueError, match="size mismatch|same device"):
-        method(MergeBatch((good, bad)))
+        method((good, bad))
     assert calls == []
 
 
@@ -355,7 +398,7 @@ def test_no_method_crops_embeddings(method_name, count, shape):
         entries, TensorMetadata(name="embed_tokens.weight", is_embed=True)
     )
     with pytest.raises(ValueError, match="Tensor size mismatch.*tokenizer"):
-        merge_methods.get(method_name)(MergeBatch((group,)))
+        merge_methods.get(method_name)((group,))
 
 
 def test_group_kernel_must_preserve_weight_shape():
@@ -364,7 +407,7 @@ def test_group_kernel_must_preserve_weight_shape():
 
     method = merge_method(kernel, name="invalid_reduction")
     with pytest.raises(TypeError, match="must return a tensor of shape"):
-        method(MergeBatch.from_tensors([torch.ones(2)]))
+        method([TensorGroup.from_tensors([torch.ones(2)])])
 
 
 @pytest.mark.parametrize("filter_wise", [False, True])
@@ -375,7 +418,7 @@ def test_model_stock_singularity_retains_base_with_finite_gradients(filter_wise)
     a = torch.tensor([[3.0, 3.0]], dtype=torch.float64, requires_grad=True)
     b = torch.tensor([[1.0, 3.0]], dtype=torch.float64, requires_grad=True)
     (result,) = merge_methods.get("model_stock")(
-        MergeBatch.from_tensors([base, a, b], base_index=0),
+        [TensorGroup.from_tensors([base, a, b], base_index=0)],
         parameters={"filter_wise": filter_wise},
     )
     torch.testing.assert_close(result, base)
@@ -393,7 +436,7 @@ def test_sce_zero_variance_preserves_shape(shape, density):
     base = torch.ones(shape)
     other = torch.full(shape, 3.0)
     (result,) = merge_methods.get("sce")(
-        MergeBatch.from_tensors([base, other, other], base_index=0),
+        [TensorGroup.from_tensors([base, other, other], base_index=0)],
         parameters={"select_topk": density},
     )
     torch.testing.assert_close(result, other if density == 1 else base)
@@ -402,7 +445,7 @@ def test_sce_zero_variance_preserves_shape(shape, density):
 def test_none_input_ids_are_rejected_at_every_entry_point():
     tensor = torch.ones(2)
     with pytest.raises(ValueError, match="IDs cannot be None"):
-        MergeBatch.from_tensors([tensor], ids=[None], base_index=0)
+        [TensorGroup.from_tensors([tensor], ids=[None], base_index=0)]
     with pytest.raises(ValueError, match="IDs cannot be None"):
         InputContract().validate_ids([None, "b"])
     with pytest.raises(ValueError, match="IDs cannot be None"):
@@ -450,7 +493,7 @@ def test_construction_and_registration_are_independent(monkeypatch):
         return group.tensors[0]
 
     assert get("linear") is builtin
-    batch = MergeBatch.from_tensors([torch.ones(2)])
+    batch = [TensorGroup.from_tensors([torch.ones(2)])]
     (result,) = custom(batch)
     torch.testing.assert_close(result, torch.ones(2))
     with pytest.raises(ValueError, match="already registered"):
@@ -477,7 +520,7 @@ def test_execution_controls_do_not_reserve_algorithm_parameter_names():
         return group.tensors[0] * (dtype + out_dtype + batch_options + parameters)
 
     (result,) = kernel(
-        MergeBatch.from_tensors([torch.ones(2)]),
+        [TensorGroup.from_tensors([torch.ones(2)])],
         parameters={"dtype": 1, "out_dtype": 2, "batch_options": 3, "parameters": 4},
         dtype=torch.float64,
         out_dtype=torch.float32,
@@ -509,7 +552,7 @@ def test_kernel_wrappers_do_not_reserve_algorithm_parameter_names(batched):
 
     method = merge_method(kernel, name="wrapper_names")
     (result,) = method(
-        MergeBatch.from_tensors([torch.ones(2)]),
+        [TensorGroup.from_tensors([torch.ones(2)])],
         parameters={"self": 2, "batch": 3, "group": 5},
     )
     torch.testing.assert_close(result, torch.full((2,), 10.0))

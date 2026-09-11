@@ -10,12 +10,9 @@ import torch
 
 from mergekit.merge_methods.base import (
     BatchOptions,
-    MergeBatch,
     MergeMethod,
     PerGroupValues,
-    TensorEntry,
     TensorGroup,
-    TensorMetadata,
 )
 from mergekit.merge_methods.buffers import copy_non_floating_buffer
 
@@ -39,15 +36,17 @@ def merge_tensors(
     Per-input parameters accept sequences in input order, mappings keyed by ids,
     or broadcast scalars. The base index always refers to the input sequence.
     Inputs are borrowed and promoted unless dtype is supplied; out_dtype casts
-    the result. This uses the same validation and execution as a MergeBatch call.
+    the result. This uses the same validation and execution as a direct method call.
     Checkpoint buffer handling belongs to merge_state_dicts.
     """
     if isinstance(method, str):
         from mergekit import merge_methods
 
         method = merge_methods.get(method)
-    batch = MergeBatch.from_tensors(tensors, ids=ids, base_index=base_index, name=name)
-    (result,) = method(batch, parameters=parameters, dtype=dtype, out_dtype=out_dtype)
+    group = TensorGroup.from_tensors(tensors, ids=ids, base_index=base_index, name=name)
+    (result,) = method(
+        (group,), parameters=parameters, dtype=dtype, out_dtype=out_dtype
+    )
     return result
 
 
@@ -131,23 +130,19 @@ def merge_state_dicts(
             value = PerGroupValues([value.values[index] for index in merge_indices])
         resolved_parameters[name] = value
 
+    input_ids = [input_id for input_id, _ in state_dicts]
+    base_index = input_ids.index(base) if base is not None else None
     groups = tuple(
-        TensorGroup(
-            entries=tuple(
-                TensorEntry(
-                    id=input_id,
-                    tensor=state_dict[name],
-                    is_base=input_id == base,
-                )
-                for input_id, state_dict in state_dicts
-            ),
-            metadata=TensorMetadata(name=name),
+        TensorGroup.from_tensors(
+            [state_dict[name] for _, state_dict in state_dicts],
+            ids=input_ids,
+            base_index=base_index,
+            name=name,
         )
         for name in merge_names
     )
-    batch = MergeBatch(groups=groups)
     merged = method(
-        batch,
+        groups,
         parameters=resolved_parameters,
         dtype=dtype,
         out_dtype=out_dtype,

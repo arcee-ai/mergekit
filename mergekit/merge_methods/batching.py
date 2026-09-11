@@ -13,11 +13,11 @@ from mergekit.merge_methods.base import (
     BasePolicy,
     BatchOptions,
     InputParameterTarget,
-    MergeBatch,
     MergeMethodSpec,
     ParameterScope,
     TensorBatch,
     TensorEntry,
+    TensorGroup,
 )
 
 
@@ -96,7 +96,7 @@ class PreparedBatch:
 
 
 def prepare_batches(
-    batch: MergeBatch,
+    groups: Sequence[TensorGroup],
     parameters: List[Dict[str, Any]],
     spec: MergeMethodSpec,
     options: BatchOptions,
@@ -111,7 +111,7 @@ def prepare_batches(
     compatibility and buffer sizes without allocating converted source tensors.
     """
     buckets = {}
-    for index, (group, bound) in enumerate(zip(batch.groups, parameters)):
+    for index, (group, bound) in enumerate(zip(groups, parameters)):
         entries = group.entries
         base_index = None
         if group.base is not None and spec.contract.base != BasePolicy.IGNORED:
@@ -156,7 +156,7 @@ def prepare_batches(
         )
         # There is nothing to bucket or partition for a singleton. It can use the
         # common packer immediately, including when it exceeds the packing budget.
-        if len(batch.groups) == 1:
+        if len(groups) == 1:
             return [PreparedBatch([prepared])]
         key = (
             first.shape,
@@ -169,10 +169,10 @@ def prepare_batches(
         buckets.setdefault(key, []).append(prepared)
 
     result = []
-    for groups in buckets.values():
+    for bucket in buckets.values():
         chunk = []
         size = 0
-        for group in groups:
+        for group in bucket:
             if chunk and (
                 size + group.packed_bytes > options.max_bytes
                 or len(chunk) >= options.max_groups

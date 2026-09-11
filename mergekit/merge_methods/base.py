@@ -74,7 +74,7 @@ class PerInputValues(Mapping[Hashable, T], Generic[T]):
 
 @dataclass(frozen=True)
 class PerGroupValues(Generic[T]):
-    """Explicit values along the outer MergeBatch axis."""
+    """Explicit values along the outer sequence of tensor groups."""
 
     values: Tuple[T, ...]
 
@@ -253,6 +253,30 @@ class TensorGroup:
         if sum(entry.is_base for entry in self.entries) > 1:
             raise ValueError("A tensor group can have at most one base input")
 
+    @classmethod
+    def from_tensors(
+        cls,
+        tensors: Sequence[torch.Tensor],
+        *,
+        ids: Optional[Sequence[Hashable]] = None,
+        base_index: Optional[int] = None,
+        name: Optional[str] = None,
+        is_embed: bool = False,
+    ) -> "TensorGroup":
+        """Borrow tensors in input order, with optional IDs, base, and metadata."""
+        ids = tuple(range(len(tensors))) if ids is None else tuple(ids)
+        if len(ids) != len(tensors):
+            raise ValueError("ids and tensors must have the same length")
+        if base_index is not None and not 0 <= base_index < len(tensors):
+            raise ValueError("base_index is out of range")
+        entries = tuple(
+            TensorEntry(id=key, tensor=tensor, is_base=idx == base_index)
+            for idx, (key, tensor) in enumerate(zip(ids, tensors))
+        )
+        return cls(
+            entries=entries, metadata=TensorMetadata(name=name, is_embed=is_embed)
+        )
+
     @property
     def base(self) -> Optional[TensorEntry]:
         return next((entry for entry in self.entries if entry.is_base), None)
@@ -287,38 +311,6 @@ class TensorGroup:
             raise ValueError(
                 f"Inputs for {self.metadata.name} must have the same device"
             )
-
-
-@dataclass(frozen=True)
-class MergeBatch:
-    groups: Tuple[TensorGroup, ...]
-
-    def __post_init__(self):
-        object.__setattr__(self, "groups", tuple(self.groups))
-        if not all(isinstance(group, TensorGroup) for group in self.groups):
-            raise TypeError("MergeBatch.groups must contain TensorGroup values")
-
-    @classmethod
-    def from_tensors(
-        cls,
-        tensors: Sequence[torch.Tensor],
-        *,
-        ids: Optional[Sequence[Hashable]] = None,
-        base_index: Optional[int] = None,
-        name: Optional[str] = None,
-    ) -> "MergeBatch":
-        ids = tuple(range(len(tensors))) if ids is None else tuple(ids)
-        if len(ids) != len(tensors):
-            raise ValueError("ids and tensors must have the same length")
-        if base_index is not None and not 0 <= base_index < len(tensors):
-            raise ValueError("base_index is out of range")
-        entries = tuple(
-            TensorEntry(id=key, tensor=tensor, is_base=idx == base_index)
-            for idx, (key, tensor) in enumerate(zip(ids, tensors))
-        )
-        return cls(
-            groups=(TensorGroup(entries=entries, metadata=TensorMetadata(name=name)),)
-        )
 
 
 @dataclass(frozen=True)
@@ -414,7 +406,7 @@ class MergeMethod(ABC):
 
     def __call__(
         self,
-        batch: MergeBatch,
+        groups: Sequence[TensorGroup],
         /,
         *,
         parameters: Optional[Mapping[str, Any]] = None,
@@ -430,9 +422,12 @@ class MergeMethod(ABC):
         are cast before accumulation. Algorithm parameters are separate from these
         controls.
         """
-        bound_parameters = self._bind_parameters(batch, parameters or {})
+        groups = tuple(groups)
+        if not all(isinstance(group, TensorGroup) for group in groups):
+            raise TypeError("Merge inputs must be a sequence of TensorGroup values")
+        bound_parameters = self._bind_parameters(groups, parameters or {})
         return self._execute_resolved(
-            batch,
+            groups,
             bound_parameters,
             dtype=dtype,
             out_dtype=out_dtype,
@@ -441,7 +436,7 @@ class MergeMethod(ABC):
 
     def _execute_resolved(
         self,
-        batch: MergeBatch,
+        groups: Sequence[TensorGroup],
         parameters: List[Dict[str, Any]],
         *,
         dtype: Optional[torch.dtype] = None,
@@ -462,23 +457,23 @@ class MergeMethod(ABC):
             ):
                 raise ValueError(f"{name} must be a floating-point torch.dtype")
         return self._execute(
-            batch,
+            groups,
             parameters,
             batch_options or BatchOptions(),
             input_dtypes=[
                 (dtype or promoted_dtype(group)) if group.entries else dtype
-                for group in batch.groups
+                for group in groups
             ],
             out_dtype=out_dtype,
         )
 
     def _bind_parameters(
         self,
-        batch: MergeBatch,
+        groups: Sequence[TensorGroup],
         parameters: Mapping[str, Any],
     ) -> List[Dict[str, Any]]:
         # Validate every group before running any tensor math.
-        for group in batch.groups:
+        for group in groups:
             self.validate_inputs(
                 [entry.id for entry in group.entries],
                 group.base.id if group.base else None,
@@ -495,16 +490,14 @@ class MergeMethod(ABC):
         # Parameter validation is also two-phase so a malformed later group cannot
         # leave callers with a partially executed batch.
         return [
-            self._bind_group_parameters(
-                group, parameters, group_index, len(batch.groups)
-            )
-            for group_index, group in enumerate(batch.groups)
+            self._bind_group_parameters(group, parameters, group_index, len(groups))
+            for group_index, group in enumerate(groups)
         ]
 
     @abstractmethod
     def _execute(
         self,
-        batch: MergeBatch,
+        groups: Sequence[TensorGroup],
         parameters: List[Dict[str, Any]],
         options: BatchOptions,
         *,
@@ -609,7 +602,7 @@ class BatchedMergeMethod(MergeMethod):
 
     def _execute(
         self,
-        batch: MergeBatch,
+        groups: Sequence[TensorGroup],
         parameters: List[Dict[str, Any]],
         options: BatchOptions,
         *,
@@ -622,9 +615,9 @@ class BatchedMergeMethod(MergeMethod):
         # happens one chunk at a time. Outputs that alias a workspace may retain
         # its storage, just like outputs with retained autograd graphs.
         prepared = prepare_batches(
-            batch, parameters, self.spec, options, input_dtypes=input_dtypes
+            groups, parameters, self.spec, options, input_dtypes=input_dtypes
         )
-        results = [None] * len(batch.groups)
+        results = [None] * len(groups)
         for chunk in prepared:
             packed, kwargs = chunk.pack(self.spec)
             merged = self.merge_batch(packed, **kwargs)
@@ -648,7 +641,7 @@ class GroupMergeMethod(MergeMethod):
 
     def _execute(
         self,
-        batch: MergeBatch,
+        groups: Sequence[TensorGroup],
         parameters: List[Dict[str, Any]],
         options: BatchOptions,
         *,
@@ -658,7 +651,7 @@ class GroupMergeMethod(MergeMethod):
         from mergekit.merge_methods.dtype import align_dtype
 
         results = []
-        for index, (group, kwargs) in enumerate(zip(batch.groups, parameters)):
+        for index, (group, kwargs) in enumerate(zip(groups, parameters)):
             group = align_dtype(group, input_dtypes[index])
             if group.entries:
                 with torch.autocast(

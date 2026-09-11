@@ -14,7 +14,6 @@ from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import (
-    MergeBatch,
     OptionalTensorPolicy,
     PerInputValues,
     TensorEntry,
@@ -178,7 +177,7 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
                 for name, value in parameters.items()
             }
         (result,) = method._execute_resolved(
-            MergeBatch(groups=(group,)),
+            (group,),
             [parameters],
             dtype=dtype_from_name(self.dtype),
             out_dtype=dtype_from_name(self.out_dtype),

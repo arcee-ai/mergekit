@@ -8,7 +8,7 @@ from mergekit import merge_methods
 from mergekit.common import ModelReference
 from mergekit.config import MergeConfiguration
 from mergekit.graph import Executor
-from mergekit.merge_methods import MergeBatch, TensorBatch, merge_state_dicts
+from mergekit.merge_methods import TensorBatch, TensorGroup, merge_state_dicts
 from mergekit.merge_methods.task_adapter import TensorDictWrapper
 from mergekit.options import MergeOptions
 from mergekit.scripts.merge_raw_pytorch import RawPyTorchMergeConfig, plan_flat_merge
@@ -256,7 +256,7 @@ def test_linear_ignores_ambient_autocast(device, autocast_dtype):
     method = merge_methods.get("linear")
     with torch.autocast(device, dtype=autocast_dtype):
         (actual,) = method(
-            MergeBatch.from_tensors(tensors), parameters={"weight": [0.5, 0.5]}
+            [TensorGroup.from_tensors(tensors)], parameters={"weight": [0.5, 0.5]}
         )
     torch.testing.assert_close(actual, tensors[0], rtol=0, atol=0)
 
@@ -385,11 +385,9 @@ def test_dtype_intermediates_released_between_chunks(batched, dtype, device, dir
         batch_options=BatchOptions(max_bytes=2 * 16 * target_dtype.itemsize),
     )
     if direct:
-        batch = MergeBatch(
-            tuple(
-                MergeBatch.from_tensors([model[name] for model in models]).groups[0]
-                for name in models[0]
-            )
+        batch = tuple(
+            TensorGroup.from_tensors([model[name] for model in models])
+            for name in models[0]
         )
         tensors = method(batch, **options)
     else:
@@ -433,13 +431,9 @@ def test_direct_and_state_dict_calls_share_dtype_policy(method_name, dtype, out_
         out_dtype=out_dtype,
     )
     names = [name for name in models[0] if name != "counter"]
-    batch = MergeBatch(
-        tuple(
-            MergeBatch.from_tensors(
-                [model[name] for model in models], base_index=0
-            ).groups[0]
-            for name in names
-        )
+    batch = tuple(
+        TensorGroup.from_tensors([model[name] for model in models], base_index=0)
+        for name in names
     )
     actual = merge_methods.get(method_name)(
         batch,
@@ -460,4 +454,4 @@ def test_direct_call_validates_dtype_before_execution(option):
         pytest.fail("Invalid execution settings reached the kernel")
 
     with pytest.raises(ValueError, match="floating-point torch.dtype"):
-        kernel(MergeBatch.from_tensors([torch.ones(1)]), **{option: torch.int64})
+        kernel([TensorGroup.from_tensors([torch.ones(1)])], **{option: torch.int64})

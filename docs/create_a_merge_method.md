@@ -4,6 +4,45 @@ Merge methods are ordinary, synchronous tensor operations. They do not depend on
 MergeKit's configuration format, model loaders, or computation graph. Those systems
 adapt their inputs to the same callable method interface used by in-memory callers.
 
+## Group kernels
+
+Group kernels operate directly on one logical output at a time, without allocating
+packing buffers. Use them for simple methods, algorithms that need tensor metadata,
+or work that does not benefit from vectorization:
+
+```python
+import torch
+
+from mergekit.merge_methods import TensorGroup, merge_method, merge_tensors
+
+
+@merge_method(name="scaled_copy")
+def scaled_copy(group: TensorGroup, scale: float = 1.0) -> torch.Tensor:
+    return group.tensors[0] * scale
+
+
+result = merge_tensors([torch.ones(3)], scaled_copy, parameters={"scale": 2.0})
+# tensor([2., 2., 2.])
+```
+
+Group kernels use ordinary annotations for shared Python values and `PerInput[T]`
+or `PerNonBase[T]` for ordered mappings keyed by `TensorEntry.id`. Shared values
+may include lists and other unhashable types; only batch kernels require hashable
+Python options. The signature remains the source of parameter validation, including
+ordinary `Annotated` constraints such as `Annotated[float, Field(gt=0)]` and
+constraints inside per-input `T`. No `Shared` or `Option` wrapper is needed.
+
+Group kernels receive mappings for per-input values; batch kernels receive tensors
+annotated with `BatchParameter`. These annotations describe different runtime
+types and cannot be interchanged. Unannotated parameters and tensor coefficients
+without `BatchParameter` are rejected when defining the method.
+
+`merge_method` selects execution from the first argument annotation: `TensorBatch`
+for a numerical batch kernel, `TensorGroup` for a sequential group kernel. It can
+also be called directly: `method = merge_method(kernel, name="my_method")`.
+`method.supports_batching` reports whether the kernel is batched; accepting a logical
+batch alone does not imply vectorization.
+
 ## A native batch kernel
 
 ```python
@@ -134,20 +173,35 @@ logical-batch interface below; checkpoint buffer handling belongs to `merge_stat
 
 The decorator constructs a callable method. Construction does not register it;
 registration is only needed for lookup by name. Built-ins are already registered.
-For multiple outputs or explicit tensor metadata, construct a logical batch:
+For multiple outputs or explicit tensor metadata, pass a sequence of groups:
 
 ```python
 from mergekit import merge_methods
-from mergekit.merge_methods import MergeBatch
+from mergekit.merge_methods import BatchOptions, PerGroupValues, TensorGroup
 
-batch = MergeBatch.from_tensors(
-    [tensor_a, tensor_b],
-    ids=["model_a", "model_b"],
-)
+groups = [
+    TensorGroup.from_tensors(
+        [a_attention, b_attention],
+        ids=["a", "b"],
+        name="attention.weight",
+    ),
+    TensorGroup.from_tensors(
+        [a_embedding, c_embedding],
+        ids=["a", "c"],
+        name="embedding.weight",
+        is_embed=True,
+    ),
+]
 
-(merged_tensor,) = merge_methods.get("linear")(
-    batch,
-    parameters={"weight": {"model_a": 0.25, "model_b": 0.75}},
+attention, embedding = merge_methods.get("linear")(
+    groups,
+    parameters={
+        "weight": PerGroupValues([
+            {"a": 0.25, "b": 0.75},
+            {"a": 0.50, "c": 0.50},
+        ]),
+    },
+    batch_options=BatchOptions(max_bytes=64 * 1024**2),
 )
 ```
 
@@ -185,16 +239,24 @@ happens in the common method call. Raw-PyTorch loaders cast only floating inputs
 preserving non-floating buffers for exact comparison. Equal buffers are copied
 without casting; differing buffers are rejected. `out_dtype` applies only to
 merged outputs.
-Both `merge_tensors` and direct `MergeBatch` calls accept the same dtype options and
+Both `merge_tensors` and direct method calls accept the same dtype options and
 use the same promotion policy. Algorithm parameters go in the `parameters` mapping,
 separately from dtype and packing controls; no algorithm parameter names are reserved.
 
 ## Batches
 
-A `TensorGroup` contains the inputs for one logical output tensor. A `MergeBatch`
-contains one or more groups, and invoking a method returns a tuple of tensors with
-one output per group, in input-group order. Unpack a singleton result with
-`(merged_tensor,) = method(batch, ...)`.
+A `TensorGroup` contains the inputs for one logical output tensor. Pass a list or
+tuple of groups to a method; it returns a tuple of tensors with one output per
+group, in input order. Unpack a singleton result with
+`(merged_tensor,) = method([group], ...)`. An empty sequence returns an empty tuple.
+No outer batch object is needed.
+
+`TensorGroup.from_tensors(tensors, ids=..., base_index=..., name=..., is_embed=...)`
+borrows the supplied tensors. IDs default to integer positions; `base_index` always
+refers to the supplied tensor order. Groups may use different IDs, input counts,
+shapes, and metadata. The explicit `TensorGroup(entries=..., metadata=...)`
+constructor remains available when callers already have `TensorEntry` and
+`TensorMetadata` objects.
 
 Logical batches may be heterogeneous. Preparation validates every group, buckets
 compatible work by shape, dtype, device, input count/layout, and execution options,
@@ -240,7 +302,7 @@ list-valued parameters.
 from mergekit.merge_methods import BatchOptions, PerGroupValues
 
 result = merge_methods.get("linear")(
-    logical_batch,
+    groups,
     parameters={"weight": PerGroupValues([weights_for_group_0, weights_for_group_1])},
     batch_options=BatchOptions(max_bytes=64 * 1024 * 1024, max_groups=128),
 )
@@ -275,38 +337,6 @@ method's input contract. It does not repeat logical parameter binding. For examp
 `TensorBatch((a.unsqueeze(0), b.unsqueeze(0)), base_index=0)` represents one output
 with two borrowed inputs.
 
-## Group kernels
-
-Group kernels operate directly on one logical output at a time, without allocating
-packing buffers. They are an alternative to native batch kernels, particularly for
-algorithms that need tensor metadata or do not benefit from vectorization:
-
-```python
-from mergekit.merge_methods import TensorGroup, merge_method
-
-@merge_method(name="scaled_copy")
-def scaled_copy(group: TensorGroup, scale: float = 1.0) -> torch.Tensor:
-    return group.entries[0].tensor * scale
-```
-
-Group kernels use ordinary annotations for shared Python values and `PerInput[T]`
-or `PerNonBase[T]` for ordered mappings keyed by `TensorEntry.id`. Shared values
-may include lists and other unhashable types; only batch kernels require hashable
-Python options. The signature remains the source of parameter validation, including
-ordinary `Annotated` constraints such as `Annotated[float, Field(gt=0)]` and
-constraints inside per-input `T`. No `Shared` or `Option` wrapper is needed.
-
-Group kernels receive mappings for per-input values; batch kernels receive tensors
-annotated with `BatchParameter`. These annotations describe different runtime
-types and cannot be interchanged. Unannotated parameters and tensor coefficients
-without `BatchParameter` are rejected when defining the method.
-
-`merge_method` selects execution from the first argument annotation: `TensorBatch`
-for a numerical batch kernel, `TensorGroup` for a sequential group kernel. It can
-also be called directly: `method = merge_method(kernel, name="my_method")`.
-`method.supports_batching` reports whether the kernel is batched; accepting a logical
-batch alone does not imply vectorization.
-
 ## Metadata and base inputs
 
 `TensorEntry.id` is an opaque, non-`None` hashable identifier (`None` is reserved for
@@ -340,6 +370,22 @@ such as TIES/DARE use the same `register()` function as function-based methods.
 Read method metadata directly from `method.spec.name`, `method.spec.pretty_name`,
 and `method.spec.reference_url`; there are no separate metadata accessor methods.
 
+## Explicit specifications and class-based methods
+
+The decorator is the usual authoring path, but signature inference is optional.
+`GroupMergeMethod` subclasses can provide a `MergeMethodSpec` and implement
+`merge_group(group, **parameters)`. A native numerical kernel can instead be
+wrapped with `BatchedMergeMethod(spec, implementation)`. Both use the same group
+sequence interface, validation, dtype handling, and registration.
+
+Use explicit `ParameterSpec` objects from `mergekit.merge_methods.base` when a
+method's parameters depend on its construction options or cannot be expressed in
+a Python signature. The built-in
+[`GeneralizedTaskArithmeticMerge`](../mergekit/merge_methods/generalized_task_arithmetic.py)
+uses this path for its sparsification-dependent parameters and its `"lambda"`
+parameter. The public specifications, execution classes, `TensorEntry`, and
+`TensorMetadata` remain available; ordinary callers do not need to construct them.
+
 ## Execution adapters
 
 Direct callers use `MergeMethod.__call__` to validate and bind parameters before
@@ -351,8 +397,8 @@ optional inputs retain their original positions and coefficients; loaded tensor
 shapes, devices, and input contracts are still checked at execution time. Singleton
 batches borrow input views without compatibility bucketing or packing.
 
-Individual methods do not define graph tasks. Other consumers can construct
-`MergeBatch` directly without importing graph or config types.
+Individual methods do not define graph tasks. Other consumers can pass sequences
+of `TensorGroup` objects directly without importing graph or config types.
 
 The YAML and raw-PyTorch planners use the same parameter resolver. Each adapter
 supplies settings in descending precedence; the resolver applies filters, gradients,
