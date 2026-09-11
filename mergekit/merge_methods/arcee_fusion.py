@@ -7,9 +7,10 @@ import torch.nn.functional as F
 from mergekit.merge_methods.base import (
     BasePolicy,
     InputContract,
+    OptionalTensorPolicy,
     TensorGroup,
-    method_from_function,
 )
+from mergekit.merge_methods.easy_define import from_group_kernel
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
@@ -51,10 +52,11 @@ def _arcee_fusion_merge(group: TensorGroup) -> torch.Tensor:
     return tensors[0] + (tensors[1] - tensors[0]) * fusion_mask
 
 
-arcee_fusion_merge_method = method_from_function(
+arcee_fusion_merge_method = from_group_kernel(
     _arcee_fusion_merge,
     name="arcee_fusion",
     pretty_name="Arcee Fusion",
+    optional_tensor_policy=OptionalTensorPolicy.PASSTHROUGH_SINGLETON,
     reference_url="https://arcee.ai",
     contract=InputContract(
         base=BasePolicy.REQUIRED,

@@ -10,8 +10,7 @@ interface itself.
 
 from __future__ import annotations
 
-import inspect
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections.abc import Hashable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
@@ -19,7 +18,7 @@ from typing import Any, Callable, Dict, Generic, List, Optional, Tuple, TypeVar
 
 import torch
 from pydantic import TypeAdapter
-from typing_extensions import Annotated, TypeAlias, get_args, get_origin, get_type_hints
+from typing_extensions import Annotated, TypeAlias
 
 
 class ParameterScope(str, Enum):
@@ -38,6 +37,20 @@ class InputParameterTarget(str, Enum):
 class ParameterMarker:
     scope: ParameterScope
     target: InputParameterTarget = InputParameterTarget.ALL
+
+
+@dataclass(frozen=True)
+class BatchParameter:
+    """Annotate a kernel Tensor argument with its logical scalar type and axes."""
+
+    value_type: Any
+    scope: ParameterScope = ParameterScope.SHARED
+    target: InputParameterTarget = InputParameterTarget.ALL
+
+
+@dataclass(frozen=True)
+class OptionMarker:
+    """A Python-valued execution option, constant within each packed batch."""
 
 
 T = TypeVar("T")
@@ -78,6 +91,7 @@ class PerGroupValues(Generic[T]):
 # These annotations are both documentation and the source of ParameterSpec.scope.
 # At runtime Shared[T] is T and PerInput[T] is PerInputValues[T].
 Shared: TypeAlias = Annotated[T, ParameterMarker(ParameterScope.SHARED)]
+Option: TypeAlias = Annotated[T, OptionMarker()]
 PerInput: TypeAlias = Annotated[
     PerInputValues[T], ParameterMarker(ParameterScope.INPUT)
 ]
@@ -98,18 +112,18 @@ class ParameterSpec:
     input_target: InputParameterTarget = InputParameterTarget.ALL
     default: Any = MISSING
     description: Optional[str] = None
+    batch_tensor: bool = False
+    _adapter: TypeAdapter = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        object.__setattr__(self, "_adapter", TypeAdapter(self.value_type))
 
     @property
     def required(self) -> bool:
         return self.default is MISSING
 
-    @property
-    def default_value(self) -> Any:
-        """Compatibility alias for the old parameter definition API."""
-        return None if self.required else self.default
-
     def validate(self, value: Any) -> Any:
-        return TypeAdapter(self.value_type).validate_python(value)
+        return self._adapter.validate_python(value)
 
 
 class BasePolicy(str, Enum):
@@ -117,6 +131,14 @@ class BasePolicy(str, Enum):
     REQUIRED = "required"
     FORBIDDEN = "forbidden"
     IGNORED = "ignored"
+
+
+class OptionalTensorPolicy(str, Enum):
+    """Graph-adapter handling of optional weights missing from some inputs."""
+
+    ERROR = "error"
+    PASSTHROUGH_SINGLETON = "passthrough_singleton"
+    BASE_OR_SKIP = "base_or_skip"
 
 
 @dataclass(frozen=True)
@@ -296,22 +318,84 @@ class MergedBatch:
 
 
 @dataclass(frozen=True)
+class BatchOptions:
+    """Limits on packing, not total device memory or kernel scratch space.
+
+    A single oversized group executes alone. Source tensors and returned outputs
+    are not included in max_bytes. max_groups also bounds batches of empty tensors.
+    """
+
+    max_bytes: int = 64 * 1024 * 1024
+    max_groups: int = 256
+
+    def __post_init__(self):
+        if self.max_bytes <= 0 or self.max_groups <= 0:
+            raise ValueError("Batch limits must be positive")
+
+
+@dataclass(frozen=True)
+class TensorBatch:
+    """Numerical kernel input with axes [output, input, *weight_shape].
+
+    Source tensors are borrowed by default. The preparer supplies owned packing
+    buffers; kernels may obtain writable storage through workspace(). No model
+    IDs or configuration objects cross this boundary.
+    """
+
+    tensors: torch.Tensor
+    base_index: Optional[int] = None
+    owned: bool = False
+
+    def __post_init__(self):
+        if self.tensors.ndim < 2 or min(self.tensors.shape[:2]) < 1:
+            raise ValueError("TensorBatch requires nonempty output and input axes")
+        if (
+            self.base_index is not None
+            and not 0 <= self.base_index < self.tensors.shape[1]
+        ):
+            raise ValueError("base_index is out of range")
+
+    def workspace(self) -> torch.Tensor:
+        """Return writable storage without modifying borrowed source tensors."""
+        return self.tensors if self.owned else self.tensors.clone()
+
+
+@dataclass(frozen=True)
 class MergeMethodSpec:
     name: str
     parameters: Tuple[ParameterSpec, ...] = ()
     contract: InputContract = field(default_factory=InputContract)
     pretty_name: Optional[str] = None
     reference_url: Optional[str] = None
+    rectify_embeddings: bool = False
+    optional_tensor_policy: OptionalTensorPolicy = OptionalTensorPolicy.ERROR
 
     def __post_init__(self):
         object.__setattr__(self, "parameters", tuple(self.parameters))
         names = [parameter.name for parameter in self.parameters]
         if len(set(names)) != len(names):
             raise ValueError(f"Duplicate parameter names for merge method {self.name}")
+        if "batch_options" in names:
+            raise ValueError("batch_options is reserved for execution settings")
+        if self.contract.base == BasePolicy.IGNORED and any(
+            p.input_target == InputParameterTarget.NON_BASE for p in self.parameters
+        ):
+            raise ValueError("Non-base parameters require a base-aware input contract")
+
+    @property
+    def shared_parameters(self) -> Tuple[ParameterSpec, ...]:
+        return tuple(p for p in self.parameters if p.scope == ParameterScope.SHARED)
+
+    @property
+    def input_parameters(self) -> Tuple[ParameterSpec, ...]:
+        return tuple(p for p in self.parameters if p.scope == ParameterScope.INPUT)
 
 
 class MergeMethod(ABC):
-    """A callable, backend-independent merge method."""
+    """Logical-batch binding and validation shared by both execution strategies."""
+
+    spec: MergeMethodSpec
+    supports_batching: bool = False
 
     def name(self) -> str:
         return self.spec.name
@@ -322,14 +406,6 @@ class MergeMethod(ABC):
     def reference_url(self) -> Optional[str]:
         return self.spec.reference_url
 
-    def parameters(self) -> List[ParameterSpec]:
-        """Compatibility view of shared parameters."""
-        return [p for p in self.spec.parameters if p.scope == ParameterScope.SHARED]
-
-    def tensor_parameters(self) -> List[ParameterSpec]:
-        """Compatibility view of per-input parameters."""
-        return [p for p in self.spec.parameters if p.scope == ParameterScope.INPUT]
-
     def validate_inputs(
         self,
         input_ids: Sequence[Hashable],
@@ -339,7 +415,14 @@ class MergeMethod(ABC):
     ) -> None:
         self.spec.contract.validate_ids(input_ids, base_id, group_name=group_name)
 
-    def __call__(self, batch: MergeBatch, /, **parameters: Any) -> MergedBatch:
+    def __call__(
+        self,
+        batch: MergeBatch,
+        /,
+        *,
+        batch_options: Optional[BatchOptions] = None,
+        **parameters: Any,
+    ) -> MergedBatch:
         # Validate every group before running any tensor math.
         for group in batch.groups:
             self.validate_inputs(
@@ -363,16 +446,12 @@ class MergeMethod(ABC):
             for group_index, group in enumerate(batch.groups)
         ]
 
-        results = []
-        for group, kwargs in zip(batch.groups, bound_parameters):
-            result = self.merge(group, **kwargs)
-            if not isinstance(result, torch.Tensor):
-                raise TypeError(
-                    f"Merge method {self.name()} returned {type(result).__name__}, "
-                    "expected torch.Tensor"
-                )
-            results.append(result)
-        return MergedBatch(tensors=tuple(results))
+        return self._execute(batch, bound_parameters, batch_options or BatchOptions())
+
+    @abstractmethod
+    def _execute(
+        self, batch: MergeBatch, parameters: List[Dict[str, Any]], options: BatchOptions
+    ) -> MergedBatch: ...
 
     def _bind_group_parameters(
         self,
@@ -385,6 +464,12 @@ class MergeMethod(ABC):
         for parameter in self.spec.parameters:
             if parameter.name in supplied:
                 value = supplied[parameter.name]
+            elif (
+                parameter.scope == ParameterScope.INPUT
+                and parameter.input_target == InputParameterTarget.NON_BASE
+                and not group.non_base
+            ):
+                value = {}
             elif parameter.required:
                 raise TypeError(
                     f"Missing required parameter {parameter.name} for {self.name()}"
@@ -437,94 +522,77 @@ class MergeMethod(ABC):
             [(key, parameter.validate(raw)) for key, raw in zip(ids, raw_values)]
         )
 
-    def merge(self, group: TensorGroup, **parameters: Any) -> torch.Tensor:
-        raise NotImplementedError
 
+class BatchedMergeMethod(MergeMethod):
+    """A method with a native numerical batch kernel."""
 
-class FunctionalMergeMethod(MergeMethod):
+    supports_batching = True
+
     def __init__(
         self, spec: MergeMethodSpec, implementation: Callable[..., torch.Tensor]
     ):
         self.spec = spec
         self.implementation = implementation
 
-    def merge(self, group: TensorGroup, **parameters: Any) -> torch.Tensor:
+    def merge_batch(self, batch: TensorBatch, **parameters: Any) -> torch.Tensor:
+        """Execute already-aligned numerical arguments (no logical binding)."""
+        result = self.implementation(batch, **parameters)
+        expected = (batch.tensors.shape[0], *batch.tensors.shape[2:])
+        if not isinstance(result, torch.Tensor) or result.shape != expected:
+            raise TypeError(
+                f"Merge method {self.name()} must return a tensor of shape {expected}"
+            )
+        return result
+
+    def _execute(
+        self, batch: MergeBatch, parameters: List[Dict[str, Any]], options: BatchOptions
+    ) -> MergedBatch:
+        from mergekit.merge_methods.batching import prepare_batches
+
+        # Preparation validates every group before any kernel is invoked. Packing
+        # happens one chunk at a time. Outputs that alias a workspace may retain
+        # its storage, just like outputs with retained autograd graphs.
+        prepared = prepare_batches(batch, parameters, self.spec, options)
+        results = [None] * len(batch.groups)
+        for chunk in prepared:
+            packed, kwargs = chunk.pack(self.spec)
+            merged = self.merge_batch(packed, **kwargs)
+            for index, tensor in zip(chunk.indices, merged.unbind(0)):
+                results[index] = tensor
+            del packed, kwargs, merged
+        return MergedBatch(tensors=tuple(results))
+
+
+class GroupKernelAdapter(MergeMethod):
+    """Explicit, unpacked fallback for algorithms not yet vectorized.
+
+    This adapter deliberately avoids packing: a sequential kernel should not pay
+    the memory cost of packing or lose access to logical tensor metadata.
+    """
+
+    @abstractmethod
+    def merge_group(self, group: TensorGroup, **parameters: Any) -> torch.Tensor: ...
+
+    def _execute(
+        self, batch: MergeBatch, parameters: List[Dict[str, Any]], options: BatchOptions
+    ) -> MergedBatch:
+        results = []
+        for group, kwargs in zip(batch.groups, parameters):
+            result = self.merge_group(group, **kwargs)
+            if not isinstance(result, torch.Tensor):
+                raise TypeError(
+                    f"Merge method {self.name()} must return a torch.Tensor"
+                )
+            results.append(result)
+        return MergedBatch(tensors=tuple(results))
+
+
+class FunctionalGroupKernelAdapter(GroupKernelAdapter):
+    def __init__(
+        self, spec: MergeMethodSpec, implementation: Callable[..., torch.Tensor]
+    ):
+        self.spec = spec
+        self.implementation = implementation
+
+    def merge_group(self, group: TensorGroup, **parameters: Any) -> torch.Tensor:
         return self.implementation(group, **parameters)
-
-
-def method_from_function(
-    func: Callable[..., torch.Tensor],
-    *,
-    name: str,
-    pretty_name: Optional[str] = None,
-    reference_url: Optional[str] = None,
-    contract: Optional[InputContract] = None,
-) -> FunctionalMergeMethod:
-    """Build a merge method whose parameter schema is derived from its signature."""
-
-    signature = inspect.signature(func)
-    hints = get_type_hints(func, include_extras=True)
-    positional = list(signature.parameters.values())
-    if not positional:
-        raise TypeError("Merge method implementation must accept a TensorGroup")
-    group_parameter = positional[0]
-    if hints.get(group_parameter.name) is not TensorGroup:
-        raise TypeError("First merge method argument must be annotated TensorGroup")
-
-    specs = []
-    for argument in positional[1:]:
-        annotation = hints.get(argument.name)
-        if annotation is None:
-            raise TypeError(f"Parameter {argument.name} must have a type annotation")
-        if get_origin(annotation) is not Annotated:
-            raise TypeError(
-                f"Parameter {argument.name} must use Shared[T], PerInput[T], "
-                "or PerNonBase[T]"
-            )
-        annotated_args = get_args(annotation)
-        markers = [m for m in annotated_args[1:] if isinstance(m, ParameterMarker)]
-        if len(markers) != 1:
-            raise TypeError(
-                f"Parameter {argument.name} must have exactly one parameter scope"
-            )
-        value_type = annotated_args[0]
-        marker = markers[0]
-        if marker.scope == ParameterScope.INPUT:
-            if get_origin(value_type) is not PerInputValues:
-                raise TypeError(f"PerInput parameter {argument.name} has invalid type")
-            value_type = get_args(value_type)[0]
-        default = (
-            MISSING if argument.default is inspect.Parameter.empty else argument.default
-        )
-        specs.append(
-            ParameterSpec(
-                name=argument.name,
-                value_type=value_type,
-                scope=marker.scope,
-                input_target=marker.target,
-                default=default,
-            )
-        )
-
-    if hints.get("return") is not torch.Tensor:
-        raise TypeError("Merge method return type must be torch.Tensor")
-
-    return FunctionalMergeMethod(
-        spec=MergeMethodSpec(
-            name=name,
-            pretty_name=pretty_name,
-            reference_url=reference_url,
-            contract=contract or InputContract(),
-            parameters=tuple(specs),
-        ),
-        implementation=func,
-    )
-
-
-@dataclass(frozen=True)
-class ConfigParameterDef:
-    """Legacy parameter declaration retained while class-based methods migrate."""
-
-    name: str
-    required: bool = False
-    default_value: Any = None

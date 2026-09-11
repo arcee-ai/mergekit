@@ -159,15 +159,14 @@ class MergePlanner:
 
         # Validate method-level structure once, before building or executing any
         # per-tensor tasks.
-        if hasattr(self._method, "spec"):
-            for module_name, module_out in self.config.modules.items():
-                for slice_idx, output_slice in enumerate(module_out.slices):
-                    slice_base = output_slice.base_model or base_model
-                    self._method.validate_inputs(
-                        [source.model for source in output_slice.sources],
-                        slice_base,
-                        group_name=f"{module_name}.slices[{slice_idx}]",
-                    )
+        for module_name, module_out in self.config.modules.items():
+            for slice_idx, output_slice in enumerate(module_out.slices):
+                slice_base = output_slice.base_model or base_model
+                self._method.validate_inputs(
+                    [source.model for source in output_slice.sources],
+                    slice_base,
+                    group_name=f"{module_name}.slices[{slice_idx}]",
+                )
 
     def plan_tensor(
         self,
@@ -195,9 +194,12 @@ class MergePlanner:
         tensor_merge_method = self._method
         cfg_g = cfg_reader.for_tensor(weight.name)
         global_params = {}
-        for p in tensor_merge_method.parameters():
+        for p in tensor_merge_method.spec.shared_parameters:
             global_params[p.name] = cfg_g.parameter(
-                p.name, model=None, required=p.required, default=p.default_value
+                p.name,
+                model=None,
+                required=p.required,
+                default=None if p.required else p.default,
             )
 
         base_model = cfg_reader.base_model
@@ -207,16 +209,13 @@ class MergePlanner:
             is_base = model == base_model
             tensor_params[model] = {}
             cfg_m = cfg_reader.for_tensor(weight_in.name)
-            for p in tensor_merge_method.tensor_parameters():
-                requires_base_value = (
-                    getattr(p, "input_target", InputParameterTarget.NON_BASE)
-                    == InputParameterTarget.ALL
-                )
+            for p in tensor_merge_method.spec.input_parameters:
+                requires_base_value = p.input_target == InputParameterTarget.ALL
                 tensor_params[model][p.name] = cfg_m.parameter(
                     p.name,
                     model=model,
                     required=p.required and (not is_base or requires_base_value),
-                    default=p.default_value,
+                    default=None if p.required else p.default,
                 )
 
         gather_tensors = GatherTensors(
@@ -243,27 +242,16 @@ class MergePlanner:
         immutable_tensor_params = ImmutableMap(
             data={key: ImmutableMap(data=tensor_params[key]) for key in tensor_params}
         )
-        if hasattr(tensor_merge_method, "spec"):
-            tensor_merge_method.validate_inputs(
-                models, base_model, group_name=weight.name
-            )
-            tensor_task = ExecuteMergeMethodTask(
-                method_name=tensor_merge_method.name(),
-                gather_tensors=tensor_input_task,
-                model_order=tuple(models),
-                parameters=ImmutableMap(data=global_params),
-                input_parameters=immutable_tensor_params,
-                base_model=base_model,
-                output_weight=weight,
-            )
-        else:
-            tensor_task = tensor_merge_method.make_task(
-                output_weight=weight,
-                tensors=tensor_input_task,
-                parameters=ImmutableMap(data=global_params),
-                tensor_parameters=immutable_tensor_params,
-                base_model=base_model,
-            )
+        tensor_merge_method.validate_inputs(models, base_model, group_name=weight.name)
+        tensor_task = ExecuteMergeMethodTask(
+            method_name=tensor_merge_method.name(),
+            gather_tensors=tensor_input_task,
+            model_order=tuple(models),
+            parameters=ImmutableMap(data=global_params),
+            input_parameters=immutable_tensor_params,
+            base_model=base_model,
+            output_weight=weight,
+        )
         self._tensors.append((weight, tensor_task))
 
     def plan_layer(

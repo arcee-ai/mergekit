@@ -9,8 +9,8 @@ from mergekit.merge_methods.base import (
     InputContract,
     PerInput,
     TensorGroup,
-    method_from_function,
 )
+from mergekit.merge_methods.easy_define import from_group_kernel
 
 
 def _passthrough_merge(
@@ -21,7 +21,7 @@ def _passthrough_merge(
     return entry.tensor if value is None else entry.tensor * value
 
 
-passthrough_merge_method = method_from_function(
+passthrough_merge_method = from_group_kernel(
     _passthrough_merge,
     name="passthrough",
     pretty_name="Passthrough",

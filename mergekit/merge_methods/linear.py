@@ -2,49 +2,39 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 import torch
+from typing_extensions import Annotated
 
 from mergekit.merge_methods.base import (
+    BatchParameter,
     InputContract,
-    PerInput,
-    Shared,
-    TensorGroup,
-    method_from_function,
+    Option,
+    ParameterScope,
+    TensorBatch,
 )
-from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
+from mergekit.merge_methods.easy_define import from_batch_kernel
 
 
 def _linear_merge(
-    group: TensorGroup,
-    weight: PerInput[float],
-    normalize: Shared[bool] = True,
+    batch: TensorBatch,
+    weight: Annotated[torch.Tensor, BatchParameter(float, ParameterScope.INPUT)],
+    normalize: Option[bool] = True,
 ) -> torch.Tensor:
-    entries = group.entries
-    tensors = [entry.tensor for entry in entries]
-    weights = weight.values_for(entries)
-
-    rectify_embed_sizes(group.metadata, tensors)
-    unique_shapes = {tensor.shape for tensor in tensors}
-    if len(unique_shapes) != 1:
-        raise RuntimeError(
-            f"Tensor size mismatch for {group.metadata.name}, "
-            f"sizes: {list(unique_shapes)}"
-        )
-
-    stacked = torch.stack(tensors, dim=0)
-    weight_tensor = torch.tensor(weights, dtype=stacked.dtype, device=stacked.device)
-    while len(weight_tensor.shape) < len(stacked.shape):
-        weight_tensor.unsqueeze_(-1)
-
-    result = (weight_tensor * stacked).sum(dim=0)
+    tensors = batch.tensors
+    if not tensors.is_floating_point():
+        raise TypeError("Linear merging requires floating-point tensors")
+    # Accumulate low-precision inputs in float32; keep float64 when requested.
+    weights = weight.reshape(*weight.shape, *((1,) * (tensors.ndim - 2)))
+    result = (weights * tensors).sum(dim=1)
     if normalize:
-        result = result / weight_tensor.sum(dim=0)
-    return result
+        result = result / weights.sum(dim=1)
+    return result.to(tensors.dtype)
 
 
-linear_merge = method_from_function(
+linear_merge = from_batch_kernel(
     _linear_merge,
     name="linear",
     pretty_name="Linear",
     reference_url="https://arxiv.org/abs/2203.05482",
     contract=InputContract(min_inputs=1),
+    rectify_embeddings=True,
 )

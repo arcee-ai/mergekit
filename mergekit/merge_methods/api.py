@@ -9,8 +9,10 @@ from typing import Any, Dict, Optional, Union
 import torch
 
 from mergekit.merge_methods.base import (
+    BatchOptions,
     MergeBatch,
     MergeMethod,
+    PerGroupValues,
     TensorEntry,
     TensorGroup,
     TensorMetadata,
@@ -27,11 +29,14 @@ def merge_state_dicts(
     parameters: Optional[Mapping[str, Any]] = None,
     base: Optional[Hashable] = None,
     strict: bool = True,
+    batch_options: Optional[BatchOptions] = None,
 ) -> Dict[str, torch.Tensor]:
     """Merge in-memory modules or state dictionaries.
 
     Parameters are broadcast across tensor groups. Per-input parameters may be
-    sequences in input order or mappings keyed by the input IDs.
+    sequences in input order or mappings keyed by the input IDs. Compatible
+    floating-point weights are batched up to batch_options' packing limits.
+    Non-floating buffers are copied only when every input agrees exactly.
     """
 
     if isinstance(method, str):
@@ -68,6 +73,36 @@ def merge_state_dicts(
         ]
     )
 
+    method.validate_inputs([key for key, _ in state_dicts], base)
+    copied = {}
+    merge_names = []
+    merge_indices = []
+    for index, name in enumerate(tensor_names):
+        tensors = [state_dict[name] for _, state_dict in state_dicts]
+        if all(tensor.is_floating_point() for tensor in tensors):
+            merge_names.append(name)
+            merge_indices.append(index)
+        else:
+            first = tensors[0]
+            if any(
+                tensor.dtype != first.dtype or not torch.equal(tensor, first)
+                for tensor in tensors[1:]
+            ):
+                raise ValueError(
+                    f"Non-floating buffer {name!r} differs between inputs; resolve it explicitly before merging"
+                )
+            copied[name] = first.clone()
+
+    resolved_parameters = {}
+    for name, value in (parameters or {}).items():
+        if isinstance(value, PerGroupValues):
+            if len(value.values) != len(tensor_names):
+                raise ValueError(
+                    f"Parameter {name} expects {len(tensor_names)} group values"
+                )
+            value = PerGroupValues([value.values[index] for index in merge_indices])
+        resolved_parameters[name] = value
+
     groups = tuple(
         TensorGroup(
             entries=tuple(
@@ -80,15 +115,19 @@ def merge_state_dicts(
             ),
             metadata=TensorMetadata(name=name),
         )
-        for name in tensor_names
+        for name in merge_names
     )
-    merged = method(MergeBatch(groups=groups), **dict(parameters or {}))
-    return dict(zip(tensor_names, merged.tensors))
+    merged = method(
+        MergeBatch(groups=groups), batch_options=batch_options, **resolved_parameters
+    )
+    results = dict(zip(merge_names, merged.tensors))
+    results.update(copied)
+    return {name: results[name] for name in tensor_names}
 
 
 def _as_state_dict(model: StateDictLike) -> StateDict:
     if isinstance(model, torch.nn.Module):
-        return model.state_dict()
+        model = model.state_dict()
     if not isinstance(model, Mapping):
         raise TypeError(f"Expected a module or state dict, got {type(model).__name__}")
     if not all(isinstance(name, str) for name in model):

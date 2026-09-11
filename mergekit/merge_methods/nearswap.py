@@ -9,10 +9,10 @@ from mergekit.merge_methods.base import (
     Shared,
     TensorGroup,
 )
-from mergekit.merge_methods.easy_define import merge_method
+from mergekit.merge_methods.easy_define import group_merge_method
 
 
-@merge_method(
+@group_merge_method(
     name="nearswap",
     pretty_name="NearSwap",
     reference_url="https://huggingface.co/alchemonaut/QuartetAnemoi-70B-t0.0001",

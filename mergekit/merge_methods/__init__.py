@@ -4,19 +4,34 @@
 from mergekit.merge_methods.api import merge_state_dicts
 from mergekit.merge_methods.base import (
     BasePolicy,
+    BatchedMergeMethod,
+    BatchOptions,
+    BatchParameter,
+    GroupKernelAdapter,
     InputContract,
+    InputParameterTarget,
     MergeBatch,
     MergedBatch,
     MergeMethod,
     MergeMethodSpec,
+    Option,
+    OptionalTensorPolicy,
+    ParameterScope,
     PerGroupValues,
     PerInput,
     PerInputValues,
     PerNonBase,
     Shared,
+    TensorBatch,
     TensorEntry,
     TensorGroup,
     TensorMetadata,
+)
+from mergekit.merge_methods.easy_define import (
+    from_batch_kernel,
+    from_group_kernel,
+    group_merge_method,
+    merge_method,
 )
 from mergekit.merge_methods.generalized_task_arithmetic import (
     GeneralizedTaskArithmeticMerge,
@@ -36,6 +51,19 @@ def get(method: str) -> MergeMethod:
 
 
 __all__ = [
+    "BatchedMergeMethod",
+    "BatchOptions",
+    "BatchParameter",
+    "TensorBatch",
+    "GroupKernelAdapter",
+    "Option",
+    "OptionalTensorPolicy",
+    "ParameterScope",
+    "InputParameterTarget",
+    "from_batch_kernel",
+    "from_group_kernel",
+    "group_merge_method",
+    "merge_method",
     "MergeMethod",
     "MergeMethodSpec",
     "MergeBatch",

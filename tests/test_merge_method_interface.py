@@ -15,7 +15,7 @@ from mergekit.merge_methods import (
     TensorGroup,
     merge_state_dicts,
 )
-from mergekit.merge_methods.base import method_from_function
+from mergekit.merge_methods.easy_define import from_group_kernel
 from mergekit.scripts.merge_raw_pytorch import (
     InputModelDefinition as RawInputModelDefinition,
 )
@@ -40,12 +40,12 @@ def test_signature_is_parameter_ssot_and_supports_shared_lists():
             result /= sum(values)
         return result + torch.tensor(offsets)
 
-    method = method_from_function(kernel, name="test_method")
-    assert [parameter.name for parameter in method.parameters()] == [
+    method = from_group_kernel(kernel, name="test_method")
+    assert [parameter.name for parameter in method.spec.shared_parameters] == [
         "offsets",
         "normalize",
     ]
-    assert [parameter.name for parameter in method.tensor_parameters()] == ["weight"]
+    assert [parameter.name for parameter in method.spec.input_parameters] == ["weight"]
 
     batch = MergeBatch.from_tensors(
         [torch.tensor([1.0, 2.0]), torch.tensor([3.0, 4.0])], ids=["a", "b"]
@@ -65,7 +65,7 @@ def test_contract_validates_entire_batch_before_math_runs():
         calls.append(group)
         return group.entries[0].tensor
 
-    method = method_from_function(
+    method = from_group_kernel(
         kernel,
         name="requires_base",
         contract=InputContract(
@@ -96,7 +96,7 @@ def test_per_input_values_are_ordered_and_shape_checked():
     def kernel(group: TensorGroup, value: PerInput[int]) -> torch.Tensor:
         return torch.tensor(value.values_for(group.entries))
 
-    method = method_from_function(kernel, name="ordered")
+    method = from_group_kernel(kernel, name="ordered")
     batch = MergeBatch.from_tensors(
         [torch.tensor(0), torch.tensor(0)], ids=["second", "first"]
     )
@@ -122,7 +122,7 @@ def test_explicit_per_group_parameter_values():
     def kernel(group: TensorGroup, scale: Shared[float]) -> torch.Tensor:
         return group.entries[0].tensor * scale
 
-    method = method_from_function(kernel, name="per_group")
+    method = from_group_kernel(kernel, name="per_group")
     batch = MergeBatch(
         groups=(
             TensorGroup(entries=(TensorEntry("a", torch.tensor(2.0)),)),

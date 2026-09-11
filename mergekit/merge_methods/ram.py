@@ -11,12 +11,12 @@ from mergekit.merge_methods.base import (
     Shared,
     TensorGroup,
 )
-from mergekit.merge_methods.easy_define import merge_method
+from mergekit.merge_methods.easy_define import group_merge_method
 
 BASE_CONTRACT = InputContract(base=BasePolicy.REQUIRED, min_inputs=1, min_non_base=0)
 
 
-@merge_method(
+@group_merge_method(
     name="ram",
     pretty_name="Reinforced Agent Merging",
     reference_url="https://arxiv.org/abs/2601.13572",
@@ -48,7 +48,7 @@ def ram_merge(
     return base_tensor + merged_tv_flat.reshape_as(base_tensor)
 
 
-@merge_method(
+@group_merge_method(
     name="ramplus_tl",
     pretty_name="Reinforced Agent Merging Plus (Tensor-Local)",
     reference_url="https://arxiv.org/abs/2601.13572",

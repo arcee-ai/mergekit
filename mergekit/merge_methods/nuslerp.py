@@ -6,11 +6,12 @@ import torch
 from mergekit.merge_methods.base import (
     BasePolicy,
     InputContract,
+    OptionalTensorPolicy,
     PerNonBase,
     Shared,
     TensorGroup,
-    method_from_function,
 )
+from mergekit.merge_methods.easy_define import from_group_kernel
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
@@ -82,10 +83,11 @@ def _nuslerp_merge(
     )
 
 
-nuslerp_merge_method = method_from_function(
+nuslerp_merge_method = from_group_kernel(
     _nuslerp_merge,
     name="nuslerp",
     pretty_name="NuSLERP",
+    optional_tensor_policy=OptionalTensorPolicy.PASSTHROUGH_SINGLETON,
     contract=InputContract(
         base=BasePolicy.OPTIONAL,
         min_inputs=2,

@@ -6,10 +6,11 @@ import torch
 from mergekit.merge_methods.base import (
     BasePolicy,
     InputContract,
+    OptionalTensorPolicy,
     Shared,
     TensorGroup,
-    method_from_function,
 )
+from mergekit.merge_methods.easy_define import from_group_kernel
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
@@ -52,10 +53,11 @@ def _model_stock_merge(
     return (t * average + (1 - t) * w_0).reshape(out_shape)
 
 
-model_stock_merge_method = method_from_function(
+model_stock_merge_method = from_group_kernel(
     _model_stock_merge,
     name="model_stock",
     pretty_name="Model Stock",
+    optional_tensor_policy=OptionalTensorPolicy.BASE_OR_SKIP,
     reference_url="https://arxiv.org/abs/2403.19522",
     contract=InputContract(
         base=BasePolicy.REQUIRED,

@@ -4,6 +4,7 @@
 import logging
 from dataclasses import dataclass
 from enum import Enum
+from functools import cached_property
 from typing import Any, Optional
 
 import torch
@@ -11,9 +12,9 @@ from typing_extensions import Literal, override
 
 from mergekit.merge_methods.base import (
     BasePolicy,
+    GroupKernelAdapter,
     InputContract,
     InputParameterTarget,
-    MergeMethod,
     MergeMethodSpec,
     ParameterScope,
     ParameterSpec,
@@ -28,7 +29,7 @@ class ConsensusMethod(str, Enum):
 
 
 @dataclass(frozen=True)
-class GeneralizedTaskArithmeticMerge(MergeMethod):
+class GeneralizedTaskArithmeticMerge(GroupKernelAdapter):
     consensus_method: Optional[ConsensusMethod]
     sparsification_method: Optional[SparsificationMethod]
     default_normalize: bool
@@ -48,7 +49,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod):
     def reference_url(self) -> Optional[str]:
         return self.method_reference_url
 
-    @property
+    @cached_property
     def spec(self) -> MergeMethodSpec:
         params = [
             ParameterSpec("int8_mask", bool, ParameterScope.SHARED, default=False),
@@ -108,7 +109,7 @@ class GeneralizedTaskArithmeticMerge(MergeMethod):
             ),
         )
 
-    def merge(self, group: TensorGroup, **parameters: Any) -> torch.Tensor:
+    def merge_group(self, group: TensorGroup, **parameters: Any) -> torch.Tensor:
         base = group.base.tensor
         task_vectors = []
         for entry in group.non_base:

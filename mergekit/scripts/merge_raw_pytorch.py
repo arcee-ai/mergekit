@@ -96,8 +96,7 @@ def plan_flat_merge(
     )
     if base_id is not None and base_id not in configured_ids:
         configured_ids.append(base_id)
-    if hasattr(merge_method, "spec"):
-        merge_method.validate_inputs(configured_ids, base_id)
+    merge_method.validate_inputs(configured_ids, base_id)
 
     loaders = SimpleLoaderCache()
     loaders.lazy_unpickle = options.lazy_unpickle
@@ -166,28 +165,17 @@ def plan_flat_merge(
         )
         tensor_input = TensorDictWrapper(tensors=inputs)
         output_weight = WeightInfo(name=tensor_name)
-        if hasattr(merge_method, "spec"):
-            model_order = tuple(inputs)
-            merge_method.validate_inputs(
-                model_order, base_model, group_name=tensor_name
-            )
-            tensor_task = ExecuteMergeMethodTask(
-                method_name=merge_method.name(),
-                gather_tensors=tensor_input,
-                model_order=model_order,
-                base_model=base_model,
-                output_weight=output_weight,
-                parameters=ImmutableMap(global_params),
-                input_parameters=immutable_tensor_params,
-            )
-        else:
-            tensor_task = merge_method.make_task(
-                output_weight=output_weight,
-                tensors=tensor_input,
-                parameters=ImmutableMap(global_params),
-                tensor_parameters=immutable_tensor_params,
-                base_model=base_model,
-            )
+        model_order = tuple(inputs)
+        merge_method.validate_inputs(model_order, base_model, group_name=tensor_name)
+        tensor_task = ExecuteMergeMethodTask(
+            method_name=merge_method.name(),
+            gather_tensors=tensor_input,
+            model_order=model_order,
+            base_model=base_model,
+            output_weight=output_weight,
+            parameters=ImmutableMap(global_params),
+            input_parameters=immutable_tensor_params,
+        )
         save_task = SaveTensor(
             tensor_name=tensor_name,
             tensor_task=tensor_task,
@@ -210,7 +198,7 @@ def construct_param_dicts(
         else None
     )
     global_params = {}
-    for param_def in merge_method.parameters():
+    for param_def in merge_method.spec.shared_parameters:
         if config.parameters and param_def.name in config.parameters:
             value = evaluate_setting(tensor_name, config.parameters[param_def.name])
             if value is not None:
@@ -222,10 +210,10 @@ def construct_param_dicts(
                     f"Missing required parameter {param_def.name} for merge method {merge_method}"
                 )
             else:
-                global_params[param_def.name] = param_def.default_value
+                global_params[param_def.name] = param_def.default
 
     tensor_params = {}
-    for param_def in merge_method.tensor_parameters():
+    for param_def in merge_method.spec.input_parameters:
         for model_def in config.models:
             mr = ModelReference.model_validate({"model": {"path": model_def.model}})
             tensor_params[mr] = tensor_params.get(mr, {})
@@ -247,18 +235,15 @@ def construct_param_dicts(
                 tensor_params[mr][param_def.name] = value
             elif param_def.required and not (
                 mr == base_ref
-                and getattr(
-                    param_def,
-                    "input_target",
-                    InputParameterTarget.NON_BASE,
-                )
-                == InputParameterTarget.NON_BASE
+                and param_def.input_target == InputParameterTarget.NON_BASE
             ):
                 raise RuntimeError(
                     f"Missing required parameter {param_def.name} for model {mr} tensor {tensor_name}"
                 )
             else:
-                tensor_params[mr][param_def.name] = param_def.default_value
+                tensor_params[mr][param_def.name] = (
+                    None if param_def.required else param_def.default
+                )
     return global_params, tensor_params
 
 

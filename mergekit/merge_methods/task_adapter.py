@@ -3,6 +3,7 @@
 
 """Computation-graph adapters for consumer-neutral merge methods."""
 
+import logging
 from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
@@ -14,6 +15,7 @@ from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import (
     MergeBatch,
+    OptionalTensorPolicy,
     TensorEntry,
     TensorGroup,
     TensorMetadata,
@@ -46,7 +48,7 @@ MergeTensorInput: TypeAlias = Union[
 ]
 
 
-class ExecuteMergeMethodTask(Task[torch.Tensor]):
+class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
     """Adapt graph dependencies to the callable merge method interface."""
 
     method_name: str
@@ -68,7 +70,7 @@ class ExecuteMergeMethodTask(Task[torch.Tensor]):
 
     def execute(
         self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs
-    ) -> torch.Tensor:
+    ) -> Optional[torch.Tensor]:
         from mergekit import merge_methods
 
         entries = tuple(
@@ -85,8 +87,26 @@ class ExecuteMergeMethodTask(Task[torch.Tensor]):
             metadata=TensorMetadata.from_weight_info(self.output_weight),
         )
         method = merge_methods.get(self.method_name)
+        if self.output_weight.optional and len(entries) < len(self.model_order):
+            policy = method.spec.optional_tensor_policy
+            if (
+                len(entries) == 1
+                and policy == OptionalTensorPolicy.PASSTHROUGH_SINGLETON
+            ):
+                return entries[0].tensor
+            if (
+                policy == OptionalTensorPolicy.BASE_OR_SKIP
+                and len(entries) < method.spec.contract.min_inputs
+            ):
+                if len(entries) == 1 and entries[0].is_base:
+                    return entries[0].tensor
+                logging.warning(
+                    "Skipping optional weight %s: insufficient inputs",
+                    self.output_weight.name,
+                )
+                return None
         kwargs = dict(self.parameters.items())
-        for parameter in method.tensor_parameters():
+        for parameter in method.spec.input_parameters:
             kwargs[parameter.name] = {
                 entry.id: self.input_parameters[entry.id][parameter.name]
                 for entry in entries

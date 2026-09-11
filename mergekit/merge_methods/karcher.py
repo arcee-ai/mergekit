@@ -7,8 +7,8 @@ from mergekit.merge_methods.base import (
     InputContract,
     Shared,
     TensorGroup,
-    method_from_function,
 )
+from mergekit.merge_methods.easy_define import from_group_kernel
 from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
@@ -83,7 +83,7 @@ def _karcher_merge(
     return karcher_merge_tensors(tensors, alphas, max_iter=max_iter, tol=tol)
 
 
-karcher_merge_method = method_from_function(
+karcher_merge_method = from_group_kernel(
     _karcher_merge,
     name="karcher",
     pretty_name="Karcher Mean",
