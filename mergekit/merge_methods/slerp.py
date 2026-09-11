@@ -63,7 +63,6 @@ slerp_merge_method = from_batch_kernel(
     name="slerp",
     pretty_name="SLERP",
     reference_url="https://en.wikipedia.org/wiki/Slerp",
-    rectify_embeddings=True,
     optional_tensor_policy=OptionalTensorPolicy.PASSTHROUGH_SINGLETON,
     contract=InputContract(
         base=BasePolicy.REQUIRED,

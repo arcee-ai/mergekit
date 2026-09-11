@@ -12,7 +12,6 @@ from mergekit.merge_methods.base import (
     TensorGroup,
 )
 from mergekit.merge_methods.easy_define import from_group_kernel
-from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 def nuslerp(
@@ -62,11 +61,7 @@ def _nuslerp_merge(
     total = sum(weights)
     t = 0.5 if abs(total) < 1e-6 else weights[1] / total
     base_tensor = group.base.tensor if group.base else None
-    rectified = tensors + ([base_tensor] if base_tensor is not None else [])
-    rectify_embed_sizes(group.metadata, rectified)
-    tensors = rectified[:2]
     if base_tensor is not None:
-        base_tensor = rectified[-1]
         return base_tensor + nuslerp(
             t,
             tensors[0] - base_tensor,

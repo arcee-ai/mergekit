@@ -98,7 +98,7 @@ def test_per_input_values_are_ordered_and_shape_checked():
 
     method = from_group_kernel(kernel, name="ordered")
     batch = MergeBatch.from_tensors(
-        [torch.tensor(0), torch.tensor(0)], ids=["second", "first"]
+        [torch.zeros(2), torch.zeros(2)], ids=["second", "first"]
     )
     assert torch.equal(
         method(batch, value={"first": 1, "second": 2}).one(),
@@ -186,3 +186,107 @@ def test_raw_parameter_binding_preserves_zero_values():
         0.0,
         1.0,
     ]
+
+
+@pytest.mark.parametrize("failure", ["shape", "dtype", "device"])
+def test_group_adapter_validates_every_group_before_execution(failure):
+    calls = []
+
+    def kernel(group: TensorGroup) -> torch.Tensor:
+        calls.append(group)
+        return group.entries[0].tensor
+
+    method = from_group_kernel(kernel, name="validated")
+    good = MergeBatch.from_tensors([torch.ones(2, 1), torch.ones(2, 1)]).groups[0]
+    bad_tensor = {
+        "shape": lambda: torch.ones(1, 2),
+        "dtype": lambda: torch.ones(2, 1, dtype=torch.float64),
+        "device": lambda: torch.ones(2, 1, device="meta"),
+    }[failure]()
+    bad = MergeBatch.from_tensors([torch.ones(2, 1), bad_tensor]).groups[0]
+    with pytest.raises(ValueError, match="size mismatch|same dtype and device"):
+        method(MergeBatch((good, bad)))
+    assert calls == []
+
+
+def test_state_dict_merge_rejects_broadcastable_weights():
+    with pytest.raises(ValueError, match="Tensor size mismatch for w"):
+        merge_state_dicts(
+            {"base": {"w": torch.ones(2, 1)}, "other": {"w": torch.ones(1, 2)}},
+            "nearswap",
+            base="base",
+            parameters={"t": 0.5},
+        )
+
+
+@pytest.mark.parametrize(
+    "method_name,count",
+    [
+        ("linear", 2),
+        ("slerp", 2),
+        ("nuslerp", 3),
+        ("arcee_fusion", 2),
+        ("model_stock", 3),
+        ("karcher", 2),
+        ("task_arithmetic", 2),
+        ("ties", 2),
+        ("nearswap", 2),
+        ("multislerp", 2),
+        ("sce", 2),
+        ("ram", 2),
+        ("ramplus_tl", 2),
+    ],
+)
+@pytest.mark.parametrize("shape", [(3, 2), (2, 3)])
+def test_no_method_crops_embeddings(method_name, count, shape):
+    from mergekit import merge_methods
+    from mergekit.merge_methods import TensorMetadata
+
+    entries = tuple(
+        TensorEntry(i, torch.ones((2, 2) if i == 0 else shape), is_base=i == 0)
+        for i in range(count)
+    )
+    group = TensorGroup(
+        entries, TensorMetadata(name="embed_tokens.weight", is_embed=True)
+    )
+    with pytest.raises(ValueError, match="Tensor size mismatch.*tokenizer"):
+        merge_methods.get(method_name)(MergeBatch((group,)))
+
+
+def test_group_kernel_must_preserve_weight_shape():
+    def kernel(group: TensorGroup) -> torch.Tensor:
+        return group.entries[0].tensor.sum()
+
+    method = from_group_kernel(kernel, name="invalid_reduction")
+    with pytest.raises(TypeError, match="must return a tensor of shape"):
+        method(MergeBatch.from_tensors([torch.ones(2)]))
+
+
+@pytest.mark.parametrize("filter_wise", [False, True])
+def test_model_stock_singularity_retains_base_with_finite_gradients(filter_wise):
+    from mergekit import merge_methods
+
+    base = torch.tensor([[2.0, 3.0]], dtype=torch.float64, requires_grad=True)
+    a = torch.tensor([[3.0, 3.0]], dtype=torch.float64, requires_grad=True)
+    b = torch.tensor([[1.0, 3.0]], dtype=torch.float64, requires_grad=True)
+    result = merge_methods.get("model_stock")(
+        MergeBatch.from_tensors([base, a, b], base_index=0), filter_wise=filter_wise
+    ).one()
+    torch.testing.assert_close(result, base)
+    result.sum().backward()
+    torch.testing.assert_close(base.grad, torch.ones_like(base))
+    for tensor in (a, b):
+        torch.testing.assert_close(tensor.grad, torch.zeros_like(tensor))
+
+
+@pytest.mark.parametrize("shape", [(), (4,), (2, 3)])
+@pytest.mark.parametrize("density", [0.0, 0.5, 1.0])
+def test_sce_zero_variance_preserves_shape(shape, density):
+    from mergekit import merge_methods
+
+    base = torch.ones(shape)
+    other = torch.full(shape, 3.0)
+    result = merge_methods.get("sce")(
+        MergeBatch.from_tensors([base, other, other], base_index=0), select_topk=density
+    ).one()
+    torch.testing.assert_close(result, other if density == 1 else base)

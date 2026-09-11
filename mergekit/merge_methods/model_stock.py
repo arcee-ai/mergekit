@@ -11,14 +11,12 @@ from mergekit.merge_methods.base import (
     TensorGroup,
 )
 from mergekit.merge_methods.easy_define import from_group_kernel
-from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 def _model_stock_merge(
     group: TensorGroup, filter_wise: Shared[bool] = False
 ) -> torch.Tensor:
     all_weights = [group.base.tensor] + [entry.tensor for entry in group.non_base]
-    rectify_embed_sizes(group.metadata, all_weights)
     w_0, ws = all_weights[0], all_weights[1:]
     out_shape = w_0.shape
 
@@ -44,10 +42,15 @@ def _model_stock_merge(
     cos_theta = torch.stack(cos_thetas).mean(dim=0).unsqueeze(-1)
     count = len(ws)
     denominator = 1 + (count - 1) * cos_theta
+    # At the singularity there is no finite interpolation estimate. Keep the
+    # base for that filter instead of amplifying opposing updates. Mask the
+    # denominator too: torch.where alone would leave NaNs in backward().
+    singular = denominator.abs() < 1e-6
+    safe_denominator = torch.where(singular, torch.ones_like(denominator), denominator)
     t = torch.where(
-        denominator.abs() < 1e-6,
+        singular,
         torch.zeros_like(cos_theta),
-        (count * cos_theta) / denominator,
+        (count * cos_theta) / safe_denominator,
     )
     average = sum(ws) / count
     return (t * average + (1 - t) * w_0).reshape(out_shape)

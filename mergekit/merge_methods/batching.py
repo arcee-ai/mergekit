@@ -3,7 +3,6 @@
 
 """Compatibility bucketing and incremental packing for numerical batch kernels."""
 
-import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -89,7 +88,7 @@ def prepare_batches(
     spec: MergeMethodSpec,
     options: BatchOptions,
 ) -> List[PreparedBatch]:
-    """Validate all shapes/options, then bucket and chunk without tensor math.
+    """Bucket aligned groups and validate execution options without tensor math.
 
     Base-aware methods get a canonical base-first layout. Remaining inputs retain
     their relative order; coefficient mappings are aligned to that same layout.
@@ -104,28 +103,7 @@ def prepare_batches(
         tensors = tuple(entry.tensor for entry in entries)
         if not tensors:
             raise ValueError("Numerical batch kernels require at least one input")
-        if (
-            spec.rectify_embeddings
-            and group.metadata.is_embed
-            and all(t.ndim == 2 for t in tensors)
-        ):
-            shape = tuple(min(t.shape[dim] for t in tensors) for dim in range(2))
-            if any(t.shape != shape for t in tensors):
-                logging.warning(
-                    "Using common submatrix of size %s for %s",
-                    shape,
-                    group.metadata.name,
-                )
-                tensors = tuple(t[: shape[0], : shape[1]] for t in tensors)
         first = tensors[0]
-        if any(t.shape != first.shape for t in tensors):
-            raise ValueError(
-                f"Tensor size mismatch for {group.metadata.name}: {[t.shape for t in tensors]}"
-            )
-        if any(t.dtype != first.dtype or t.device != first.device for t in tensors):
-            raise ValueError(
-                f"Inputs for {group.metadata.name} must have the same dtype and device"
-            )
 
         execution_options = []
         coefficient_dtypes = {}

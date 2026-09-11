@@ -11,7 +11,6 @@ from mergekit.merge_methods.base import (
     TensorGroup,
 )
 from mergekit.merge_methods.easy_define import from_group_kernel
-from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 class DynamicThresholdFusion:
@@ -41,7 +40,6 @@ class DynamicThresholdFusion:
 
 def _arcee_fusion_merge(group: TensorGroup) -> torch.Tensor:
     tensors = [group.base.tensor, group.non_base[0].tensor]
-    rectify_embed_sizes(group.metadata, tensors)
     diff = (tensors[1] - tensors[0]).abs()
     eps = 1e-8
     p = F.softmax(tensors[1], dim=-1) + eps

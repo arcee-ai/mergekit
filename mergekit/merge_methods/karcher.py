@@ -9,7 +9,6 @@ from mergekit.merge_methods.base import (
     TensorGroup,
 )
 from mergekit.merge_methods.easy_define import from_group_kernel
-from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
 
 
 def karcher_merge_tensors(tensors, alphas, max_iter=10, tol=1e-5):
@@ -78,7 +77,6 @@ def _karcher_merge(
     tensors = [entry.tensor for entry in group.entries]
     if len(tensors) == 1:
         return tensors[0]
-    rectify_embed_sizes(group.metadata, tensors)
     alphas = [1.0 / len(tensors)] * len(tensors)
     return karcher_merge_tensors(tensors, alphas, max_iter=max_iter, tol=tol)
 

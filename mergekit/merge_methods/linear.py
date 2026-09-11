@@ -23,11 +23,14 @@ def _linear_merge(
     if not tensors.is_floating_point():
         raise TypeError("Linear merging requires floating-point tensors")
     # Accumulate low-precision inputs in float32; keep float64 when requested.
-    weights = weight.reshape(*weight.shape, *((1,) * (tensors.ndim - 2)))
-    result = (weights * tensors).sum(dim=1)
+    # Contract the input axis without materializing a weighted copy of every
+    # input. Low-precision inputs still need a float32 conversion buffer.
+    flat = tensors.reshape(*tensors.shape[:2], -1).to(weight.dtype)
+    result = torch.bmm(weight.unsqueeze(1), flat).squeeze(1)
+    del flat
     if normalize:
-        result = result / weights.sum(dim=1)
-    return result.to(tensors.dtype)
+        result = result / weight.sum(dim=1, keepdim=True)
+    return result.reshape(tensors.shape[0], *tensors.shape[2:]).to(tensors.dtype)
 
 
 linear_merge = from_batch_kernel(
@@ -36,5 +39,4 @@ linear_merge = from_batch_kernel(
     pretty_name="Linear",
     reference_url="https://arxiv.org/abs/2203.05482",
     contract=InputContract(min_inputs=1),
-    rectify_embeddings=True,
 )

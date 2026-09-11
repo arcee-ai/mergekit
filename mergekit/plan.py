@@ -200,6 +200,7 @@ class MergePlanner:
                 model=None,
                 required=p.required,
                 default=None if p.required else p.default,
+                validate=p.validate,
             )
 
         base_model = cfg_reader.base_model
@@ -211,11 +212,14 @@ class MergePlanner:
             cfg_m = cfg_reader.for_tensor(weight_in.name)
             for p in tensor_merge_method.spec.input_parameters:
                 requires_base_value = p.input_target == InputParameterTarget.ALL
+                if is_base and not requires_base_value:
+                    continue
                 tensor_params[model][p.name] = cfg_m.parameter(
                     p.name,
                     model=model,
-                    required=p.required and (not is_base or requires_base_value),
+                    required=p.required,
                     default=None if p.required else p.default,
+                    validate=p.validate,
                 )
 
         gather_tensors = GatherTensors(
@@ -244,7 +248,7 @@ class MergePlanner:
         )
         tensor_merge_method.validate_inputs(models, base_model, group_name=weight.name)
         tensor_task = ExecuteMergeMethodTask(
-            method_name=tensor_merge_method.name(),
+            method_name=tensor_merge_method.spec.name,
             gather_tensors=tensor_input_task,
             model_order=tuple(models),
             parameters=ImmutableMap(data=global_params),

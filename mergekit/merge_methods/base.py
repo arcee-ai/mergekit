@@ -271,6 +271,32 @@ class TensorGroup:
     def tensors(self) -> Tuple[torch.Tensor, ...]:
         return tuple(entry.tensor for entry in self.entries)
 
+    def validate_tensors(self) -> None:
+        """Require aligned inputs without allocating or changing their storage."""
+        if not self.entries:
+            return
+        first = self.entries[0].tensor
+        if any(entry.tensor.shape != first.shape for entry in self.entries):
+            hint = ""
+            if self.metadata.is_embed:
+                hint = (
+                    " Align vocabulary rows with tokenizer configuration before "
+                    "merging (for example, tokenizer: {source: base}); hidden "
+                    "dimensions must already match. Direct callers must align "
+                    "their tensors themselves."
+                )
+            raise ValueError(
+                f"Tensor size mismatch for {self.metadata.name}: "
+                f"{[tuple(entry.tensor.shape) for entry in self.entries]}.{hint}"
+            )
+        if any(
+            entry.tensor.dtype != first.dtype or entry.tensor.device != first.device
+            for entry in self.entries
+        ):
+            raise ValueError(
+                f"Inputs for {self.metadata.name} must have the same dtype and device"
+            )
+
 
 @dataclass(frozen=True)
 class MergeBatch:
@@ -367,7 +393,6 @@ class MergeMethodSpec:
     contract: InputContract = field(default_factory=InputContract)
     pretty_name: Optional[str] = None
     reference_url: Optional[str] = None
-    rectify_embeddings: bool = False
     optional_tensor_policy: OptionalTensorPolicy = OptionalTensorPolicy.ERROR
 
     def __post_init__(self):
@@ -397,15 +422,6 @@ class MergeMethod(ABC):
     spec: MergeMethodSpec
     supports_batching: bool = False
 
-    def name(self) -> str:
-        return self.spec.name
-
-    def pretty_name(self) -> Optional[str]:
-        return self.spec.pretty_name
-
-    def reference_url(self) -> Optional[str]:
-        return self.spec.reference_url
-
     def validate_inputs(
         self,
         input_ids: Sequence[Hashable],
@@ -430,11 +446,12 @@ class MergeMethod(ABC):
                 group.base.id if group.base else None,
                 group_name=group.metadata.name,
             )
+            group.validate_tensors()
 
         unknown = set(parameters) - {p.name for p in self.spec.parameters}
         if unknown:
             raise TypeError(
-                f"Unknown parameter(s) for {self.name()}: {', '.join(sorted(unknown))}"
+                f"Unknown parameter(s) for {self.spec.name}: {', '.join(sorted(unknown))}"
             )
 
         # Parameter validation is also two-phase so a malformed later group cannot
@@ -472,7 +489,7 @@ class MergeMethod(ABC):
                 value = {}
             elif parameter.required:
                 raise TypeError(
-                    f"Missing required parameter {parameter.name} for {self.name()}"
+                    f"Missing required parameter {parameter.name} for {self.spec.name}"
                 )
             else:
                 value = parameter.default
@@ -540,7 +557,7 @@ class BatchedMergeMethod(MergeMethod):
         expected = (batch.tensors.shape[0], *batch.tensors.shape[2:])
         if not isinstance(result, torch.Tensor) or result.shape != expected:
             raise TypeError(
-                f"Merge method {self.name()} must return a tensor of shape {expected}"
+                f"Merge method {self.spec.name} must return a tensor of shape {expected}"
             )
         return result
 
@@ -579,9 +596,13 @@ class GroupKernelAdapter(MergeMethod):
         results = []
         for group, kwargs in zip(batch.groups, parameters):
             result = self.merge_group(group, **kwargs)
-            if not isinstance(result, torch.Tensor):
+            expected = group.entries[0].tensor.shape if group.entries else None
+            if not isinstance(result, torch.Tensor) or (
+                expected is not None and result.shape != expected
+            ):
                 raise TypeError(
-                    f"Merge method {self.name()} must return a torch.Tensor"
+                    f"Merge method {self.spec.name} must return a tensor"
+                    f" of shape {expected}"
                 )
             results.append(result)
         return MergedBatch(tensors=tuple(results))

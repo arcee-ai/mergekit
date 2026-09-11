@@ -280,6 +280,23 @@ def test_native_kernels_keep_autograd_and_borrowed_inputs(method_name, device):
         assert tensor.grad is not None and tensor.grad.isfinite().all()
 
 
+@pytest.mark.parametrize(
+    "dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64]
+)
+@pytest.mark.parametrize("normalize", [False, True])
+def test_linear_precision_against_double_reference(dtype, normalize, device):
+    a = torch.tensor([100.0, -10.0, 0.25, 3.0], device=device, dtype=dtype)
+    b = torch.tensor([-50.0, 4.0, 3.0, -2.0], device=device, dtype=dtype)
+    weights = [0.123456, 0.654321]
+    expected = a.double() * weights[0] + b.double() * weights[1]
+    if normalize:
+        expected /= sum(weights)
+    result = merge_methods.get("linear")(
+        MergeBatch.from_tensors([a, b]), weight=weights, normalize=normalize
+    ).one()
+    torch.testing.assert_close(result, expected.to(dtype))
+
+
 def test_group_fallback_preserves_metadata_without_packing(monkeypatch):
     def fail(*args):
         pytest.fail("Sequential fallback should not pack")
@@ -407,7 +424,7 @@ def test_different_dtypes_and_input_counts_partition_batches(monkeypatch):
     ]
 
 
-def test_embedding_rectification_happens_before_bucketing(monkeypatch):
+def test_embedding_mismatch_fails_before_bucketing(monkeypatch):
     method = merge_methods.get("linear")
     calls = _record_calls(monkeypatch, method)
     groups = tuple(
@@ -420,10 +437,9 @@ def test_embedding_rectification_happens_before_bucketing(monkeypatch):
         )
         for rows in (4, 5)
     )
-    result = method(MergeBatch(groups), weight=[0.5, 0.5])
-    assert calls == [(torch.Size([2, 2, 3, 2]), None)]
-    for tensor in result.tensors:
-        torch.testing.assert_close(tensor, torch.full((3, 2), 2.0))
+    with pytest.raises(ValueError, match="tokenizer.*source: base"):
+        method(MergeBatch(groups), weight=[0.5, 0.5])
+    assert calls == []
 
 
 @pytest.mark.parametrize(

@@ -168,7 +168,7 @@ def plan_flat_merge(
         model_order = tuple(inputs)
         merge_method.validate_inputs(model_order, base_model, group_name=tensor_name)
         tensor_task = ExecuteMergeMethodTask(
-            method_name=merge_method.name(),
+            method_name=merge_method.spec.name,
             gather_tensors=tensor_input,
             model_order=model_order,
             base_model=base_model,
@@ -200,7 +200,11 @@ def construct_param_dicts(
     global_params = {}
     for param_def in merge_method.spec.shared_parameters:
         if config.parameters and param_def.name in config.parameters:
-            value = evaluate_setting(tensor_name, config.parameters[param_def.name])
+            value = evaluate_setting(
+                tensor_name,
+                config.parameters[param_def.name],
+                validate=param_def.validate,
+            )
             if value is not None:
                 global_params[param_def.name] = value
 
@@ -217,12 +221,17 @@ def construct_param_dicts(
         for model_def in config.models:
             mr = ModelReference.model_validate({"model": {"path": model_def.model}})
             tensor_params[mr] = tensor_params.get(mr, {})
+            if (
+                mr == base_ref
+                and param_def.input_target == InputParameterTarget.NON_BASE
+            ):
+                continue
             value = evaluate_setting(
-                tensor_name, (model_def.parameters or {}).get(param_def.name, [])
+                tensor_name,
+                (model_def.parameters or {}).get(param_def.name, []),
+                validate=param_def.validate,
             )
-            if value is not None:
-                tensor_params[mr][param_def.name] = value
-            else:
+            if value is None:
                 value = evaluate_setting(
                     tensor_name,
                     (
@@ -230,20 +239,16 @@ def construct_param_dicts(
                         if config.parameters
                         else []
                     ),
+                    validate=param_def.validate,
                 )
             if value is not None:
                 tensor_params[mr][param_def.name] = value
-            elif param_def.required and not (
-                mr == base_ref
-                and param_def.input_target == InputParameterTarget.NON_BASE
-            ):
+            elif param_def.required:
                 raise RuntimeError(
                     f"Missing required parameter {param_def.name} for model {mr} tensor {tensor_name}"
                 )
             else:
-                tensor_params[mr][param_def.name] = (
-                    None if param_def.required else param_def.default
-                )
+                tensor_params[mr][param_def.name] = param_def.default
     return global_params, tensor_params
 
 

@@ -53,7 +53,7 @@ def sce_merge(
 
 
 def sce_weight(tvs: torch.Tensor) -> torch.Tensor:
-    weights = torch.mean(tvs**2, dim=list(range(1, tvs.dim())))
+    weights = tvs.square().reshape(tvs.shape[0], -1).mean(dim=1)
     weight_sum = torch.sum(weights).item()
     if abs(weight_sum) < 1e-6:
         return torch.ones_like(weights) / weights.shape[0]
@@ -63,16 +63,17 @@ def sce_weight(tvs: torch.Tensor) -> torch.Tensor:
 def sce_mask(
     tvs: torch.Tensor, density: float, mask_dtype: Optional[torch.dtype] = None
 ):
+    # The selection mask covers weight elements, never the leading input axis.
     if density <= 0:
-        return torch.zeros_like(tvs, dtype=mask_dtype)
+        return torch.zeros_like(tvs[0], dtype=mask_dtype)
     if density >= 1:
-        return torch.ones_like(tvs, dtype=mask_dtype)
+        return torch.ones_like(tvs[0], dtype=mask_dtype)
 
     var = torch.var(tvs, dim=0, unbiased=False)
     nonzero = torch.count_nonzero(var)
     k = int(nonzero * density)
     if k == 0:
-        return torch.zeros_like(tvs, dtype=mask_dtype)
+        return torch.zeros_like(var, dtype=mask_dtype)
 
     _, indices = torch.topk(var.abs().view(-1), k=k, largest=True)
     mask = torch.zeros_like(var, dtype=mask_dtype)

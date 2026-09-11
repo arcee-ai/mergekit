@@ -104,7 +104,6 @@ def _spec_from_function(
     pretty_name: Optional[str] = None,
     reference_url: Optional[str] = None,
     contract: Optional[InputContract] = None,
-    rectify_embeddings: bool = False,
     optional_tensor_policy: OptionalTensorPolicy = OptionalTensorPolicy.ERROR,
 ) -> MergeMethodSpec:
     arguments = list(inspect.signature(func).parameters.values())
@@ -126,7 +125,6 @@ def _spec_from_function(
         pretty_name=pretty_name,
         reference_url=reference_url,
         contract=contract or InputContract(),
-        rectify_embeddings=rectify_embeddings,
         optional_tensor_policy=optional_tensor_policy,
         parameters=tuple(
             _parameter_spec(arg, hints.get(arg.name), batched) for arg in arguments[1:]
@@ -158,9 +156,9 @@ def _register(factory: Callable[..., MergeMethod], **spec_options: Any):
         from mergekit.merge_methods.registry import REGISTERED_MERGE_METHODS
 
         method = factory(func, **spec_options)
-        if method.name() in REGISTERED_MERGE_METHODS:
-            raise ValueError(f"Merge method {method.name()!r} is already registered")
-        REGISTERED_MERGE_METHODS[method.name()] = method
+        if method.spec.name in REGISTERED_MERGE_METHODS:
+            raise ValueError(f"Merge method {method.spec.name!r} is already registered")
+        REGISTERED_MERGE_METHODS[method.spec.name] = method
         return method
 
     return wrap

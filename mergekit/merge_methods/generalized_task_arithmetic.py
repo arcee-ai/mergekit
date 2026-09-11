@@ -1,14 +1,13 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-import logging
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
 from typing import Any, Optional
 
 import torch
-from typing_extensions import Literal, override
+from typing_extensions import Literal
 
 from mergekit.merge_methods.base import (
     BasePolicy,
@@ -37,17 +36,6 @@ class GeneralizedTaskArithmeticMerge(GroupKernelAdapter):
     method_name: str
     method_pretty_name: Optional[str]
     method_reference_url: Optional[str]
-
-    def name(self) -> str:
-        return self.method_name
-
-    @override
-    def pretty_name(self) -> Optional[str]:
-        return self.method_pretty_name
-
-    @override
-    def reference_url(self) -> Optional[str]:
-        return self.method_reference_url
 
     @cached_property
     def spec(self) -> MergeMethodSpec:
@@ -113,20 +101,8 @@ class GeneralizedTaskArithmeticMerge(GroupKernelAdapter):
         base = group.base.tensor
         task_vectors = []
         for entry in group.non_base:
-            tensor = entry.tensor.to(base.dtype)
-            if tensor.shape != base.shape:
-                if group.metadata.is_embed:
-                    tensor = tensor[: base.shape[0], : base.shape[1]]
-                    logging.warning(
-                        f"Using submatrix of {entry.id}:{group.metadata.name}"
-                    )
-                else:
-                    logging.warning(
-                        f"Skipping {entry.id}:{group.metadata.name} due to size mismatch"
-                    )
-                    continue
             info = {
-                "delta": tensor - base,
+                "delta": entry.tensor - base,
                 "weight": parameters["weight"][entry.id],
                 "density": parameters["density"][entry.id],
             }

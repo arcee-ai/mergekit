@@ -135,8 +135,10 @@ Parameters are flexible and can be set with varying precedence. They can be spec
 
 Parameters can be specified as:
 
-- **Scalars**: Single floating-point values.
-- **Gradients**: List of floating-point values, specifying an interpolated gradient.
+- **Scalars**: Numbers, booleans, or strings, according to the merge parameter's type.
+- **Gradients**: Lists of values. Numeric endpoints are validated and interpolated;
+  booleans and strings select discrete steps. Scientific notation such as
+  `[1e-5, 1e-3]` is supported for numeric parameters.
 
 The parameters can be set at different levels, with decreasing precedence as follows:
 
@@ -152,6 +154,12 @@ The tokenizer behavior can be configured in two ways: using the new `tokenizer` 
 #### Modern Configuration (tokenizer)
 
 The `tokenizer` field provides fine-grained control over vocabulary and embeddings:
+
+Inputs with different vocabulary sizes must be aligned using this configuration
+(or `tokenizer_source`) before merging. Merge methods no longer truncate embedding
+matrices to their common size. Use `source: base` to retain the base vocabulary,
+`source: union` to combine vocabularies, or a model path to select its vocabulary.
+Embedding hidden dimensions must match regardless of tokenizer configuration.
 
 ```yaml
 tokenizer:

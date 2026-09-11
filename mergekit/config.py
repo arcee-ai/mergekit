@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
 from pydantic import BaseModel, model_validator
@@ -24,23 +24,39 @@ ParameterSetting: TypeAlias = Union[
 ]
 
 
-def evaluate_setting(tensor_name: str, setting: ParameterSetting, t: float = 0) -> Any:
+def evaluate_setting(
+    tensor_name: str,
+    setting: ParameterSetting,
+    t: float = 0,
+    *,
+    validate: Callable[[Any], Any],
+) -> Any:
+    """Resolve filters and gradients using the parameter's validated scalar types.
+
+    Numeric endpoints interpolate; booleans and strings select discrete values.
+    In particular, YAML scientific-notation strings become numeric endpoints for
+    numeric parameters, but remain discrete labels for string parameters.
+    """
+    if isinstance(setting, ConditionalParameter):
+        setting = [setting]
     if isinstance(setting, (float, int, bool, str)):
-        return setting
+        return validate(setting)
     elif isinstance(setting, list):
         if not setting:
             return None
-        if all(
-            isinstance(e, (int, float)) and not isinstance(e, bool) for e in setting
-        ):
+        if all(isinstance(e, (float, int, bool, str)) for e in setting):
+            values = [validate(e) for e in setting]
+            if not all(
+                isinstance(e, (int, float)) and not isinstance(e, bool) for e in values
+            ):
+                return values[int(t * (len(values) - 1))]
             scaled = t * (len(setting) - 1)
             i0 = int(scaled)
             i1 = min(len(setting) - 1, i0 + 1)
             frac = scaled - i0
 
-            return (1 - frac) * setting[i0] + frac * setting[i1]
-        elif all(isinstance(e, (float, int, bool, str)) for e in setting):
-            return setting[int(t * (len(setting) - 1))]
+            result = (1 - frac) * values[i0] + frac * values[i1]
+            return validate(result)
         else:
             for cond in setting:
                 if (
@@ -48,7 +64,9 @@ def evaluate_setting(tensor_name: str, setting: ParameterSetting, t: float = 0) 
                     or (cond.filter == "*")
                     or (tensor_name and cond.filter in tensor_name)
                 ):
-                    res = evaluate_setting(tensor_name, cond.value, t)
+                    res = evaluate_setting(
+                        tensor_name, cond.value, t, validate=validate
+                    )
                     return res
     else:
         raise RuntimeError(f"Unexpected setting value: {setting}")
@@ -210,20 +228,28 @@ class ConfigReader(BaseModel):
         model: Optional[ModelReference] = None,
         default: Any = None,
         required: bool = False,
+        *,
+        validate: Callable[[Any], Any],
     ) -> Any:
         if self.slice_out:
             if model:
                 for s in self.slice_out.sources:
                     if s.model == model and s.parameters and name in s.parameters:
                         value = evaluate_setting(
-                            self.tensor_name, s.parameters[name], self.t
+                            self.tensor_name,
+                            s.parameters[name],
+                            self.t,
+                            validate=validate,
                         )
                         if value is not None:
                             return value
 
             if self.slice_out.parameters and name in self.slice_out.parameters:
                 value = evaluate_setting(
-                    self.tensor_name, self.slice_out.parameters[name], self.t
+                    self.tensor_name,
+                    self.slice_out.parameters[name],
+                    self.t,
+                    validate=validate,
                 )
                 if value is not None:
                     return value
@@ -233,6 +259,7 @@ class ConfigReader(BaseModel):
                 self.tensor_name,
                 self.module.parameters[name],
                 self.t,
+                validate=validate,
             )
             if value is not None:
                 return value
@@ -242,6 +269,7 @@ class ConfigReader(BaseModel):
                 self.tensor_name,
                 self.config.parameters[name],
                 self.t,
+                validate=validate,
             )
             if value is not None:
                 return value

@@ -57,6 +57,12 @@ gradients. Scope describes the input axis along which the resolved value is boun
 Unsupported or ambiguous annotations are rejected when the method is defined. Resolved
 values are validated against their annotations before any tensor math runs.
 
+Configuration gradient endpoints are validated using the parameter's declared type
+before interpolation. For example, `[1e-5, 1e-3]` interpolates for a float parameter
+even when the YAML parser reads the endpoints as strings. String and boolean
+parameters use discrete steps instead. Integer gradients must resolve to an integer;
+fractional results and endpoints outside declared constraints are rejected.
+
 ## Input contracts
 
 Structural requirements belong to the method definition:
@@ -140,9 +146,15 @@ output per group.
 Logical batches may be heterogeneous. Preparation validates every group, buckets
 compatible work by shape, dtype, device, input count/layout, and execution options,
 then incrementally packs numerical `TensorBatch` buffers. All inputs within a group
-must have matching shapes, dtypes, and devices. With `rectify_embeddings=True` in a
-method definition, embedding inputs are cropped to their common submatrix before
-bucketing. Output order always matches logical group order, not bucket order.
+must have matching shapes, dtypes, and devices, including for sequential group
+kernels. Every group is checked before any kernel executes, and kernels must preserve
+the weight shape. Output order always matches logical group order, not bucket order.
+
+Merge methods do not truncate embeddings or repair incompatible tensors. Configure
+`tokenizer: {source: base}` to align inputs to the base vocabulary, or select `union`
+or a specific model's tokenizer. Vocabulary alignment, missing-token initialization,
+and padding happen before merging; hidden dimensions must already match. Direct
+tensor and state-dict callers must perform any alignment themselves.
 
 The kernel receives `[B, N, *weight_shape]` and returns `[B, *weight_shape]`. It must
 preserve the output axis: reductions for norms, means, and dot products must not
@@ -219,6 +231,9 @@ Decorator-based methods register when their module is imported. Add the module i
 to `mergekit/merge_methods/__init__.py` for built-in methods. Static families such as
 TIES/DARE may construct `MergeMethodSpec` objects programmatically when their available
 parameters depend on a registered variant profile.
+
+Read method metadata directly from `method.spec.name`, `method.spec.pretty_name`,
+and `method.spec.reference_url`; there are no separate metadata accessor methods.
 
 ## Execution adapters
 

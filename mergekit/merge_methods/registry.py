@@ -101,5 +101,5 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
 ]
 
 REGISTERED_MERGE_METHODS: Dict[str, MergeMethod] = {
-    method.name(): method for method in STATIC_MERGE_METHODS
+    method.spec.name: method for method in STATIC_MERGE_METHODS
 }
