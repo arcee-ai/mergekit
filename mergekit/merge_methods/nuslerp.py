@@ -28,8 +28,8 @@ def nuslerp(
         return x / torch.norm(x, dim=-1, keepdim=True).clamp(min=eps)
 
     if flatten:
-        v0 = v0.view(-1)
-        v1 = v1.view(-1)
+        v0 = v0.reshape(-1)
+        v1 = v1.reshape(-1)
     elif dim != -1:
         v0 = v0.transpose(dim, -1)
         v1 = v1.transpose(dim, -1)
@@ -46,7 +46,7 @@ def nuslerp(
 
     if dim != -1 and not flatten:
         result = result.transpose(dim, -1)
-    return result.view(out_shape)
+    return result.reshape(out_shape)
 
 
 def _nuslerp_merge(

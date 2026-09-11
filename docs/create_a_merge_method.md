@@ -149,6 +149,7 @@ then incrementally packs numerical `TensorBatch` buffers. All inputs within a gr
 must have matching shapes, dtypes, and devices, including for sequential group
 kernels. Every group is checked before any kernel executes, and kernels must preserve
 the weight shape. Output order always matches logical group order, not bucket order.
+Dense strided inputs need not be contiguous; kernels reshape locally where needed.
 
 Merge methods do not truncate embeddings or repair incompatible tensors. Configure
 `tokenizer: {source: base}` to align inputs to the base vocabulary, or select `union`
@@ -191,7 +192,7 @@ Logical inputs are borrowed and must not be modified. Packing creates owned work
 storage. `batch.workspace()` returns that storage for an owned batch, or clones it
 for a borrowed batch. Kernels may use it for in-place work when compatible with
 their autograd requirements. Outputs may alias working storage, extending its
-lifetime; a sequential fallback may also return a borrowed input unchanged.
+lifetime; a group method may also return a borrowed input unchanged.
 
 A loader or executor that already has aligned buffers can call
 `method.merge_batch(TensorBatch(...), **aligned_parameters)` directly. This is the
@@ -200,10 +201,11 @@ input device and resolved Python options, and are responsible for satisfying the
 method's input contract. It does not repeat logical parameter binding. Set
 `owned=True` only when transferring permission to overwrite the buffer.
 
-## Explicit sequential fallback
+## Group kernels
 
-Algorithms not yet vectorized use a named adapter, without allocating packing
-buffers just to loop over them:
+Group kernels operate directly on one logical output at a time, without allocating
+packing buffers. They are an alternative to native batch kernels, particularly for
+algorithms that need tensor metadata or do not benefit from vectorization:
 
 ```python
 from mergekit.merge_methods import Shared, TensorGroup, group_merge_method
@@ -219,7 +221,7 @@ of parameter validation, including constraints inside `T`.
 
 `from_batch_kernel` and `from_group_kernel` construct methods without registering
 them. `method.supports_batching` distinguishes a native numerical kernel from a
-`GroupKernelAdapter`; accepting a logical batch alone does not imply vectorization.
+`GroupMergeMethod`; accepting a logical batch alone does not imply vectorization.
 
 ## Metadata and base inputs
 
@@ -265,4 +267,6 @@ not yet coalesce graph tasks. State-dict callers already batch compatible output
 The numerical boundary allows a future scheduler to load directly into packed
 buffers without changing kernels. Missing-optional-weight fallback is handled by
 the graph adapter through the method spec's optional-tensor policy, not by weakening
-the numerical kernel's arity contract.
+the numerical kernel's arity contract. Outside those explicit fallbacks, base-aware
+methods require a configured base to be present: a missing base weight must not
+silently select a baseless variant of the algorithm.

@@ -63,14 +63,14 @@ def magnitude(
     k = int(density * tensor.numel())
 
     assert k > 0, "not gonna zero out the whole tensor buddy"
-    mask = torch.zeros_like(tensor)
-    w = tensor.abs().view(-1)
+    mask = torch.zeros(tensor.numel(), dtype=tensor.dtype, device=tensor.device)
+    w = tensor.abs().reshape(-1)
     if w.device.type == "cpu":
         w = w.float()
     topk = torch.argsort(w, descending=True)[:k]
-    mask.view(-1)[topk] = 1
+    mask[topk] = 1
 
-    res = rescaled_masked_tensor(tensor, mask, rescale_norm)
+    res = rescaled_masked_tensor(tensor, mask.reshape_as(tensor), rescale_norm)
     return res
 
 
@@ -96,23 +96,18 @@ def magnitude_outliers(
     num_elems = tensor.numel()
     target_n = int(density * num_elems)
     n_top = int(gamma * num_elems)
-    n_bot = num_elems - target_n - n_top
+    # Reduce the outlier removal when necessary to retain the target density.
+    n_bot = max(0, num_elems - target_n - n_top)
 
-    if n_bot < 0:
-        # cut down on the number of large weights to remove in
-        # order to hit the target density
-        n_top += n_bot
-        n_bot = 0
-
-    w = tensor.abs().view(-1)
+    w = tensor.abs().reshape(-1)
     if w.device.type == "cpu":
         w = w.float()
     indices = torch.sort(w, descending=False).indices
-    mask = torch.zeros_like(tensor)
+    mask = torch.zeros(num_elems, dtype=tensor.dtype, device=tensor.device)
 
-    mask.view(-1)[indices[n_bot:-n_top]] = 1
+    mask[indices[n_bot : n_bot + target_n]] = 1
 
-    res = rescaled_masked_tensor(tensor, mask, rescale_norm)
+    res = rescaled_masked_tensor(tensor, mask.reshape_as(tensor), rescale_norm)
     return res
 
 

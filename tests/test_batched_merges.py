@@ -336,9 +336,9 @@ def test_linear_precision_against_double_reference(dtype, normalize, device):
     torch.testing.assert_close(result, expected.to(dtype))
 
 
-def test_group_fallback_preserves_metadata_without_packing(monkeypatch):
+def test_group_method_preserves_metadata_without_packing(monkeypatch):
     def fail(*args):
-        pytest.fail("Sequential fallback should not pack")
+        pytest.fail("Group methods should not pack")
 
     monkeypatch.setattr("mergekit.merge_methods.batching.prepare_batches", fail)
     names = []
@@ -347,7 +347,7 @@ def test_group_fallback_preserves_metadata_without_packing(monkeypatch):
         names.append(group.metadata.name)
         return group.entries[0].tensor
 
-    method = from_group_kernel(kernel, name="fallback")
+    method = from_group_kernel(kernel, name="unpacked")
     groups = tuple(
         TensorGroup((TensorEntry("a", torch.ones(i)),), TensorMetadata(name=str(i)))
         for i in (2, 3)
@@ -510,3 +510,6 @@ def test_graph_adapter_preserves_optional_singleton_fallback(method_name, count)
     assert task.execute({refs[0]: tensor}) is tensor
     if method_name == "model_stock":
         assert task.execute({refs[0]: tensor, refs[1]: tensor}) is None
+        assert task.execute({refs[1]: tensor}) is None
+    else:
+        assert task.execute({refs[1]: tensor}) is tensor

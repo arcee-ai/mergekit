@@ -25,8 +25,8 @@ def _model_stock_merge(
             w_0 = w_0.unsqueeze(0)
             ws = [weight.unsqueeze(0) for weight in ws]
     else:
-        w_0 = w_0.view(-1)
-        ws = [weight.view(-1) for weight in ws]
+        w_0 = w_0.reshape(-1)
+        ws = [weight.reshape(-1) for weight in ws]
 
     offsets = [weight - w_0 for weight in ws]
     cos_thetas = []

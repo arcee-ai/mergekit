@@ -107,6 +107,14 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
                     self.output_weight.name,
                 )
                 return None
+        # A missing configured base is not the same as choosing a baseless
+        # algorithm. TensorGroup alone cannot retain that distinction once the
+        # loader has omitted the base's optional weight.
+        method.validate_inputs(
+            [entry.id for entry in entries],
+            self.base_model,
+            group_name=self.output_weight.name,
+        )
         kwargs = dict(self.parameters.items())
         for parameter in method.spec.input_parameters:
             kwargs[parameter.name] = {

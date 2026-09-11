@@ -13,7 +13,7 @@ from mergekit.merge_methods.base import (
     MISSING,
     BatchedMergeMethod,
     BatchParameter,
-    FunctionalGroupKernelAdapter,
+    FunctionalGroupMergeMethod,
     InputContract,
     MergeMethod,
     MergeMethodSpec,
@@ -145,9 +145,9 @@ def from_batch_kernel(
 
 def from_group_kernel(
     func: Callable[..., torch.Tensor], **spec_options: Any
-) -> FunctionalGroupKernelAdapter:
+) -> FunctionalGroupMergeMethod:
     """Explicitly lift a sequential group kernel over a logical batch."""
-    return FunctionalGroupKernelAdapter(
+    return FunctionalGroupMergeMethod(
         _spec_from_function(func, batched=False, **spec_options), func
     )
 
@@ -172,5 +172,5 @@ def merge_method(**spec_options: Any):
 
 
 def group_merge_method(**spec_options: Any):
-    """Register a sequential kernel with an explicit fallback adapter."""
+    """Register a method that operates on one logical tensor group at a time."""
     return _register(from_group_kernel, **spec_options)

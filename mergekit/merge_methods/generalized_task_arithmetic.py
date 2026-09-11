@@ -11,7 +11,7 @@ from typing_extensions import Literal
 
 from mergekit.merge_methods.base import (
     BasePolicy,
-    GroupKernelAdapter,
+    GroupMergeMethod,
     InputContract,
     InputParameterTarget,
     MergeMethodSpec,
@@ -28,7 +28,7 @@ class ConsensusMethod(str, Enum):
 
 
 @dataclass(frozen=True)
-class GeneralizedTaskArithmeticMerge(GroupKernelAdapter):
+class GeneralizedTaskArithmeticMerge(GroupMergeMethod):
     consensus_method: Optional[ConsensusMethod]
     sparsification_method: Optional[SparsificationMethod]
     default_normalize: bool

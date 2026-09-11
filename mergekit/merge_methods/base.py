@@ -585,10 +585,10 @@ class BatchedMergeMethod(MergeMethod):
         return MergedBatch(tensors=tuple(results))
 
 
-class GroupKernelAdapter(MergeMethod):
-    """Explicit, unpacked fallback for algorithms not yet vectorized.
+class GroupMergeMethod(MergeMethod):
+    """A method that operates on one logical tensor group at a time.
 
-    This adapter deliberately avoids packing: a sequential kernel should not pay
+    Group methods deliberately avoid packing: a sequential kernel should not pay
     the memory cost of packing or lose access to logical tensor metadata.
     """
 
@@ -613,7 +613,7 @@ class GroupKernelAdapter(MergeMethod):
         return MergedBatch(tensors=tuple(results))
 
 
-class FunctionalGroupKernelAdapter(GroupKernelAdapter):
+class FunctionalGroupMergeMethod(GroupMergeMethod):
     def __init__(
         self, spec: MergeMethodSpec, implementation: Callable[..., torch.Tensor]
     ):

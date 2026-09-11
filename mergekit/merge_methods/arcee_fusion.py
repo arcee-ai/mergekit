@@ -12,13 +12,21 @@ from mergekit.merge_methods.base import (
 )
 from mergekit.merge_methods.easy_define import from_group_kernel
 
+_QUANTILE_SAMPLE_SIZE = 1_000_000
+
 
 class DynamicThresholdFusion:
     def approximate_quantiles(self, tensor, q):
-        flat_tensor = tensor.view(-1)
-        if flat_tensor.numel() > 1e6:
+        flat_tensor = tensor.reshape(-1)
+        if flat_tensor.numel() > _QUANTILE_SAMPLE_SIZE:
+            # Uniform sampling with replacement bounds index storage by the
+            # sample size, unlike a full permutation of a potentially huge weight.
             flat_tensor = flat_tensor[
-                torch.randperm(flat_tensor.numel(), device=flat_tensor.device)[:1000000]
+                torch.randint(
+                    flat_tensor.numel(),
+                    (_QUANTILE_SAMPLE_SIZE,),
+                    device=flat_tensor.device,
+                )
             ]
         sorted_tensor, _ = torch.sort(flat_tensor)
         quantile_indices = (
@@ -27,9 +35,9 @@ class DynamicThresholdFusion:
         return sorted_tensor[quantile_indices]
 
     def calculate_dynamic_threshold(self, importance_scores):
-        median = self.approximate_quantiles(importance_scores, torch.tensor([0.5]))[0]
-        q1, q3 = self.approximate_quantiles(
-            importance_scores, torch.tensor([0.25, 0.75])
+        # Use one sample and sort for all three statistics.
+        q1, median, q3 = self.approximate_quantiles(
+            importance_scores, torch.tensor([0.25, 0.5, 0.75])
         )
         return median + 1.5 * (q3 - q1)
 
@@ -38,14 +46,19 @@ class DynamicThresholdFusion:
         return (importance_scores >= threshold).float(), threshold
 
 
+def _compute_importance(params: torch.Tensor, base: torch.Tensor) -> torch.Tensor:
+    """Keep full-sized inference temporaries out of the threshold/fusion phase."""
+    diff = (params - base).abs()
+    eps = 1e-8
+    p = F.softmax(params, dim=-1) + eps
+    q = F.softmax(base, dim=-1) + eps
+    kl_div = torch.sum(p * torch.log(p / q), dim=-1)
+    return diff * kl_div.unsqueeze(-1)
+
+
 def _arcee_fusion_merge(group: TensorGroup) -> torch.Tensor:
     tensors = [group.base.tensor, group.non_base[0].tensor]
-    diff = (tensors[1] - tensors[0]).abs()
-    eps = 1e-8
-    p = F.softmax(tensors[1], dim=-1) + eps
-    q = F.softmax(tensors[0], dim=-1) + eps
-    kl_div = torch.sum(p * torch.log(p / q), dim=-1)
-    importance = diff * kl_div.unsqueeze(-1)
+    importance = _compute_importance(tensors[1], tensors[0])
     fusion_mask, _ = DynamicThresholdFusion().compute_fusion_mask(importance)
     return tensors[0] + (tensors[1] - tensors[0]) * fusion_mask
 
