@@ -60,19 +60,18 @@ class PerInputValues(Mapping[Hashable, T], Generic[T]):
     """Immutable values associated with tensor inputs, preserving input order."""
 
     def __init__(self, items: Sequence[Tuple[Hashable, T]]):
-        self._items = tuple(items)
-        self._data = dict(self._items)
-        if len(self._data) != len(self._items):
+        self._data = dict(items)
+        if len(self._data) != len(items):
             raise ValueError("Duplicate input IDs in per-input parameter")
 
     def __getitem__(self, key: Hashable) -> T:
         return self._data[key]
 
     def __iter__(self) -> Iterator[Hashable]:
-        return iter(key for key, _ in self._items)
+        return iter(self._data)
 
     def __len__(self) -> int:
-        return len(self._items)
+        return len(self._data)
 
     def values_for(self, entries: Sequence["TensorEntry"]) -> List[T]:
         return [self[entry.id] for entry in entries]
@@ -225,11 +224,10 @@ class InputContract:
 class TensorMetadata:
     name: Optional[str] = None
     is_embed: bool = False
-    optional: bool = False
 
     @classmethod
     def from_weight_info(cls, weight: Any) -> "TensorMetadata":
-        return cls(name=weight.name, is_embed=weight.is_embed, optional=weight.optional)
+        return cls(name=weight.name, is_embed=weight.is_embed)
 
 
 @dataclass(frozen=True)
@@ -332,19 +330,6 @@ class MergeBatch:
 
 
 @dataclass(frozen=True)
-class MergedBatch:
-    tensors: Tuple[torch.Tensor, ...]
-
-    def __post_init__(self):
-        object.__setattr__(self, "tensors", tuple(self.tensors))
-
-    def one(self) -> torch.Tensor:
-        if len(self.tensors) != 1:
-            raise ValueError(f"Expected one merged tensor, got {len(self.tensors)}")
-        return self.tensors[0]
-
-
-@dataclass(frozen=True)
 class BatchOptions:
     """Limits on packing, not total device memory or kernel scratch space.
 
@@ -440,9 +425,10 @@ class MergeMethod(ABC):
         dtype: Optional[torch.dtype] = None,
         out_dtype: Optional[torch.dtype] = None,
         batch_options: Optional[BatchOptions] = None,
-    ) -> MergedBatch:
+    ) -> Tuple[torch.Tensor, ...]:
         """Validate and merge, promoting inputs per group unless dtype is given.
 
+        Return one tensor per group, in the same order as the input groups.
         Adapters may apply an explicit input dtype before calling this method.
         Any remaining conversion happens when each group/chunk executes; outputs
         are cast before accumulation. Algorithm parameters are separate from these
@@ -505,7 +491,7 @@ class MergeMethod(ABC):
         *,
         input_dtypes: Sequence[Optional[torch.dtype]],
         out_dtype: Optional[torch.dtype] = None,
-    ) -> MergedBatch:
+    ) -> Tuple[torch.Tensor, ...]:
         """Execute validated inputs, converting only the current group/chunk.
 
         The public call supplies per-group dtypes and the optional output cast.
@@ -559,9 +545,7 @@ class MergeMethod(ABC):
             else group.entries
         )
         ids = [entry.id for entry in entries]
-        if isinstance(value, PerInputValues):
-            raw_values = [value[key] for key in ids]
-        elif isinstance(value, Mapping):
+        if isinstance(value, Mapping):
             missing = [key for key in ids if key not in value]
             if missing:
                 raise ValueError(f"Missing {parameter.name} for input(s): {missing}")
@@ -612,7 +596,7 @@ class BatchedMergeMethod(MergeMethod):
         *,
         input_dtypes: Sequence[Optional[torch.dtype]],
         out_dtype: Optional[torch.dtype] = None,
-    ) -> MergedBatch:
+    ) -> Tuple[torch.Tensor, ...]:
         from mergekit.merge_methods.batching import prepare_batches
 
         # Preparation validates every group before any kernel is invoked. Packing
@@ -630,7 +614,7 @@ class BatchedMergeMethod(MergeMethod):
             for index, tensor in zip(chunk.indices, merged.unbind(0)):
                 results[index] = tensor
             del packed, kwargs, merged
-        return MergedBatch(tensors=tuple(results))
+        return tuple(results)
 
 
 class GroupMergeMethod(MergeMethod):
@@ -651,7 +635,7 @@ class GroupMergeMethod(MergeMethod):
         *,
         input_dtypes: Sequence[Optional[torch.dtype]],
         out_dtype: Optional[torch.dtype] = None,
-    ) -> MergedBatch:
+    ) -> Tuple[torch.Tensor, ...]:
         from mergekit.merge_methods.dtype import align_dtype
 
         results = []
@@ -677,7 +661,7 @@ class GroupMergeMethod(MergeMethod):
             )
             # Release converted inputs and the uncast result before the next group.
             del group, result
-        return MergedBatch(tensors=tuple(results))
+        return tuple(results)
 
 
 class FunctionalGroupMergeMethod(GroupMergeMethod):

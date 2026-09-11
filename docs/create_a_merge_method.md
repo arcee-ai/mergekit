@@ -109,11 +109,10 @@ batch = MergeBatch.from_tensors(
     ids=["model_a", "model_b"],
 )
 
-result = merge_methods.get("linear")(
+(merged_tensor,) = merge_methods.get("linear")(
     batch,
     parameters={"weight": {"model_a": 0.25, "model_b": 0.75}},
 )
-merged_tensor = result.one()
 ```
 
 Sequences may be used for per-input values when their order matches the tensor entries.
@@ -157,8 +156,9 @@ separately from dtype and packing controls; no algorithm parameter names are res
 ## Batches
 
 A `TensorGroup` contains the inputs for one logical output tensor. A `MergeBatch`
-contains one or more groups, and invoking a method returns a `MergedBatch` with one
-output per group.
+contains one or more groups, and invoking a method returns a tuple of tensors with
+one output per group, in input-group order. Unpack a singleton result with
+`(merged_tensor,) = method(batch, ...)`.
 
 Logical batches may be heterogeneous. Preparation validates every group, buckets
 compatible work by shape, dtype, device, input count/layout, and execution options,

@@ -250,9 +250,9 @@ def test_linear_ignores_ambient_autocast(device, autocast_dtype):
     tensors = [torch.tensor([100000.0, 1.001, 1.002], device=device)] * 2
     method = merge_methods.get("linear")
     with torch.autocast(device, dtype=autocast_dtype):
-        actual = method(
+        (actual,) = method(
             MergeBatch.from_tensors(tensors), parameters={"weight": [0.5, 0.5]}
-        ).one()
+        )
     torch.testing.assert_close(actual, tensors[0], rtol=0, atol=0)
 
 
@@ -379,7 +379,7 @@ def test_dtype_intermediates_released_between_chunks(batched, dtype, device, dir
                 for name in models[0]
             )
         )
-        tensors = method(batch, **options).tensors
+        tensors = method(batch, **options)
     else:
         tensors = merge_state_dicts(models, method, **options).values()
     assert len(calls) == 5
@@ -435,7 +435,7 @@ def test_direct_and_state_dict_calls_share_dtype_policy(method_name, dtype, out_
         dtype=dtype,
         out_dtype=out_dtype,
     )
-    for name, tensor in zip(names, actual.tensors):
+    for name, tensor in zip(names, actual):
         torch.testing.assert_close(tensor, expected[name])
 
 

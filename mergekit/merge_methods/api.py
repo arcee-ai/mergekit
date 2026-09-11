@@ -125,7 +125,7 @@ def merge_state_dicts(
         out_dtype=out_dtype,
         batch_options=batch_options,
     )
-    results = dict(zip(merge_names, merged.tensors))
+    results = dict(zip(merge_names, merged))
     results.update(copied)
     return {name: results[name] for name in tensor_names}
 

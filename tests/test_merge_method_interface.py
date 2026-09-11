@@ -10,6 +10,7 @@ from mergekit.merge_methods import (
     MergeBatch,
     PerGroupValues,
     PerInput,
+    PerInputValues,
     Shared,
     TensorEntry,
     TensorGroup,
@@ -50,9 +51,9 @@ def test_signature_is_parameter_ssot_and_supports_shared_lists():
     batch = MergeBatch.from_tensors(
         [torch.tensor([1.0, 2.0]), torch.tensor([3.0, 4.0])], ids=["a", "b"]
     )
-    result = method(
+    (result,) = method(
         batch, parameters={"weight": {"b": 0.75, "a": 0.25}, "offsets": [10.0, 20.0]}
-    ).one()
+    )
     assert torch.equal(result, torch.tensor([12.5, 23.5]))
 
 
@@ -90,18 +91,22 @@ def test_contract_validates_entire_batch_before_math_runs():
     assert calls == []
 
 
-def test_per_input_values_are_ordered_and_shape_checked():
+@pytest.mark.parametrize("values_type", [dict, PerInputValues])
+def test_per_input_values_are_ordered_and_shape_checked(values_type):
     def kernel(group: TensorGroup, value: PerInput[int]) -> torch.Tensor:
+        assert list(value) == ["second", "first"]
         return torch.tensor(value.values_for(group.entries))
 
     method = merge_method(kernel, name="ordered")
     batch = MergeBatch.from_tensors(
         [torch.zeros(2), torch.zeros(2)], ids=["second", "first"]
     )
-    assert torch.equal(
-        method(batch, parameters={"value": {"first": 1, "second": 2}}).one(),
-        torch.tensor([2, 1]),
+    (result,) = method(
+        batch, parameters={"value": values_type([("first", 1), ("second", 2)])}
     )
+    assert torch.equal(result, torch.tensor([2, 1]))
+    with pytest.raises(ValueError, match="Missing value for input"):
+        method(batch, parameters={"value": values_type([("first", 1)])})
     with pytest.raises(ValueError, match="expects 2 values"):
         method(batch, parameters={"value": [1]})
 
@@ -112,9 +117,9 @@ def test_registered_method_can_be_called_directly():
     batch = MergeBatch.from_tensors(
         [torch.tensor([1.0]), torch.tensor([3.0])], ids=["a", "b"]
     )
-    result = merge_methods.get("linear")(
+    (result,) = merge_methods.get("linear")(
         batch, parameters={"weight": {"a": 0.25, "b": 0.75}}
-    ).one()
+    )
     assert torch.equal(result, torch.tensor([2.5]))
 
 
@@ -130,7 +135,7 @@ def test_explicit_per_group_parameter_values():
         )
     )
     result = method(batch, parameters={"scale": PerGroupValues([5.0, 7.0])})
-    assert result.tensors == (torch.tensor(10.0), torch.tensor(21.0))
+    assert result == (torch.tensor(10.0), torch.tensor(21.0))
 
 
 def test_merge_state_dicts_programmatic_api():
@@ -268,10 +273,10 @@ def test_model_stock_singularity_retains_base_with_finite_gradients(filter_wise)
     base = torch.tensor([[2.0, 3.0]], dtype=torch.float64, requires_grad=True)
     a = torch.tensor([[3.0, 3.0]], dtype=torch.float64, requires_grad=True)
     b = torch.tensor([[1.0, 3.0]], dtype=torch.float64, requires_grad=True)
-    result = merge_methods.get("model_stock")(
+    (result,) = merge_methods.get("model_stock")(
         MergeBatch.from_tensors([base, a, b], base_index=0),
         parameters={"filter_wise": filter_wise},
-    ).one()
+    )
     torch.testing.assert_close(result, base)
     result.sum().backward()
     torch.testing.assert_close(base.grad, torch.ones_like(base))
@@ -286,10 +291,10 @@ def test_sce_zero_variance_preserves_shape(shape, density):
 
     base = torch.ones(shape)
     other = torch.full(shape, 3.0)
-    result = merge_methods.get("sce")(
+    (result,) = merge_methods.get("sce")(
         MergeBatch.from_tensors([base, other, other], base_index=0),
         parameters={"select_topk": density},
-    ).one()
+    )
     torch.testing.assert_close(result, other if density == 1 else base)
 
 
@@ -345,7 +350,8 @@ def test_construction_and_registration_are_independent(monkeypatch):
 
     assert get("linear") is builtin
     batch = MergeBatch.from_tensors([torch.ones(2)])
-    torch.testing.assert_close(custom(batch).one(), torch.ones(2))
+    (result,) = custom(batch)
+    torch.testing.assert_close(result, torch.ones(2))
     with pytest.raises(ValueError, match="already registered"):
         register(custom)
     assert get("linear") is builtin
@@ -369,12 +375,12 @@ def test_execution_controls_do_not_reserve_algorithm_parameter_names():
     ) -> torch.Tensor:
         return group.tensors[0] * (dtype + out_dtype + batch_options + parameters)
 
-    result = kernel(
+    (result,) = kernel(
         MergeBatch.from_tensors([torch.ones(2)]),
         parameters={"dtype": 1, "out_dtype": 2, "batch_options": 3, "parameters": 4},
         dtype=torch.float64,
         out_dtype=torch.float32,
-    ).one()
+    )
     torch.testing.assert_close(result, torch.full((2,), 10.0))
 
 

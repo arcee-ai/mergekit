@@ -87,7 +87,7 @@ def test_linear_buckets_options_shapes_and_restores_order(monkeypatch, device):
     )
     assert method.supports_batching
     assert [shape[0] for shape, _ in calls] == [2, 2, 1]
-    for actual, wanted in zip(results.tensors, expected):
+    for actual, wanted in zip(results, expected):
         torch.testing.assert_close(actual, wanted)
         assert actual.device.type == device
 
@@ -114,7 +114,7 @@ def test_packing_budget_and_oversized_singletons(monkeypatch, options, counts):
         MergeBatch(groups), parameters={"weight": [0.5, 0.5]}, batch_options=options
     )
     assert [shape[0] for shape, _ in calls] == counts
-    for i, tensor in enumerate(result.tensors):
+    for i, tensor in enumerate(result):
         torch.testing.assert_close(tensor, torch.full((4,), float(i + 1)))
 
 
@@ -162,7 +162,7 @@ def test_slerp_mixed_geometries_varying_coefficients_and_base_order(
         expected.append(_reference_slerp(a, b, t))
     result = method(MergeBatch(tuple(groups)), parameters={"t": PerGroupValues(ts)})
     assert calls == [(torch.Size([6, 2, 2]), 0)]
-    for actual, wanted in zip(result.tensors, expected):
+    for actual, wanted in zip(result, expected):
         torch.testing.assert_close(actual, wanted)
 
 
@@ -184,7 +184,7 @@ def test_native_kernels_preserve_weight_shape(method_name, shape, device):
     result = merge_methods.get(method_name)(
         MergeBatch(tuple(groups)), parameters=params
     )
-    for actual, wanted in zip(result.tensors, expected):
+    for actual, wanted in zip(result, expected):
         torch.testing.assert_close(actual, wanted)
 
 
@@ -207,7 +207,7 @@ def test_non_base_coefficients_follow_canonical_layout(device):
     b = TensorEntry("b", torch.tensor([3.0], device=device))
     groups = (TensorGroup((a, base, b)), TensorGroup((base, b, a)))
     result = method(MergeBatch(groups), parameters={"weight": {"a": 2, "b": 3}})
-    for tensor in result.tensors:
+    for tensor in result:
         torch.testing.assert_close(tensor, torch.tensor([23.0], device=device))
 
 
@@ -256,9 +256,8 @@ def test_owned_workspace_does_not_mutate_sources():
 
     source = torch.ones(3)
     method = merge_method(kernel, name="workspace")
-    torch.testing.assert_close(
-        method(MergeBatch.from_tensors([source])).one(), torch.full((3,), 2.0)
-    )
+    (result,) = method(MergeBatch.from_tensors([source]))
+    torch.testing.assert_close(result, torch.full((3,), 2.0))
     torch.testing.assert_close(source, torch.ones(3))
     borrowed = torch.ones(2, 1, 3)
     method.merge_batch(TensorBatch(borrowed))
@@ -278,7 +277,7 @@ def test_native_kernels_keep_autograd_and_borrowed_inputs(method_name, device):
     )
     params = {"weight": [0.25, 0.75]} if method_name == "linear" else {"t": 0.75}
     result = merge_methods.get(method_name)(MergeBatch(groups), parameters=params)
-    sum(t.sum() for t in result.tensors).backward()
+    sum(t.sum() for t in result).backward()
     for tensor, before in zip(sources, copies):
         torch.testing.assert_close(tensor, before)
         assert tensor.grad is not None and tensor.grad.isfinite().all()
@@ -308,11 +307,11 @@ def test_slerp_large_weight_has_bounded_inference_scratch():
     torch.cuda.synchronize()
     initial = torch.cuda.memory_allocated()
     torch.cuda.reset_peak_memory_stats()
-    result = merge_methods.get("slerp")(
+    (result,) = merge_methods.get("slerp")(
         MergeBatch.from_tensors([a, b], base_index=0),
         parameters={"t": 0.5},
         batch_options=BatchOptions(max_bytes=1),
-    ).one()
+    )
     torch.cuda.synchronize()
     peak = torch.cuda.max_memory_allocated() - initial
     # An oversized group still needs packed inputs and an output, but not
@@ -332,10 +331,10 @@ def test_linear_precision_against_double_reference(dtype, normalize, device):
     expected = a.double() * weights[0] + b.double() * weights[1]
     if normalize:
         expected /= sum(weights)
-    result = merge_methods.get("linear")(
+    (result,) = merge_methods.get("linear")(
         MergeBatch.from_tensors([a, b]),
         parameters={"weight": weights, "normalize": normalize},
-    ).one()
+    )
     torch.testing.assert_close(result, expected.to(dtype))
 
 
@@ -427,7 +426,7 @@ def test_empty_non_base_axis_has_a_dtype_without_validating_a_fake_value():
     )
     group = MergeBatch.from_tensors([torch.ones(1)], base_index=0).groups[0]
     result = method(MergeBatch((group, group)))
-    assert all(t.item() == 1 for t in result.tensors)
+    assert all(t.item() == 1 for t in result)
 
 
 def test_non_base_coefficients_cannot_use_an_ignored_base_contract():
@@ -458,7 +457,7 @@ def test_different_dtypes_and_input_counts_partition_batches(monkeypatch):
     )
     result = method(MergeBatch(groups), parameters={"weight": 1.0})
     assert [shape[:2] for shape, _ in calls] == [(2, 2), (1, 2), (1, 3)]
-    assert [t.dtype for t in result.tensors] == [
+    assert [t.dtype for t in result] == [
         torch.float32,
         torch.float64,
         torch.float32,

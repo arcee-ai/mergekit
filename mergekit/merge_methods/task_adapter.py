@@ -129,9 +129,10 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
                 if entry.id in self.input_parameters
                 and parameter.name in self.input_parameters[entry.id]
             }
-        return method(
+        (result,) = method(
             MergeBatch(groups=(group,)),
             parameters=kwargs,
             dtype=dtype_from_name(self.dtype),
             out_dtype=dtype_from_name(self.out_dtype),
-        ).one()
+        )
+        return result
