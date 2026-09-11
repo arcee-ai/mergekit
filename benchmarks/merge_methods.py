@@ -69,11 +69,11 @@ def main():
                 coefficients = (
                     {
                         "weight": torch.tensor(
-                            [[0.25, 0.75]], device=device, dtype=torch.float64
+                            [[0.25, 0.75]], device=device, dtype=torch.float32
                         )
                     }
                     if name == "linear"
-                    else {"t": torch.tensor([0.75], device=device, dtype=torch.float64)}
+                    else {"t": torch.tensor([0.75], device=device, dtype=torch.float32)}
                 )
                 paths = {
                     "graph_adapter": lambda: task.execute(tensors),

@@ -1,6 +1,5 @@
 """Batch execution is checked against independent per-output mathematics."""
 
-import itertools
 import math
 from typing import Annotated
 
@@ -98,7 +97,7 @@ def test_linear_buckets_options_shapes_and_restores_order(monkeypatch, device):
 @pytest.mark.parametrize(
     "options,counts",
     [
-        (BatchOptions(max_bytes=96), [2, 2, 1]),
+        (BatchOptions(max_bytes=80), [2, 2, 1]),
         (BatchOptions(max_bytes=1), [1, 1, 1, 1, 1]),
         (BatchOptions(max_groups=3), [3, 2]),
     ],
@@ -106,7 +105,7 @@ def test_linear_buckets_options_shapes_and_restores_order(monkeypatch, device):
 def test_packing_budget_and_oversized_singletons(monkeypatch, options, counts):
     method = merge_methods.get("linear")
     calls = _record_calls(monkeypatch, method)
-    # Each group packs 32 bytes of inputs and 16 bytes of coefficients.
+    # Each group packs 32 bytes of inputs and 8 bytes of coefficients.
     groups = tuple(
         MergeBatch.from_tensors(
             [torch.full((4,), float(i)), torch.full((4,), float(i + 2))]
@@ -214,9 +213,7 @@ def test_non_base_coefficients_follow_canonical_layout(device):
     groups = (TensorGroup((a, base, b)), TensorGroup((base, b, a)))
     result = method(MergeBatch(groups), parameters={"weight": {"a": 2, "b": 3}})
     for tensor in result:
-        torch.testing.assert_close(
-            tensor, torch.tensor([23.0], device=device, dtype=torch.float64)
-        )
+        torch.testing.assert_close(tensor, torch.tensor([23.0], device=device))
 
 
 @pytest.mark.parametrize("failure", ["shape", "device", "coefficient"])
@@ -371,13 +368,14 @@ def test_slerp_large_weight_has_bounded_inference_scratch():
     "dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64]
 )
 @pytest.mark.parametrize("normalize", [False, True])
-def test_linear_precision_against_double_reference(dtype, normalize, device):
+def test_linear_matches_main_with_dtype_tolerance(dtype, normalize, device):
     a = torch.tensor([100.0, -10.0, 0.25, 3.0], device=device, dtype=dtype)
     b = torch.tensor([-50.0, 4.0, 3.0, -2.0], device=device, dtype=dtype)
     weights = [0.123456, 0.654321]
-    expected = a.double() * weights[0] + b.double() * weights[1]
+    coefficients = torch.tensor(weights, device=device, dtype=dtype)
+    expected = (torch.stack([a, b]) * coefficients[:, None]).sum(0)
     if normalize:
-        expected /= sum(weights)
+        expected /= coefficients.sum()
     (result,) = merge_methods.get("linear")(
         MergeBatch.from_tensors([a, b]),
         parameters={"weight": weights, "normalize": normalize},
@@ -385,30 +383,48 @@ def test_linear_precision_against_double_reference(dtype, normalize, device):
     torch.testing.assert_close(result, expected.to(dtype))
 
 
+@pytest.mark.parametrize("method_name", ["linear", "slerp"])
 @pytest.mark.parametrize(
     "dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64]
 )
-def test_linear_nearly_cancelling_weights_preserve_identical_inputs(dtype, device):
-    source = torch.tensor(
-        [-16.0, -3.123, -1.0, 0.0, 0.1, 0.5, 1.0, 60000.0], dtype=dtype, device=device
+def test_float_coefficients_follow_input_precision(
+    monkeypatch, method_name, dtype, device
+):
+    method = merge_methods.get(method_name)
+    implementation = method.implementation
+    coefficient = "weight" if method_name == "linear" else "t"
+
+    def checked(batch, **parameters):
+        expected = torch.float64 if dtype == torch.float64 else torch.float32
+        assert parameters[coefficient].dtype == expected
+        assert parameters[coefficient].device == batch.tensors[0].device
+        return implementation(batch, **parameters)
+
+    monkeypatch.setattr(method, "implementation", checked)
+    a = torch.tensor([1.0, 2.0], dtype=dtype, device=device)
+    b = a * 2
+    result = merge_state_dicts(
+        [{"x": a, "y": a}, {"x": b, "y": b}],
+        method,
+        base=0,
+        parameters={coefficient: [0.75, 0.25] if method_name == "linear" else 0.25},
     )
-    weights = list(itertools.permutations([1.0, 1e-7, -1.0]))
-    groups = tuple(MergeBatch.from_tensors([source] * 3).groups[0] for _ in weights)
-    results = merge_methods.get("linear")(
-        MergeBatch(groups),
-        parameters={"weight": PerGroupValues(weights)},
-    )
-    for result in results:
-        torch.testing.assert_close(result, source)
+    for tensor in result.values():
+        torch.testing.assert_close(tensor, a * 1.25)
 
 
-def test_linear_coefficients_retain_double_precision(device):
-    source = torch.tensor([0.1, 1.0, -3.123], device=device)
-    (result,) = merge_methods.get("linear")(
-        MergeBatch.from_tensors([source, source]),
-        parameters={"weight": [1.0, -1.0 + 1e-8]},
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS unavailable")
+@pytest.mark.parametrize("method_name", ["linear", "slerp"])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.float32])
+def test_native_merges_on_mps(method_name, dtype):
+    a = torch.tensor([1.0, 2.0], dtype=dtype, device="mps")
+    result = merge_state_dicts(
+        [{"x": a}, {"x": a * 2}],
+        method_name,
+        base=0,
+        parameters={"weight": [0.75, 0.25]} if method_name == "linear" else {"t": 0.25},
     )
-    torch.testing.assert_close(result, source)
+    torch.testing.assert_close(result["x"], a * 1.25)
 
 
 def test_linear_zero_weight_sum_requires_unnormalized_merge(device):
@@ -435,8 +451,11 @@ def test_linear_singleton_peak_memory(count, dtype):
     )
     torch.cuda.synchronize()
     peak = torch.cuda.max_memory_allocated() - initial
-    # One double accumulator and one output; no packed inputs or retained casts.
-    assert peak <= sources[0].numel() * 8 + result.nbytes + 4096
+    # One FP32 accumulator, also used as the output for FP32 inputs.
+    budget = sources[0].numel() * 4
+    if dtype != torch.float32:
+        budget += result.nbytes
+    assert peak <= budget + 4096
     torch.testing.assert_close(result, sources[0])
 
 

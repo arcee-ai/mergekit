@@ -29,19 +29,18 @@ tensors. It does not measure allocator-reserved memory or process-wide GPU memor
 
 ## Precision and memory
 
-Linear uses float64 coefficients and one float64 accumulator, normalizes using
-the float64 coefficient sum, then casts to the aligned input dtype. Normalization
-rejects a zero coefficient sum. GPU kernels consume the inputs directly; CPU
-execution may additionally cast the current input to float64. No full-precision
-copy of every input is retained, so accumulator scratch is independent of input
-count. Float64 arithmetic trades throughput for a simple, consistent precision
-policy; CPU BF16 execution can be substantially slower than the legacy path.
+Linear uses float32 coefficients and one float32 accumulator for float16, BF16,
+and FP32 inputs; float64 inputs use float64. It normalizes before casting back to
+the aligned input dtype and rejects a zero coefficient sum in the working precision.
+Nearly cancelling coefficients may lose accuracy. GPU kernels consume the inputs
+directly; CPU execution may additionally cast the current input. No full-precision
+copy of every input is retained, so accumulator scratch is independent of input count.
 
-For a singleton output from two 2048×2048 BF16 inputs, the accumulator needs 32 MiB
-and the returned output needs 8 MiB: 40 MiB extra at peak on the GPU. FP32 output
-needs 16 MiB, giving a 48 MiB peak. Both calls borrow their inputs instead of packing.
-CPU TensorIterator may also allocate a 32 MiB cast of the current input, giving
-64 MiB at peak for either dtype in this example.
+For a singleton output from two 2048×2048 BF16 inputs, the accumulator needs 16 MiB
+and the returned output needs 8 MiB: 24 MiB extra at peak on the GPU. FP32 inputs
+use the accumulator itself as the output, giving a 16 MiB peak. Both calls borrow
+their inputs instead of packing. CPU TensorIterator may also allocate a 16 MiB
+cast of the current BF16 input, giving a 32 MiB peak.
 
 SLERP retains its chunked, device-local implementation and borrows singleton inputs.
 Kernels accept arbitrary strides and explicitly call `contiguous()` or `stack()`
@@ -53,25 +52,20 @@ batching multiple outputs can increase peak memory.
 ## H100 observations
 
 Measured on an NVIDIA H100 PCIe with Torch 2.14.0+cu126 and one CPU thread, using
-weights 0.25/0.75. These are illustrative medians, not performance guarantees.
-For one 2048×2048 output:
+weights 0.25/0.75 and the float32 working-precision policy. For one 2048×2048 output:
 
 | Method | Dtype | Graph execute (ms) | Direct kernel (ms) | Graph peak extra (MiB) |
 | --- | --- | ---: | ---: | ---: |
-| Linear | BF16 | 0.293 | 0.200 | 40.00 |
-| Linear | FP32 | 0.272 | 0.197 | 48.00 |
-| SLERP | BF16 | 1.619 | 1.065 | 28.01 |
-| SLERP | FP32 | 0.921 | 0.907 | 28.01 |
+| Linear | BF16 | 0.217 | 0.125 | 24.00 |
+| Linear | FP32 | 0.205 | 0.102 | 16.00 |
+| SLERP | BF16 | 1.081 | 1.008 | 28.01 |
+| SLERP | FP32 | 0.894 | 0.769 | 28.01 |
 
-The legacy linear numerical path measured 0.108 ms / 40 MiB for BF16 and
-0.155 ms / 80 MiB for FP32. Resolving parameters during planning removes repeated
-binding from graph execution, but tensor checks, coefficient preparation, and
-dispatch still cost time. Normalized linear kernels also synchronize to reject
-a zero coefficient sum. These measurements do not establish an end-to-end speedup over main.
+The legacy linear calculation measured 0.103 ms / 40 MiB for BF16 and
+0.155 ms / 80 MiB for FP32. Normalized linear kernels still synchronize to reject
+a zero coefficient sum. These illustrative medians exclude loading and saving;
+they do not establish an end-to-end speedup over main.
 
-For four BF16 2048×2048 outputs, linear took 1.001 ms / 64 MiB as graph singletons
-and 1.024 ms / 168 MiB through the batched state-dict API. SLERP took
-4.516 ms / 52 MiB and 4.164 ms / 92 MiB, respectively. Packing several large
-outputs increased memory and did not improve linear throughput in this workload.
-Use `BatchOptions(max_groups=1)` to execute state-dict weights as singletons when
-minimizing scratch is more useful than batching outputs.
+On CPU with one thread, the same linear direct-kernel benchmark measured 7.66 ms
+versus 15.23 ms for the legacy BF16 calculation, and 4.43 ms versus 45.00 ms for
+FP32. These measurements also exclude loading, saving, and graph overhead.

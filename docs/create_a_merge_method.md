@@ -21,10 +21,12 @@ def weighted_average(
     weight: Annotated[torch.Tensor, BatchParameter(float, ParameterScope.INPUT)],
     normalize: Option[bool] = True,
 ) -> torch.Tensor:
-    # N borrowed tensors shaped [B, *weight_shape]; weight: [B, N], float64.
+    # N borrowed tensors shaped [B, *weight_shape]; weight: [B, N], float32 or float64.
     first = batch.tensors[0]
     coefficient_shape = (first.shape[0],) + (1,) * (first.ndim - 1)
-    result = torch.zeros_like(first, dtype=torch.float64)
+    dtype = torch.float64 if first.dtype == torch.float64 else torch.float32
+    weight = weight.to(dtype)
+    result = torch.zeros_like(first, dtype=dtype)
     for tensor, coefficient in zip(batch.tensors, weight.unbind(1)):
         result.addcmul_(tensor, coefficient.reshape(coefficient_shape))
     if normalize:
@@ -50,9 +52,9 @@ scopes, defaults, and requiredness:
 `BatchParameter` supports `float`, `int`, and `bool`, including constrained types
 such as `PositiveFloat` or `Annotated[float, Field(ge=0, le=1)]`. Constraints belong
 inside `BatchParameter(...)`; its enclosing annotation describes the kernel's
-**Tensor** argument, not an individual coefficient. Float coefficients always use
-float64, preserving Python-float precision independently of the input dtype;
-integer and boolean coefficients use int64 and bool. Kernels may explicitly cast
+**Tensor** argument, not an individual coefficient. Float coefficients use
+float32 unless the aligned inputs are float64, in which case they use float64.
+Integer and boolean coefficients use int64 and bool. Kernels may explicitly cast
 coefficients when choosing their intermediate precision.
 Annotations therefore describe the actual runtime kernel types without pretending
 that a batched coefficient is still a Python float.
@@ -184,11 +186,12 @@ and padding happen before merging; hidden dimensions must already match. Direct
 tensor and state-dict callers must perform any alignment themselves.
 
 Kernel execution disables ambient autocast so input dtype and method-specific
-precision choices determine the arithmetic. Linear accumulates weighted inputs into
-one float64 accumulator, divides by the float64 coefficient sum when normalized,
-then casts the result to the aligned input dtype. A zero coefficient sum is rejected
-when normalization is enabled. Using float64 for both sums reduces errors from
-nearly cancelling weights without special cases. CPU execution may additionally
+precision choices determine the arithmetic. Linear and SLERP use float32 for
+float16, bfloat16, and float32 inputs, and float64 for float64 inputs. Linear
+accumulates into one buffer and normalizes before casting back to the input dtype.
+A zero coefficient sum in the working precision is rejected when normalization is
+enabled; nearly cancelling weights can lose accuracy. This is ordinary floating-point
+arithmetic, without special handling for cancellation. CPU execution may additionally
 cast the current input internally; no full-precision copy of every input is retained.
 
 The kernel receives a tuple of N tensors shaped `[B, *weight_shape]` and returns

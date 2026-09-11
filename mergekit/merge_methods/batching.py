@@ -21,7 +21,7 @@ from mergekit.merge_methods.base import (
 )
 
 
-def _coefficient_dtype(value_type: Any) -> torch.dtype:
+def _coefficient_dtype(value_type: Any, input_dtype: torch.dtype) -> torch.dtype:
     while get_origin(value_type) is Annotated:
         value_type = get_args(value_type)[0]
     if value_type is bool:
@@ -29,7 +29,7 @@ def _coefficient_dtype(value_type: Any) -> torch.dtype:
     if value_type is int:
         return torch.int64
     if value_type is float:
-        return torch.float64
+        return torch.float64 if input_dtype == torch.float64 else torch.float32
     raise TypeError("Batched coefficients must be bool, int, or float scalars")
 
 
@@ -89,7 +89,7 @@ class PreparedBatch:
                 values.append(value)
             kwargs[parameter.name] = torch.tensor(
                 values,
-                dtype=_coefficient_dtype(parameter.value_type),
+                dtype=_coefficient_dtype(parameter.value_type, first.dtype),
                 device=tensors[0].device,
             )
         return TensorBatch(tuple(tensors), base_index=first.base_index), kwargs
@@ -134,7 +134,8 @@ def prepare_batches(
                     else [value]
                 )
                 packed_bytes += (
-                    len(values) * _coefficient_dtype(parameter.value_type).itemsize
+                    len(values)
+                    * _coefficient_dtype(parameter.value_type, target_dtype).itemsize
                 )
             else:
                 try:

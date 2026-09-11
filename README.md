@@ -135,16 +135,15 @@ Below are the primary elements of a configuration file:
 - `chat_template`: Specifies a chat template for the merged model.
 
 Methods control their own intermediate precision, independently of ambient PyTorch
-autocast. Linear accumulates into one float64 buffer, normalizes using a float64
-coefficient sum, then casts to the aligned input dtype. This reduces cancellation
-errors without rounding coefficients to the input dtype. Normalized merges reject
-weights that sum to zero. Singleton calls borrow their inputs; accumulator scratch
-does not grow with the number of inputs. CPU execution may additionally cast the
-current input.
-SLERP uses bounded float32 scratch for low-precision inputs and float64 scratch for
-float64 inputs. Selecting `dtype: bfloat16` sets the input representation, not every
-intermediate's precision. Architecture-specific forced dtypes still take precedence
-over `dtype` and `out_dtype` for those weights.
+autocast. Linear uses one float32 accumulator for float16, bfloat16, and float32
+inputs, and float64 for float64 inputs, then casts to the aligned input dtype.
+SLERP uses the same intermediate precision with bounded scratch. Floating batch
+coefficients follow this policy too, so low-precision merges do not require device
+support for float64. Normalized linear merges reject weights that sum to zero in
+the working precision; nearly cancelling weights can lose accuracy.
+Singleton calls borrow their inputs. Selecting `dtype: bfloat16` sets the input
+representation, not every intermediate's precision. Architecture-specific forced
+dtypes still take precedence over `dtype` and `out_dtype` for those weights.
 
 ### Parameter Specification
 

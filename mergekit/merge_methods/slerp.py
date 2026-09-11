@@ -28,7 +28,8 @@ def slerp(
 
     All computation stays on the input device. Collinear and antipodal pairs use
     linear interpolation independently for each output, including in mixed batches.
-    Chunking bounds inference scratch, not source/output storage or autograd graphs.
+    Work in float32 unless the inputs are float64. Chunking bounds inference
+    scratch, not source/output storage or autograd graphs.
     """
     dtype = torch.float64 if v0.dtype == torch.float64 else torch.float32
     a = v0.reshape(v0.shape[0], -1)
