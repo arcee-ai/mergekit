@@ -105,6 +105,15 @@ def _check_strided_weights(method_name, *, base=True, **overrides):
         torch.testing.assert_close(tensor, before)
 
 
+def test_fusion_preserves_scalar_weight_shape():
+    base = torch.tensor(1.0)
+    other = torch.tensor(2.5)
+    result = merge_state_dicts([{"w": base}, {"w": other}], "arcee_fusion", base=0)["w"]
+    # A one-element softmax has zero KL divergence, so the zero threshold
+    # selects the other input, just as it does for a length-one vector.
+    torch.testing.assert_close(result, other)
+
+
 def test_fusion_exact_quantiles_and_threshold():
     # Small inputs retain the original lower-order-statistic convention.
     scores = torch.arange(12, dtype=torch.float32).reshape(3, 4).T

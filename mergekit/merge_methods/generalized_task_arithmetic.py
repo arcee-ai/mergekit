@@ -97,7 +97,7 @@ class GeneralizedTaskArithmeticMerge(GroupMergeMethod):
             ),
         )
 
-    def merge_group(self, group: TensorGroup, **parameters: Any) -> torch.Tensor:
+    def merge_group(self, group: TensorGroup, /, **parameters: Any) -> torch.Tensor:
         base = group.base.tensor
         entries = group.non_base
         if not entries:

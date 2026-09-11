@@ -604,7 +604,7 @@ class BatchedMergeMethod(MergeMethod):
         self.spec = spec
         self.implementation = implementation
 
-    def merge_batch(self, batch: TensorBatch, **parameters: Any) -> torch.Tensor:
+    def merge_batch(self, batch: TensorBatch, /, **parameters: Any) -> torch.Tensor:
         """Execute already-aligned numerical arguments (no logical binding)."""
         with torch.autocast(device_type=batch.tensors[0].device.type, enabled=False):
             result = self.implementation(batch, **parameters)
@@ -652,7 +652,7 @@ class GroupMergeMethod(MergeMethod):
     """
 
     @abstractmethod
-    def merge_group(self, group: TensorGroup, **parameters: Any) -> torch.Tensor: ...
+    def merge_group(self, group: TensorGroup, /, **parameters: Any) -> torch.Tensor: ...
 
     def _execute(
         self,
@@ -698,5 +698,5 @@ class FunctionalGroupMergeMethod(GroupMergeMethod):
         self.spec = spec
         self.implementation = implementation
 
-    def merge_group(self, group: TensorGroup, **parameters: Any) -> torch.Tensor:
+    def merge_group(self, group: TensorGroup, /, **parameters: Any) -> torch.Tensor:
         return self.implementation(group, **parameters)

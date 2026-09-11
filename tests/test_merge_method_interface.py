@@ -8,10 +8,12 @@ from mergekit.merge_methods import (
     BasePolicy,
     InputContract,
     MergeBatch,
+    Option,
     PerGroupValues,
     PerInput,
     PerInputValues,
     Shared,
+    TensorBatch,
     TensorEntry,
     TensorGroup,
     merge_state_dicts,
@@ -380,6 +382,36 @@ def test_execution_controls_do_not_reserve_algorithm_parameter_names():
         parameters={"dtype": 1, "out_dtype": 2, "batch_options": 3, "parameters": 4},
         dtype=torch.float64,
         out_dtype=torch.float32,
+    )
+    torch.testing.assert_close(result, torch.full((2,), 10.0))
+
+
+@pytest.mark.parametrize("batched", [False, True])
+def test_kernel_wrappers_do_not_reserve_algorithm_parameter_names(batched):
+    if batched:
+
+        def kernel(
+            inputs: TensorBatch,
+            self: Option[float],
+            batch: Option[float],
+            group: Option[float],
+        ) -> torch.Tensor:
+            return inputs.tensors[0] * (self + batch + group)
+
+    else:
+
+        def kernel(
+            inputs: TensorGroup,
+            self: Shared[float],
+            batch: Shared[float],
+            group: Shared[float],
+        ) -> torch.Tensor:
+            return inputs.tensors[0] * (self + batch + group)
+
+    method = merge_method(kernel, name="wrapper_names")
+    (result,) = method(
+        MergeBatch.from_tensors([torch.ones(2)]),
+        parameters={"self": 2, "batch": 3, "group": 5},
     )
     torch.testing.assert_close(result, torch.full((2,), 10.0))
 

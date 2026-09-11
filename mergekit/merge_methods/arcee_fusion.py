@@ -52,8 +52,8 @@ def _compute_importance(params: torch.Tensor, base: torch.Tensor) -> torch.Tenso
     eps = 1e-8
     p = F.softmax(params, dim=-1) + eps
     q = F.softmax(base, dim=-1) + eps
-    kl_div = torch.sum(p * torch.log(p / q), dim=-1)
-    return diff * kl_div.unsqueeze(-1)
+    kl_div = torch.sum(p * torch.log(p / q), dim=-1, keepdim=True)
+    return diff * kl_div
 
 
 def _arcee_fusion_merge(group: TensorGroup) -> torch.Tensor:
