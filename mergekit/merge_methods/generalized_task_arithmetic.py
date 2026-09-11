@@ -99,55 +99,52 @@ class GeneralizedTaskArithmeticMerge(GroupMergeMethod):
 
     def merge_group(self, group: TensorGroup, **parameters: Any) -> torch.Tensor:
         base = group.base.tensor
-        task_vectors = []
-        for entry in group.non_base:
-            info = {
-                "delta": entry.tensor - base,
-                "weight": parameters["weight"][entry.id],
-                "density": parameters["density"][entry.id],
-            }
-            for optional_name in ("gamma", "epsilon"):
-                if optional_name in parameters:
-                    info[optional_name] = parameters[optional_name][entry.id]
-            task_vectors.append(info)
-
-        if not task_vectors:
+        entries = group.non_base
+        if not entries:
             return base
 
-        rescale_norm = RescaleNorm.l1 if parameters["rescale"] else None
-        if self.sparsification_method:
-            for info in task_vectors:
-                kwargs = {key: info[key] for key in ("gamma", "epsilon") if key in info}
-                info["delta"] = sparsify(
-                    info["delta"],
-                    density=info["density"],
+        # Fill one owned buffer incrementally; retain no list of full-sized deltas.
+        # Sparsification sees independent tensors so filling later rows cannot
+        # invalidate tensors saved for backward by an earlier row.
+        deltas = base.new_empty((len(entries), *base.shape))
+        for index, entry in enumerate(entries):
+            delta = entry.tensor - base
+            if self.sparsification_method:
+                delta = sparsify(
+                    delta,
+                    density=parameters["density"][entry.id],
                     method=self.sparsification_method,
-                    rescale_norm=rescale_norm,
-                    **kwargs,
+                    rescale_norm=RescaleNorm.l1 if parameters["rescale"] else None,
+                    **{
+                        key: parameters[key][entry.id]
+                        for key in ("gamma", "epsilon")
+                        if key in parameters
+                    },
                 )
+            deltas[index] = delta
+            del delta
 
-        deltas = torch.stack([info["delta"] for info in task_vectors], dim=0)
         weights = torch.tensor(
-            [info["weight"] for info in task_vectors],
+            [parameters["weight"][entry.id] for entry in entries],
             dtype=deltas.dtype,
             device=deltas.device,
         )
         while deltas.dim() > weights.dim():
             weights.unsqueeze_(-1)
-        weighted_deltas = deltas * weights
+        deltas.mul_(weights)
 
         if self.consensus_method:
             mask_dtype = torch.int8 if parameters["int8_mask"] else base.dtype
             mask = get_mask(
-                weighted_deltas,
+                deltas,
                 method=self.consensus_method,
                 mask_dtype=mask_dtype,
             )
-            mixed_delta = (weighted_deltas * mask).sum(dim=0)
+            mixed_delta = (deltas * mask).sum(dim=0)
             divisor = (weights * mask).sum(dim=0)
             divisor[divisor == 0] = 1
         else:
-            mixed_delta = weighted_deltas.sum(dim=0)
+            mixed_delta = deltas.sum(dim=0)
             divisor = weights.sum(dim=0)
             divisor[divisor.abs() < 1e-8] = 1
 

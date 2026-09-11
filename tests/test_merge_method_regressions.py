@@ -148,3 +148,98 @@ def test_fusion_releases_importance_scratch_before_thresholding(monkeypatch):
     monkeypatch.setattr(DynamicThresholdFusion, "compute_fusion_mask", checked_mask)
     result = merge_state_dicts([{"w": a}, {"w": b}], "arcee_fusion", base=0)["w"]
     assert result.isfinite().all()
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    [
+        "task_arithmetic",
+        "ties",
+        "dare_ties",
+        "dare_linear",
+        "breadcrumbs",
+        "breadcrumbs_ties",
+        "della",
+        "della_linear",
+    ],
+)
+@pytest.mark.parametrize("rescale", [False, True])
+def test_task_arithmetic_values_and_gradients(method_name, rescale):
+    from mergekit.merge_methods.generalized_task_arithmetic import get_mask
+    from mergekit.sparsify import RescaleNorm, sparsify
+
+    method = merge_methods.get(method_name)
+    generator = torch.Generator().manual_seed(42)
+    inputs = [
+        torch.randn(4, 8, generator=generator, dtype=torch.float64, requires_grad=True)
+        for _ in range(4)
+    ]
+    originals = [tensor.detach().clone() for tensor in inputs]
+    weights = torch.tensor([0.7, -0.2, 0.5], dtype=torch.float64)[:, None, None]
+
+    def reference():
+        deltas = []
+        for tensor in inputs[1:]:
+            delta = tensor - inputs[0]
+            if method.sparsification_method:
+                delta = sparsify(
+                    delta,
+                    density=0.6,
+                    method=method.sparsification_method,
+                    rescale_norm=RescaleNorm.l1 if rescale else None,
+                    gamma=0.01,
+                    epsilon=0.15,
+                )
+            deltas.append(delta)
+        weighted = torch.stack(deltas) * weights
+        mask = (
+            get_mask(weighted, method=method.consensus_method)
+            if method.consensus_method
+            else torch.ones_like(weighted)
+        )
+        divisor = (weights * mask).sum(0)
+        divisor = torch.where(divisor.abs() < 1e-8, 1, divisor)
+        return inputs[0] + 0.8 * (weighted * mask).sum(0) / divisor
+
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(123)
+        expected = reference()
+        expected_grads = torch.autograd.grad(expected.square().sum(), inputs)
+        torch.manual_seed(123)
+        actual = merge_state_dicts(
+            [{"w": tensor} for tensor in inputs],
+            method,
+            base=0,
+            parameters={
+                "weight": [0.7, -0.2, 0.5],
+                "density": 0.6,
+                "normalize": True,
+                "rescale": rescale,
+                "lambda": 0.8,
+            },
+        )["w"]
+        actual_grads = torch.autograd.grad(actual.square().sum(), inputs)
+    torch.testing.assert_close(actual, expected)
+    for actual_grad, expected_grad in zip(actual_grads, expected_grads):
+        torch.testing.assert_close(actual_grad, expected_grad)
+    for tensor, original in zip(inputs, originals):
+        torch.testing.assert_close(tensor, original, rtol=0, atol=0)
+
+
+@torch.inference_mode()
+def test_task_arithmetic_peak_memory():
+    # Inputs are borrowed; scratch should be one packed buffer plus a bounded
+    # number of single-weight temporaries, not several copies of every delta.
+    inputs = [{"w": torch.randn(256, 256)} for _ in range(17)]
+    weight_bytes = inputs[0]["w"].nbytes
+    with torch.profiler.profile(profile_memory=True) as profile:
+        result = merge_state_dicts(
+            inputs, "task_arithmetic", base=0, parameters={"weight": 1.0}
+        )
+    live = peak = 0
+    for event in profile.profiler.kineto_results.events():
+        if event.name() == "[memory]":
+            live += event.nbytes()
+            peak = max(peak, live)
+    assert peak <= (16 + 3) * weight_bytes
+    assert result["w"].isfinite().all()
