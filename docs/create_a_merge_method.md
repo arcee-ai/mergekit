@@ -143,7 +143,9 @@ bfloat16 with float32. Float64 inputs promote the group to float64. Pass
 `dtype=torch.bfloat16` to explicitly cast inputs, or `out_dtype=torch.bfloat16` to
 cast only the merged outputs. Both options leave non-floating buffers unchanged.
 The YAML and raw-PyTorch adapters use the corresponding string-valued `dtype` and
-`out_dtype` settings. Direct `MergeBatch` calls accept the same dtype options and
+`out_dtype` settings. Raw-PyTorch merges also copy equal non-floating buffers
+without casting them, and reject differing buffers before dtype conversion.
+Direct `MergeBatch` calls accept the same dtype options and
 use the same promotion policy. Algorithm parameters go in the `parameters` mapping,
 separately from dtype and packing controls; no algorithm parameter names are reserved.
 

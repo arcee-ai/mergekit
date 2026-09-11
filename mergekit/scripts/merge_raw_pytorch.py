@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 import mergekit.merge_methods as merge_methods
 from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
+from mergekit.common import ImmutableMap, ModelReference
 from mergekit.config import ParameterSetting
 from mergekit.graph import Executor, Task
 from mergekit.io import LazyTensorLoader, ShardedTensorIndex
@@ -62,7 +62,6 @@ class SimpleLoaderCache:
 class SimpleLoadTensor(Task[torch.Tensor]):
     model: str
     tensor_name: str
-    dtype: Optional[str] = None
     device: Optional[str] = None
 
     def arguments(self) -> Dict[str, Task]:
@@ -70,12 +69,7 @@ class SimpleLoadTensor(Task[torch.Tensor]):
 
     def execute(self) -> torch.Tensor:
         loader = SimpleLoaderCache().get(self.model)
-        tensor = loader.get_tensor(self.tensor_name, device=self.device or "cpu")
-        if tensor is None:
-            return None
-        if dt := dtype_from_name(self.dtype):
-            tensor = tensor.to(dtype=dt)
-        return tensor
+        return loader.get_tensor(self.tensor_name, device=self.device or "cpu")
 
 
 def plan_flat_merge(
@@ -119,13 +113,13 @@ def plan_flat_merge(
     for tensor_name in tqdm.tqdm(list(all_tensor_names), desc="Planning operations"):
         inputs = {
             model_def.model: SimpleLoadTensor(
-                model=model_def.model, tensor_name=tensor_name, dtype=config.dtype
+                model=model_def.model, tensor_name=tensor_name
             )
             for model_def in config.models
         }
         if config.base_model is not None and config.base_model not in inputs:
             inputs[config.base_model] = SimpleLoadTensor(
-                model=config.base_model, tensor_name=tensor_name, dtype=config.dtype
+                model=config.base_model, tensor_name=tensor_name
             )
 
         has_tensor = [
@@ -177,13 +171,14 @@ def plan_flat_merge(
             output_weight=output_weight,
             parameters=ImmutableMap(global_params),
             input_parameters=immutable_tensor_params,
+            dtype=config.dtype,
+            out_dtype=config.out_dtype,
         )
         save_task = SaveTensor(
             tensor_name=tensor_name,
             tensor_task=tensor_task,
             writer_task=writer_task,
             clone=options.clone_tensors,
-            dtype=config.out_dtype,
         )
         save_tasks.append(save_task)
 

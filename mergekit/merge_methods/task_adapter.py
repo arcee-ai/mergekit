@@ -10,7 +10,7 @@ import torch
 from typing_extensions import TypeAlias
 
 from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference
+from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
 from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import (
@@ -20,6 +20,7 @@ from mergekit.merge_methods.base import (
     TensorGroup,
     TensorMetadata,
 )
+from mergekit.merge_methods.buffers import copy_non_floating_buffer
 from mergekit.tokenizer import PermutedEmbeddings
 
 
@@ -58,6 +59,8 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
     output_weight: WeightInfo
     parameters: ImmutableMap[str, Any]
     input_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
+    dtype: Optional[str] = None
+    out_dtype: Optional[str] = None
 
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
@@ -115,6 +118,9 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
             self.base_model,
             group_name=self.output_weight.name,
         )
+        buffer = copy_non_floating_buffer(group.tensors, self.output_weight.name)
+        if buffer is not None:
+            return buffer
         kwargs = dict(self.parameters.items())
         for parameter in method.spec.input_parameters:
             kwargs[parameter.name] = {
@@ -123,4 +129,9 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
                 if entry.id in self.input_parameters
                 and parameter.name in self.input_parameters[entry.id]
             }
-        return method(MergeBatch(groups=(group,)), parameters=kwargs).one()
+        return method(
+            MergeBatch(groups=(group,)),
+            parameters=kwargs,
+            dtype=dtype_from_name(self.dtype),
+            out_dtype=dtype_from_name(self.out_dtype),
+        ).one()

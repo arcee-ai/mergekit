@@ -17,6 +17,7 @@ from mergekit.merge_methods.base import (
     TensorGroup,
     TensorMetadata,
 )
+from mergekit.merge_methods.buffers import copy_non_floating_buffer
 
 StateDict = Mapping[str, torch.Tensor]
 StateDictLike = Union[StateDict, torch.nn.Module]
@@ -85,19 +86,12 @@ def merge_state_dicts(
     merge_indices = []
     for index, name in enumerate(tensor_names):
         tensors = [state_dict[name] for _, state_dict in state_dicts]
-        if all(tensor.is_floating_point() for tensor in tensors):
+        buffer = copy_non_floating_buffer(tensors, name)
+        if buffer is None:
             merge_names.append(name)
             merge_indices.append(index)
         else:
-            first = tensors[0]
-            if any(
-                tensor.dtype != first.dtype or not torch.equal(tensor, first)
-                for tensor in tensors[1:]
-            ):
-                raise ValueError(
-                    f"Non-floating buffer {name!r} differs between inputs; resolve it explicitly before merging"
-                )
-            copied[name] = first.clone()
+            copied[name] = buffer
 
     resolved_parameters = {}
     for name, value in (parameters or {}).items():

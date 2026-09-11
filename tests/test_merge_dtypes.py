@@ -86,7 +86,7 @@ def test_raw_graph_dtype_policy(tmp_path, dtype, out_dtype):
     paths = []
     for index, tensors in enumerate(models):
         path = tmp_path / f"model{index}.safetensors"
-        save_file({k: v for k, v in tensors.items() if k != "counter"}, path)
+        save_file(tensors, path)
         paths.append(str(path))
     config = RawPyTorchMergeConfig(
         merge_method="linear",
@@ -106,8 +106,84 @@ def test_raw_graph_dtype_policy(tmp_path, dtype, out_dtype):
         dtype=getattr(torch, dtype) if dtype else None,
         out_dtype=getattr(torch, out_dtype) if out_dtype else None,
     )
-    for name in actual:
-        torch.testing.assert_close(actual[name], expected[name])
+    torch.testing.assert_close(actual, expected)
+
+
+@pytest.mark.parametrize(
+    "method_name", ["linear", "slerp", "task_arithmetic", "passthrough"]
+)
+def test_raw_graph_merges_batchnorm_without_casting_buffers(tmp_path, method_name):
+    models = [
+        torch.nn.BatchNorm1d(2) for _ in range(1 if method_name == "passthrough" else 2)
+    ]
+    paths = []
+    for index, model in enumerate(models):
+        model.register_buffer("enabled", torch.tensor([True, False]))
+        model.num_batches_tracked.fill_(257)
+        model.running_mean.fill_(index + 1.003)
+        path = tmp_path / f"model{index}.safetensors"
+        save_file(model.state_dict(), path)
+        paths.append(str(path))
+    parameters = (
+        {"scale": 2.0}
+        if method_name == "passthrough"
+        else {"t": 0.3} if method_name == "slerp" else {"weight": 0.25}
+    )
+    config = RawPyTorchMergeConfig(
+        merge_method=method_name,
+        models=[{"model": path} for path in paths],
+        base_model=paths[0] if len(models) > 1 else None,
+        parameters=parameters,
+        dtype="bfloat16",
+        out_dtype="float64",
+    )
+    output = tmp_path / "output"
+    Executor(
+        plan_flat_merge(config, str(output), False, False, MergeOptions())
+    ).execute()
+    actual = load_file(output / "model.safetensors")
+    expected = merge_state_dicts(
+        models,
+        method_name,
+        base=0 if len(models) > 1 else None,
+        parameters=parameters,
+        dtype=torch.bfloat16,
+        out_dtype=torch.float64,
+    )
+    torch.testing.assert_close(actual, expected)
+    assert actual["num_batches_tracked"].dtype == torch.int64
+    assert actual["num_batches_tracked"].item() == 257
+    assert actual["enabled"].dtype == torch.bool
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        torch.tensor(2**24),  # A float32 input cast would hide this difference.
+        torch.tensor(2**24 + 1, dtype=torch.int32),
+        torch.tensor([2**24 + 1]),
+        torch.tensor(2**24 + 1, dtype=torch.float64),
+    ],
+    ids=["value", "dtype", "shape", "mixed_float_and_integer"],
+)
+def test_raw_graph_rejects_differing_buffers_before_casting(tmp_path, other):
+    paths = []
+    for index, counter in enumerate([torch.tensor(2**24 + 1), other]):
+        path = tmp_path / f"model{index}.safetensors"
+        save_file({"counter": counter}, path)
+        paths.append(str(path))
+    config = RawPyTorchMergeConfig(
+        merge_method="linear",
+        models=[{"model": path} for path in paths],
+        parameters={"weight": 1.0},
+        dtype="float32",
+        out_dtype="bfloat16",
+    )
+    tasks = plan_flat_merge(
+        config, str(tmp_path / "output"), False, False, MergeOptions()
+    )
+    with pytest.raises(ValueError, match="Non-floating buffer 'counter' differs"):
+        Executor(tasks).execute()
 
 
 @pytest.fixture(
