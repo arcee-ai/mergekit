@@ -507,6 +507,53 @@ def test_options_are_validated_before_execution():
         method([TensorGroup.from_tensors([torch.ones(1)])], parameters={"modes": ["a"]})
 
 
+@pytest.mark.parametrize("scope", list(ParameterScope))
+@pytest.mark.parametrize("value", [-(2**63) - 1, 2**63])
+def test_integer_coefficients_overflow_before_any_kernel(scope, value):
+    def kernel(
+        batch: TensorBatch,
+        coefficient: Annotated[torch.Tensor, BatchParameter(int, scope)],
+    ) -> torch.Tensor:
+        pytest.fail("An overflowing later coefficient must fail before any kernel")
+
+    method = merge_method(
+        kernel,
+        name="integer_coefficients",
+        contract=InputContract(base=BasePolicy.REQUIRED),
+    )
+    group = TensorGroup.from_tensors([torch.ones(1), torch.ones(1)], base_index=0)
+    with pytest.raises(ValueError, match="coefficient.*torch.int64"):
+        method(
+            (group, group),
+            parameters={"coefficient": PerGroupValues([0, value])},
+            batch_options=BatchOptions(max_groups=1),
+        )
+
+
+@pytest.mark.parametrize("scope", list(ParameterScope))
+def test_integer_coefficient_boundaries_pack_exactly(scope):
+    def kernel(
+        batch: TensorBatch,
+        coefficient: Annotated[torch.Tensor, BatchParameter(int, scope)],
+    ) -> torch.Tensor:
+        assert coefficient.dtype == torch.int64
+        assert (coefficient[0] == -(2**63)).all()
+        assert (coefficient[1] == 2**63 - 1).all()
+        return batch.tensors[0]
+
+    method = merge_method(
+        kernel,
+        name="integer_coefficients",
+        contract=InputContract(base=BasePolicy.REQUIRED),
+    )
+    group = TensorGroup.from_tensors([torch.ones(1), torch.ones(1)], base_index=0)
+    results = method(
+        (group, group),
+        parameters={"coefficient": PerGroupValues([-(2**63), 2**63 - 1])},
+    )
+    assert len(results) == 2
+
+
 def test_empty_non_base_axis_has_a_dtype_without_validating_a_fake_value():
     def kernel(
         batch: TensorBatch,
@@ -590,7 +637,13 @@ def test_embedding_mismatch_fails_before_bucketing(monkeypatch):
         ("nearswap", 2),
     ],
 )
-def test_graph_adapter_preserves_optional_singleton_fallback(method_name, count):
+@pytest.mark.parametrize(
+    "dtype,out_dtype",
+    [(None, None), (None, "float64"), ("bfloat16", None), ("bfloat16", "float64")],
+)
+def test_graph_adapter_preserves_optional_singleton_fallback(
+    method_name, count, dtype, out_dtype
+):
     from mergekit.architecture import WeightInfo
     from mergekit.common import ImmutableMap, ModelReference
     from mergekit.io.tasks import GatherTensors
@@ -610,9 +663,22 @@ def test_graph_adapter_preserves_optional_singleton_fallback(method_name, count)
         output_weight=weight,
         parameters=ImmutableMap({}),
         input_parameters=ImmutableMap({}),
+        dtype=dtype,
+        out_dtype=out_dtype,
     )
-    tensor = torch.ones(2)
-    assert task.execute({refs[0]: tensor}) is tensor
+    tensor = torch.tensor([1.003], requires_grad=True)
+    expected = tensor.detach()
+    for cast in (dtype, out_dtype):
+        if cast is not None:
+            expected = expected.to(getattr(torch, cast))
+    result = task.execute({refs[0]: tensor})
+    torch.testing.assert_close(result, expected)
+    if dtype is None and out_dtype is None:
+        assert result is tensor
+    result.sum().backward()
+    torch.testing.assert_close(tensor.grad, torch.ones_like(tensor))
+    buffer = torch.tensor(257)
+    torch.testing.assert_close(task.execute({refs[0]: buffer}), buffer)
     if method_name == "model_stock":
         assert task.execute({refs[0]: tensor, refs[1]: tensor}) is None
         assert task.execute({refs[1]: tensor}) is None
@@ -627,4 +693,4 @@ def test_graph_adapter_preserves_optional_singleton_fallback(method_name, count)
         with pytest.raises(ValueError, match="at least 2 inputs"):
             merge_methods.get(method_name).validate_inputs([refs[0]], refs[0])
     else:
-        assert task.execute({refs[1]: tensor}) is tensor
+        torch.testing.assert_close(task.execute({refs[1]: tensor}), expected)

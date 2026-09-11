@@ -132,10 +132,18 @@ def prepare_batches(
                     if parameter.scope != ParameterScope.SHARED
                     else [value]
                 )
-                packed_bytes += (
-                    len(values)
-                    * _coefficient_dtype(parameter.value_type, target_dtype).itemsize
+                coefficient_dtype = _coefficient_dtype(
+                    parameter.value_type, target_dtype
                 )
+                if coefficient_dtype == torch.int64:
+                    limits = torch.iinfo(coefficient_dtype)
+                    if any(
+                        value < limits.min or value > limits.max for value in values
+                    ):
+                        raise ValueError(
+                            f"Parameter {parameter.name} must fit in torch.int64"
+                        )
+                packed_bytes += len(values) * coefficient_dtype.itemsize
             else:
                 try:
                     hash(value)

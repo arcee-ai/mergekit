@@ -74,6 +74,21 @@ def test_karcher_differentiates_output_scale(device, dtype):
         torch.testing.assert_close(tensor.grad[0], tensor.new_tensor(0.5))
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+@pytest.mark.parametrize("value", [0.0, 1e-7])
+def test_karcher_below_tolerance_keeps_zero_gradients(device, dtype, value):
+    tensors = [
+        torch.full((3,), value, dtype=dtype, device=device, requires_grad=True)
+        for _ in range(2)
+    ]
+    result = merge_state_dicts([{"w": tensor} for tensor in tensors], "karcher")["w"]
+    torch.testing.assert_close(result, torch.zeros_like(tensors[0]))
+    result.sum().backward()
+    for tensor in tensors:
+        torch.testing.assert_close(tensor.grad, torch.zeros_like(tensor))
+        torch.testing.assert_close(tensor, torch.full_like(tensor, value))
+
+
 @pytest.mark.parametrize(
     "method_name,count,parameters",
     [

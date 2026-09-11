@@ -27,7 +27,8 @@ def karcher_merge_tensors(tensors, alphas, max_iter=10, tol=1e-5):
 
     valid_indices = [idx for idx, norm in enumerate(norms) if norm.item() > tol]
     if not valid_indices:
-        return torch.zeros_like(tensors[0])
+        # The constant-zero branch still has zero derivatives for every input.
+        return sum(tensor * 0 for tensor in tensors)
 
     valid_alphas = [alphas[idx] for idx in valid_indices]
     alpha_sum = sum(valid_alphas)

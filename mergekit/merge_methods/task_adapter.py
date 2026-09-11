@@ -21,6 +21,7 @@ from mergekit.merge_methods.base import (
     TensorMetadata,
 )
 from mergekit.merge_methods.buffers import copy_non_floating_buffer
+from mergekit.merge_methods.passthrough import passthrough_merge_method
 from mergekit.tokenizer import PermutedEmbeddings
 
 
@@ -138,13 +139,13 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
                     and entries[0].is_base
                 )
             ):
-                return entries[0].tensor
+                return self._passthrough(group)
             if (
                 policy == OptionalTensorPolicy.BASE_OR_SKIP
                 and len(entries) < method.spec.contract.min_inputs
             ):
                 if len(entries) == 1 and entries[0].is_base:
-                    return entries[0].tensor
+                    return self._passthrough(group)
                 logging.warning(
                     "Skipping optional weight %s: insufficient inputs",
                     self.output_weight.name,
@@ -181,6 +182,17 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
         (result,) = method._execute_resolved(
             (group,),
             [parameters],
+            dtype=dtype_from_name(self.dtype),
+            out_dtype=dtype_from_name(self.out_dtype),
+        )
+        return result
+
+    def _passthrough(self, group: TensorGroup) -> torch.Tensor:
+        tensor = group.entries[0].tensor
+        if not tensor.is_floating_point():
+            return tensor
+        (result,) = passthrough_merge_method(
+            (group,),
             dtype=dtype_from_name(self.dtype),
             out_dtype=dtype_from_name(self.out_dtype),
         )
