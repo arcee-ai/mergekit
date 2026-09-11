@@ -21,17 +21,7 @@ class ParameterScope(str, Enum):
 
     SHARED = "shared"
     INPUT = "input"
-
-
-class InputParameterTarget(str, Enum):
-    ALL = "all"
     NON_BASE = "non_base"
-
-
-@dataclass(frozen=True)
-class ParameterMarker:
-    scope: ParameterScope
-    target: InputParameterTarget = InputParameterTarget.ALL
 
 
 @dataclass(frozen=True)
@@ -40,7 +30,6 @@ class BatchParameter:
 
     value_type: Any
     scope: ParameterScope = ParameterScope.SHARED
-    target: InputParameterTarget = InputParameterTarget.ALL
 
 
 T = TypeVar("T")
@@ -78,13 +67,8 @@ class PerGroupValues(Generic[T]):
 
 
 # Ordinary annotations describe shared Python values; these mark per-input values.
-PerInput: TypeAlias = Annotated[
-    PerInputValues[T], ParameterMarker(ParameterScope.INPUT)
-]
-PerNonBase: TypeAlias = Annotated[
-    PerInputValues[T],
-    ParameterMarker(ParameterScope.INPUT, InputParameterTarget.NON_BASE),
-]
+PerInput: TypeAlias = Annotated[PerInputValues[T], ParameterScope.INPUT]
+PerNonBase: TypeAlias = Annotated[PerInputValues[T], ParameterScope.NON_BASE]
 
 
 MISSING = object()
@@ -95,7 +79,6 @@ class ParameterSpec:
     name: str
     value_type: Any
     scope: ParameterScope
-    input_target: InputParameterTarget = InputParameterTarget.ALL
     default: Any = MISSING
     description: Optional[str] = None
     batch_tensor: bool = False
@@ -371,7 +354,7 @@ class MergeMethodSpec:
         if len(set(names)) != len(names):
             raise ValueError(f"Duplicate parameter names for merge method {self.name}")
         if self.contract.base == BasePolicy.IGNORED and any(
-            p.input_target == InputParameterTarget.NON_BASE for p in self.parameters
+            p.scope == ParameterScope.NON_BASE for p in self.parameters
         ):
             raise ValueError("Non-base parameters require a base-aware input contract")
 
@@ -381,7 +364,7 @@ class MergeMethodSpec:
 
     @property
     def input_parameters(self) -> Tuple[ParameterSpec, ...]:
-        return tuple(p for p in self.parameters if p.scope == ParameterScope.INPUT)
+        return tuple(p for p in self.parameters if p.scope != ParameterScope.SHARED)
 
 
 class MergeMethod(ABC):
@@ -516,11 +499,7 @@ class MergeMethod(ABC):
         for parameter in self.spec.parameters:
             if parameter.name in supplied:
                 value = supplied[parameter.name]
-            elif (
-                parameter.scope == ParameterScope.INPUT
-                and parameter.input_target == InputParameterTarget.NON_BASE
-                and not group.non_base
-            ):
+            elif parameter.scope == ParameterScope.NON_BASE and not group.non_base:
                 value = {}
             elif parameter.required:
                 raise TypeError(
@@ -548,7 +527,7 @@ class MergeMethod(ABC):
     ) -> PerInputValues:
         entries = (
             group.non_base
-            if parameter.input_target == InputParameterTarget.NON_BASE
+            if parameter.scope == ParameterScope.NON_BASE
             else group.entries
         )
         ids = [entry.id for entry in entries]

@@ -11,7 +11,6 @@ from mergekit.merge_methods import (
     BatchOptions,
     BatchParameter,
     InputContract,
-    InputParameterTarget,
     ParameterScope,
     PerGroupValues,
     TensorBatch,
@@ -185,7 +184,7 @@ def test_non_base_coefficients_follow_canonical_layout(device):
         batch: TensorBatch,
         weight: Annotated[
             torch.Tensor,
-            BatchParameter(float, ParameterScope.INPUT, InputParameterTarget.NON_BASE),
+            BatchParameter(float, ParameterScope.NON_BASE),
         ],
     ) -> torch.Tensor:
         assert batch.base_index == 0
@@ -513,9 +512,7 @@ def test_empty_non_base_axis_has_a_dtype_without_validating_a_fake_value():
         batch: TensorBatch,
         weight: Annotated[
             torch.Tensor,
-            BatchParameter(
-                PositiveFloat, ParameterScope.INPUT, InputParameterTarget.NON_BASE
-            ),
+            BatchParameter(PositiveFloat, ParameterScope.NON_BASE),
         ],
     ) -> torch.Tensor:
         assert weight.shape == (2, 0)
@@ -534,7 +531,7 @@ def test_non_base_coefficients_cannot_use_an_ignored_base_contract():
         batch: TensorBatch,
         weight: Annotated[
             torch.Tensor,
-            BatchParameter(float, ParameterScope.INPUT, InputParameterTarget.NON_BASE),
+            BatchParameter(float, ParameterScope.NON_BASE),
         ],
     ) -> torch.Tensor:
         return sum(batch.tensors)

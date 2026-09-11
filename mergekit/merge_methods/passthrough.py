@@ -26,5 +26,5 @@ passthrough_merge_method = merge_method(
     name="passthrough",
     pretty_name="Passthrough",
     uses_accelerator=False,
-    contract=InputContract(min_inputs=1, max_inputs=1),
+    contract=InputContract(max_inputs=1),
 )

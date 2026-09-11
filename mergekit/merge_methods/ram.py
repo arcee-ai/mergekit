@@ -8,7 +8,7 @@ import torch
 from mergekit.merge_methods.base import BasePolicy, InputContract, TensorGroup
 from mergekit.merge_methods.easy_define import merge_method
 
-BASE_CONTRACT = InputContract(base=BasePolicy.REQUIRED, min_inputs=1, min_non_base=0)
+BASE_CONTRACT = InputContract(base=BasePolicy.REQUIRED)
 
 
 @merge_method(

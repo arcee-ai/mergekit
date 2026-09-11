@@ -204,7 +204,7 @@ def construct_param_dicts(
         ): model.parameters
         for model in config.models
     }
-    # The planner adds an implicit base too; it must receive ALL-target parameters
+    # The planner adds an implicit base too; it must receive INPUT-scoped parameters
     # from global settings/defaults even when it has no model-level settings.
     if base_ref is not None:
         model_settings.setdefault(base_ref, None)

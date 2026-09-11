@@ -79,8 +79,8 @@ The function signature defines parameter names, types, scopes, and defaults:
 
 - `Annotated[Tensor, BatchParameter(float)]` receives coefficients shaped `[B]`.
 - `BatchParameter(float, ParameterScope.INPUT)` receives `[B, N]`.
-- Adding `target=InputParameterTarget.NON_BASE` excludes the base input from the
-  coefficient axis. Base-aware batches use a canonical base-first input layout.
+- `BatchParameter(float, ParameterScope.NON_BASE)` excludes the base input from
+  the coefficient axis. Base-aware batches use a canonical base-first input layout.
 - Ordinary annotations, such as `normalize: bool = True`, receive shared Python
   values. In batch kernels, each value is constant within a packed batch.
   Different option values partition work into separate batches. Batch options must
@@ -95,9 +95,11 @@ float32 unless the aligned inputs are float64, in which case they use float64.
 Integer and boolean coefficients use int64 and bool. Kernels may explicitly cast
 coefficients when choosing their intermediate precision.
 
-Scopes do not encode the YAML hierarchy. For example, a shared parameter may still be
-overridden per module or slice and may vary between output tensors through filters or
-gradients. Scope describes the input axis along which the resolved value is bound.
+`ParameterScope` has three values: `SHARED`, `INPUT` (including the base), and
+`NON_BASE`. Scopes do not encode the YAML hierarchy. For example, a shared parameter
+may still be overridden per module or slice and may vary between output tensors
+through filters or gradients. Scope describes the input axis along which the
+resolved value is bound.
 
 Unsupported or ambiguous annotations are rejected when the method is defined. Resolved
 values are validated against their annotations before any tensor math runs.
@@ -122,8 +124,6 @@ from mergekit.merge_methods import BasePolicy, InputContract
         base=BasePolicy.REQUIRED,
         min_inputs=2,
         max_inputs=2,
-        min_non_base=1,
-        max_non_base=1,
     ),
 )
 def base_interpolation(

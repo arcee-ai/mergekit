@@ -73,7 +73,5 @@ arcee_fusion_merge_method = merge_method(
         base=BasePolicy.REQUIRED,
         min_inputs=2,
         max_inputs=2,
-        min_non_base=1,
-        max_non_base=1,
     ),
 )

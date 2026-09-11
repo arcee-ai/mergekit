@@ -35,13 +35,15 @@ def nuslerp(
 
     v0_u = _normalize(v0)
     v1_u = _normalize(v1)
-    cos_theta = torch.sum(v0_u * v1_u, dim=-1, keepdim=True)
-    theta = torch.acos(cos_theta.clamp(-1, 1))
+    cos_theta = torch.sum(v0_u * v1_u, dim=-1, keepdim=True).clamp(-1, 1)
+    colinear = (1 - cos_theta.square()) <= eps**2
+    # Keep the unselected spherical branch finite, including its derivatives.
+    # Overwriting a singular result afterward still leaves NaNs in backward().
+    theta = torch.acos(torch.where(colinear, 0, cos_theta))
     sin_theta = torch.sin(theta)
-    colinear = (sin_theta.abs() < eps).squeeze()
 
     result = (torch.sin((1 - t) * theta) * v0 + torch.sin(t * theta) * v1) / sin_theta
-    result[colinear] = (1 - t) * v0[colinear] + t * v1[colinear]
+    result = torch.where(colinear, (1 - t) * v0 + t * v1, result)
 
     if dim != -1 and not flatten:
         result = result.transpose(dim, -1)
@@ -84,7 +86,6 @@ nuslerp_merge_method = merge_method(
     optional_tensor_policy=OptionalTensorPolicy.PASSTHROUGH_SINGLETON,
     contract=InputContract(
         base=BasePolicy.OPTIONAL,
-        min_inputs=2,
         min_non_base=2,
         max_non_base=2,
     ),

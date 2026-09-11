@@ -3,7 +3,7 @@
 
 import torch
 
-from mergekit.merge_methods.base import InputContract, TensorGroup
+from mergekit.merge_methods.base import TensorGroup
 from mergekit.merge_methods.easy_define import merge_method
 
 
@@ -12,19 +12,20 @@ def karcher_merge_tensors(tensors, alphas, max_iter=10, tol=1e-5):
     if len(tensors) == 1:
         return tensors[0]
 
+    dtype = torch.float64 if tensors[0].dtype == torch.float64 else torch.float32
     norms = []
     units = []
     for tensor in tensors:
-        norm = torch.linalg.norm(tensor.float())
-        norm_value = norm.item()
-        if norm_value == 0.0:
-            norms.append(0.0)
+        norm = torch.linalg.vector_norm(tensor.to(dtype))
+        # Norms remain tensors wherever they affect the result. Scalar extraction
+        # is only for choosing branches and deciding when to stop iterating.
+        norms.append(norm)
+        if norm.item() == 0.0:
             units.append(torch.zeros_like(tensor))
         else:
-            norms.append(norm_value)
             units.append((tensor / norm).to(tensor.dtype))
 
-    valid_indices = [idx for idx, norm in enumerate(norms) if norm > tol]
+    valid_indices = [idx for idx, norm in enumerate(norms) if norm.item() > tol]
     if not valid_indices:
         return torch.zeros_like(tensors[0])
 
@@ -36,9 +37,11 @@ def karcher_merge_tensors(tensors, alphas, max_iter=10, tol=1e-5):
     mean = torch.zeros_like(valid_units[0])
     for alpha, unit in zip(normalized_alphas, valid_units):
         mean += alpha * unit
-    mean_norm = torch.linalg.norm(mean.float()).item()
+    mean_norm = torch.linalg.vector_norm(mean.to(dtype))
     mean = (
-        valid_units[0].clone() if mean_norm < tol else (mean / mean_norm).to(mean.dtype)
+        valid_units[0].clone()
+        if mean_norm.item() < tol
+        else (mean / mean_norm).to(mean.dtype)
     )
 
     for _ in range(max_iter):
@@ -50,14 +53,14 @@ def karcher_merge_tensors(tensors, alphas, max_iter=10, tol=1e-5):
                 continue
             tangent += alpha * (theta / torch.sin(theta)) * (unit - dot * mean)
 
-        tangent_norm = torch.linalg.norm(tangent.float())
+        tangent_norm = torch.linalg.vector_norm(tangent.to(dtype))
         if tangent_norm.item() < tol:
             break
         mean = (
             torch.cos(tangent_norm) * mean
             + torch.sin(tangent_norm) * (tangent / tangent_norm)
         ).to(mean.dtype)
-        unit_norm = torch.linalg.norm(mean.float())
+        unit_norm = torch.linalg.vector_norm(mean.to(dtype))
         if unit_norm.item() > tol:
             mean = (mean / unit_norm).to(mean.dtype)
 
@@ -82,5 +85,4 @@ karcher_merge_method = merge_method(
     name="karcher",
     pretty_name="Karcher Mean",
     reference_url="https://en.wikipedia.org/wiki/Karcher_mean",
-    contract=InputContract(min_inputs=1),
 )

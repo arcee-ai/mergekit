@@ -10,6 +10,97 @@ from mergekit.merge_methods.arcee_fusion import DynamicThresholdFusion
 from mergekit.merge_methods.task_adapter import ExecuteMergeMethodTask
 
 
+@pytest.fixture(
+    params=[
+        "cpu",
+        pytest.param(
+            "cuda",
+            marks=pytest.mark.skipif(
+                not torch.cuda.is_available(), reason="CUDA unavailable"
+            ),
+        ),
+    ]
+)
+def device(request):
+    return request.param
+
+
+@pytest.mark.parametrize("row_wise", [False, True])
+def test_nuslerp_mixed_collinear_rows_have_finite_gradients(device, row_wise):
+    a = torch.tensor([[1.0, 0.0]] * 4, dtype=torch.float64, device=device)
+    b = torch.tensor(
+        [[1.0, 0.0], [2.0, 0.0], [-1.0, 0.0], [0.0, 1.0]],
+        dtype=torch.float64,
+        device=device,
+    )
+    t = 0.25
+    expected = torch.tensor(
+        [[1.0, 0.0], [1.25, 0.0], [0.5, 0.0], [0.9238795325, 0.3826834324]],
+        dtype=torch.float64,
+        device=device,
+    )
+    if row_wise:
+        a, b, expected = a.T, b.T, expected.T
+    a.requires_grad_()
+    b.requires_grad_()
+    result = merge_state_dicts(
+        [{"w": a}, {"w": b}],
+        "nuslerp",
+        parameters={
+            "weight": [1 - t, t],
+            "nuslerp_flatten": False,
+            "nuslerp_row_wise": row_wise,
+        },
+    )["w"]
+    torch.testing.assert_close(result, expected)
+    result.sum().backward()
+    for tensor, coefficient in ((a, 1 - t), (b, t)):
+        assert tensor.grad.isfinite().all()
+        grad = tensor.grad.T if row_wise else tensor.grad
+        # The first three rows take the linear fallback, independently of the
+        # fourth row's spherical interpolation.
+        torch.testing.assert_close(grad[:3], torch.full_like(grad[:3], coefficient))
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_karcher_differentiates_output_scale(device, dtype):
+    a = torch.tensor([1.0, 0.0], device=device, dtype=dtype, requires_grad=True)
+    b = torch.tensor([2.0, 0.0], device=device, dtype=dtype, requires_grad=True)
+    result = merge_state_dicts([{"w": a}, {"w": b}], "karcher")["w"]
+    torch.testing.assert_close(result, a.new_tensor([1.5, 0.0]))
+    result.sum().backward()
+    for tensor in (a, b):
+        assert tensor.grad.isfinite().all()
+        torch.testing.assert_close(tensor.grad[0], tensor.new_tensor(0.5))
+
+
+@pytest.mark.parametrize(
+    "method_name,count,parameters",
+    [
+        ("nuslerp", 2, {"weight": [0.3, 0.7]}),
+        ("nuslerp", 2, {"weight": [0.3, 0.7], "nuslerp_flatten": False}),
+        ("karcher", 3, {"tol": 1e-8}),
+    ],
+)
+def test_spherical_merge_gradients_match_finite_differences(
+    device, method_name, count, parameters
+):
+    generator = torch.Generator().manual_seed(12)
+    tensors = tuple(
+        torch.randn(2, 3, generator=generator, dtype=torch.float64)
+        .to(device)
+        .requires_grad_()
+        for _ in range(count)
+    )
+
+    def merge(*inputs):
+        return merge_state_dicts(
+            [{"w": tensor} for tensor in inputs], method_name, parameters=parameters
+        )["w"]
+
+    assert torch.autograd.gradcheck(merge, tensors)
+
+
 @pytest.mark.parametrize("method_name", ["nuslerp", "multislerp"])
 def test_optional_weight_cannot_silently_drop_a_configured_base(method_name):
     refs = tuple(ModelReference.model_validate(name) for name in ("base", "a", "b"))

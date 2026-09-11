@@ -13,7 +13,6 @@ from mergekit.merge_methods.base import (
     BasePolicy,
     GroupMergeMethod,
     InputContract,
-    InputParameterTarget,
     MergeMethodSpec,
     ParameterScope,
     ParameterSpec,
@@ -54,14 +53,12 @@ class GeneralizedTaskArithmeticMerge(GroupMergeMethod):
             ParameterSpec(
                 "weight",
                 float,
-                ParameterScope.INPUT,
-                input_target=InputParameterTarget.NON_BASE,
+                ParameterScope.NON_BASE,
             ),
             ParameterSpec(
                 "density",
                 float,
-                ParameterScope.INPUT,
-                input_target=InputParameterTarget.NON_BASE,
+                ParameterScope.NON_BASE,
                 default=1.0,
             ),
         ]
@@ -70,8 +67,7 @@ class GeneralizedTaskArithmeticMerge(GroupMergeMethod):
                 ParameterSpec(
                     "gamma",
                     float,
-                    ParameterScope.INPUT,
-                    input_target=InputParameterTarget.NON_BASE,
+                    ParameterScope.NON_BASE,
                     default=0.01,
                 )
             )
@@ -80,8 +76,7 @@ class GeneralizedTaskArithmeticMerge(GroupMergeMethod):
                 ParameterSpec(
                     "epsilon",
                     float,
-                    ParameterScope.INPUT,
-                    input_target=InputParameterTarget.NON_BASE,
+                    ParameterScope.NON_BASE,
                     default=0.15,
                 )
             )
@@ -90,11 +85,7 @@ class GeneralizedTaskArithmeticMerge(GroupMergeMethod):
             pretty_name=self.method_pretty_name,
             reference_url=self.method_reference_url,
             parameters=tuple(params),
-            contract=InputContract(
-                base=BasePolicy.REQUIRED,
-                min_inputs=1,
-                min_non_base=0,
-            ),
+            contract=InputContract(base=BasePolicy.REQUIRED),
         )
 
     def merge_group(self, group: TensorGroup, /, **parameters: Any) -> torch.Tensor:

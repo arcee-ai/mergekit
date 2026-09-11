@@ -6,7 +6,6 @@ from typing_extensions import Annotated
 
 from mergekit.merge_methods.base import (
     BatchParameter,
-    InputContract,
     ParameterScope,
     TensorBatch,
 )
@@ -43,5 +42,4 @@ linear_merge = merge_method(
     name="linear",
     pretty_name="Linear",
     reference_url="https://arxiv.org/abs/2203.05482",
-    contract=InputContract(min_inputs=1),
 )

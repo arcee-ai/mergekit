@@ -12,7 +12,6 @@ from typing_extensions import Annotated, get_args, get_origin
 from mergekit.merge_methods.base import (
     BasePolicy,
     BatchOptions,
-    InputParameterTarget,
     MergeMethodSpec,
     ParameterScope,
     TensorBatch,
@@ -81,9 +80,9 @@ class PreparedBatch:
             values = []
             for group in self.groups:
                 value = group.parameters[parameter.name]
-                if parameter.scope == ParameterScope.INPUT:
+                if parameter.scope != ParameterScope.SHARED:
                     entries = group.entries
-                    if parameter.input_target == InputParameterTarget.NON_BASE:
+                    if parameter.scope == ParameterScope.NON_BASE:
                         entries = tuple(entry for entry in entries if not entry.is_base)
                     value = value.values_for(entries)
                 values.append(value)
@@ -130,7 +129,7 @@ def prepare_batches(
             if parameter.batch_tensor:
                 values = (
                     list(value.values())
-                    if parameter.scope == ParameterScope.INPUT
+                    if parameter.scope != ParameterScope.SHARED
                     else [value]
                 )
                 packed_bytes += (

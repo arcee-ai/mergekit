@@ -62,6 +62,5 @@ model_stock_merge_method = merge_method(
     contract=InputContract(
         base=BasePolicy.REQUIRED,
         min_inputs=3,
-        min_non_base=2,
     ),
 )

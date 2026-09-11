@@ -18,7 +18,6 @@ from mergekit.merge_methods.base import (
     MergeMethod,
     MergeMethodSpec,
     OptionalTensorPolicy,
-    ParameterMarker,
     ParameterScope,
     ParameterSpec,
     PerInputValues,
@@ -40,7 +39,7 @@ def _parameter_spec(
     value_type, metadata = annotation, []
     if get_origin(annotation) is Annotated:
         value_type, *metadata = get_args(annotation)
-    markers = [m for m in metadata if isinstance(m, (ParameterMarker, BatchParameter))]
+    markers = [m for m in metadata if isinstance(m, (ParameterScope, BatchParameter))]
     if len(markers) > 1:
         raise TypeError(
             f"Parameter {argument.name} must have at most one scope annotation"
@@ -48,7 +47,6 @@ def _parameter_spec(
     marker = markers[0] if markers else None
     remaining = [m for m in metadata if m is not marker]
     scope = ParameterScope.SHARED
-    kwargs = {}
     if isinstance(marker, BatchParameter):
         if not batched:
             raise TypeError(
@@ -65,17 +63,19 @@ def _parameter_spec(
         if scalar_type not in (float, int, bool):
             raise TypeError("BatchParameter requires a bool, int, or float scalar type")
         scope = marker.scope
-        kwargs = {"input_target": marker.target, "batch_tensor": True}
-    elif isinstance(marker, ParameterMarker):
+    elif isinstance(marker, ParameterScope):
         if batched:
             raise TypeError(
                 "Batch kernels use BatchParameter, not PerInput[T] or PerNonBase[T]"
             )
-        if get_origin(value_type) is not PerInputValues or remaining:
+        if (
+            get_origin(value_type) is not PerInputValues
+            or remaining
+            or marker == ParameterScope.SHARED
+        ):
             raise TypeError("Put per-input value constraints inside PerInput[T]")
         value_type = get_args(value_type)[0]
-        scope = marker.scope
-        kwargs = {"input_target": marker.target}
+        scope = marker
     else:
         if value_type is torch.Tensor:
             raise TypeError("Tensor coefficients must be annotated with BatchParameter")
@@ -90,7 +90,7 @@ def _parameter_spec(
         default=(
             MISSING if argument.default is inspect.Parameter.empty else argument.default
         ),
-        **kwargs,
+        batch_tensor=isinstance(marker, BatchParameter),
     )
 
 

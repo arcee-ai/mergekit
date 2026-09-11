@@ -12,8 +12,8 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Tuple
 from mergekit.common import ModelReference
 from mergekit.config import ParameterSetting, evaluate_setting
 from mergekit.merge_methods.base import (
-    InputParameterTarget,
     MergeMethodSpec,
+    ParameterScope,
     ParameterSpec,
 )
 
@@ -65,6 +65,6 @@ def resolve_parameters(
                 p, settings, tensor_name=input_name, model=model, t=t
             )
             for p in spec.input_parameters
-            if model != base_model or p.input_target == InputParameterTarget.ALL
+            if model != base_model or p.scope == ParameterScope.INPUT
         }
     return shared, per_input

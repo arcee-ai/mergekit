@@ -16,7 +16,7 @@ from mergekit.merge_methods.generalized_task_arithmetic import (
     name="sce",
     pretty_name="SCE",
     reference_url="https://arxiv.org/abs/2408.07990",
-    contract=InputContract(base=BasePolicy.REQUIRED, min_inputs=1, min_non_base=0),
+    contract=InputContract(base=BasePolicy.REQUIRED),
 )
 def sce_merge(
     group: TensorGroup,
