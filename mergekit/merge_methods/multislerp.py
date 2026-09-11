@@ -10,10 +10,10 @@ from mergekit.merge_methods.base import (
     Shared,
     TensorGroup,
 )
-from mergekit.merge_methods.easy_define import group_merge_method
+from mergekit.merge_methods.easy_define import merge_method
 
 
-@group_merge_method(
+@merge_method(
     name="multislerp",
     pretty_name="Multi-SLERP",
     reference_url="https://goddard.blog/posts/multislerp-wow-what-a-cool-idea",

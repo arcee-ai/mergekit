@@ -11,7 +11,7 @@ from mergekit.merge_methods.base import (
     OptionalTensorPolicy,
     TensorBatch,
 )
-from mergekit.merge_methods.easy_define import from_batch_kernel
+from mergekit.merge_methods.easy_define import merge_method
 
 # Bound full-precision scratch independently of the size of a logical weight.
 _CHUNK_ELEMENTS = 1024 * 1024
@@ -89,7 +89,7 @@ def _slerp_merge(
     return slerp(t, batch.tensors[:, base_index], batch.tensors[:, 1 - base_index])
 
 
-slerp_merge_method = from_batch_kernel(
+slerp_merge_method = merge_method(
     _slerp_merge,
     name="slerp",
     pretty_name="SLERP",

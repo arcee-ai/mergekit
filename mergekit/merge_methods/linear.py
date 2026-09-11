@@ -11,7 +11,7 @@ from mergekit.merge_methods.base import (
     ParameterScope,
     TensorBatch,
 )
-from mergekit.merge_methods.easy_define import from_batch_kernel
+from mergekit.merge_methods.easy_define import merge_method
 
 
 def _linear_merge(
@@ -31,7 +31,7 @@ def _linear_merge(
     return result.reshape(tensors.shape[0], *tensors.shape[2:])
 
 
-linear_merge = from_batch_kernel(
+linear_merge = merge_method(
     _linear_merge,
     name="linear",
     pretty_name="Linear",

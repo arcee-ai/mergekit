@@ -275,8 +275,8 @@ class TensorGroup:
     def tensors(self) -> Tuple[torch.Tensor, ...]:
         return tuple(entry.tensor for entry in self.entries)
 
-    def validate_tensors(self, *, allow_mixed_dtype: bool = False) -> None:
-        """Require aligned inputs without allocating or changing their storage."""
+    def validate_tensors(self) -> None:
+        """Require matching shapes and devices without allocating tensor storage."""
         if not self.entries:
             return
         first = self.entries[0].tensor
@@ -293,13 +293,9 @@ class TensorGroup:
                 f"Tensor size mismatch for {self.metadata.name}: "
                 f"{[tuple(entry.tensor.shape) for entry in self.entries]}.{hint}"
             )
-        if any(
-            (not allow_mixed_dtype and entry.tensor.dtype != first.dtype)
-            or entry.tensor.device != first.device
-            for entry in self.entries
-        ):
+        if any(entry.tensor.device != first.device for entry in self.entries):
             raise ValueError(
-                f"Inputs for {self.metadata.name} must have the same dtype and device"
+                f"Inputs for {self.metadata.name} must have the same device"
             )
 
 
@@ -406,8 +402,6 @@ class MergeMethodSpec:
         names = [parameter.name for parameter in self.parameters]
         if len(set(names)) != len(names):
             raise ValueError(f"Duplicate parameter names for merge method {self.name}")
-        if "batch_options" in names:
-            raise ValueError("batch_options is reserved for execution settings")
         if self.contract.base == BasePolicy.IGNORED and any(
             p.input_target == InputParameterTarget.NON_BASE for p in self.parameters
         ):
@@ -442,18 +436,39 @@ class MergeMethod(ABC):
         batch: MergeBatch,
         /,
         *,
+        parameters: Optional[Mapping[str, Any]] = None,
+        dtype: Optional[torch.dtype] = None,
+        out_dtype: Optional[torch.dtype] = None,
         batch_options: Optional[BatchOptions] = None,
-        **parameters: Any,
     ) -> MergedBatch:
-        bound_parameters = self._bind_parameters(batch, parameters)
-        return self._execute(batch, bound_parameters, batch_options or BatchOptions())
+        """Validate and merge, promoting inputs per group unless dtype is given.
+
+        Conversion is deferred until each group/chunk executes; outputs are cast
+        before accumulation. Algorithm parameters are separate from these controls.
+        """
+        from mergekit.merge_methods.dtype import promoted_dtype
+
+        for name, value in (("dtype", dtype), ("out_dtype", out_dtype)):
+            if value is not None and (
+                not isinstance(value, torch.dtype) or not value.is_floating_point
+            ):
+                raise ValueError(f"{name} must be a floating-point torch.dtype")
+        bound_parameters = self._bind_parameters(batch, parameters or {})
+        return self._execute(
+            batch,
+            bound_parameters,
+            batch_options or BatchOptions(),
+            input_dtypes=[
+                (dtype or promoted_dtype(group)) if group.entries else dtype
+                for group in batch.groups
+            ],
+            out_dtype=out_dtype,
+        )
 
     def _bind_parameters(
         self,
         batch: MergeBatch,
         parameters: Mapping[str, Any],
-        *,
-        allow_mixed_dtype: bool = False,
     ) -> List[Dict[str, Any]]:
         # Validate every group before running any tensor math.
         for group in batch.groups:
@@ -462,7 +477,7 @@ class MergeMethod(ABC):
                 group.base.id if group.base else None,
                 group_name=group.metadata.name,
             )
-            group.validate_tensors(allow_mixed_dtype=allow_mixed_dtype)
+            group.validate_tensors()
 
         unknown = set(parameters) - {p.name for p in self.spec.parameters}
         if unknown:
@@ -486,13 +501,12 @@ class MergeMethod(ABC):
         parameters: List[Dict[str, Any]],
         options: BatchOptions,
         *,
-        input_dtypes: Optional[Sequence[torch.dtype]] = None,
+        input_dtypes: Sequence[Optional[torch.dtype]],
         out_dtype: Optional[torch.dtype] = None,
     ) -> MergedBatch:
         """Execute validated inputs, converting only the current group/chunk.
 
-        Adapters may supply input_dtypes to defer alignment until execution and
-        out_dtype to cast results before accumulation. Direct calls omit both.
+        The public call supplies per-group dtypes and the optional output cast.
         """
         ...
 
@@ -594,7 +608,7 @@ class BatchedMergeMethod(MergeMethod):
         parameters: List[Dict[str, Any]],
         options: BatchOptions,
         *,
-        input_dtypes: Optional[Sequence[torch.dtype]] = None,
+        input_dtypes: Sequence[Optional[torch.dtype]],
         out_dtype: Optional[torch.dtype] = None,
     ) -> MergedBatch:
         from mergekit.merge_methods.batching import prepare_batches
@@ -633,15 +647,14 @@ class GroupMergeMethod(MergeMethod):
         parameters: List[Dict[str, Any]],
         options: BatchOptions,
         *,
-        input_dtypes: Optional[Sequence[torch.dtype]] = None,
+        input_dtypes: Sequence[Optional[torch.dtype]],
         out_dtype: Optional[torch.dtype] = None,
     ) -> MergedBatch:
         from mergekit.merge_methods.dtype import align_dtype
 
         results = []
         for index, (group, kwargs) in enumerate(zip(batch.groups, parameters)):
-            if input_dtypes is not None:
-                group = align_dtype(group, input_dtypes[index])
+            group = align_dtype(group, input_dtypes[index])
             if group.entries:
                 with torch.autocast(
                     device_type=group.entries[0].tensor.device.type, enabled=False

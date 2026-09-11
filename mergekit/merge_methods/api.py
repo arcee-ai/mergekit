@@ -17,7 +17,6 @@ from mergekit.merge_methods.base import (
     TensorGroup,
     TensorMetadata,
 )
-from mergekit.merge_methods.dtype import promoted_dtype
 
 StateDict = Mapping[str, torch.Tensor]
 StateDictLike = Union[StateDict, torch.nn.Module]
@@ -45,12 +44,6 @@ def merge_state_dicts(
     chunk; out_dtype casts outputs before they are retained. Autograd graphs and
     outputs that alias inputs may extend the lifetime of conversion storage.
     """
-
-    for name, value in (("dtype", dtype), ("out_dtype", out_dtype)):
-        if value is not None and (
-            not isinstance(value, torch.dtype) or not value.is_floating_point
-        ):
-            raise ValueError(f"{name} must be a floating-point torch.dtype")
 
     if isinstance(method, str):
         from mergekit import merge_methods
@@ -131,15 +124,12 @@ def merge_state_dicts(
         for name in merge_names
     )
     batch = MergeBatch(groups=groups)
-    # Validate and plan with borrowed tensors. Conversion happens only when a
-    # group/chunk executes, and outputs are cast before they are retained.
-    bound = method._bind_parameters(batch, resolved_parameters, allow_mixed_dtype=True)
-    merged = method._execute(
+    merged = method(
         batch,
-        bound,
-        batch_options or BatchOptions(),
-        input_dtypes=[dtype or promoted_dtype(group) for group in groups],
+        parameters=resolved_parameters,
+        dtype=dtype,
         out_dtype=out_dtype,
+        batch_options=batch_options,
     )
     results = dict(zip(merge_names, merged.tensors))
     results.update(copied)

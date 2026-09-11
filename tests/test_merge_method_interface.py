@@ -15,7 +15,7 @@ from mergekit.merge_methods import (
     TensorGroup,
     merge_state_dicts,
 )
-from mergekit.merge_methods.easy_define import from_group_kernel
+from mergekit.merge_methods.easy_define import merge_method
 from mergekit.scripts.merge_raw_pytorch import (
     InputModelDefinition as RawInputModelDefinition,
 )
@@ -40,7 +40,7 @@ def test_signature_is_parameter_ssot_and_supports_shared_lists():
             result /= sum(values)
         return result + torch.tensor(offsets)
 
-    method = from_group_kernel(kernel, name="test_method")
+    method = merge_method(kernel, name="test_method")
     assert [parameter.name for parameter in method.spec.shared_parameters] == [
         "offsets",
         "normalize",
@@ -51,9 +51,7 @@ def test_signature_is_parameter_ssot_and_supports_shared_lists():
         [torch.tensor([1.0, 2.0]), torch.tensor([3.0, 4.0])], ids=["a", "b"]
     )
     result = method(
-        batch,
-        weight={"b": 0.75, "a": 0.25},
-        offsets=[10.0, 20.0],
+        batch, parameters={"weight": {"b": 0.75, "a": 0.25}, "offsets": [10.0, 20.0]}
     ).one()
     assert torch.equal(result, torch.tensor([12.5, 23.5]))
 
@@ -65,7 +63,7 @@ def test_contract_validates_entire_batch_before_math_runs():
         calls.append(group)
         return group.entries[0].tensor
 
-    method = from_group_kernel(
+    method = merge_method(
         kernel,
         name="requires_base",
         contract=InputContract(
@@ -96,16 +94,16 @@ def test_per_input_values_are_ordered_and_shape_checked():
     def kernel(group: TensorGroup, value: PerInput[int]) -> torch.Tensor:
         return torch.tensor(value.values_for(group.entries))
 
-    method = from_group_kernel(kernel, name="ordered")
+    method = merge_method(kernel, name="ordered")
     batch = MergeBatch.from_tensors(
         [torch.zeros(2), torch.zeros(2)], ids=["second", "first"]
     )
     assert torch.equal(
-        method(batch, value={"first": 1, "second": 2}).one(),
+        method(batch, parameters={"value": {"first": 1, "second": 2}}).one(),
         torch.tensor([2, 1]),
     )
     with pytest.raises(ValueError, match="expects 2 values"):
-        method(batch, value=[1])
+        method(batch, parameters={"value": [1]})
 
 
 def test_registered_method_can_be_called_directly():
@@ -114,7 +112,9 @@ def test_registered_method_can_be_called_directly():
     batch = MergeBatch.from_tensors(
         [torch.tensor([1.0]), torch.tensor([3.0])], ids=["a", "b"]
     )
-    result = merge_methods.get("linear")(batch, weight={"a": 0.25, "b": 0.75}).one()
+    result = merge_methods.get("linear")(
+        batch, parameters={"weight": {"a": 0.25, "b": 0.75}}
+    ).one()
     assert torch.equal(result, torch.tensor([2.5]))
 
 
@@ -122,14 +122,14 @@ def test_explicit_per_group_parameter_values():
     def kernel(group: TensorGroup, scale: Shared[float]) -> torch.Tensor:
         return group.entries[0].tensor * scale
 
-    method = from_group_kernel(kernel, name="per_group")
+    method = merge_method(kernel, name="per_group")
     batch = MergeBatch(
         groups=(
             TensorGroup(entries=(TensorEntry("a", torch.tensor(2.0)),)),
             TensorGroup(entries=(TensorEntry("a", torch.tensor(3.0)),)),
         )
     )
-    result = method(batch, scale=PerGroupValues([5.0, 7.0]))
+    result = method(batch, parameters={"scale": PerGroupValues([5.0, 7.0])})
     assert result.tensors == (torch.tensor(10.0), torch.tensor(21.0))
 
 
@@ -188,7 +188,7 @@ def test_raw_parameter_binding_preserves_zero_values():
     ]
 
 
-@pytest.mark.parametrize("failure", ["shape", "dtype", "device"])
+@pytest.mark.parametrize("failure", ["shape", "device"])
 def test_group_adapter_validates_every_group_before_execution(failure):
     calls = []
 
@@ -196,15 +196,14 @@ def test_group_adapter_validates_every_group_before_execution(failure):
         calls.append(group)
         return group.entries[0].tensor
 
-    method = from_group_kernel(kernel, name="validated")
+    method = merge_method(kernel, name="validated")
     good = MergeBatch.from_tensors([torch.ones(2, 1), torch.ones(2, 1)]).groups[0]
     bad_tensor = {
         "shape": lambda: torch.ones(1, 2),
-        "dtype": lambda: torch.ones(2, 1, dtype=torch.float64),
         "device": lambda: torch.ones(2, 1, device="meta"),
     }[failure]()
     bad = MergeBatch.from_tensors([torch.ones(2, 1), bad_tensor]).groups[0]
-    with pytest.raises(ValueError, match="size mismatch|same dtype and device"):
+    with pytest.raises(ValueError, match="size mismatch|same device"):
         method(MergeBatch((good, bad)))
     assert calls == []
 
@@ -257,7 +256,7 @@ def test_group_kernel_must_preserve_weight_shape():
     def kernel(group: TensorGroup) -> torch.Tensor:
         return group.entries[0].tensor.sum()
 
-    method = from_group_kernel(kernel, name="invalid_reduction")
+    method = merge_method(kernel, name="invalid_reduction")
     with pytest.raises(TypeError, match="must return a tensor of shape"):
         method(MergeBatch.from_tensors([torch.ones(2)]))
 
@@ -270,7 +269,8 @@ def test_model_stock_singularity_retains_base_with_finite_gradients(filter_wise)
     a = torch.tensor([[3.0, 3.0]], dtype=torch.float64, requires_grad=True)
     b = torch.tensor([[1.0, 3.0]], dtype=torch.float64, requires_grad=True)
     result = merge_methods.get("model_stock")(
-        MergeBatch.from_tensors([base, a, b], base_index=0), filter_wise=filter_wise
+        MergeBatch.from_tensors([base, a, b], base_index=0),
+        parameters={"filter_wise": filter_wise},
     ).one()
     torch.testing.assert_close(result, base)
     result.sum().backward()
@@ -287,7 +287,8 @@ def test_sce_zero_variance_preserves_shape(shape, density):
     base = torch.ones(shape)
     other = torch.full(shape, 3.0)
     result = merge_methods.get("sce")(
-        MergeBatch.from_tensors([base, other, other], base_index=0), select_topk=density
+        MergeBatch.from_tensors([base, other, other], base_index=0),
+        parameters={"select_topk": density},
     ).one()
     torch.testing.assert_close(result, other if density == 1 else base)
 
@@ -331,3 +332,77 @@ def test_passthrough_graph_does_not_visit_math_device(tmp_path, scale):
     Executor(tasks, math_device="meta", storage_device="cpu").execute()
     actual = load_file(output / "model.safetensors")["w"]
     torch.testing.assert_close(actual, tensor if scale is None else tensor * scale)
+
+
+def test_construction_and_registration_are_independent(monkeypatch):
+    from mergekit.merge_methods import get, register, registered_methods, registry
+
+    builtin = get("linear")
+
+    @merge_method(name="linear")
+    def custom(group: TensorGroup) -> torch.Tensor:
+        return group.tensors[0]
+
+    assert get("linear") is builtin
+    batch = MergeBatch.from_tensors([torch.ones(2)])
+    torch.testing.assert_close(custom(batch).one(), torch.ones(2))
+    with pytest.raises(ValueError, match="already registered"):
+        register(custom)
+    assert get("linear") is builtin
+
+    monkeypatch.setattr(registry, "_METHODS", {})
+    register(custom)
+    assert get("linear") is custom
+    assert registered_methods() == (custom,)
+    with pytest.raises(RuntimeError, match="Unimplemented merge method missing"):
+        get("missing")
+
+
+def test_execution_controls_do_not_reserve_algorithm_parameter_names():
+    @merge_method(name="controls")
+    def kernel(
+        group: TensorGroup,
+        dtype: Shared[float],
+        out_dtype: Shared[float],
+        batch_options: Shared[float],
+        parameters: Shared[float],
+    ) -> torch.Tensor:
+        return group.tensors[0] * (dtype + out_dtype + batch_options + parameters)
+
+    result = kernel(
+        MergeBatch.from_tensors([torch.ones(2)]),
+        parameters={"dtype": 1, "out_dtype": 2, "batch_options": 3, "parameters": 4},
+        dtype=torch.float64,
+        out_dtype=torch.float32,
+    ).one()
+    torch.testing.assert_close(result, torch.full((2,), 10.0))
+
+
+def test_all_builtins_are_registered():
+    from mergekit.merge_methods import get, registered_methods
+
+    names = {
+        "linear",
+        "slerp",
+        "nuslerp",
+        "multislerp",
+        "passthrough",
+        "model_stock",
+        "arcee_fusion",
+        "karcher",
+        "nearswap",
+        "ram",
+        "ramplus_tl",
+        "sce",
+        "task_arithmetic",
+        "ties",
+        "dare_ties",
+        "dare_linear",
+        "breadcrumbs",
+        "breadcrumbs_ties",
+        "della",
+        "della_linear",
+    }
+    assert {method.spec.name for method in registered_methods()} == names
+    for method in registered_methods():
+        assert get(method.spec.name) is method

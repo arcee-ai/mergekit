@@ -11,7 +11,7 @@ from mergekit.merge_methods.base import (
     Shared,
     TensorGroup,
 )
-from mergekit.merge_methods.easy_define import from_group_kernel
+from mergekit.merge_methods.easy_define import merge_method
 
 
 def nuslerp(
@@ -78,7 +78,7 @@ def _nuslerp_merge(
     )
 
 
-nuslerp_merge_method = from_group_kernel(
+nuslerp_merge_method = merge_method(
     _nuslerp_merge,
     name="nuslerp",
     pretty_name="NuSLERP",

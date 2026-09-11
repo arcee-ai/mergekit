@@ -97,8 +97,8 @@ executing any group.
 
 ## Calling a method directly
 
-The decorator returns the registered callable method rather than the undecorated
-implementation:
+The decorator constructs a callable method. Construction does not register it;
+registration is only needed for lookup by name. Built-ins are already registered:
 
 ```python
 from mergekit import merge_methods
@@ -111,7 +111,7 @@ batch = MergeBatch.from_tensors(
 
 result = merge_methods.get("linear")(
     batch,
-    weight={"model_a": 0.25, "model_b": 0.75},
+    parameters={"weight": {"model_a": 0.25, "model_b": 0.75}},
 )
 merged_tensor = result.one()
 ```
@@ -143,7 +143,9 @@ bfloat16 with float32. Float64 inputs promote the group to float64. Pass
 `dtype=torch.bfloat16` to explicitly cast inputs, or `out_dtype=torch.bfloat16` to
 cast only the merged outputs. Both options leave non-floating buffers unchanged.
 The YAML and raw-PyTorch adapters use the corresponding string-valued `dtype` and
-`out_dtype` settings. Direct `MergeBatch` callers must align their own input dtypes.
+`out_dtype` settings. Direct `MergeBatch` calls accept the same dtype options and
+use the same promotion policy. Algorithm parameters go in the `parameters` mapping,
+separately from dtype and packing controls; no algorithm parameter names are reserved.
 
 ## Batches
 
@@ -154,8 +156,8 @@ output per group.
 Logical batches may be heterogeneous. Preparation validates every group, buckets
 compatible work by shape, dtype, device, input count/layout, and execution options,
 then incrementally packs numerical `TensorBatch` buffers. All inputs within a group
-must have matching shapes, dtypes, and devices, including for sequential group
-kernels. Every group is checked before any kernel executes, and kernels must preserve
+must have matching shapes and devices. Dtypes are aligned during execution,
+including for sequential group kernels. Every group is checked before any kernel executes, and kernels must preserve
 the weight shape. Output order always matches logical group order, not bucket order.
 Dense strided inputs need not be contiguous; kernels reshape locally where needed.
 
@@ -191,7 +193,7 @@ from mergekit.merge_methods import BatchOptions, PerGroupValues
 
 result = merge_methods.get("linear")(
     logical_batch,
-    weight=PerGroupValues([weights_for_group_0, weights_for_group_1]),
+    parameters={"weight": PerGroupValues([weights_for_group_0, weights_for_group_1])},
     batch_options=BatchOptions(max_bytes=64 * 1024 * 1024, max_groups=128),
 )
 ```
@@ -200,7 +202,7 @@ The same `batch_options` argument is accepted by `merge_state_dicts`. Limits app
 to packed input and coefficient buffers, **not** source tensors, retained outputs,
 autograd graphs, or kernel scratch space. A single oversized group executes alone;
 these are packing limits, not a guarantee of total GPU memory usage.
-`merge_state_dicts` converts inputs only for the current chunk (or current group
+The common method call converts inputs only for the current chunk (or current group
 for sequential methods), and casts outputs to `out_dtype` before retaining them.
 Packing budgets use the target input dtype, including when inputs are promoted.
 Autograd graphs and outputs that alias converted inputs can retain that storage.
@@ -227,9 +229,9 @@ packing buffers. They are an alternative to native batch kernels, particularly f
 algorithms that need tensor metadata or do not benefit from vectorization:
 
 ```python
-from mergekit.merge_methods import Shared, TensorGroup, group_merge_method
+from mergekit.merge_methods import Shared, TensorGroup, merge_method
 
-@group_merge_method(name="scaled_copy")
+@merge_method(name="scaled_copy")
 def scaled_copy(group: TensorGroup, scale: Shared[float] = 1.0) -> torch.Tensor:
     return group.entries[0].tensor * scale
 ```
@@ -238,9 +240,11 @@ Group kernels use `Shared[T]`, `PerInput[T]`, and `PerNonBase[T]`. Per-input val
 are ordered mappings keyed by `TensorEntry.id`. The signature remains the source
 of parameter validation, including constraints inside `T`.
 
-`from_batch_kernel` and `from_group_kernel` construct methods without registering
-them. `method.supports_batching` distinguishes a native numerical kernel from a
-`GroupMergeMethod`; accepting a logical batch alone does not imply vectorization.
+`merge_method` selects execution from the first argument annotation: `TensorBatch`
+for a numerical batch kernel, `TensorGroup` for a sequential group kernel. It can
+also be called directly: `method = merge_method(kernel, name="my_method")`.
+`method.supports_batching` reports whether the kernel is batched; accepting a logical
+batch alone does not imply vectorization.
 
 ## Metadata and base inputs
 
@@ -254,17 +258,32 @@ whether it is an embedding tensor. A base is represented by an entry with
 
 ## Registration
 
-Decorator-based methods register when their module is imported. Add the module import
-to `mergekit/merge_methods/__init__.py` for built-in methods. Static families such as
-TIES/DARE may construct `MergeMethodSpec` objects programmatically when their available
-parameters depend on a registered variant profile.
+Method construction has no registration side effects. To make a method available
+by name, register the constructed object explicitly:
+
+```python
+from mergekit.merge_methods import get, register, registered_methods
+
+register(weighted_average)
+assert get("weighted_average") is weighted_average
+```
+
+`register()` rejects duplicate names. `registered_methods()` returns a tuple of
+currently registered methods. Passing a method object to `merge_state_dicts` or
+calling it directly never requires registration.
+
+All built-ins are assembled in `mergekit/merge_methods/registry.py`. Add the method
+import and its object to that module's registration sequence. Class-based families
+such as TIES/DARE use the same `register()` function as function-based methods.
 
 Read method metadata directly from `method.spec.name`, `method.spec.pretty_name`,
 and `method.spec.reference_url`; there are no separate metadata accessor methods.
 
 ## Execution adapters
 
-The computation graph uses a generic `ExecuteMergeMethodTask`; individual methods do
+Every adapter executes through `MergeMethod.__call__`, which validates inputs and
+parameters, selects dtypes, and dispatches to the group or batch strategy. The
+computation graph uses a generic `ExecuteMergeMethodTask`; individual methods do
 not define tasks. The YAML planner resolves configured values and builds that adapter.
 Other consumers can construct `MergeBatch` directly without importing graph or config
 types.

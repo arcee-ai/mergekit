@@ -10,7 +10,7 @@ from mergekit.merge_methods.base import (
     Shared,
     TensorGroup,
 )
-from mergekit.merge_methods.easy_define import from_group_kernel
+from mergekit.merge_methods.easy_define import merge_method
 
 
 def _model_stock_merge(
@@ -56,7 +56,7 @@ def _model_stock_merge(
     return (t * average + (1 - t) * w_0).reshape(out_shape)
 
 
-model_stock_merge_method = from_group_kernel(
+model_stock_merge_method = merge_method(
     _model_stock_merge,
     name="model_stock",
     pretty_name="Model Stock",

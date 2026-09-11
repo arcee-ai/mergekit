@@ -27,12 +27,7 @@ from mergekit.merge_methods.base import (
     TensorGroup,
     TensorMetadata,
 )
-from mergekit.merge_methods.easy_define import (
-    from_batch_kernel,
-    from_group_kernel,
-    group_merge_method,
-    merge_method,
-)
+from mergekit.merge_methods.easy_define import merge_method
 from mergekit.merge_methods.generalized_task_arithmetic import (
     GeneralizedTaskArithmeticMerge,
 )
@@ -40,15 +35,8 @@ from mergekit.merge_methods.multislerp import multislerp as multislerp
 from mergekit.merge_methods.nearswap import nearswap_merge as nearswap_merge
 from mergekit.merge_methods.ram import ram_merge as ram_merge
 from mergekit.merge_methods.ram import ramplus_tl_merge as ramplus_tl_merge
-from mergekit.merge_methods.registry import REGISTERED_MERGE_METHODS
+from mergekit.merge_methods.registry import get, register, registered_methods
 from mergekit.merge_methods.sce import sce_merge as sce_merge
-
-
-def get(method: str) -> MergeMethod:
-    if method in REGISTERED_MERGE_METHODS:
-        return REGISTERED_MERGE_METHODS[method]
-    raise RuntimeError(f"Unimplemented merge method {method}")
-
 
 __all__ = [
     "BatchedMergeMethod",
@@ -60,9 +48,6 @@ __all__ = [
     "OptionalTensorPolicy",
     "ParameterScope",
     "InputParameterTarget",
-    "from_batch_kernel",
-    "from_group_kernel",
-    "group_merge_method",
     "merge_method",
     "MergeMethod",
     "MergeMethodSpec",
@@ -84,7 +69,8 @@ __all__ = [
     "ram_merge",
     "ramplus_tl_merge",
     "get",
+    "register",
+    "registered_methods",
     "GeneralizedTaskArithmeticMerge",
-    "REGISTERED_MERGE_METHODS",
     "sce_merge",
 ]

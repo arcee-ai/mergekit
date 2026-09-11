@@ -23,8 +23,7 @@ from mergekit.merge_methods import (
     TensorEntry,
     TensorGroup,
     TensorMetadata,
-    from_batch_kernel,
-    from_group_kernel,
+    merge_method,
     merge_state_dicts,
 )
 
@@ -81,8 +80,10 @@ def test_linear_buckets_options_shapes_and_restores_order(monkeypatch, device):
         expected.append(result / sum(weight.values()) if normalize[-1] else result)
     results = method(
         MergeBatch(tuple(groups)),
-        weight=PerGroupValues(weights),
-        normalize=PerGroupValues(normalize),
+        parameters={
+            "weight": PerGroupValues(weights),
+            "normalize": PerGroupValues(normalize),
+        },
     )
     assert method.supports_batching
     assert [shape[0] for shape, _ in calls] == [2, 2, 1]
@@ -109,7 +110,9 @@ def test_packing_budget_and_oversized_singletons(monkeypatch, options, counts):
         ).groups[0]
         for i in range(5)
     )
-    result = method(MergeBatch(groups), weight=[0.5, 0.5], batch_options=options)
+    result = method(
+        MergeBatch(groups), parameters={"weight": [0.5, 0.5]}, batch_options=options
+    )
     assert [shape[0] for shape, _ in calls] == counts
     for i, tensor in enumerate(result.tensors):
         torch.testing.assert_close(tensor, torch.full((4,), float(i + 1)))
@@ -157,7 +160,7 @@ def test_slerp_mixed_geometries_varying_coefficients_and_base_order(
         entries = (TensorEntry("base", a, is_base=True), TensorEntry("other", b))
         groups.append(TensorGroup(entries if index % 2 else entries[::-1]))
         expected.append(_reference_slerp(a, b, t))
-    result = method(MergeBatch(tuple(groups)), t=PerGroupValues(ts))
+    result = method(MergeBatch(tuple(groups)), parameters={"t": PerGroupValues(ts)})
     assert calls == [(torch.Size([6, 2, 2]), 0)]
     for actual, wanted in zip(result.tensors, expected):
         torch.testing.assert_close(actual, wanted)
@@ -178,7 +181,9 @@ def test_native_kernels_preserve_weight_shape(method_name, shape, device):
         )
         expected.append(a * 1.25)
     params = {"weight": [0.75, 0.25]} if method_name == "linear" else {"t": 0.25}
-    result = merge_methods.get(method_name)(MergeBatch(tuple(groups)), **params)
+    result = merge_methods.get(method_name)(
+        MergeBatch(tuple(groups)), parameters=params
+    )
     for actual, wanted in zip(result.tensors, expected):
         torch.testing.assert_close(actual, wanted)
 
@@ -194,19 +199,19 @@ def test_non_base_coefficients_follow_canonical_layout(device):
         assert batch.base_index == 0
         return batch.tensors[:, 0] + (batch.tensors[:, 1:] * weight[:, :, None]).sum(1)
 
-    method = from_batch_kernel(
+    method = merge_method(
         kernel, name="offsets", contract=InputContract(base=BasePolicy.REQUIRED)
     )
     base = TensorEntry("base", torch.tensor([10.0], device=device), True)
     a = TensorEntry("a", torch.tensor([2.0], device=device))
     b = TensorEntry("b", torch.tensor([3.0], device=device))
     groups = (TensorGroup((a, base, b)), TensorGroup((base, b, a)))
-    result = method(MergeBatch(groups), weight={"a": 2, "b": 3})
+    result = method(MergeBatch(groups), parameters={"weight": {"a": 2, "b": 3}})
     for tensor in result.tensors:
         torch.testing.assert_close(tensor, torch.tensor([23.0], device=device))
 
 
-@pytest.mark.parametrize("failure", ["shape", "dtype", "coefficient"])
+@pytest.mark.parametrize("failure", ["shape", "device", "coefficient"])
 def test_later_invalid_group_fails_before_any_kernel(monkeypatch, failure):
     method = merge_methods.get("linear")
     calls = _record_calls(monkeypatch, method)
@@ -214,7 +219,7 @@ def test_later_invalid_group_fails_before_any_kernel(monkeypatch, failure):
     bad_tensor = (
         torch.ones(3)
         if failure == "shape"
-        else torch.ones(2, dtype=torch.float64 if failure == "dtype" else torch.float32)
+        else torch.ones(2, device="meta" if failure == "device" else "cpu")
     )
     bad = MergeBatch.from_tensors([torch.ones(2), bad_tensor]).groups[0]
     weight = (
@@ -223,7 +228,7 @@ def test_later_invalid_group_fails_before_any_kernel(monkeypatch, failure):
         else [0.5, 0.5]
     )
     with pytest.raises(ValueError):
-        method(MergeBatch((good, bad)), weight=weight)
+        method(MergeBatch((good, bad)), parameters={"weight": weight})
     assert calls == []
 
 
@@ -240,12 +245,9 @@ def test_constraints_survive_both_signature_adapters():
         pytest.fail("Invalid value reached batch kernel")
 
     batch = MergeBatch.from_tensors([torch.ones(1)])
-    for factory, kernel in [
-        (from_group_kernel, group_kernel),
-        (from_batch_kernel, batch_kernel),
-    ]:
+    for kernel in (group_kernel, batch_kernel):
         with pytest.raises(ValidationError):
-            factory(kernel, name="positive")(batch, scale=-2)
+            merge_method(kernel, name="positive")(batch, parameters={"scale": -2})
 
 
 def test_owned_workspace_does_not_mutate_sources():
@@ -253,7 +255,7 @@ def test_owned_workspace_does_not_mutate_sources():
         return batch.workspace().add_(1).sum(1)
 
     source = torch.ones(3)
-    method = from_batch_kernel(kernel, name="workspace")
+    method = merge_method(kernel, name="workspace")
     torch.testing.assert_close(
         method(MergeBatch.from_tensors([source])).one(), torch.full((3,), 2.0)
     )
@@ -275,7 +277,7 @@ def test_native_kernels_keep_autograd_and_borrowed_inputs(method_name, device):
         for i in (0, 2)
     )
     params = {"weight": [0.25, 0.75]} if method_name == "linear" else {"t": 0.75}
-    result = merge_methods.get(method_name)(MergeBatch(groups), **params)
+    result = merge_methods.get(method_name)(MergeBatch(groups), parameters=params)
     sum(t.sum() for t in result.tensors).backward()
     for tensor, before in zip(sources, copies):
         torch.testing.assert_close(tensor, before)
@@ -308,7 +310,7 @@ def test_slerp_large_weight_has_bounded_inference_scratch():
     torch.cuda.reset_peak_memory_stats()
     result = merge_methods.get("slerp")(
         MergeBatch.from_tensors([a, b], base_index=0),
-        t=0.5,
+        parameters={"t": 0.5},
         batch_options=BatchOptions(max_bytes=1),
     ).one()
     torch.cuda.synchronize()
@@ -331,7 +333,8 @@ def test_linear_precision_against_double_reference(dtype, normalize, device):
     if normalize:
         expected /= sum(weights)
     result = merge_methods.get("linear")(
-        MergeBatch.from_tensors([a, b]), weight=weights, normalize=normalize
+        MergeBatch.from_tensors([a, b]),
+        parameters={"weight": weights, "normalize": normalize},
     ).one()
     torch.testing.assert_close(result, expected.to(dtype))
 
@@ -347,7 +350,7 @@ def test_group_method_preserves_metadata_without_packing(monkeypatch):
         names.append(group.metadata.name)
         return group.entries[0].tensor
 
-    method = from_group_kernel(kernel, name="unpacked")
+    method = merge_method(kernel, name="unpacked")
     groups = tuple(
         TensorGroup((TensorEntry("a", torch.ones(i)),), TensorMetadata(name=str(i)))
         for i in (2, 3)
@@ -394,16 +397,16 @@ def test_native_signature_rejects_ambiguous_annotations():
         return batch.tensors.sum(1)
 
     with pytest.raises(TypeError, match="BatchParameter or Option"):
-        from_batch_kernel(kernel, name="invalid")
+        merge_method(kernel, name="invalid")
 
 
 def test_options_are_validated_before_execution():
     def kernel(batch: TensorBatch, modes: Option[list[str]]) -> torch.Tensor:
         pytest.fail("Unhashable execution options must fail before math")
 
-    method = from_batch_kernel(kernel, name="options")
+    method = merge_method(kernel, name="options")
     with pytest.raises(TypeError, match="must be hashable"):
-        method(MergeBatch.from_tensors([torch.ones(1)]), modes=["a"])
+        method(MergeBatch.from_tensors([torch.ones(1)]), parameters={"modes": ["a"]})
 
 
 def test_empty_non_base_axis_has_a_dtype_without_validating_a_fake_value():
@@ -419,7 +422,7 @@ def test_empty_non_base_axis_has_a_dtype_without_validating_a_fake_value():
         assert weight.shape == (2, 0)
         return batch.tensors[:, 0] + weight.sum(1, keepdim=True)
 
-    method = from_batch_kernel(
+    method = merge_method(
         kernel, name="base_only", contract=InputContract(base=BasePolicy.REQUIRED)
     )
     group = MergeBatch.from_tensors([torch.ones(1)], base_index=0).groups[0]
@@ -438,7 +441,7 @@ def test_non_base_coefficients_cannot_use_an_ignored_base_contract():
         return batch.tensors.sum(1)
 
     with pytest.raises(ValueError, match="base-aware"):
-        from_batch_kernel(kernel, name="ambiguous_base")
+        merge_method(kernel, name="ambiguous_base")
 
 
 def test_different_dtypes_and_input_counts_partition_batches(monkeypatch):
@@ -453,7 +456,7 @@ def test_different_dtypes_and_input_counts_partition_batches(monkeypatch):
             (torch.float32, 2),
         ]
     )
-    result = method(MergeBatch(groups), weight=1.0)
+    result = method(MergeBatch(groups), parameters={"weight": 1.0})
     assert [shape[:2] for shape, _ in calls] == [(2, 2), (1, 2), (1, 3)]
     assert [t.dtype for t in result.tensors] == [
         torch.float32,
@@ -477,7 +480,7 @@ def test_embedding_mismatch_fails_before_bucketing(monkeypatch):
         for rows in (4, 5)
     )
     with pytest.raises(ValueError, match="tokenizer.*source: base"):
-        method(MergeBatch(groups), weight=[0.5, 0.5])
+        method(MergeBatch(groups), parameters={"weight": [0.5, 0.5]})
     assert calls == []
 
 

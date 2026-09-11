@@ -8,7 +8,7 @@ from mergekit.merge_methods.base import (
     Shared,
     TensorGroup,
 )
-from mergekit.merge_methods.easy_define import from_group_kernel
+from mergekit.merge_methods.easy_define import merge_method
 
 
 def karcher_merge_tensors(tensors, alphas, max_iter=10, tol=1e-5):
@@ -81,7 +81,7 @@ def _karcher_merge(
     return karcher_merge_tensors(tensors, alphas, max_iter=max_iter, tol=tol)
 
 
-karcher_merge_method = from_group_kernel(
+karcher_merge_method = merge_method(
     _karcher_merge,
     name="karcher",
     pretty_name="Karcher Mean",

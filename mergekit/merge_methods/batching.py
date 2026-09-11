@@ -100,13 +100,13 @@ def prepare_batches(
     spec: MergeMethodSpec,
     options: BatchOptions,
     *,
-    input_dtypes: Optional[Sequence[torch.dtype]] = None,
+    input_dtypes: Sequence[Optional[torch.dtype]],
 ) -> List[PreparedBatch]:
     """Bucket compatible groups and validate execution options without tensor math.
 
     Base-aware methods get a canonical base-first layout. Remaining inputs retain
     their relative order; coefficient mappings are aligned to that same layout.
-    Optional input_dtypes specify conversion at packing time, and determine both
+    Input dtypes specify conversion at packing time, and determine both
     compatibility and buffer sizes without allocating converted source tensors.
     """
     buckets = {}
@@ -120,7 +120,7 @@ def prepare_batches(
         if not tensors:
             raise ValueError("Numerical batch kernels require at least one input")
         first = tensors[0]
-        target_dtype = input_dtypes[index] if input_dtypes is not None else first.dtype
+        target_dtype = input_dtypes[index] or first.dtype
 
         execution_options = []
         coefficient_dtypes = {}

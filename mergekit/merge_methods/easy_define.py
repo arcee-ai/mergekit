@@ -96,24 +96,24 @@ def _parameter_spec(
     )
 
 
-def _spec_from_function(
+def _method_from_function(
     func: Callable[..., torch.Tensor],
     *,
-    batched: bool,
     name: str,
     pretty_name: Optional[str] = None,
     reference_url: Optional[str] = None,
     contract: Optional[InputContract] = None,
     optional_tensor_policy: OptionalTensorPolicy = OptionalTensorPolicy.ERROR,
     uses_accelerator: bool = True,
-) -> MergeMethodSpec:
+) -> MergeMethod:
     arguments = list(inspect.signature(func).parameters.values())
     hints = get_type_hints(func, include_extras=True)
-    input_type = TensorBatch if batched else TensorGroup
-    if not arguments or hints.get(arguments[0].name) is not input_type:
+    input_type = hints.get(arguments[0].name) if arguments else None
+    if input_type not in (TensorBatch, TensorGroup):
         raise TypeError(
-            f"First kernel argument must be annotated {input_type.__name__}"
+            "First kernel argument must be annotated TensorBatch or TensorGroup"
         )
+    batched = input_type is TensorBatch
     if arguments[0].kind not in (
         inspect.Parameter.POSITIONAL_ONLY,
         inspect.Parameter.POSITIONAL_OR_KEYWORD,
@@ -121,7 +121,7 @@ def _spec_from_function(
         raise TypeError("First kernel argument must accept a positional value")
     if hints.get("return") is not torch.Tensor:
         raise TypeError("Merge kernel return type must be torch.Tensor")
-    return MergeMethodSpec(
+    spec = MergeMethodSpec(
         name=name,
         pretty_name=pretty_name,
         reference_url=reference_url,
@@ -133,44 +133,20 @@ def _spec_from_function(
         ),
     )
 
-
-def from_batch_kernel(
-    func: Callable[..., torch.Tensor], **spec_options: Any
-) -> BatchedMergeMethod:
-    """Build a method whose primitive operation is a numerical TensorBatch."""
-    return BatchedMergeMethod(
-        _spec_from_function(func, batched=True, **spec_options), func
-    )
+    wrapper = BatchedMergeMethod if batched else FunctionalGroupMergeMethod
+    return wrapper(spec, func)
 
 
-def from_group_kernel(
-    func: Callable[..., torch.Tensor], **spec_options: Any
-) -> FunctionalGroupMergeMethod:
-    """Explicitly lift a sequential group kernel over a logical batch."""
-    return FunctionalGroupMergeMethod(
-        _spec_from_function(func, batched=False, **spec_options), func
-    )
+def merge_method(
+    func: Optional[Callable[..., torch.Tensor]] = None, **spec_options: Any
+):
+    """Construct a method, directly or as a decorator, without registering it.
 
-
-def _register(factory: Callable[..., MergeMethod], **spec_options: Any):
-    def wrap(func: Callable[..., torch.Tensor]) -> MergeMethod:
-        # Registry construction imports built-ins, so defer the registry import.
-        from mergekit.merge_methods.registry import REGISTERED_MERGE_METHODS
-
-        method = factory(func, **spec_options)
-        if method.spec.name in REGISTERED_MERGE_METHODS:
-            raise ValueError(f"Merge method {method.spec.name!r} is already registered")
-        REGISTERED_MERGE_METHODS[method.spec.name] = method
-        return method
-
-    return wrap
-
-
-def merge_method(**spec_options: Any):
-    """Register a native batch kernel."""
-    return _register(from_batch_kernel, **spec_options)
-
-
-def group_merge_method(**spec_options: Any):
-    """Register a method that operates on one logical tensor group at a time."""
-    return _register(from_group_kernel, **spec_options)
+    The first argument's TensorBatch or TensorGroup annotation selects execution.
+    Register the returned method explicitly when it needs lookup by name.
+    """
+    if func is None:
+        return lambda implementation: _method_from_function(
+            implementation, **spec_options
+        )
+    return _method_from_function(func, **spec_options)

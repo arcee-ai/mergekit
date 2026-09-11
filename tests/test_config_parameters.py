@@ -8,7 +8,7 @@ from pydantic import Field, TypeAdapter, ValidationError
 
 from mergekit import merge_methods
 from mergekit.config import ConfigReader, MergeConfiguration, evaluate_setting
-from mergekit.merge_methods import PerInput, Shared, TensorGroup, from_group_kernel
+from mergekit.merge_methods import PerInput, Shared, TensorGroup, merge_method
 from mergekit.parameter_resolver import resolve_parameter, resolve_parameters
 from mergekit.scripts.merge_raw_pytorch import (
     RawPyTorchMergeConfig,
@@ -114,7 +114,7 @@ parameters:
     def kernel(group: TensorGroup, mode: Shared[str]) -> torch.Tensor:
         return group.entries[0].tensor
 
-    method = from_group_kernel(kernel, name="string_option")
+    method = merge_method(kernel, name="string_option")
     config = RawPyTorchMergeConfig(
         merge_method="string_option",
         models=[{"model": "a"}],
@@ -188,7 +188,7 @@ def test_precedence_and_distinct_input_output_tensor_names(first_matching_scope)
     ) -> torch.Tensor:
         return group.entries[0].tensor
 
-    method = from_group_kernel(kernel, name="precedence")
+    method = merge_method(kernel, name="precedence")
     source = {"model": "a", "layer_range": [0, 3]}
     output_slice = {"sources": [source]}
     module = {"slices": [output_slice]}
@@ -233,7 +233,7 @@ def test_invalid_defaults_fail_during_parameter_resolution():
     def kernel(group: TensorGroup, count: Shared[int] = 1.5) -> torch.Tensor:
         return group.entries[0].tensor
 
-    method = from_group_kernel(kernel, name="bad_default")
+    method = merge_method(kernel, name="bad_default")
     config = RawPyTorchMergeConfig(merge_method="bad_default", models=[{"model": "a"}])
     with pytest.raises(ValidationError):
         construct_param_dicts(config, method, "w")

@@ -10,7 +10,7 @@ from mergekit.merge_methods.base import (
     OptionalTensorPolicy,
     TensorGroup,
 )
-from mergekit.merge_methods.easy_define import from_group_kernel
+from mergekit.merge_methods.easy_define import merge_method
 
 _QUANTILE_SAMPLE_SIZE = 1_000_000
 
@@ -63,7 +63,7 @@ def _arcee_fusion_merge(group: TensorGroup) -> torch.Tensor:
     return tensors[0] + (tensors[1] - tensors[0]) * fusion_mask
 
 
-arcee_fusion_merge_method = from_group_kernel(
+arcee_fusion_merge_method = merge_method(
     _arcee_fusion_merge,
     name="arcee_fusion",
     pretty_name="Arcee Fusion",

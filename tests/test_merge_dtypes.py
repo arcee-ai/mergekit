@@ -130,7 +130,9 @@ def test_linear_ignores_ambient_autocast(device, autocast_dtype):
     tensors = [torch.tensor([100000.0, 1.001, 1.002], device=device)] * 2
     method = merge_methods.get("linear")
     with torch.autocast(device, dtype=autocast_dtype):
-        actual = method(MergeBatch.from_tensors(tensors), weight=[0.5, 0.5]).one()
+        actual = method(
+            MergeBatch.from_tensors(tensors), parameters={"weight": [0.5, 0.5]}
+        ).one()
     torch.testing.assert_close(actual, tensors[0], rtol=0, atol=0)
 
 
@@ -199,16 +201,12 @@ def test_yaml_mixed_checkpoint_precisions(tmp_path, dtype, out_dtype):
 
 @pytest.mark.parametrize("batched", [False, True])
 @pytest.mark.parametrize("dtype", [None, torch.float64])
+@pytest.mark.parametrize("direct", [False, True])
 @torch.no_grad()
-def test_dtype_intermediates_released_between_chunks(batched, dtype, device):
+def test_dtype_intermediates_released_between_chunks(batched, dtype, device, direct):
     import weakref
 
-    from mergekit.merge_methods import (
-        BatchOptions,
-        TensorGroup,
-        from_batch_kernel,
-        from_group_kernel,
-    )
+    from mergekit.merge_methods import BatchOptions, TensorGroup, merge_method
 
     models = [
         {
@@ -245,23 +243,28 @@ def test_dtype_intermediates_released_between_chunks(batched, dtype, device):
         previous.append(weakref.ref(result))
         return result
 
-    factory, kernel = (
-        (from_batch_kernel, batch_kernel)
-        if batched
-        else (from_group_kernel, group_kernel)
-    )
-    result = merge_state_dicts(
-        models,
-        factory(kernel, name="check_lifetimes"),
+    kernel = batch_kernel if batched else group_kernel
+    method = merge_method(kernel, name="check_lifetimes")
+    options = dict(
         dtype=dtype,
         out_dtype=torch.float16,
         # Exactly one group in the target dtype fits. Using source byte sizes
         # instead would incorrectly pack multiple groups together.
         batch_options=BatchOptions(max_bytes=2 * 16 * target_dtype.itemsize),
     )
+    if direct:
+        batch = MergeBatch(
+            tuple(
+                MergeBatch.from_tensors([model[name] for model in models]).groups[0]
+                for name in models[0]
+            )
+        )
+        tensors = method(batch, **options).tensors
+    else:
+        tensors = merge_state_dicts(models, method, **options).values()
     assert len(calls) == 5
     assert all(ref() is None for ref in previous)
-    for i, tensor in enumerate(result.values()):
+    for i, tensor in enumerate(tensors):
         torch.testing.assert_close(
             tensor, torch.full((16,), 2 * i + 4, dtype=torch.float16, device=device)
         )
@@ -281,3 +284,48 @@ def test_incremental_dtype_conversion_preserves_autograd(dtype, device):
     result.sum().backward()
     torch.testing.assert_close(a.grad, torch.full_like(a, 0.25))
     torch.testing.assert_close(b.grad, torch.full_like(b, 0.75))
+
+
+@pytest.mark.parametrize("method_name", ["linear", "task_arithmetic"])
+@pytest.mark.parametrize("dtype", [None, torch.bfloat16])
+@pytest.mark.parametrize("out_dtype", [None, torch.float64])
+def test_direct_and_state_dict_calls_share_dtype_policy(method_name, dtype, out_dtype):
+    models = mixed_models()
+    parameters = {"weight": 0.5}
+    expected = merge_state_dicts(
+        models,
+        method_name,
+        base=0,
+        parameters=parameters,
+        dtype=dtype,
+        out_dtype=out_dtype,
+    )
+    names = [name for name in models[0] if name != "counter"]
+    batch = MergeBatch(
+        tuple(
+            MergeBatch.from_tensors(
+                [model[name] for model in models], base_index=0
+            ).groups[0]
+            for name in names
+        )
+    )
+    actual = merge_methods.get(method_name)(
+        batch,
+        parameters=parameters,
+        dtype=dtype,
+        out_dtype=out_dtype,
+    )
+    for name, tensor in zip(names, actual.tensors):
+        torch.testing.assert_close(tensor, expected[name])
+
+
+@pytest.mark.parametrize("option", ["dtype", "out_dtype"])
+def test_direct_call_validates_dtype_before_execution(option):
+    from mergekit.merge_methods import TensorGroup, merge_method
+
+    @merge_method(name="never_execute")
+    def kernel(group: TensorGroup) -> torch.Tensor:
+        pytest.fail("Invalid execution settings reached the kernel")
+
+    with pytest.raises(ValueError, match="floating-point torch.dtype"):
+        kernel(MergeBatch.from_tensors([torch.ones(1)]), **{option: torch.int64})

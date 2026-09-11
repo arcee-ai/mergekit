@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""Adapter-side dtype alignment; kernels receive already aligned inputs."""
+"""Execution-time dtype alignment; kernels receive already aligned inputs."""
 
 from dataclasses import replace
 from typing import Optional

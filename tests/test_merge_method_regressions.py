@@ -39,7 +39,10 @@ def test_optional_weight_cannot_silently_drop_a_configured_base(method_name):
     torch.testing.assert_close(baseless.execute(tensors), torch.full((2,), 2**-0.5))
 
 
-@pytest.mark.parametrize("method_name", sorted(merge_methods.REGISTERED_MERGE_METHODS))
+@pytest.mark.parametrize(
+    "method_name",
+    sorted(method.spec.name for method in merge_methods.registered_methods()),
+)
 def test_state_dict_methods_accept_strided_weights_without_mutation(method_name):
     _check_strided_weights(method_name)
 

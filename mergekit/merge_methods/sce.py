@@ -11,13 +11,13 @@ from mergekit.merge_methods.base import (
     Shared,
     TensorGroup,
 )
-from mergekit.merge_methods.easy_define import group_merge_method
+from mergekit.merge_methods.easy_define import merge_method
 from mergekit.merge_methods.generalized_task_arithmetic import (
     get_mask as sign_consensus_mask,
 )
 
 
-@group_merge_method(
+@merge_method(
     name="sce",
     pretty_name="SCE",
     reference_url="https://arxiv.org/abs/2408.07990",
