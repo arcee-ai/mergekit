@@ -17,6 +17,7 @@ from mergekit.merge_methods.base import (
     TensorGroup,
     TensorMetadata,
 )
+from mergekit.merge_methods.dtype import align_dtype
 
 StateDict = Mapping[str, torch.Tensor]
 StateDictLike = Union[StateDict, torch.nn.Module]
@@ -29,6 +30,8 @@ def merge_state_dicts(
     parameters: Optional[Mapping[str, Any]] = None,
     base: Optional[Hashable] = None,
     strict: bool = True,
+    dtype: Optional[torch.dtype] = None,
+    out_dtype: Optional[torch.dtype] = None,
     batch_options: Optional[BatchOptions] = None,
 ) -> Dict[str, torch.Tensor]:
     """Merge in-memory modules or state dictionaries.
@@ -37,7 +40,15 @@ def merge_state_dicts(
     sequences in input order or mappings keyed by the input IDs. Compatible
     floating-point weights are batched up to batch_options' packing limits.
     Non-floating buffers are copied only when every input agrees exactly.
+    Floating inputs are promoted independently for each weight unless dtype
+    explicitly selects their representation. out_dtype casts only merged outputs.
     """
+
+    for name, value in (("dtype", dtype), ("out_dtype", out_dtype)):
+        if value is not None and (
+            not isinstance(value, torch.dtype) or not value.is_floating_point
+        ):
+            raise ValueError(f"{name} must be a floating-point torch.dtype")
 
     if isinstance(method, str):
         from mergekit import merge_methods
@@ -104,23 +115,29 @@ def merge_state_dicts(
         resolved_parameters[name] = value
 
     groups = tuple(
-        TensorGroup(
-            entries=tuple(
-                TensorEntry(
-                    id=input_id,
-                    tensor=state_dict[name],
-                    is_base=input_id == base,
-                )
-                for input_id, state_dict in state_dicts
+        align_dtype(
+            TensorGroup(
+                entries=tuple(
+                    TensorEntry(
+                        id=input_id,
+                        tensor=state_dict[name],
+                        is_base=input_id == base,
+                    )
+                    for input_id, state_dict in state_dicts
+                ),
+                metadata=TensorMetadata(name=name),
             ),
-            metadata=TensorMetadata(name=name),
+            dtype,
         )
         for name in merge_names
     )
     merged = method(
         MergeBatch(groups=groups), batch_options=batch_options, **resolved_parameters
     )
-    results = dict(zip(merge_names, merged.tensors))
+    results = {
+        name: tensor.to(dtype=out_dtype) if out_dtype is not None else tensor
+        for name, tensor in zip(merge_names, merged.tensors)
+    }
     results.update(copied)
     return {name: results[name] for name in tensor_names}
 

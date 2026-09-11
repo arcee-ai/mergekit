@@ -20,6 +20,7 @@ from mergekit.merge_methods.base import (
     TensorGroup,
     TensorMetadata,
 )
+from mergekit.merge_methods.dtype import align_dtype
 from mergekit.tokenizer import PermutedEmbeddings
 
 
@@ -123,4 +124,4 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
                 if entry.id in self.input_parameters
                 and parameter.name in self.input_parameters[entry.id]
             }
-        return method(MergeBatch(groups=(group,)), **kwargs).one()
+        return method(MergeBatch(groups=(align_dtype(group),)), **kwargs).one()

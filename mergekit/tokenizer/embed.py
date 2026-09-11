@@ -50,6 +50,8 @@ class PermutedEmbeddings(Task[Dict[ModelReference, torch.Tensor]]):
         ), "Embedding sizes must match"
 
         dtype = tensors[models[0]].dtype
+        for tensor in tensors.values():
+            dtype = torch.promote_types(dtype, tensor.dtype)
         device = tensors[models[0]].device
 
         token_configs = dict(**(self.tokens or {}))

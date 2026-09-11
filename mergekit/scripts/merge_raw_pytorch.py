@@ -37,6 +37,7 @@ class RawPyTorchMergeConfig(BaseModel, frozen=True):
     parameters: Optional[Dict[str, ParameterSetting]] = None
     dtype: Optional[str] = None
     base_model: Optional[str] = None
+    out_dtype: Optional[str] = None
 
 
 class SimpleLoaderCache:
@@ -182,7 +183,7 @@ def plan_flat_merge(
             tensor_task=tensor_task,
             writer_task=writer_task,
             clone=options.clone_tensors,
-            dtype=config.dtype,
+            dtype=config.out_dtype,
         )
         save_tasks.append(save_task)
 

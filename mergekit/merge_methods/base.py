@@ -558,7 +558,8 @@ class BatchedMergeMethod(MergeMethod):
 
     def merge_batch(self, batch: TensorBatch, **parameters: Any) -> torch.Tensor:
         """Execute already-aligned numerical arguments (no logical binding)."""
-        result = self.implementation(batch, **parameters)
+        with torch.autocast(device_type=batch.tensors.device.type, enabled=False):
+            result = self.implementation(batch, **parameters)
         expected = (batch.tensors.shape[0], *batch.tensors.shape[2:])
         if not isinstance(result, torch.Tensor) or result.shape != expected:
             raise TypeError(
@@ -600,7 +601,13 @@ class GroupMergeMethod(MergeMethod):
     ) -> MergedBatch:
         results = []
         for group, kwargs in zip(batch.groups, parameters):
-            result = self.merge_group(group, **kwargs)
+            if group.entries:
+                with torch.autocast(
+                    device_type=group.entries[0].tensor.device.type, enabled=False
+                ):
+                    result = self.merge_group(group, **kwargs)
+            else:
+                result = self.merge_group(group, **kwargs)
             expected = group.entries[0].tensor.shape if group.entries else None
             if not isinstance(result, torch.Tensor) or (
                 expected is not None and result.shape != expected

@@ -125,9 +125,23 @@ Below are the primary elements of a configuration file:
 - `models`: Defines entire models to be used for merging. This field is mutually exclusive with `slices`.
 - `base_model`: Specifies the base model used in some merging methods.
 - `parameters`: Holds various parameters such as weights and densities, which can also be specified at different levels of the configuration.
-- `dtype`: Specifies the data type used for the merging operation.
+- `dtype`: Casts inputs to this dtype before merging, including downcasting when
+  requested. If omitted, corresponding weights are promoted to a common dtype
+  independently: matching bfloat16 weights stay bfloat16, while bfloat16 with
+  float16 or float32 promotes to float32. Float64 inputs retain float64 precision.
+- `out_dtype`: Casts merged weights after computation; it does not change input
+  precision. If omitted, the method's output dtype is retained.
 - `tokenizer` or `tokenizer_source`: Determines how to construct a tokenizer for the merged model.
 - `chat_template`: Specifies a chat template for the merged model.
+
+Methods control their own intermediate precision, independently of ambient PyTorch
+autocast. Linear uses the aligned input dtype for its matrix product, avoiding a
+full-sized float32 conversion; its small coefficient array is normalized before
+casting to the input dtype. SLERP uses bounded float32 scratch for low-precision
+inputs and float64 scratch for float64 inputs. Selecting `dtype: bfloat16` therefore
+keeps large linear intermediates in bfloat16; it does not promise that every method
+uses exclusively bfloat16 arithmetic. Architecture-specific forced dtypes still
+take precedence over `dtype` and `out_dtype` for those weights.
 
 ### Parameter Specification
 

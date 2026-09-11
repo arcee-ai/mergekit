@@ -137,6 +137,14 @@ executing the batch. Pass `strict=False` to merge their intersection.
 Non-floating buffers, such as BatchNorm counters, must agree exactly across inputs;
 they are copied without numerical merging. Differing buffers raise an error.
 
+`merge_state_dicts` promotes floating inputs independently for each weight. Matching
+bfloat16 inputs remain bfloat16; float16 with bfloat16 promotes to float32, as does
+bfloat16 with float32. Float64 inputs promote the group to float64. Pass
+`dtype=torch.bfloat16` to explicitly cast inputs, or `out_dtype=torch.bfloat16` to
+cast only the merged outputs. Both options leave non-floating buffers unchanged.
+The YAML and raw-PyTorch adapters use the corresponding string-valued `dtype` and
+`out_dtype` settings. Direct `MergeBatch` callers must align their own input dtypes.
+
 ## Batches
 
 A `TensorGroup` contains the inputs for one logical output tensor. A `MergeBatch`
@@ -156,6 +164,13 @@ Merge methods do not truncate embeddings or repair incompatible tensors. Configu
 or a specific model's tokenizer. Vocabulary alignment, missing-token initialization,
 and padding happen before merging; hidden dimensions must already match. Direct
 tensor and state-dict callers must perform any alignment themselves.
+
+Kernel execution disables ambient autocast so input dtype and method-specific
+precision choices determine the arithmetic. Linear normalizes its small coefficient
+array in float32 (float64 for float64 inputs), then casts coefficients to the input
+dtype for its matrix product. It does not allocate a full float32 input copy.
+Coefficient rounding and backend accumulation affect low-precision results; use
+float32 inputs when that additional precision is needed.
 
 The kernel receives `[B, N, *weight_shape]` and returns `[B, *weight_shape]`. It must
 preserve the output axis: reductions for norms, means, and dot products must not

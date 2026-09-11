@@ -15,6 +15,12 @@ implementation, including packing, but excludes its graph-adapter overhead.
 
 ## Local CPU observations
 
+The tables below are historical measurements from the full-float32 linear kernel.
+The current linear kernel instead runs its matrix product in the aligned input
+dtype and casts only the small coefficient array. It removes the low-precision
+input conversion buffer described below. Re-run these benchmarks when assessing
+current throughput and memory use; the old timings do not measure this change.
+
 Measured with Torch 2.5.1+cu124, one CPU thread, two 2048×2048 input tensors, and
 weights 0.25/0.75. Times are illustrative medians, not performance guarantees.
 
