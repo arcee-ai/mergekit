@@ -231,8 +231,12 @@ def build_tokenizer(
     else:
         raise RuntimeError(f"Unimplemented tokenizer source: {tokenizer_source}")
 
+    existing_tokens = set(tokenizer_out.get_vocab())
     for tok in add_tokens:
+        if tok in existing_tokens:
+            continue
         tokenizer_out.add_tokens(tok)
+        existing_tokens.add(tok)
 
     vocab_out = tokenizer_out.get_vocab()
 
