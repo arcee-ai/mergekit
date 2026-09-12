@@ -68,9 +68,13 @@ class SimpleLoadTensor(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {}
 
-    def execute(self) -> torch.Tensor:
+    def execute(self) -> Optional[torch.Tensor]:
         loader = SimpleLoaderCache().get(self.model)
-        tensor = loader.get_tensor(self.tensor_name, device=self.device or "cpu")
+        tensor = loader.get_tensor(
+            self.tensor_name, device=self.device or "cpu", raise_on_missing=False
+        )
+        if tensor is None:
+            return None
         if (dtype := dtype_from_name(self.dtype)) is not None:
             if not dtype.is_floating_point:
                 raise ValueError("dtype must be a floating-point torch.dtype")
