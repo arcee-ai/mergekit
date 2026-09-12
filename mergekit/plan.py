@@ -232,7 +232,7 @@ class MergePlanner:
                 gather_tensors=gather_tensors, weight_info=weight
             )
 
-        tensor_task = ExecuteMergeMethodTask.from_parameters(
+        tensor_task = ExecuteMergeMethodTask(
             method_name=tensor_merge_method.spec.name,
             gather_tensors=tensor_input_task,
             model_order=tuple(models),

@@ -63,6 +63,11 @@ class PermutedVocabulary(Task[Dict[ModelReference, torch.Tensor]]):
 
         default_embeds = {}
         for token, token_id in vocab.items():
+            cfg = token_configs.get(token)
+            if not (cfg and cfg.force) and all(
+                permutations[model][token_id] >= 0 for model in models
+            ):
+                continue
             embed = torch.zeros(token_shape, dtype=dtype, device=device)
             if token in tokens_to_average:
                 count = 0
@@ -73,8 +78,7 @@ class PermutedVocabulary(Task[Dict[ModelReference, torch.Tensor]]):
                     embed = embed + tensors[model][p[token_id]]
                     count += 1
                 embed /= count
-            elif cfg := token_configs.get(token, None):
-                cfg: TokenEmbeddingConfig
+            elif cfg is not None:
                 embed = self.compute_default_embedding(
                     tokenizer_info, tensors, permutations, token, token_id, cfg
                 )
@@ -160,12 +164,19 @@ class PermutedVocabulary(Task[Dict[ModelReference, torch.Tensor]]):
         if isinstance(cfg.source, ZeroEmbedding):
             tensor = next(iter(tensors.values()))
             return tensor.new_zeros(tensor.shape[1:])
-        elif isinstance(cfg.source, ModelTokenEmbedding):
-            model = cfg.source.model
-            assert model in permutations, (
-                f"Model {model} referenced but not part of merge"
+        model = (
+            cfg.source.model
+            if isinstance(cfg.source, ModelTokenEmbedding)
+            else cfg.source
+        )
+        if not isinstance(model, ModelReference):
+            raise NotImplementedError(cfg)
+        if model not in tensors:
+            raise ValueError(
+                f"Token {token!r} requires a vocabulary weight from model {model}, "
+                "but that weight is missing"
             )
-            p = permutations[model]
+        if isinstance(cfg.source, ModelTokenEmbedding):
             src_token_id = cfg.source.token_id
             if src_token_id is None:
                 src_token = cfg.source.token
@@ -177,11 +188,8 @@ class PermutedVocabulary(Task[Dict[ModelReference, torch.Tensor]]):
                 f"Token ID {src_token_id} out of range for model {model}"
             )
             embed = tensors[model][src_token_id]
-        elif isinstance(cfg.source, ModelReference):
-            model = cfg.source
+        else:
             p = permutations[model]
             assert p[token_id] >= 0, f"Token {repr(token)} not found in model {model}"
             embed = tensors[model][p[token_id]]
-        else:
-            raise NotImplementedError(cfg)
         return embed

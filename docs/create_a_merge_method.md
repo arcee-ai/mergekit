@@ -328,7 +328,7 @@ parameter.
 
 ## Execution adapters
 
-The computation graph uses `ExecuteMergeMethodTask.from_parameters()` with
+The computation graph constructs `ExecuteMergeMethodTask` with
 resolved planner settings. Input contracts are checked during planning and again
 with the loaded tensors at execution time.
 
@@ -342,6 +342,6 @@ device. Passthrough uses this for both plain copies and scaled copies. This is a
 graph scheduling hint; direct calls always operate on the supplied devices.
 
 The YAML graph adapter submits one logical output at a time. Missing optional
-weights follow the method spec's optional-tensor policy; remaining inputs retain
-their parameter positions. A configured base must be present unless that policy
+weights follow the method spec's optional-tensor policy; inputs and their parameters
+remain keyed by model reference. A configured base must be present unless that policy
 allows a fallback.

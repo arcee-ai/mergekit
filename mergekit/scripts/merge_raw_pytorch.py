@@ -167,7 +167,7 @@ def plan_flat_merge(
         tensor_input = TensorDictWrapper(tensors=inputs)
         output_weight = WeightInfo(name=tensor_name)
         model_order = tuple(inputs)
-        tensor_task = ExecuteMergeMethodTask.from_parameters(
+        tensor_task = ExecuteMergeMethodTask(
             method_name=merge_method.spec.name,
             gather_tensors=tensor_input,
             model_order=model_order,

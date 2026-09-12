@@ -28,6 +28,7 @@ from mergekit.merge_methods.preprocessing import truncate_vocabulary
 from mergekit.options import MergeOptions
 from mergekit.scripts.tokensurgeon import get_embedding_info, remap_auxiliary_vocabulary
 from mergekit.tokenizer import BuildTokenizer, PermutedVocabulary, TokenizerInfo
+from mergekit.tokenizer.config import ModelTokenEmbedding, TokenEmbeddingConfig
 from tests.test_tokenizer import make_tokenizer
 
 
@@ -79,6 +80,44 @@ def test_alignment_allows_optional_weight_missing_from_base():
     result = task.execute(info, {model: torch.arange(4.0)})
     torch.testing.assert_close(result[model], torch.tensor([2.0, 0.0, 1.0, 3.0, 0.0]))
     assert task.execute(info, {}) == {}
+
+
+@pytest.mark.parametrize("explicit_token", [False, True])
+@pytest.mark.parametrize("need_default", ["unused", "missing_token", "forced"])
+def test_alignment_resolves_absent_sources_only_when_needed(
+    explicit_token, need_default
+):
+    base = ModelReference.parse("absent-base")
+    model, task, info = permutation_task(0, base_model=base)
+    token = "_tok_3"
+    source = (
+        ModelTokenEmbedding(kind="model_token", model=base, token_id=3)
+        if explicit_token
+        else base
+    )
+    task = task.model_copy(
+        update={
+            "tokens": ImmutableMap(
+                {
+                    token: TokenEmbeddingConfig(
+                        source=source, force=need_default == "forced"
+                    )
+                }
+            )
+        }
+    )
+    info.permutations[base] = dict(enumerate(range(5)))
+    if need_default == "missing_token":
+        info.permutations[model][3] = -1
+    tensors = {model: torch.arange(4.0)}
+    if need_default == "unused":
+        result = task.execute(info, tensors)
+        torch.testing.assert_close(
+            result[model], torch.tensor([2.0, 0.0, 1.0, 3.0, 0.0])
+        )
+    else:
+        with pytest.raises(ValueError, match="_tok_3.*absent-base.*weight is missing"):
+            task.execute(info, tensors)
 
 
 @pytest.mark.parametrize(

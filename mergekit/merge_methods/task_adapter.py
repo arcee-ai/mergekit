@@ -4,9 +4,10 @@
 """Computation-graph adapters for merge methods."""
 
 import logging
-from typing import Any, Dict, Mapping, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
+from pydantic import model_validator
 from typing_extensions import TypeAlias
 
 from mergekit.architecture import WeightInfo
@@ -15,6 +16,7 @@ from mergekit.graph import Task
 from mergekit.io.tasks import GatherTensors
 from mergekit.merge_methods.base import (
     OptionalTensorPolicy,
+    ParameterScope,
     PerInputValues,
     TensorEntry,
     TensorGroup,
@@ -57,53 +59,21 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
     method_name: str
     gather_tensors: MergeTensorInput
     model_order: Tuple[ModelReference, ...]
-    base_index: Optional[int]
+    base_model: Optional[ModelReference]
     output_weight: WeightInfo
     parameters: ImmutableMap[str, Any]
+    input_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
     dtype: Optional[str] = None
     out_dtype: Optional[str] = None
 
-    @classmethod
-    def from_parameters(
-        cls,
-        *,
-        model_order: Tuple[ModelReference, ...],
-        base_model: Optional[ModelReference],
-        parameters: Mapping[str, Any],
-        input_parameters: Mapping[ModelReference, Mapping[str, Any]],
-        **kwargs,
-    ) -> "ExecuteMergeMethodTask":
-        """Bind already-resolved planner parameters to stable input positions.
-
-        Retaining these positions when optional inputs are absent keeps
-        coefficients attached to the right tensors.
-        """
+    @model_validator(mode="after")
+    def validate_configured_inputs(self) -> "ExecuteMergeMethodTask":
         from mergekit import merge_methods
 
-        method = merge_methods.get(kwargs["method_name"])
-        method.validate_inputs(
-            model_order, base_model, group_name=kwargs["output_weight"].name
+        merge_methods.get(self.method_name).validate_inputs(
+            self.model_order, self.base_model, group_name=self.output_weight.name
         )
-        bound = dict(parameters.items())
-        for parameter in method.spec.input_parameters:
-            bound[parameter.name] = PerInputValues(
-                [
-                    (index, input_parameters[model][parameter.name])
-                    for index, model in enumerate(model_order)
-                    if model in input_parameters
-                    and parameter.name in input_parameters[model]
-                ]
-            )
-        return cls(
-            model_order=model_order,
-            base_index=(
-                model_order.index(base_model)
-                if base_model is not None and base_model in model_order
-                else None
-            ),
-            parameters=ImmutableMap(bound),
-            **kwargs,
-        )
+        return self
 
     def arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
@@ -122,8 +92,8 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
         from mergekit import merge_methods
 
         entries = tuple(
-            TensorEntry(id=index, tensor=tensor, is_base=index == self.base_index)
-            for index, model in enumerate(self.model_order)
+            TensorEntry(id=model, tensor=tensor, is_base=model == self.base_model)
+            for model in self.model_order
             if (tensor := tensors.get(model)) is not None
         )
         group = TensorGroup(
@@ -157,7 +127,7 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
         # loader has omitted the base's optional weight.
         method.validate_inputs(
             [entry.id for entry in entries],
-            self.base_index,
+            self.base_model,
             group_name=self.output_weight.name,
         )
         buffer = copy_non_floating_buffer(group.tensors, self.output_weight.name)
@@ -165,21 +135,17 @@ class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
             return buffer
         group.validate_tensors()
         parameters = dict(self.parameters.items())
-        if len(entries) < len(self.model_order):
-            parameters = {
-                name: (
-                    PerInputValues(
-                        [
-                            (entry.id, value[entry.id])
-                            for entry in entries
-                            if entry.id in value
-                        ]
-                    )
-                    if isinstance(value, PerInputValues)
-                    else value
-                )
-                for name, value in parameters.items()
-            }
+        # Bind the already-resolved values only for inputs that were loaded.
+        for parameter in method.spec.input_parameters:
+            inputs = (
+                entries if parameter.scope == ParameterScope.INPUT else group.non_base
+            )
+            parameters[parameter.name] = PerInputValues(
+                [
+                    (entry.id, self.input_parameters[entry.id][parameter.name])
+                    for entry in inputs
+                ]
+            )
         (result,) = method._execute_resolved(
             (group,),
             [parameters],
