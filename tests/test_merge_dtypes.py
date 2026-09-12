@@ -175,7 +175,9 @@ def test_raw_graph_merges_batchnorm_without_casting_buffers(tmp_path, method_nam
     parameters = (
         {"scale": 2.0}
         if method_name == "passthrough"
-        else {"t": 0.3} if method_name == "slerp" else {"weight": 0.25}
+        else {"t": 0.3}
+        if method_name == "slerp"
+        else {"weight": 0.25}
     )
     config = RawPyTorchMergeConfig(
         merge_method=method_name,
