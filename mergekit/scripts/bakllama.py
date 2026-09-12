@@ -7,13 +7,13 @@ import click
 import yaml
 from pydantic import BaseModel
 
-from mergekit.common import MergeOptions
 from mergekit.config import (
     ConditionalParameter,
     InputSliceDefinition,
     MergeConfiguration,
 )
 from mergekit.merge import run_merge
+from mergekit.options import MergeOptions
 
 
 class LayerSlice(BaseModel):

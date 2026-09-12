@@ -167,9 +167,9 @@ class TaskUniverse:
         _ti_key = (type(task), id(task))
         if _ti_key in self._type_id_to_index:
             index = self._type_id_to_index[_ti_key]
-            assert (
-                self.tasks[index] == task
-            ), "Task modified after being added to universe"
+            assert self.tasks[index] == task, (
+                "Task modified after being added to universe"
+            )
             return TaskHandle(self, index)
 
         index = self.task_to_index.setdefault(task, len(self.tasks))
@@ -322,9 +322,9 @@ def build_schedule(
         return ExecutionSchedule(tasks=[], last_use_index={})
 
     universe = targets[0]._universe
-    assert all(
-        t._universe is universe for t in targets
-    ), "All tasks must be from the same universe"
+    assert all(t._universe is universe for t in targets), (
+        "All tasks must be from the same universe"
+    )
 
     dummy_handle = TaskHandle(universe, -1)
     edge_tups: List[Tuple[TaskHandle, TaskHandle]] = []
