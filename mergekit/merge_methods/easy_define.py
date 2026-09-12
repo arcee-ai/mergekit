@@ -124,20 +124,22 @@ def __merge_method(
             Field(...),
         )
 
+    tt_methods = {}
+
     def _arguments(self) -> Dict[str, Task]:
         return {"tensors": self.gather_tensors}
 
-    tt_fields["arguments"] = _arguments
+    tt_methods["arguments"] = _arguments
 
     def _group_label(self) -> Optional[str]:
         return self.gather_tensors.group_label()
 
-    tt_fields["group_label"] = _group_label
+    tt_methods["group_label"] = _group_label
 
     def _uses_accelerator(self) -> bool:
         return True
 
-    tt_fields["uses_accelerator"] = _uses_accelerator
+    tt_methods["uses_accelerator"] = _uses_accelerator
 
     def _execute(self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs):
         model_refs = set(tensors.keys())
@@ -165,10 +167,14 @@ def __merge_method(
             ]
         return func(tensors=tensors, **inner_kwargs)
 
-    tt_fields["execute"] = _execute
+    tt_methods["execute"] = _execute
 
     tt_name = f"{name.title().replace(' ', '')}MergeTask"
-    tt_cls = pydantic.create_model(tt_name, __base__=Task[torch.Tensor], **tt_fields)
+    # create_model keyword arguments are field definitions, not a class namespace.
+    # Keep methods on a base class so newer Pydantic versions do not treat them
+    # as field annotations.
+    tt_base = type(f"{tt_name}Base", (Task[torch.Tensor],), tt_methods)
+    tt_cls = pydantic.create_model(tt_name, __base__=tt_base, **tt_fields)
 
     mm_fields = {}
 
