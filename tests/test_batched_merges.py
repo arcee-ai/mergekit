@@ -657,7 +657,7 @@ def test_graph_adapter_preserves_optional_singleton_fallback(
         ModelReference.model_validate(name) for name in ["base", "a", "b"][:count]
     )
     weight = WeightInfo(name="optional.bias", optional=True)
-    task = ExecuteMergeMethodTask.from_parameters(
+    task = ExecuteMergeMethodTask(
         method_name=method_name,
         gather_tensors=GatherTensors(
             weight_info=ImmutableMap({r: weight for r in refs})

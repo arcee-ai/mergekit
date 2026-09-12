@@ -120,7 +120,7 @@ def test_spherical_merge_gradients_match_finite_differences(
 def test_optional_weight_cannot_silently_drop_a_configured_base(method_name):
     refs = tuple(ModelReference.model_validate(name) for name in ("base", "a", "b"))
     weight = WeightInfo(name="optional.bias", optional=True)
-    task = ExecuteMergeMethodTask.from_parameters(
+    task = ExecuteMergeMethodTask(
         method_name=method_name,
         gather_tensors=GatherTensors(
             weight_info=ImmutableMap({ref: weight for ref in refs})
@@ -140,7 +140,7 @@ def test_optional_weight_cannot_silently_drop_a_configured_base(method_name):
     with pytest.raises(ValueError, match="Base input is not present.*optional.bias"):
         task.execute(tensors)
 
-    baseless = task.model_copy(update={"base_index": None})
+    baseless = task.model_copy(update={"base_model": None})
     torch.testing.assert_close(baseless.execute(tensors), torch.full((2,), 2**-0.5))
 
 
@@ -399,18 +399,19 @@ def test_graph_and_state_dict_merges_agree(tmp_path, method_name):
     torch.testing.assert_close(task.execute(tensors), expected)
 
 
-def test_optional_inputs_keep_their_original_coefficient_positions(monkeypatch):
+def test_optional_inputs_keep_their_model_ids_and_coefficients(monkeypatch):
     from mergekit.merge_methods import PerInput, TensorGroup, merge_method, registry
 
     @merge_method(name="optional_weighted_sum")
     def kernel(group: TensorGroup, weight: PerInput[float]) -> torch.Tensor:
-        assert set(weight) == {entry.id for entry in group.entries}
+        assert tuple(entry.id for entry in group.entries) == (refs[0], refs[2])
+        assert tuple(weight) == (refs[0], refs[2])
         return sum(entry.tensor * weight[entry.id] for entry in group.entries)
 
     monkeypatch.setattr(registry, "_METHODS", {kernel.spec.name: kernel})
     refs = tuple(ModelReference.model_validate(name) for name in ("a", "missing", "c"))
     weight = WeightInfo(name="optional.bias", optional=True)
-    task = ExecuteMergeMethodTask.from_parameters(
+    task = ExecuteMergeMethodTask(
         method_name=kernel.spec.name,
         gather_tensors=GatherTensors(
             weight_info=ImmutableMap({ref: weight for ref in refs})
@@ -427,16 +428,55 @@ def test_optional_inputs_keep_their_original_coefficient_positions(monkeypatch):
         ),
     )
     actual = task.execute(
-        {refs[0]: torch.tensor([10.0]), refs[2]: torch.tensor([20.0])}
+        {refs[2]: torch.tensor([20.0]), refs[0]: torch.tensor([10.0])}
     )
     torch.testing.assert_close(actual, torch.tensor([80.0]))
+
+
+@pytest.mark.parametrize("method_name", ["linear", "task_arithmetic"])
+def test_optional_inputs_keep_base_and_scoped_coefficients(method_name):
+    refs = tuple(ModelReference.parse(name) for name in ("missing", "a", "base", "c"))
+    info = WeightInfo(name="optional.bias", optional=True)
+    parameters = {
+        p.name: p.default for p in merge_methods.get(method_name).spec.shared_parameters
+    }
+    parameters["normalize"] = False
+    task = ExecuteMergeMethodTask(
+        method_name=method_name,
+        gather_tensors=GatherTensors(weight_info={ref: info for ref in refs}),
+        model_order=refs,
+        base_model=refs[2],
+        output_weight=info,
+        parameters=parameters,
+        input_parameters={
+            ref: {"weight": value, "density": 1.0}
+            for ref, value in zip(refs, (99.0, 2.0, 5.0, 3.0))
+        },
+    )
+    models = {
+        refs[3]: {"optional.bias": torch.tensor([20.0])},
+        refs[2]: {"optional.bias": torch.tensor([100.0])},
+        refs[1]: {"optional.bias": torch.tensor([10.0])},
+    }
+    expected = merge_state_dicts(
+        models,
+        method_name,
+        base=refs[2],
+        parameters={
+            "normalize": False,
+            "weight": {refs[1]: 2.0, refs[2]: 5.0, refs[3]: 3.0},
+        },
+    )[info.name]
+    torch.testing.assert_close(
+        task.execute({ref: model[info.name] for ref, model in models.items()}), expected
+    )
 
 
 @pytest.mark.parametrize("failure", ["shape", "device"])
 def test_graph_rejects_incompatible_loaded_tensors(failure):
     refs = tuple(ModelReference.model_validate(name) for name in ("a", "b"))
     info = WeightInfo(name="w")
-    task = ExecuteMergeMethodTask.from_parameters(
+    task = ExecuteMergeMethodTask(
         method_name="linear",
         gather_tensors=GatherTensors(
             weight_info=ImmutableMap({ref: info for ref in refs})

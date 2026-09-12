@@ -44,7 +44,7 @@ def test_decorated_merge_task_with_parameters(monkeypatch):
             {model_a: ScalarTensor(value=2), model_b: ScalarTensor(value=4)}
         )
     )
-    task = ExecuteMergeMethodTask.from_parameters(
+    task = ExecuteMergeMethodTask(
         method_name="scaled_sum",
         model_order=(model_a, model_b),
         output_weight=WeightInfo(name="weight"),

@@ -68,9 +68,13 @@ class SimpleLoadTensor(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {}
 
-    def execute(self) -> torch.Tensor:
+    def execute(self) -> Optional[torch.Tensor]:
         loader = SimpleLoaderCache().get(self.model)
-        tensor = loader.get_tensor(self.tensor_name, device=self.device or "cpu")
+        tensor = loader.get_tensor(
+            self.tensor_name, device=self.device or "cpu", raise_on_missing=False
+        )
+        if tensor is None:
+            return None
         if (dtype := dtype_from_name(self.dtype)) is not None:
             if not dtype.is_floating_point:
                 raise ValueError("dtype must be a floating-point torch.dtype")
@@ -167,7 +171,7 @@ def plan_flat_merge(
         tensor_input = TensorDictWrapper(tensors=inputs)
         output_weight = WeightInfo(name=tensor_name)
         model_order = tuple(inputs)
-        tensor_task = ExecuteMergeMethodTask.from_parameters(
+        tensor_task = ExecuteMergeMethodTask(
             method_name=merge_method.spec.name,
             gather_tensors=tensor_input,
             model_order=model_order,

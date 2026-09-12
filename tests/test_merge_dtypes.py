@@ -142,6 +142,51 @@ def test_raw_graph_dtype_policy(tmp_path, monkeypatch, dtype, out_dtype, method_
     torch.testing.assert_close(actual, expected)
 
 
+@pytest.mark.parametrize("dtype", [None, "bfloat16"])
+@pytest.mark.parametrize("mode", ["union", "intersection", "strict"])
+def test_raw_graph_missing_tensors(tmp_path, dtype, mode):
+    models = [
+        {"shared": torch.tensor([2.0]), "only_a": torch.tensor([6.0])},
+        {
+            "shared": torch.tensor([4.0]),
+            "only_b": torch.tensor([8.0]),
+            "counter": torch.tensor(257),
+        },
+    ]
+    paths = []
+    for index, tensors in enumerate(models):
+        path = tmp_path / f"model{index}.safetensors"
+        save_file(tensors, path)
+        paths.append(str(path))
+    config = RawPyTorchMergeConfig(
+        merge_method="linear",
+        models=[
+            {"model": paths[0], "parameters": {"weight": 1.0}},
+            {"model": paths[1], "parameters": {"weight": 3.0}},
+        ],
+        dtype=dtype,
+    )
+    output = tmp_path / "output"
+    if mode == "strict":
+        with pytest.raises(RuntimeError, match="Missing tensors"):
+            plan_flat_merge(config, str(output), False, False, MergeOptions())
+        return
+
+    tasks = plan_flat_merge(
+        config, str(output), mode == "union", mode == "intersection", MergeOptions()
+    )
+    Executor(tasks, math_device="cpu", storage_device="cpu").execute()
+    output_dtype = getattr(torch, dtype) if dtype else torch.float32
+    expected = {"shared": torch.tensor([3.5], dtype=output_dtype)}
+    if mode == "union":
+        expected.update(
+            only_a=torch.tensor([6.0], dtype=output_dtype),
+            only_b=torch.tensor([8.0], dtype=output_dtype),
+            counter=torch.tensor(257),
+        )
+    torch.testing.assert_close(load_file(output / "model.safetensors"), expected)
+
+
 def test_raw_graph_rejects_nonfloating_input_dtype(tmp_path):
     path = tmp_path / "model.safetensors"
     save_file({"w": torch.tensor([1.5])}, path)

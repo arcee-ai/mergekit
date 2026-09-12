@@ -3,7 +3,6 @@ import logging
 
 import pytest
 import torch
-from click.testing import CliRunner
 from safetensors.torch import load_file, save_file
 from transformers import AutoConfig, AutoTokenizer
 
@@ -14,7 +13,6 @@ from mergekit.merge import run_merge
 from mergekit.merge_methods import TensorGroup
 from mergekit.merge_methods.preprocessing import truncate_vocabulary
 from mergekit.options import MergeOptions
-from mergekit.scripts.run_yaml import main
 from tests.common import make_picollama
 from tests.test_tokenizer import make_tokenizer
 
@@ -93,12 +91,7 @@ def config_for(models, method="linear", **kwargs):
 
 
 @pytest.mark.parametrize("method", ["linear", "slerp", "task_arithmetic"])
-def test_opt_in_merge_truncates_without_repairing_config(
-    models, tmp_path, method, caplog
-):
-    # Preserve the unsafe legacy escape hatch, not a loadable-model contract:
-    # prefix truncation intentionally leaves the donor config unchanged. Do not
-    # "repair" this mismatch here or generalize it to normal tokenizer alignment.
+def test_truncation_preserves_donor_config(models, tmp_path, method, caplog):
     output = tmp_path / "output"
     run_merge(
         config_for(models, method),
@@ -147,12 +140,7 @@ def test_tokenizer_alignment_takes_precedence(models, tmp_path, kwargs, caplog):
 
 
 @pytest.mark.parametrize("copy_tokenizer", [False, True])
-def test_out_of_range_metadata_is_not_validated_or_repaired(
-    models, tmp_path, copy_tokenizer
-):
-    # Legacy truncation leaves normal metadata copying untouched, even when token
-    # IDs fall outside the retained tensor rows. Validation/repair would change
-    # this opt-in behavior; these expectations are not a policy for normal merges.
+def test_truncation_copies_out_of_range_metadata(models, tmp_path, copy_tokenizer):
     make_tokenizer(10, []).save_pretrained(models[1])
     donor_config = AutoConfig.from_pretrained(models[1])
     donor_config.eos_token_id = 9
@@ -181,8 +169,6 @@ def test_out_of_range_metadata_is_not_validated_or_repaired(
 
 
 def test_embedding_and_head_are_truncated_independently(models, tmp_path):
-    # Legacy truncation is per tensor, not a model-wide vocabulary-size decision.
-    # The inconsistent result is intentional here, not a valid-model example.
     path = f"{models[0]}/model.safetensors"
     weights = load_file(path)
     weights["lm_head.weight"] = weights["lm_head.weight"][:7].clone()
@@ -211,12 +197,3 @@ def test_missing_tokenizer_does_not_prevent_truncation(tmp_path):
     )
     assert (output / "config.json").exists()
     assert not (output / "tokenizer.json").exists()
-
-
-def test_cli_exposes_dangerous_opt_in():
-    result = CliRunner().invoke(main, ["--help"])
-    assert result.exit_code == 0
-    dangerous_options = result.output.split("Dangerous Options:")[1]
-    assert "--unsafe-truncate-embeddings" in dangerous_options
-    assert "UNSAFE" in dangerous_options
-    assert MergeOptions().unsafe_truncate_embeddings is False

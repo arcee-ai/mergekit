@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""Graph adapter for legacy-style, tokenizer-unaware vocabulary truncation."""
+"""Graph adapter for tokenizer-unaware vocabulary truncation."""
 
 from typing import Dict, Optional
 
