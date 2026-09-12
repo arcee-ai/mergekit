@@ -197,7 +197,7 @@ Alignment applies to every vocabulary-indexed parameter, including output biases
 Architecture definitions identify these using `vocabulary_axis`: a nonnegative
 axis index (`0` for conventional embedding matrices and output biases), or `null`
 for tensors not indexed by token IDs. Positional, token-type, and vision embeddings
-are not vocabulary-indexed. This replaces the former `is_embed` flag.
+are not vocabulary-indexed.
 
 ```yaml
 tokenizer:
@@ -291,34 +291,27 @@ tokenizer_source: "union"  # or "base" or a model path
 
 This provides basic tokenizer selection but lacks the fine-grained control of the modern `tokenizer` field.
 
-#### Unsafe legacy-style embedding truncation
+#### Unsafe embedding truncation
 
 `mergekit-yaml config.yml output/ --unsafe-truncate-embeddings` opts into
-tokenizer-unaware truncation, similar to the old `rectify_embed` behavior.
-**Not recommended: use tokenizer configuration instead.** This option assumes
-every retained token ID has the same meaning in every input; it does not check
-that assumption and can produce a broken model even when all shapes match.
+tokenizer-unaware truncation. It discards trailing slices along each parameter's
+`vocabulary_axis` to match the smallest input; all other dimensions must match.
+Token IDs are not checked; every retained ID must have the same meaning in every
+input. Use tokenizer configuration to align tokens when this is not guaranteed.
 
 - Disabled by default and independent of `--allow-crimes`.
-- Only parameters with a `vocabulary_axis` (including output heads and biases)
-  are affected. Trailing token slices along that axis are discarded to match the
-  smallest input; all other dimensions must match and are never cropped.
 - If `tokenizer` or `tokenizer_source` is configured, tokenizer alignment takes
   precedence and this option has no effect.
-- Each actual truncation logs the tensor name, original shapes, retained shape,
-  and a warning about discarded tokens and assumed token-ID compatibility.
-- This is a legacy compatibility escape hatch, not vocabulary repair. Configs
-  and tokenizers follow the normal save/copy behavior without truncation-specific
-  validation or repair. Vocabulary sizes, embedding/head shapes, and token IDs
-  may disagree; the output may not load or generate correctly. If that is a
-  problem, use tokenizer alignment instead.
+- Each truncation logs the tensor name and original and retained shapes.
+- Configs and tokenizers are copied without adjusting vocabulary sizes or token
+  IDs. They may disagree with the truncated weights, preventing the output from
+  loading or generating correctly.
 
 For direct Python callers,
 `mergekit.merge_methods.preprocessing.truncate_vocabulary(group)` performs
-the same explicit preprocessing on a `TensorGroup` with `vocabulary_axis` set,
-preserving input IDs, base designation, and borrowed tensor storage. Callers
-remain responsible for tokenizer and output-config consistency. Merge methods
-themselves still require matching tensor shapes.
+the same preprocessing on a `TensorGroup` with `vocabulary_axis` set. It returns
+borrowed views, preserving input IDs and base designation. Merge methods require
+matching tensor shapes.
 
 ### Chat Template Configuration
 
@@ -412,7 +405,7 @@ Use `mergekit-pytorch --help` for detailed options.
 
 Vocabulary-dependent biases and other auxiliary parameters are remapped by exact
 token identity; entries for new tokens are initialized to zero. Embedding matrices
-continue to use the selected approximation method.
+use the selected approximation method.
 
 ## Citation
 

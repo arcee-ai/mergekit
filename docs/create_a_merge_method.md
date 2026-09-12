@@ -170,7 +170,7 @@ groups = [
         [a_embedding, c_embedding],
         ids=["a", "c"],
         name="embedding.weight",
-        is_embed=True,
+        vocabulary_axis=0,
     ),
 ]
 
@@ -224,7 +224,7 @@ tuple of groups to a method; it returns a tuple of tensors with one output per
 group, in input order. Unpack a singleton result with
 `(merged_tensor,) = method([group], ...)`. An empty sequence returns an empty tuple.
 
-`TensorGroup.from_tensors(tensors, ids=..., base_index=..., name=..., is_embed=...)`
+`TensorGroup.from_tensors(tensors, ids=..., base_index=..., name=..., vocabulary_axis=...)`
 borrows the supplied tensors. IDs default to integer positions; `base_index` always
 refers to the supplied tensor order. Groups may use different IDs, input counts,
 shapes, and metadata. The `TensorGroup(entries=..., metadata=...)` constructor
@@ -288,9 +288,9 @@ with two borrowed inputs.
 `TensorEntry.id` is an opaque, non-`None` hashable identifier (`None` is reserved for
 the absence of a base). Strings or integer positions can be used as IDs.
 
-`TensorGroup.metadata` carries lightweight output information such as its name and
-whether it is an embedding tensor. A base is represented by an entry with
-`is_base=True`, accessible through `group.base` and excluded from `group.non_base`.
+`TensorGroup.metadata` carries the output name and `vocabulary_axis`, the axis
+indexed by token IDs (`None` for other tensors). A base is represented by an entry
+with `is_base=True`, accessible through `group.base` and excluded from `group.non_base`.
 
 ## Registration
 
