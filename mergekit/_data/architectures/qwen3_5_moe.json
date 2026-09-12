@@ -1,39 +1,30 @@
 {
     "kind": "modular",
-    "model_type": "qwen3_vl_moe",
+    "model_type": "qwen3_5_moe",
     "architectures": [
-        "Qwen3VLMoeForConditionalGeneration"
+        "Qwen3_5MoeForConditionalGeneration"
     ],
-    "num_vision_layers_config_key": "vision_config.depth",
-    "vocab_size_config_key": "vocab_size",
+    "vocab_size_config_key": "text_config.vocab_size",
     "tagalong_files": [
         "preprocessor_config.json",
-        "vocab.json"
+        "video_preprocessor_config.json",
+        "chat_template.jinja",
+        "merges.txt",
+        "tokenizer.json",
+        "tokenizer_config.json"
     ],
     "modules": {
-        "text_decoder": {
+        "default": {
             "architecture": {
                 "architectures": [
                     "Qwen3ForCausalLM"
                 ],
-                "model_type": "qwen3_vl_moe_text",
+                "model_type": "qwen3_5_moe_text",
                 "num_layers_config_key": "text_config.num_hidden_layers",
                 "pre_weights": [
                     {
                         "name": "model.language_model.embed_tokens.weight",
                         "is_embed": true
-                    },
-                    {
-                        "name": "model.language_model.layers.linear_attn.in_proj_qkv.weight",
-                        "optional": true
-                    },
-                    {
-                        "name": "model.language_model.layers.linear_attn.in_proj_z.weight",
-                        "optional": true
-                    },
-                    {
-                        "name": "model.language_model.layers.linear_attn.out_proj.weight",
-                        "optional": true
                     }
                 ],
                 "post_weights": [
@@ -55,37 +46,67 @@
                             "name": "model.language_model.layers.${layer_index}.input_layernorm.weight"
                         },
                         {
-                            "name": "model.language_model.layers.${layer_index}.mlp.experts.down_proj"
+                            "name": "model.language_model.layers.${layer_index}.post_attention_layernorm.weight"
                         },
                         {
-                            "name": "model.language_model.layers.${layer_index}.mlp.experts.gate_up_proj"
+                            "name": "model.language_model.layers.${layer_index}.self_attn.k_norm.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.self_attn.k_proj.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.self_attn.o_proj.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.self_attn.q_proj.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.self_attn.v_proj.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.self_attn.q_norm.weight",
+                            "optional": true
                         },
                         {
                             "name": "model.language_model.layers.${layer_index}.mlp.gate.weight"
                         },
                         {
-                            "name": "model.language_model.layers.${layer_index}.post_attention_layernorm.weight"
+                            "name": "model.language_model.layers.${layer_index}.mlp.experts.gate_up_proj"
                         },
                         {
-                            "name": "model.language_model.layers.${layer_index}.self_attn.k_norm.weight"
+                            "name": "model.language_model.layers.${layer_index}.mlp.experts.down_proj"
                         },
                         {
-                            "name": "model.language_model.layers.${layer_index}.self_attn.k_proj.weight"
+                            "name": "model.language_model.layers.${layer_index}.mlp.shared_expert.gate_proj.weight",
+                            "optional": true
                         },
                         {
-                            "name": "model.language_model.layers.${layer_index}.self_attn.q_norm.weight"
+                            "name": "model.language_model.layers.${layer_index}.mlp.shared_expert.up_proj.weight",
+                            "optional": true
                         },
                         {
-                            "name": "model.language_model.layers.${layer_index}.self_attn.q_proj.weight"
+                            "name": "model.language_model.layers.${layer_index}.mlp.shared_expert.down_proj.weight",
+                            "optional": true
                         },
                         {
-                            "name": "model.language_model.layers.${layer_index}.self_attn.v_proj.weight"
-                        },
-                        {
-                            "name": "model.language_model.layers.${layer_index}.self_attn.o_proj.weight"
+                            "name": "model.language_model.layers.${layer_index}.mlp.shared_expert_gate.weight",
+                            "optional": true
                         },
                         {
                             "name": "model.language_model.layers.${layer_index}.linear_attn.in_proj_qkv.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.in_proj_a.weight",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.in_proj_b.weight",
                             "optional": true
                         },
                         {
@@ -97,7 +118,7 @@
                             "optional": true
                         },
                         {
-                            "name": "model.language_model.layers.${layer_index}.linear_attn.dt_bias",
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.norm.weight",
                             "optional": true
                         },
                         {
@@ -106,6 +127,10 @@
                         },
                         {
                             "name": "model.language_model.layers.${layer_index}.linear_attn.D",
+                            "optional": true
+                        },
+                        {
+                            "name": "model.language_model.layers.${layer_index}.linear_attn.dt_bias",
                             "optional": true
                         },
                         {
@@ -120,13 +145,25 @@
                 }
             }
         },
-        "multi_modal_projector": {
-            "model_type": "",
+        "visual": {
             "architecture": {
                 "model_type": "",
                 "architectures": [],
-                "override_num_layers": 3,
+                "num_layers_config_key": "vision_config.depth",
                 "pre_weights": [
+                    {
+                        "name": "model.visual.patch_embed.proj.weight",
+                        "is_embed": true
+                    },
+                    {
+                        "name": "model.visual.patch_embed.proj.bias"
+                    },
+                    {
+                        "name": "model.visual.pos_embed.weight",
+                        "is_embed": true
+                    }
+                ],
+                "post_weights": [
                     {
                         "name": "model.visual.merger.norm.weight"
                     },
@@ -146,51 +183,6 @@
                         "name": "model.visual.merger.linear_fc2.bias"
                     }
                 ],
-                "post_weights": [],
-                "layer_templates": {
-                    "weights": [
-                        {
-                            "name": "model.visual.deepstack_merger_list.${layer_index}.norm.weight"
-                        },
-                        {
-                            "name": "model.visual.deepstack_merger_list.${layer_index}.norm.bias"
-                        },
-                        {
-                            "name": "model.visual.deepstack_merger_list.${layer_index}.linear_fc1.weight"
-                        },
-                        {
-                            "name": "model.visual.deepstack_merger_list.${layer_index}.linear_fc1.bias"
-                        },
-                        {
-                            "name": "model.visual.deepstack_merger_list.${layer_index}.linear_fc2.weight"
-                        },
-                        {
-                            "name": "model.visual.deepstack_merger_list.${layer_index}.linear_fc2.bias"
-                        }
-                    ]
-                }
-            }
-        },
-        "vision_tower":
-        {
-            "architecture": {
-                "model_type": "",
-                "architectures": [],
-                "num_layers_config_key": "vision_config.depth",
-                "pre_weights": [
-                    {
-                        "name": "model.visual.patch_embed.proj.weight",
-                        "is_embed": true
-                    },
-                    {
-                        "name": "model.visual.patch_embed.proj.bias"
-                    },
-                    {
-                        "name": "model.visual.pos_embed.weight",
-                        "is_embed": true
-                    }
-                ],
-                "post_weights": [],
                 "layer_templates": {
                     "weights": [
                         {
