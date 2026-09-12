@@ -256,7 +256,7 @@ def test_group_factory_base_and_embedding_metadata():
         ids=["other", "base"],
         base_index=1,
         name="embedding.weight",
-        is_embed=True,
+        vocabulary_axis=0,
     )
     (result,) = merge_methods.get("task_arithmetic")(
         [group], parameters={"weight": {"other": 0.25}}
@@ -266,9 +266,9 @@ def test_group_factory_base_and_embedding_metadata():
     assert group.non_base[0].tensor is other
 
     mismatched = TensorGroup.from_tensors(
-        [base, torch.ones(4, 2)], name="embedding.weight", is_embed=True
+        [base, torch.ones(4, 2)], name="embedding.weight", vocabulary_axis=0
     )
-    with pytest.raises(ValueError, match="embedding.weight.*Align vocabulary rows"):
+    with pytest.raises(ValueError, match="embedding.weight.*Align vocabulary axes"):
         merge_methods.get("linear")([mismatched], parameters={"weight": 1.0})
 
 
@@ -411,7 +411,7 @@ def test_methods_reject_mismatched_embedding_shapes(method_name, count, shape):
         for i in range(count)
     )
     group = TensorGroup(
-        entries, TensorMetadata(name="embed_tokens.weight", is_embed=True)
+        entries, TensorMetadata(name="embed_tokens.weight", vocabulary_axis=0)
     )
     with pytest.raises(ValueError, match="Tensor size mismatch.*tokenizer"):
         merge_methods.get(method_name)((group,))

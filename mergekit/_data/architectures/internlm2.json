@@ -6,7 +6,7 @@
     "pre_weights": [
         {
             "name": "model.tok_embeddings.weight",
-            "is_embed": true
+            "vocabulary_axis": 0
         }
     ],
     "post_weights": [
@@ -15,7 +15,7 @@
         },
         {
             "name": "output.weight",
-            "is_embed": true,
+            "vocabulary_axis": 0,
             "optional": true,
             "tied_names": [
                 "model.tok_embeddings.weight"

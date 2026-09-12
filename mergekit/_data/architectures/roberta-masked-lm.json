@@ -9,7 +9,7 @@
         },
         {
             "name": "roberta.embeddings.word_embeddings.weight",
-            "is_embed": true
+            "vocabulary_axis": 0
         },
         {
             "name": "roberta.embeddings.token_type_embeddings.weight"
@@ -28,7 +28,8 @@
     ],
     "post_weights": [
         {
-            "name": "lm_head.bias"
+            "name": "lm_head.bias",
+            "vocabulary_axis": 0
         },
         {
             "name": "lm_head.dense.weight"
@@ -44,7 +45,7 @@
         },
         {
             "name": "lm_head.decoder.weight",
-            "is_embed": true,
+            "vocabulary_axis": 0,
             "optional": true,
             "tied_names": [
                 "roberta.embeddings.word_embeddings.weight"

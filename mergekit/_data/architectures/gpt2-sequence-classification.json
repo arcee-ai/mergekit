@@ -5,7 +5,8 @@
     ],
     "pre_weights": [
         {
-            "name": "transformer.wte.weight"
+            "name": "transformer.wte.weight",
+            "vocabulary_axis": 0
         },
         {
             "name": "transformer.wpe.weight"

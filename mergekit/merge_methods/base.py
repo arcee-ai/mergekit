@@ -194,11 +194,17 @@ class InputContract:
 @dataclass(frozen=True)
 class TensorMetadata:
     name: Optional[str] = None
-    is_embed: bool = False
+    vocabulary_axis: Optional[int] = None
+
+    def __post_init__(self):
+        if self.vocabulary_axis is not None and (
+            type(self.vocabulary_axis) is not int or self.vocabulary_axis < 0
+        ):
+            raise ValueError("vocabulary_axis must be a nonnegative integer or None")
 
     @classmethod
     def from_weight_info(cls, weight: Any) -> "TensorMetadata":
-        return cls(name=weight.name, is_embed=weight.is_embed)
+        return cls(name=weight.name, vocabulary_axis=weight.vocabulary_axis)
 
 
 @dataclass(frozen=True)
@@ -240,7 +246,7 @@ class TensorGroup:
         ids: Optional[Sequence[Hashable]] = None,
         base_index: Optional[int] = None,
         name: Optional[str] = None,
-        is_embed: bool = False,
+        vocabulary_axis: Optional[int] = None,
     ) -> "TensorGroup":
         """Borrow tensors in input order, with optional IDs, base, and metadata."""
         ids = tuple(range(len(tensors))) if ids is None else tuple(ids)
@@ -253,7 +259,8 @@ class TensorGroup:
             for idx, (key, tensor) in enumerate(zip(ids, tensors))
         )
         return cls(
-            entries=entries, metadata=TensorMetadata(name=name, is_embed=is_embed)
+            entries=entries,
+            metadata=TensorMetadata(name=name, vocabulary_axis=vocabulary_axis),
         )
 
     @property
@@ -272,13 +279,21 @@ class TensorGroup:
         """Require matching shapes and devices without allocating tensor storage."""
         if not self.entries:
             return
+        axis = self.metadata.vocabulary_axis
+        if axis is not None and any(
+            axis >= entry.tensor.ndim for entry in self.entries
+        ):
+            raise ValueError(
+                f"Invalid vocabulary_axis={axis} for {self.metadata.name}: "
+                f"{[tuple(entry.tensor.shape) for entry in self.entries]}"
+            )
         first = self.entries[0].tensor
         if any(entry.tensor.shape != first.shape for entry in self.entries):
             hint = ""
-            if self.metadata.is_embed:
+            if self.metadata.vocabulary_axis is not None:
                 hint = (
-                    " Align vocabulary rows with tokenizer configuration before "
-                    "merging (for example, tokenizer: {source: base}); hidden "
+                    " Align vocabulary axes with tokenizer configuration before "
+                    "merging (for example, tokenizer: {source: base}); other "
                     "dimensions must already match. Direct callers must align "
                     "their tensors themselves."
                 )

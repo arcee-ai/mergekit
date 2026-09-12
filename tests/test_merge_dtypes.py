@@ -12,7 +12,7 @@ from mergekit.merge_methods import TensorBatch, TensorGroup, merge_state_dicts
 from mergekit.merge_methods.task_adapter import TensorDictWrapper
 from mergekit.options import MergeOptions
 from mergekit.scripts.merge_raw_pytorch import RawPyTorchMergeConfig, plan_flat_merge
-from mergekit.tokenizer import PermutedEmbeddings
+from mergekit.tokenizer import PermutedVocabulary
 from tests.common import make_picollama, run_and_check_merge
 
 
@@ -289,8 +289,8 @@ def test_embedding_alignment_promotes_before_copying():
         refs[0]: torch.tensor([[1.0]], dtype=torch.bfloat16),
         refs[1]: torch.tensor([[1.001]], dtype=torch.float32),
     }
-    task = PermutedEmbeddings.model_construct(
-        tokens=None, pad_to_multiple_of=None, base_model=None
+    task = PermutedVocabulary.model_construct(
+        tokens=None, pad_to_multiple_of=None, base_model=None, vocabulary_axis=0
     )
     info = SimpleNamespace(
         tokenizer=SimpleNamespace(get_vocab=lambda: {"token": 0}),

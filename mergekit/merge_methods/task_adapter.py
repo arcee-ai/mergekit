@@ -22,7 +22,8 @@ from mergekit.merge_methods.base import (
 )
 from mergekit.merge_methods.buffers import copy_non_floating_buffer
 from mergekit.merge_methods.passthrough import passthrough_merge_method
-from mergekit.tokenizer import PermutedEmbeddings
+from mergekit.tokenizer import PermutedVocabulary
+from mergekit.tokenizer.truncate import TruncatedVocabulary
 
 
 class TensorDictWrapper(Task[Dict[ModelReference, torch.Tensor]]):
@@ -46,7 +47,7 @@ class TensorDictWrapper(Task[Dict[ModelReference, torch.Tensor]]):
 
 
 MergeTensorInput: TypeAlias = Union[
-    GatherTensors, PermutedEmbeddings, TensorDictWrapper
+    GatherTensors, PermutedVocabulary, TruncatedVocabulary, TensorDictWrapper
 ]
 
 

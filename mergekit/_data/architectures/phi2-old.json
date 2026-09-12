@@ -6,16 +6,17 @@
     "pre_weights": [
         {
             "name": "transformer.embd.wte.weight",
-            "is_embed": true
+            "vocabulary_axis": 0
         }
     ],
     "post_weights": [
         {
-            "name": "lm_head.linear.bias"
+            "name": "lm_head.linear.bias",
+            "vocabulary_axis": 0
         },
         {
             "name": "lm_head.linear.weight",
-            "is_embed": true
+            "vocabulary_axis": 0
         },
         {
             "name": "lm_head.ln.bias"

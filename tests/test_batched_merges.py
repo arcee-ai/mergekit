@@ -622,7 +622,7 @@ def test_embedding_mismatch_fails_before_bucketing(monkeypatch):
                 TensorEntry("a", torch.ones(rows, 2)),
                 TensorEntry("b", torch.full((3, 2), 3.0)),
             ),
-            TensorMetadata(name="embedding", is_embed=True),
+            TensorMetadata(name="embedding", vocabulary_axis=0),
         )
         for rows in (4, 5)
     )

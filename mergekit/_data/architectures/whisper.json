@@ -17,7 +17,7 @@
                 "pre_weights": [
                     {
                         "name": "embed_tokens.weight",
-                        "is_embed": true
+                        "vocabulary_axis": 0
                     },
                     {
                         "name": "embed_positions.weight"

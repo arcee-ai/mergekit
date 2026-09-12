@@ -33,7 +33,8 @@ from mergekit.merge_methods import MergeMethod
 from mergekit.merge_methods.task_adapter import ExecuteMergeMethodTask
 from mergekit.options import MergeOptions
 from mergekit.parameter_resolver import resolve_parameters
-from mergekit.tokenizer import BuildTokenizer, PermutedEmbeddings
+from mergekit.tokenizer import BuildTokenizer, PermutedVocabulary
+from mergekit.tokenizer.truncate import TruncatedVocabulary
 
 
 class MergePlanner:
@@ -209,18 +210,26 @@ class MergePlanner:
         )
 
         tensor_input_task = gather_tensors
-        if self._tokenizer_task and weight.is_embed:
+        if self._tokenizer_task and weight.vocabulary_axis is not None:
             token_cfg = {}
             pad_to_multiple = None
             if cfg_reader.config.tokenizer:
                 token_cfg = cfg_reader.config.tokenizer.tokens
                 pad_to_multiple = cfg_reader.config.tokenizer.pad_to_multiple_of
-            tensor_input_task = PermutedEmbeddings(
+            tensor_input_task = PermutedVocabulary(
                 gather_tensors=gather_tensors,
                 tokenizer_task=self._tokenizer_task,
                 tokens=token_cfg,
                 pad_to_multiple_of=pad_to_multiple,
                 base_model=base_model,
+                vocabulary_axis=weight.vocabulary_axis,
+            )
+        elif (
+            self.options.unsafe_truncate_embeddings
+            and weight.vocabulary_axis is not None
+        ):
+            tensor_input_task = TruncatedVocabulary(
+                gather_tensors=gather_tensors, weight_info=weight
             )
 
         tensor_task = ExecuteMergeMethodTask.from_parameters(
