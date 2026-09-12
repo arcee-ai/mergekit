@@ -7,14 +7,14 @@ repos:
         args: ["--allow-multiple-documents"]
       - id: check-json
       - id: check-ast
-  - repo: https://github.com/PyCQA/isort
-    rev: 6.0.0
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.2
     hooks:
-      - id: isort
-  - repo: https://github.com/psf/black
-    rev: 25.1.0
-    hooks:
-      - id: black
+      - id: ruff-check
+        args: ["--fix"]
+        types_or: [python, pyi]
+      - id: ruff-format
+        types_or: [python, pyi]
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
