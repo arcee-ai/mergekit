@@ -72,7 +72,7 @@ def karcher_merge_tensors(tensors, alphas, max_iter=10, tol=1e-5):
 @merge_method(
     name="karcher",
     pretty_name="Karcher Mean",
-    reference_url="https://en.wikipedia.org/wiki/Karcher_mean",
+    reference_url="https://arxiv.org/abs/2603.04972",
 )
 def karcher_merge_method(
     group: TensorGroup,
