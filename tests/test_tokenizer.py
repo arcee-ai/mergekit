@@ -40,6 +40,28 @@ def model_padded(tmp_path_factory):
     return model_path
 
 
+@pytest.fixture(scope="session")
+def model_special(tmp_path_factory):
+    model_path = make_picollama(tmp_path_factory.mktemp("model_special"), vocab_size=65)
+    tokenizer = make_tokenizer(vocab_size=64, added_tokens=[])
+    tokenizer.add_special_tokens(
+        {
+            "additional_special_tokens": [
+                tokenizers.AddedToken(
+                    "<|existing_special|>",
+                    single_word=True,
+                    lstrip=True,
+                    rstrip=True,
+                    normalized=False,
+                    special=True,
+                )
+            ]
+        }
+    )
+    tokenizer.save_pretrained(model_path)
+    return model_path
+
+
 def make_tokenizer(
     vocab_size: int, added_tokens: List[Union[str, tokenizers.AddedToken]]
 ) -> PreTrainedTokenizerBase:
@@ -239,6 +261,60 @@ class TestTokenizerMerges:
             ), "Token _tok_11 should be from model_base"
 
         run_and_check_merge(config, validate=_check_embed)
+
+    @pytest.mark.parametrize(
+        ("tokenizer_source", "include_missing_token"),
+        [
+            pytest.param("model", True, id="model-with-missing"),
+            pytest.param("base", False, id="base"),
+            pytest.param("union", False, id="union"),
+        ],
+    )
+    def test_configured_tokens_preserve_metadata_and_add_missing(
+        self,
+        model_special: str,
+        tokenizer_source: str,
+        include_missing_token: bool,
+    ):
+        special_token = "<|existing_special|>"
+        missing_token = "<|new_configured_token|>"
+        source = model_special if tokenizer_source == "model" else tokenizer_source
+        tokens = {special_token: {"source": model_special, "force": True}}
+        if include_missing_token:
+            tokens[missing_token] = {
+                "source": {
+                    "kind": "model_token",
+                    "model": model_special,
+                    "token": "_tok_10",
+                },
+                "force": True,
+            }
+        config = self.make_config(
+            [model_special],
+            base_model=model_special,
+            tokenizer_config=TokenizerConfig(
+                source=source,
+                tokens=tokens,
+            ),
+        )
+
+        def _check_token_metadata(model_path: str):
+            source_tokenizer = LlamaTokenizerFast.from_pretrained(model_special)
+            tokenizer = LlamaTokenizerFast.from_pretrained(model_path)
+            source_token_id = source_tokenizer.convert_tokens_to_ids(special_token)
+            token_id = tokenizer.convert_tokens_to_ids(special_token)
+
+            assert token_id == source_token_id
+            assert (
+                tokenizer.added_tokens_decoder[token_id]
+                == source_tokenizer.added_tokens_decoder[source_token_id]
+            )
+            assert token_id in tokenizer.all_special_ids
+            assert tokenizer.decode([token_id], skip_special_tokens=True) == ""
+            if include_missing_token:
+                assert missing_token in tokenizer.get_vocab()
+
+        run_and_check_merge(config, validate=_check_token_metadata)
 
     def test_model_token_id(self, model_base: str, model_chatml: str):
         config = self.make_config(
