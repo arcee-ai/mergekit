@@ -1,7 +1,12 @@
 import pytest
 import torch
 
-from mergekit.sparsify import SparsificationMethod, sparsify
+from mergekit.sparsify import (
+    RescaleNorm,
+    SparsificationMethod,
+    rescaled_masked_tensor,
+    sparsify,
+)
 
 
 @pytest.fixture
@@ -118,3 +123,73 @@ class TestBernoulli:
                 method=SparsificationMethod.random,
                 rescale_norm="l1",
             )
+
+
+class TestNormRescale:
+    @pytest.mark.parametrize(
+        "dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64]
+    )
+    @pytest.mark.parametrize("count", [100, 100_000, 160_000])
+    def test_large_l1_norm(self, dtype, count):
+        tensor = torch.ones(count, dtype=dtype)
+        mask = torch.zeros_like(tensor)
+        mask[: count // 2] = 1
+
+        result = rescaled_masked_tensor(tensor, mask, RescaleNorm.l1)
+
+        assert result.dtype == tensor.dtype
+        assert result.device == tensor.device
+        assert torch.isfinite(result).all()
+        torch.testing.assert_close(result, mask * 2)
+
+    @pytest.mark.parametrize("norm", list(RescaleNorm))
+    def test_large_multiplier(self, norm):
+        # The multiplier exceeds FP16's range, but the output is near one.
+        tensor = torch.tensor([1.0, 1e-6], dtype=torch.float16)
+        mask = torch.tensor([0.0, 1.0], dtype=tensor.dtype)
+
+        result = rescaled_masked_tensor(tensor, mask, norm)
+
+        assert result.dtype == tensor.dtype
+        assert torch.isfinite(result).all()
+        torch.testing.assert_close(result, torch.tensor([0.0, 1.0], dtype=tensor.dtype))
+
+    def test_large_l2_norm(self):
+        tensor = torch.full((32_768,), 512.0, dtype=torch.float16)
+        mask = torch.zeros_like(tensor)
+        mask[:16_384] = 1
+
+        result = rescaled_masked_tensor(tensor, mask, RescaleNorm.l2)
+
+        assert result.dtype == tensor.dtype
+        assert torch.isfinite(result).all()
+        torch.testing.assert_close(result, mask * (512.0 * 2**0.5))
+
+    def test_float64_precision(self):
+        tensor = torch.tensor([1.0 + 2**-30, 2.0], dtype=torch.float64)
+        mask = torch.tensor([1.0, 0.0], dtype=tensor.dtype)
+
+        result = rescaled_masked_tensor(tensor, mask, RescaleNorm.l1)
+
+        torch.testing.assert_close(
+            result,
+            torch.tensor([3.0 + 2**-30, 0.0], dtype=tensor.dtype),
+            rtol=0,
+            atol=1e-14,
+        )
+
+    @pytest.mark.parametrize("norm", [None, *RescaleNorm])
+    @pytest.mark.parametrize(
+        "dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64]
+    )
+    def test_zero_mask(self, norm, dtype):
+        tensor = torch.ones(160_000, dtype=dtype)
+        result = rescaled_masked_tensor(tensor, torch.zeros_like(tensor), norm)
+        torch.testing.assert_close(result, torch.zeros_like(tensor))
+
+    def test_no_rescale(self):
+        tensor = torch.ones(160_000, dtype=torch.float16)
+        mask = torch.zeros_like(tensor)
+        mask[:80_000] = 1
+        result = rescaled_masked_tensor(tensor, mask, None)
+        torch.testing.assert_close(result, mask)
