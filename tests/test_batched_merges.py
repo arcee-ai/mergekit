@@ -398,14 +398,18 @@ def test_native_merges_on_mps(method_name, dtype):
     torch.testing.assert_close(result["x"], a * 1.25)
 
 
-def test_linear_zero_weight_sum_requires_unnormalized_merge(device):
+@pytest.mark.parametrize("other_value", [1.0, 2.0])
+def test_linear_zero_weight_sum_follows_tensor_division(device, other_value):
     source = torch.ones(3, device=device)
-    batch = [TensorGroup.from_tensors([source, source])]
+    batch = [TensorGroup.from_tensors([source, source * other_value])]
     method = merge_methods.get("linear")
-    with pytest.raises(ValueError, match="sum to zero"):
-        method(batch, parameters={"weight": [1.0, -1.0]})
+    (result,) = method(batch, parameters={"weight": [1.0, -1.0]})
+    expected = float("nan") if other_value == 1.0 else -float("inf")
+    torch.testing.assert_close(
+        result, torch.full_like(source, expected), equal_nan=True
+    )
     (result,) = method(batch, parameters={"weight": [1.0, -1.0], "normalize": False})
-    torch.testing.assert_close(result, torch.zeros_like(source))
+    torch.testing.assert_close(result, torch.full_like(source, 1.0 - other_value))
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA unavailable")

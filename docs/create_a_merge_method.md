@@ -62,11 +62,13 @@ def weighted_average(
         result.addcmul_(tensor, coefficient.reshape(coefficient_shape))
     if normalize:
         denominator = weight.sum(1).reshape(coefficient_shape)
-        if (denominator == 0).any():
-            raise ValueError("Cannot normalize weights that sum to zero")
         result.div_(denominator)
     return result.to(first.dtype)  # [B, *weight_shape]
 ```
+
+Normalized weights must have a nonzero sum in the working precision. A zero sum
+produces NaN or infinity through tensor division; the kernel does not synchronize
+with the CPU to raise an exception.
 
 The function signature defines parameter names, types, scopes, and defaults:
 

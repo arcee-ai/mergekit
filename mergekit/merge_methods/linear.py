@@ -30,8 +30,6 @@ def linear_merge(
     coefficient_shape = (first.shape[0],) + (1,) * (first.ndim - 1)
     if normalize:
         denominator = weight.sum(dim=1).reshape(coefficient_shape)
-        if (denominator == 0).any():
-            raise ValueError("Cannot normalize weights that sum to zero")
     result = torch.zeros_like(first, dtype=dtype)
     for tensor, coefficient in zip(batch.tensors, weight.unbind(1)):
         result.addcmul_(tensor, coefficient.reshape(coefficient_shape))

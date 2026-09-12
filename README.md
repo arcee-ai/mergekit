@@ -158,8 +158,9 @@ Below are the primary elements of a configuration file:
 Methods control their intermediate precision independently of PyTorch autocast.
 Linear and SLERP compute in float32 for float16, bfloat16, and float32 inputs, and
 float64 for float64 inputs, then cast back to the aligned input dtype. Normalized
-linear merges reject weights that sum to zero in the working precision; nearly
-cancelling weights can lose accuracy. Architecture-specific forced dtypes take
+linear merges require weights with a nonzero sum in the working precision;
+a zero sum produces NaN or infinity through tensor division. Nearly cancelling
+weights can lose accuracy. Architecture-specific forced dtypes take
 precedence over `dtype` and `out_dtype` for those weights.
 
 ### Parameter Specification
