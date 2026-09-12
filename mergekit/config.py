@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
 from pydantic import BaseModel, model_validator
@@ -10,7 +10,8 @@ from typing_extensions import Literal, TypeAlias
 from mergekit.common import ModelReference
 from mergekit.tokenizer.config import TokenizerConfig
 
-ScalarOrGradient: TypeAlias = Union[float, List[float]]
+ScalarParameter: TypeAlias = Union[bool, int, float, str]
+ScalarOrGradient: TypeAlias = Union[ScalarParameter, List[ScalarParameter]]
 
 
 class ConditionalParameter(BaseModel):
@@ -24,20 +25,38 @@ ParameterSetting: TypeAlias = Union[
 
 
 def evaluate_setting(
-    tensor_name: str, setting: ParameterSetting, t: float = 0
-) -> Optional[float]:
+    tensor_name: str,
+    setting: ParameterSetting,
+    t: float = 0,
+    *,
+    validate: Callable[[Any], Any],
+) -> Any:
+    """Resolve filters and gradients using the parameter's validated scalar types.
+
+    Numeric endpoints interpolate; booleans and strings select discrete values.
+    In particular, YAML scientific-notation strings become numeric endpoints for
+    numeric parameters, but remain discrete labels for string parameters.
+    """
+    if isinstance(setting, ConditionalParameter):
+        setting = [setting]
     if isinstance(setting, (float, int, bool, str)):
-        return setting
+        return validate(setting)
     elif isinstance(setting, list):
-        if all(isinstance(e, (int, float)) for e in setting):
+        if not setting:
+            return None
+        if all(isinstance(e, (float, int, bool, str)) for e in setting):
+            values = [validate(e) for e in setting]
+            if not all(
+                isinstance(e, (int, float)) and not isinstance(e, bool) for e in values
+            ):
+                return values[int(t * (len(values) - 1))]
             scaled = t * (len(setting) - 1)
             i0 = int(scaled)
             i1 = min(len(setting) - 1, i0 + 1)
             frac = scaled - i0
 
-            return (1 - frac) * setting[i0] + frac * setting[i1]
-        elif all(isinstance(e, (float, int, bool, str)) for e in setting):
-            return setting[int(t * (len(setting) - 1))]
+            result = (1 - frac) * values[i0] + frac * values[i1]
+            return validate(result)
         else:
             for cond in setting:
                 if (
@@ -45,7 +64,9 @@ def evaluate_setting(
                     or (cond.filter == "*")
                     or (tensor_name and cond.filter in tensor_name)
                 ):
-                    res = evaluate_setting(tensor_name, cond.value, t)
+                    res = evaluate_setting(
+                        tensor_name, cond.value, t, validate=validate
+                    )
                     return res
     else:
         raise RuntimeError(f"Unexpected setting value: {setting}")
@@ -152,7 +173,6 @@ class MergeConfiguration(BaseModel):
 class ConfigReader(BaseModel):
     config: MergeConfiguration
     t: float
-    tensor_name: Optional[str] = None
     slice_out: Optional[OutputSliceDefinition] = None
     module: Optional[OutputModuleDefinition] = None
 
@@ -166,89 +186,24 @@ class ConfigReader(BaseModel):
         return res
 
     def for_out_slice(self, slice: OutputSliceDefinition) -> "ConfigReader":
-        return ConfigReader(
-            config=self.config,
-            t=self.t,
-            tensor_name=self.tensor_name,
-            slice_out=slice,
-            module=self.module,
-        )
-
-    def for_tensor(self, tensor_name: str) -> "ConfigReader":
-        return ConfigReader(
-            config=self.config,
-            t=self.t,
-            tensor_name=tensor_name,
-            slice_out=self.slice_out,
-            module=self.module,
-        )
+        return self.model_copy(update={"slice_out": slice})
 
     def with_t(self, t: float) -> "ConfigReader":
-        return ConfigReader(
-            config=self.config,
-            t=t,
-            tensor_name=self.tensor_name,
-            slice_out=self.slice_out,
-            module=self.module,
-        )
+        return self.model_copy(update={"t": t})
 
-    def for_module(self, module: OutputModuleDefinition) -> "ConfigReader":
-        return ConfigReader(
-            config=self.config,
-            t=self.t,
-            tensor_name=self.tensor_name,
-            slice_out=self.slice_out,
-            module=module,
-        )
-
-    def parameter(
-        self,
-        name: str,
-        model: Optional[ModelReference] = None,
-        default: Any = None,
-        required: bool = False,
-    ) -> Any:
+    def parameter_sources(
+        self, model: Optional[ModelReference] = None
+    ) -> Iterable[Optional[Dict[str, ParameterSetting]]]:
+        """Yield settings from highest to lowest precedence, without resolving them."""
         if self.slice_out:
-            if model:
-                for s in self.slice_out.sources:
-                    if s.model == model and s.parameters and name in s.parameters:
-                        value = evaluate_setting(
-                            self.tensor_name, s.parameters[name], self.t
-                        )
-                        if value is not None:
-                            return value
-
-            if self.slice_out.parameters and name in self.slice_out.parameters:
-                value = evaluate_setting(
-                    self.tensor_name, self.slice_out.parameters[name], self.t
-                )
-                if value is not None:
-                    return value
-
-        if self.module and self.module.parameters and name in self.module.parameters:
-            value = evaluate_setting(
-                self.tensor_name,
-                self.module.parameters[name],
-                self.t,
-            )
-            if value is not None:
-                return value
-
-        if self.config.parameters and name in self.config.parameters:
-            value = evaluate_setting(
-                self.tensor_name,
-                self.config.parameters[name],
-                self.t,
-            )
-            if value is not None:
-                return value
-
-        if required:
-            path_paths = [str(s) for s in [model, self.tensor_name] if s]
-            p = ".".join(path_paths)
-            suffix = f" for {p}" if p else ""
-            raise RuntimeError(f"Missing required parameter {name}{suffix}")
-        return default
+            if model is not None:
+                for source in self.slice_out.sources:
+                    if source.model == model:
+                        yield source.parameters
+            yield self.slice_out.parameters
+        if self.module:
+            yield self.module.parameters
+        yield self.config.parameters
 
 
 class ConfigYamlDumper(yaml.Dumper):

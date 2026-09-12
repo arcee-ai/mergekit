@@ -1,0 +1,166 @@
+# Copyright (C) 2026 Arcee AI
+# SPDX-License-Identifier: LGPL-3.0-only
+
+"""Computation-graph adapters for merge methods."""
+
+import logging
+from typing import Any, Dict, Optional, Tuple, Union
+
+import torch
+from pydantic import model_validator
+from typing_extensions import TypeAlias
+
+from mergekit.architecture import WeightInfo
+from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
+from mergekit.graph import Task
+from mergekit.io.tasks import GatherTensors
+from mergekit.merge_methods.base import (
+    OptionalTensorPolicy,
+    ParameterScope,
+    PerInputValues,
+    TensorEntry,
+    TensorGroup,
+    TensorMetadata,
+)
+from mergekit.merge_methods.buffers import copy_non_floating_buffer
+from mergekit.merge_methods.passthrough import passthrough_merge_method
+from mergekit.tokenizer import PermutedVocabulary
+from mergekit.tokenizer.truncate import TruncatedVocabulary
+
+
+class TensorDictWrapper(Task[Dict[ModelReference, torch.Tensor]]):
+    """Graph adapter used by the raw-PyTorch merge command."""
+
+    tensors: ImmutableMap[ModelReference, Task[torch.Tensor]]
+
+    def arguments(self) -> Dict[str, Task]:
+        return {
+            key.model_dump_json(
+                exclude_none=True, exclude_defaults=True, round_trip=True
+            ): value
+            for key, value in self.tensors.items()
+        }
+
+    def execute(self, **kwargs) -> Dict[ModelReference, torch.Tensor]:
+        return {
+            ModelReference.model_validate_json(key): value
+            for key, value in kwargs.items()
+        }
+
+
+MergeTensorInput: TypeAlias = Union[
+    GatherTensors, PermutedVocabulary, TruncatedVocabulary, TensorDictWrapper
+]
+
+
+class ExecuteMergeMethodTask(Task[Optional[torch.Tensor]]):
+    """Adapt graph dependencies to the callable merge method interface."""
+
+    method_name: str
+    gather_tensors: MergeTensorInput
+    model_order: Tuple[ModelReference, ...]
+    base_model: Optional[ModelReference]
+    output_weight: WeightInfo
+    parameters: ImmutableMap[str, Any]
+    input_parameters: ImmutableMap[ModelReference, ImmutableMap[str, Any]]
+    dtype: Optional[str] = None
+    out_dtype: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_configured_inputs(self) -> "ExecuteMergeMethodTask":
+        from mergekit import merge_methods
+
+        merge_methods.get(self.method_name).validate_inputs(
+            self.model_order, self.base_model, group_name=self.output_weight.name
+        )
+        return self
+
+    def arguments(self) -> Dict[str, Task]:
+        return {"tensors": self.gather_tensors}
+
+    def group_label(self) -> Optional[str]:
+        return self.gather_tensors.group_label()
+
+    def uses_accelerator(self) -> bool:
+        from mergekit import merge_methods
+
+        return merge_methods.get(self.method_name).spec.uses_accelerator
+
+    def execute(
+        self, tensors: Dict[ModelReference, torch.Tensor], **_kwargs
+    ) -> Optional[torch.Tensor]:
+        from mergekit import merge_methods
+
+        entries = tuple(
+            TensorEntry(id=model, tensor=tensor, is_base=model == self.base_model)
+            for model in self.model_order
+            if (tensor := tensors.get(model)) is not None
+        )
+        group = TensorGroup(
+            entries=entries,
+            metadata=TensorMetadata.from_weight_info(self.output_weight),
+        )
+        method = merge_methods.get(self.method_name)
+        if self.output_weight.optional and len(entries) < len(self.model_order):
+            policy = method.spec.optional_tensor_policy
+            if len(entries) == 1 and (
+                policy == OptionalTensorPolicy.PASSTHROUGH_SINGLETON
+                or (
+                    policy == OptionalTensorPolicy.PASSTHROUGH_BASE_SINGLETON
+                    and entries[0].is_base
+                )
+            ):
+                return self._passthrough(group)
+            if (
+                policy == OptionalTensorPolicy.BASE_OR_SKIP
+                and len(entries) < method.spec.contract.min_inputs
+            ):
+                if len(entries) == 1 and entries[0].is_base:
+                    return self._passthrough(group)
+                logging.warning(
+                    "Skipping optional weight %s: insufficient inputs",
+                    self.output_weight.name,
+                )
+                return None
+        # A missing configured base is not the same as choosing a baseless
+        # algorithm. TensorGroup alone cannot retain that distinction once the
+        # loader has omitted the base's optional weight.
+        method.validate_inputs(
+            [entry.id for entry in entries],
+            self.base_model,
+            group_name=self.output_weight.name,
+        )
+        buffer = copy_non_floating_buffer(group.tensors, self.output_weight.name)
+        if buffer is not None:
+            return buffer
+        group.validate_tensors()
+        parameters = dict(self.parameters.items())
+        # Bind the already-resolved values only for inputs that were loaded.
+        for parameter in method.spec.input_parameters:
+            inputs = (
+                entries if parameter.scope == ParameterScope.INPUT else group.non_base
+            )
+            parameters[parameter.name] = PerInputValues(
+                [
+                    (entry.id, self.input_parameters[entry.id][parameter.name])
+                    for entry in inputs
+                ]
+            )
+        (result,) = method._execute_resolved(
+            (group,),
+            [parameters],
+            dtype=dtype_from_name(self.dtype),
+            out_dtype=dtype_from_name(self.out_dtype),
+        )
+        return result
+
+    def _passthrough(self, group: TensorGroup) -> torch.Tensor:
+        tensor = group.entries[0].tensor
+        if not tensor.is_floating_point():
+            return tensor
+        (result,) = passthrough_merge_method(
+            (group,),
+            dtype=dtype_from_name(self.dtype),
+            out_dtype=dtype_from_name(self.out_dtype),
+        )
+        return result

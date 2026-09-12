@@ -6,13 +6,13 @@
     "pre_weights": [
         {
             "name": "model.embed_tokens.weight",
-            "is_embed": true
+            "vocabulary_axis": 0
         }
     ],
     "post_weights": [
         {
             "name": "lm_head.weight",
-            "is_embed": true
+            "vocabulary_axis": 0
         },
         {
             "name": "model.norm.weight"

@@ -21,7 +21,7 @@
                 "pre_weights": [
                     {
                         "name": "model.language_model.embed_tokens.weight",
-                        "is_embed": true
+                        "vocabulary_axis": 0
                     }
                 ],
                 "post_weights": [
@@ -30,7 +30,7 @@
                     },
                     {
                         "name": "lm_head.weight",
-                        "is_embed": true,
+                        "vocabulary_axis": 0,
                         "optional": true,
                         "tied_names": [
                             "model.language_model.embed_tokens.weight"
@@ -135,15 +135,13 @@
                 "num_layers_config_key": "vision_config.depth",
                 "pre_weights": [
                     {
-                        "name": "model.visual.patch_embed.proj.weight",
-                        "is_embed": true
+                        "name": "model.visual.patch_embed.proj.weight"
                     },
                     {
                         "name": "model.visual.patch_embed.proj.bias"
                     },
                     {
-                        "name": "model.visual.pos_embed.weight",
-                        "is_embed": true
+                        "name": "model.visual.pos_embed.weight"
                     }
                 ],
                 "post_weights": [],

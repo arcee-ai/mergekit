@@ -1,170 +1,101 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-from typing import Any, Dict, List, Optional, Union
-
-import numpy as np
 import torch
-from typing_extensions import override
+from typing_extensions import Annotated
 
-from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference
-from mergekit.graph import Task
 from mergekit.merge_methods.base import (
-    ConfigParameterDef,
-    MergeMethod,
-    MergeTensorInput,
+    BasePolicy,
+    BatchParameter,
+    InputContract,
+    OptionalTensorPolicy,
+    TensorBatch,
 )
-from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
+from mergekit.merge_methods.easy_define import merge_method
 
-
-class SlerpTask(Task[torch.Tensor]):
-    gather_tensors: MergeTensorInput
-    base_model: ModelReference
-    t: float
-    weight_info: WeightInfo
-
-    def uses_accelerator(self) -> bool:
-        return True
-
-    def arguments(self) -> Dict[str, Task]:
-        return {"tensors": self.gather_tensors}
-
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
-        if len(tensors) == 1:
-            return list(tensors.values())[0]
-        elif len(tensors) != 2:
-            raise RuntimeError("Slerp merge expects exactly two models")
-        elif self.base_model not in tensors:
-            raise RuntimeError("Base model not in input tensors")
-
-        [a, b] = list(tensors.items())
-        if a[0] != self.base_model:
-            [a, b] = [b, a]
-        prepped_tensors = [a[1], b[1]]
-
-        rectify_embed_sizes(self.weight_info, prepped_tensors)
-
-        return (
-            slerp(
-                self.t,
-                prepped_tensors[0],
-                prepped_tensors[1],
-            )
-            .to(prepped_tensors[0].dtype)
-            .to(prepped_tensors[0].device)
-        )
-
-    def group_label(self) -> Optional[str]:
-        return self.gather_tensors.group_label()
-
-
-class SlerpMerge(MergeMethod):
-    def name(self) -> str:
-        return "slerp"
-
-    @override
-    def pretty_name(self) -> Optional[str]:
-        return "SLERP"
-
-    @override
-    def reference_url(self):
-        return "https://en.wikipedia.org/wiki/Slerp"
-
-    def parameters(self) -> List[ConfigParameterDef]:
-        return [ConfigParameterDef(name="t", required=True)]
-
-    def make_task(
-        self,
-        *,
-        output_weight: WeightInfo,
-        tensors: MergeTensorInput,
-        parameters: ImmutableMap[str, Any],
-        base_model: Optional[ModelReference],
-        **_kwargs,
-    ) -> Task:
-        return SlerpTask(
-            gather_tensors=tensors,
-            base_model=base_model,
-            weight_info=output_weight,
-            t=parameters["t"],
-        )
-
-
-def lerp(
-    t: float, v0: Union[np.ndarray, torch.Tensor], v1: Union[np.ndarray, torch.Tensor]
-) -> Union[np.ndarray, torch.Tensor]:
-    return (1 - t) * v0 + t * v1
+# Bound full-precision scratch independently of the size of a logical weight.
+_CHUNK_ELEMENTS = 1024 * 1024
 
 
 def slerp(
-    t: Union[float, np.ndarray],
-    v0: Union[np.ndarray, torch.Tensor],
-    v1: Union[np.ndarray, torch.Tensor],
-    DOT_THRESHOLD: float = 0.9995,
+    t: torch.Tensor,
+    v0: torch.Tensor,
+    v1: torch.Tensor,
+    dot_threshold: float = 0.9995,
     eps: float = 1e-8,
-):
+) -> torch.Tensor:
+    """SLERP over weight dimensions, preserving the leading output-batch axis.
+
+    All computation stays on the input device. Collinear and antipodal pairs use
+    linear interpolation independently for each output, including in mixed batches.
+    Work in float32 unless the inputs are float64. Chunking bounds inference
+    scratch, not source/output storage or autograd graphs.
     """
-    Spherical linear interpolation
+    dtype = torch.float64 if v0.dtype == torch.float64 else torch.float32
+    a = v0.reshape(v0.shape[0], -1)
+    b = v1.reshape(v1.shape[0], -1)
+    t = t.reshape(-1, 1).to(dtype)
+    if not a.shape[1]:
+        return ((1 - t) * a + t * b).reshape(v0.shape).to(v0.dtype)
 
-    From: https://gist.github.com/dvschultz/3af50c40df002da3b751efab1daddf2c
-    Args:
-        t (float/np.ndarray): Float value between 0.0 and 1.0
-        v0 (np.ndarray): Starting vector
-        v1 (np.ndarray): Final vector
-        DOT_THRESHOLD (float): Threshold for considering the two vectors as
-                               colinear. Not recommended to alter this.
-    Returns:
-        v2 (np.ndarray): Interpolation vector between v0 and v1
-    """
-    is_torch = False
-    if not isinstance(v0, np.ndarray):
-        is_torch = True
-        v0 = v0.detach().cpu().float().numpy()
-    if not isinstance(v1, np.ndarray):
-        is_torch = True
-        v1 = v1.detach().cpu().float().numpy()
+    chunk_size = max(1, _CHUNK_ELEMENTS // a.shape[0])
+    norm_a_parts, norm_b_parts = [], []
+    for start in range(0, a.shape[1], chunk_size):
+        x = a[:, start : start + chunk_size].to(dtype)
+        y = b[:, start : start + chunk_size].to(dtype)
+        norm_a_parts.append(torch.linalg.vector_norm(x, dim=1, keepdim=True))
+        norm_b_parts.append(torch.linalg.vector_norm(y, dim=1, keepdim=True))
+        del x, y
 
-    # Copy the vectors to reuse them later
-    v0_copy = np.copy(v0)
-    v1_copy = np.copy(v1)
+    # Norms of chunk norms preserve the zero-vector derivative, unlike sqrt of
+    # a sum of squares. All retained statistics are small [chunks, outputs, 1].
+    norm_a = torch.linalg.vector_norm(torch.stack(norm_a_parts), dim=0)
+    norm_b = torch.linalg.vector_norm(torch.stack(norm_b_parts), dim=0)
+    norm_a = torch.where(norm_a > eps, norm_a, 1)
+    norm_b = torch.where(norm_b > eps, norm_b, 1)
+    dot_parts = []
+    for start in range(0, a.shape[1], chunk_size):
+        # Normalize before multiplication to avoid overflowing the raw dot.
+        x = a[:, start : start + chunk_size].to(dtype) / norm_a
+        y = b[:, start : start + chunk_size].to(dtype) / norm_b
+        dot_parts.append((x * y).sum(dim=1, keepdim=True))
+        del x, y
+    dot = torch.stack(dot_parts).sum(dim=0).clamp(-1, 1)
+    linear = dot.abs() > dot_threshold
+    # Avoid singularities even on the unselected branch of torch.where, so
+    # collinear inputs also have finite gradients.
+    theta = torch.acos(torch.where(linear, 0, dot))
+    sin_theta = torch.sin(theta)
+    coef_a = torch.where(linear, 1 - t, torch.sin((1 - t) * theta) / sin_theta)
+    coef_b = torch.where(linear, t, torch.sin(t * theta) / sin_theta)
 
-    # Normalize the vectors to get the directions and angles
-    v0 = normalize(v0, eps)
-    v1 = normalize(v1, eps)
-
-    # Dot product with the normalized vectors (can't use np.dot in W)
-    dot = np.sum(v0 * v1)
-
-    # If absolute value of dot product is almost 1, vectors are ~colinear, so use lerp
-    if np.abs(dot) > DOT_THRESHOLD:
-        res = lerp(t, v0_copy, v1_copy)
-        return maybe_torch(res, is_torch)
-
-    # Calculate initial angle between v0 and v1
-    theta_0 = np.arccos(dot)
-    sin_theta_0 = np.sin(theta_0)
-
-    # Angle at timestep t
-    theta_t = theta_0 * t
-    sin_theta_t = np.sin(theta_t)
-
-    # Finish the slerp algorithm
-    s0 = np.sin(theta_0 - theta_t) / sin_theta_0
-    s1 = sin_theta_t / sin_theta_0
-    res = s0 * v0_copy + s1 * v1_copy
-
-    return maybe_torch(res, is_torch)
+    result = torch.empty_like(a)
+    for start in range(0, a.shape[1], chunk_size):
+        x = a[:, start : start + chunk_size].to(dtype)
+        y = b[:, start : start + chunk_size].to(dtype)
+        result[:, start : start + chunk_size] = coef_a * x + coef_b * y
+        del x, y
+    return result.reshape(v0.shape)
 
 
-def maybe_torch(v: np.ndarray, is_torch: bool):
-    if is_torch:
-        return torch.from_numpy(v)
-    return v
-
-
-def normalize(v: np.ndarray, eps: float):
-    norm_v = np.linalg.norm(v)
-    if norm_v > eps:
-        v = v / norm_v
-    return v
+@merge_method(
+    name="slerp",
+    pretty_name="SLERP",
+    reference_url="https://en.wikipedia.org/wiki/Slerp",
+    optional_tensor_policy=OptionalTensorPolicy.PASSTHROUGH_SINGLETON,
+    contract=InputContract(
+        base=BasePolicy.REQUIRED,
+        min_inputs=2,
+        max_inputs=2,
+    ),
+)
+def slerp_merge_method(
+    batch: TensorBatch,
+    t: Annotated[torch.Tensor, BatchParameter(float)],
+) -> torch.Tensor:
+    if not batch.tensors[0].is_floating_point():
+        raise TypeError("SLERP requires floating-point tensors")
+    base_index = batch.base_index
+    if base_index is None or len(batch.tensors) != 2:
+        raise ValueError("SLERP requires a base and one other input")
+    return slerp(t, batch.tensors[base_index], batch.tensors[1 - base_index])

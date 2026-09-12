@@ -100,6 +100,27 @@ This will run the merge and write your merged model to `./output-model-directory
 
 For more information on the arguments accepted by `mergekit-yaml` run the command `mergekit-yaml --help`.
 
+### In-memory Python API
+
+Use `merge_tensors` for one output tensor, or `merge_state_dicts` for modules and
+state dictionaries already in memory:
+
+```python
+from mergekit.merge_methods import merge_state_dicts, merge_tensors
+
+merged_tensor = merge_tensors(
+    [tensor_a, tensor_b], "linear", parameters={"weight": [0.25, 0.75]}
+)
+merged_weights = merge_state_dicts(
+    [model_a, model_b], "linear", parameters={"weight": [0.25, 0.75]}
+)
+```
+
+Both accept a method name or a method object, plus `dtype` and
+`out_dtype`. For base-aware methods, use `base_index` with `merge_tensors` or `base`
+with `merge_state_dicts`. See [Defining Merge Methods](docs/create_a_merge_method.md)
+for custom methods and batching.
+
 ### Uploading to Huggingface
 
 When you have a merged model you're happy with, you may want to share it on the Hugging Face Hub. `mergekit` generates a `README.md` for your merge with some basic information for a model card. You can edit it to include more details about your merge, like giving it a good name or explaining what it's good at; rewrite it entirely; or use the generated `README.md` as-is. It is also possible to edit your `README.md` online once it has been uploaded to the Hub.
@@ -125,9 +146,22 @@ Below are the primary elements of a configuration file:
 - `models`: Defines entire models to be used for merging. This field is mutually exclusive with `slices`.
 - `base_model`: Specifies the base model used in some merging methods.
 - `parameters`: Holds various parameters such as weights and densities, which can also be specified at different levels of the configuration.
-- `dtype`: Specifies the data type used for the merging operation.
+- `dtype`: Casts inputs to this dtype before merging, including downcasting when
+  requested. If omitted, corresponding weights are promoted to a common dtype
+  independently: matching bfloat16 weights stay bfloat16, while bfloat16 with
+  float16 or float32 promotes to float32. Float64 inputs retain float64 precision.
+- `out_dtype`: Casts merged weights after computation; it does not change input
+  precision. If omitted, the method's output dtype is retained.
 - `tokenizer` or `tokenizer_source`: Determines how to construct a tokenizer for the merged model.
 - `chat_template`: Specifies a chat template for the merged model.
+
+Methods control their intermediate precision independently of PyTorch autocast.
+Linear and SLERP compute in float32 for float16, bfloat16, and float32 inputs, and
+float64 for float64 inputs, then cast back to the aligned input dtype. Normalized
+linear merges require weights with a nonzero sum in the working precision;
+a zero sum produces NaN or infinity through tensor division. Nearly cancelling
+weights can lose accuracy. Architecture-specific forced dtypes take
+precedence over `dtype` and `out_dtype` for those weights.
 
 ### Parameter Specification
 
@@ -135,8 +169,10 @@ Parameters are flexible and can be set with varying precedence. They can be spec
 
 Parameters can be specified as:
 
-- **Scalars**: Single floating-point values.
-- **Gradients**: List of floating-point values, specifying an interpolated gradient.
+- **Scalars**: Numbers, booleans, or strings, according to the merge parameter's type.
+- **Gradients**: Lists of values. Numeric endpoints are validated and interpolated;
+  booleans and strings select discrete steps. Scientific notation such as
+  `[1e-5, 1e-3]` is supported for numeric parameters.
 
 The parameters can be set at different levels, with decreasing precedence as follows:
 
@@ -152,6 +188,16 @@ The tokenizer behavior can be configured in two ways: using the new `tokenizer` 
 #### Modern Configuration (tokenizer)
 
 The `tokenizer` field provides fine-grained control over vocabulary and embeddings:
+
+By default, inputs with different vocabulary sizes must be aligned using this configuration
+(or `tokenizer_source`) before merging. Use `source: base` to retain the base
+vocabulary, `source: union` to combine vocabularies, or a model path to select its vocabulary.
+All non-vocabulary dimensions must match regardless of tokenizer configuration.
+Alignment applies to every vocabulary-indexed parameter, including output biases.
+Architecture definitions identify these using `vocabulary_axis`: a nonnegative
+axis index (`0` for conventional embedding matrices and output biases), or `null`
+for tensors not indexed by token IDs. Positional, token-type, and vision embeddings
+are not vocabulary-indexed.
 
 ```yaml
 tokenizer:
@@ -245,6 +291,28 @@ tokenizer_source: "union"  # or "base" or a model path
 
 This provides basic tokenizer selection but lacks the fine-grained control of the modern `tokenizer` field.
 
+#### Unsafe embedding truncation
+
+`mergekit-yaml config.yml output/ --unsafe-truncate-embeddings` opts into
+tokenizer-unaware truncation. It discards trailing slices along each parameter's
+`vocabulary_axis` to match the smallest input; all other dimensions must match.
+Token IDs are not checked; every retained ID must have the same meaning in every
+input. Use tokenizer configuration to align tokens when this is not guaranteed.
+
+- Disabled by default and independent of `--allow-crimes`.
+- If `tokenizer` or `tokenizer_source` is configured, tokenizer alignment takes
+  precedence and this option has no effect.
+- Each truncation logs the tensor name and original and retained shapes.
+- Configs and tokenizers are copied without adjusting vocabulary sizes or token
+  IDs. They may disagree with the truncated weights, preventing the output from
+  loading or generating correctly.
+
+For direct Python callers,
+`mergekit.merge_methods.preprocessing.truncate_vocabulary(group)` performs
+the same preprocessing on a `TensorGroup` with `vocabulary_axis` set. It returns
+borrowed views, preserving input IDs and base designation. Merge methods require
+matching tensor shapes.
+
 ### Chat Template Configuration
 
 The optional `chat_template` field allows overriding the chat template used for the merged model.
@@ -334,6 +402,10 @@ Use `mergekit-pytorch --help` for detailed options.
 ## Tokenizer Transplantation (`mergekit-tokensurgeon`)
 
 `mergekit-tokensurgeon` is a specialized tool for transplanting tokenizers between models, allowing you to align the vocabulary of one model with another. This is particularly useful for cheaply producing draft models for speculative decoding or for cross-tokenizer knowledge distillation. See the [documentation](docs/tokensurgeon.md) for more details and how to use it.
+
+Vocabulary-dependent biases and other auxiliary parameters are remapped by exact
+token identity; entries for new tokens are initialized to zero. Embedding matrices
+use the selected approximation method.
 
 ## Citation
 

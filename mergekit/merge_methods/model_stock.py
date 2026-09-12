@@ -1,136 +1,65 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-import logging
-from typing import Any, Dict, List, Optional
-
 import torch
-from typing_extensions import override
 
-from mergekit.architecture import WeightInfo
-from mergekit.common import ImmutableMap, ModelReference
-from mergekit.graph import Task
 from mergekit.merge_methods.base import (
-    ConfigParameterDef,
-    MergeMethod,
-    MergeTensorInput,
+    BasePolicy,
+    InputContract,
+    OptionalTensorPolicy,
+    TensorGroup,
 )
-from mergekit.merge_methods.rectify_embed import rectify_embed_sizes
+from mergekit.merge_methods.easy_define import merge_method
 
 
-class ModelStockMergeTask(Task[torch.Tensor]):
-    gather_tensors: MergeTensorInput
-    base_model: ModelReference
-    weight_info: WeightInfo
-    filter_wise: bool = False
+@merge_method(
+    name="model_stock",
+    pretty_name="Model Stock",
+    optional_tensor_policy=OptionalTensorPolicy.BASE_OR_SKIP,
+    reference_url="https://arxiv.org/abs/2403.19522",
+    contract=InputContract(
+        base=BasePolicy.REQUIRED,
+        min_inputs=3,
+    ),
+)
+def model_stock_merge_method(
+    group: TensorGroup, filter_wise: bool = False
+) -> torch.Tensor:
+    all_weights = [group.base.tensor] + [entry.tensor for entry in group.non_base]
+    w_0, ws = all_weights[0], all_weights[1:]
+    out_shape = w_0.shape
 
-    def uses_accelerator(self) -> bool:
-        return True
+    if filter_wise:
+        if w_0.dim() == 1:
+            w_0 = w_0.unsqueeze(0)
+            ws = [weight.unsqueeze(0) for weight in ws]
+    else:
+        w_0 = w_0.reshape(-1)
+        ws = [weight.reshape(-1) for weight in ws]
 
-    def arguments(self) -> Dict[str, Task]:
-        return {"tensors": self.gather_tensors}
-
-    def execute(self, tensors: Dict[ModelReference, torch.Tensor]) -> torch.Tensor:
-        if len(tensors) == 1 and self.base_model in tensors:
-            return tensors[self.base_model]
-        if len(tensors) < 3:
-            if self.weight_info.optional:
-                logging.warning(
-                    f"Optional weight {self.weight_info.name} not present in enough models, discarding"
-                )
-                return None
-
-            raise ValueError(
-                "ModelStockMerge requires at least 3 models (base plus two+ others)"
+    offsets = [weight - w_0 for weight in ws]
+    cos_thetas = []
+    for idx, offset_a in enumerate(offsets):
+        for offset_b in offsets[idx + 1 :]:
+            norm_product = torch.norm(offset_a, dim=-1) * torch.norm(offset_b, dim=-1)
+            cos_thetas.append(
+                (
+                    (offset_a * offset_b).sum(dim=-1) / norm_product.clamp(min=1e-6)
+                ).clamp(-1, 1)
             )
 
-        w_0, ws = self.get_rectified_weights(tensors)
-        out_shape = w_0.shape
-
-        if self.filter_wise:
-            if w_0.dim() == 1:
-                # bias (or other single-vector) parameters should be treated as row vectors
-                w_0 = w_0.unsqueeze(0)
-                ws = [w.unsqueeze(0) for w in ws]
-        else:
-            w_0 = w_0.view(-1)
-            ws = [w.view(-1) for w in ws]
-
-        offsets = [w - w_0 for w in ws]
-
-        # now there is a question of how to come up with a value for theta.
-        # in the two-vector case, we can get an exact angle between the two vectors
-        # but the paper doesn't explicitly say what to do in the multi-vector case -
-        # they keep using a singular theta value and don't elaborate on how to
-        # calculate it. i'm going to assume an average of pairwise angles for now? i guess?
-
-        cos_thetas = []
-        for i, w_0_offset in enumerate(offsets):
-            for j in range(i + 1, len(offsets)):
-                w_1_offset = offsets[j]
-
-                norm_product = torch.norm(w_0_offset, dim=-1) * torch.norm(
-                    w_1_offset, dim=-1
-                )
-                cos_theta = (
-                    (w_0_offset * w_1_offset).sum(dim=-1) / norm_product.clamp(min=1e-6)
-                ).clamp(-1, 1)
-                cos_thetas.append(cos_theta)
-
-        cos_theta = torch.stack(cos_thetas).mean(dim=0).unsqueeze(-1)
-        N = len(ws)
-        t = (N * cos_theta) / (1 + (N - 1) * cos_theta)
-
-        w_avg = sum(ws) / len(ws)
-        w_h = t * w_avg + (1 - t) * w_0
-
-        return w_h.reshape(out_shape)
-
-    def get_rectified_weights(self, tensors: Dict[ModelReference, torch.Tensor]):
-        if self.base_model not in tensors:
-            raise ValueError("Base model tensor not found")
-
-        all_weights = [tensors[self.base_model]] + [
-            tensors[k] for k in tensors if k != self.base_model
-        ]
-        rectify_embed_sizes(self.weight_info, all_weights)
-        w_0 = all_weights[0]
-        ws = all_weights[1:]
-        return w_0, ws
-
-    def group_label(self) -> Optional[str]:
-        return self.gather_tensors.group_label()
-
-
-class ModelStockMerge(MergeMethod):
-    def name(self) -> str:
-        return "model_stock"
-
-    @override
-    def pretty_name(self) -> Optional[str]:
-        return "Model Stock"
-
-    @override
-    def reference_url(self):
-        return "https://arxiv.org/abs/2403.19522"
-
-    def parameters(self) -> List[ConfigParameterDef]:
-        return [
-            ConfigParameterDef(name="filter_wise", required=False, default_value=False)
-        ]
-
-    def make_task(
-        self,
-        *,
-        output_weight: WeightInfo,
-        tensors: MergeTensorInput,
-        base_model: Optional[ModelReference],
-        parameters: ImmutableMap[str, Any],
-        **_kwargs,
-    ) -> Task:
-        return ModelStockMergeTask(
-            gather_tensors=tensors,
-            base_model=base_model,
-            weight_info=output_weight,
-            filter_wise=parameters["filter_wise"],
-        )
+    cos_theta = torch.stack(cos_thetas).mean(dim=0).unsqueeze(-1)
+    count = len(ws)
+    denominator = 1 + (count - 1) * cos_theta
+    # At the singularity there is no finite interpolation estimate. Keep the
+    # base for that filter instead of amplifying opposing updates. Mask the
+    # denominator too: torch.where alone would leave NaNs in backward().
+    singular = denominator.abs() < 1e-6
+    safe_denominator = torch.where(singular, torch.ones_like(denominator), denominator)
+    t = torch.where(
+        singular,
+        torch.zeros_like(cos_theta),
+        (count * cos_theta) / safe_denominator,
+    )
+    average = sum(ws) / count
+    return (t * average + (1 - t) * w_0).reshape(out_shape)

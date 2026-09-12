@@ -41,6 +41,7 @@ from mergekit.tokensurgeon import (
     well_trained_tokens,
 )
 from mergekit.tokensurgeon.common_interpolation import DistanceMetric
+from mergekit.vocabulary import vocabulary_views
 
 LOG = logging.getLogger(__name__)
 
@@ -116,13 +117,17 @@ def get_embedding_info(
 
     embed, lm_head = None, None
     for weight_info in module_def.pre_weights():
-        if weight_info.is_embed:
+        if weight_info.vocabulary_axis is not None and weight_info.name.endswith(
+            ".weight"
+        ):
             if embed is not None:
                 raise RuntimeError("Multiple input embeddings found")
             embed = weight_info
 
     for weight_info in module_def.post_weights():
-        if weight_info.is_embed:
+        if weight_info.vocabulary_axis is not None and weight_info.name.endswith(
+            ".weight"
+        ):
             if lm_head is not None:
                 raise RuntimeError("Multiple output embeddings found")
             lm_head = weight_info
@@ -165,7 +170,35 @@ def get_stuff(
         aliases=maybe_aliases(lm_head_wi, get_tied),
         raise_on_missing=not lm_head_wi.optional,
     )
+    if embed is not None:
+        (embed,) = vocabulary_views((embed,), embed_wi.vocabulary_axis, embed_wi.name)
+        if embed.ndim != 2:
+            raise ValueError("Tokensurgeon requires a matrix for input embeddings")
+    if lm_head is not None:
+        (lm_head,) = vocabulary_views(
+            (lm_head,), lm_head_wi.vocabulary_axis, lm_head_wi.name
+        )
+        if lm_head.ndim != 2:
+            raise ValueError("Tokensurgeon requires a matrix for output embeddings")
     return vocab, embed, lm_head
+
+
+def remap_auxiliary_vocabulary(
+    tensor: torch.Tensor,
+    weight_info: WeightInfo,
+    original_vocab: Dict[NormalizedToken, int],
+    target_vocab: Dict[NormalizedToken, int],
+) -> torch.Tensor:
+    """Preserve known token biases/auxiliaries and initialize new tokens to zero."""
+    axis = weight_info.vocabulary_axis
+    (view,) = vocabulary_views((tensor,), axis, weight_info.name)
+    size = max(target_vocab.values()) + 1
+    result = view.new_zeros((size, *view.shape[1:]))
+    for token, target_id in target_vocab.items():
+        source_id = original_vocab.get(token)
+        if source_id is not None and 0 <= source_id < view.shape[0]:
+            result[target_id] = view[source_id]
+    return result.movedim(0, axis)
 
 
 def match_byte_token(
@@ -771,13 +804,25 @@ def main(
     )
     for weight_info in tqdm.tqdm(out_arch_info.all_weights(), desc="Saving weights"):
         if weight_info.name == embed_wi.name:
-            tensor = new_embed
+            tensor = (
+                new_embed.movedim(0, weight_info.vocabulary_axis)
+                if new_embed is not None
+                else None
+            )
         elif lm_head_wi is not None and weight_info.name == lm_head_wi.name:
-            tensor = new_lm_head
+            tensor = (
+                new_lm_head.movedim(0, weight_info.vocabulary_axis)
+                if new_lm_head is not None
+                else None
+            )
         else:
             tensor = cache.get(options.model).get_tensor(
                 weight_info.name, aliases=weight_info.aliases, raise_on_missing=False
             )
+            if tensor is not None and weight_info.vocabulary_axis is not None:
+                tensor = remap_auxiliary_vocabulary(
+                    tensor, weight_info, orig_vocab, donor_vocab
+                )
         if tensor is None:
             if weight_info.optional:
                 continue

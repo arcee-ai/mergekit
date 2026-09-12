@@ -1,30 +1,61 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-from typing import Dict, List
+from typing import Dict, Tuple
 
-from mergekit.merge_methods.arcee_fusion import ArceeFusionMerge
+from mergekit.merge_methods.arcee_fusion import arcee_fusion_merge_method
 from mergekit.merge_methods.base import MergeMethod
 from mergekit.merge_methods.generalized_task_arithmetic import (
     ConsensusMethod,
     GeneralizedTaskArithmeticMerge,
 )
-from mergekit.merge_methods.karcher import KarcherMerge
-from mergekit.merge_methods.linear import LinearMerge
-from mergekit.merge_methods.model_stock import ModelStockMerge
-from mergekit.merge_methods.nuslerp import NuSlerpMerge
-from mergekit.merge_methods.passthrough import PassthroughMerge
-from mergekit.merge_methods.slerp import SlerpMerge
+from mergekit.merge_methods.karcher import karcher_merge_method
+from mergekit.merge_methods.linear import linear_merge
+from mergekit.merge_methods.model_stock import model_stock_merge_method
+from mergekit.merge_methods.multislerp import multislerp
+from mergekit.merge_methods.nearswap import nearswap_merge
+from mergekit.merge_methods.nuslerp import nuslerp_merge_method
+from mergekit.merge_methods.passthrough import passthrough_merge_method
+from mergekit.merge_methods.ram import ram_merge, ramplus_tl_merge
+from mergekit.merge_methods.sce import sce_merge
+from mergekit.merge_methods.slerp import slerp_merge_method
 from mergekit.sparsify import SparsificationMethod
 
-STATIC_MERGE_METHODS: List[MergeMethod] = [
-    LinearMerge(),
-    SlerpMerge(),
-    NuSlerpMerge(),
-    PassthroughMerge(),
-    ModelStockMerge(),
-    ArceeFusionMerge(),
-    KarcherMerge(),
+_METHODS: Dict[str, MergeMethod] = {}
+
+
+def register(method: MergeMethod) -> None:
+    """Make a constructed method available by name; duplicate names are errors."""
+    if method.spec.name in _METHODS:
+        raise ValueError(f"Merge method {method.spec.name!r} is already registered")
+    _METHODS[method.spec.name] = method
+
+
+def get(name: str) -> MergeMethod:
+    try:
+        return _METHODS[name]
+    except KeyError:
+        raise RuntimeError(f"Unimplemented merge method {name}") from None
+
+
+def registered_methods() -> Tuple[MergeMethod, ...]:
+    """Return the methods currently available by name."""
+    return tuple(_METHODS.values())
+
+
+for method in (
+    multislerp,
+    nearswap_merge,
+    ram_merge,
+    ramplus_tl_merge,
+    sce_merge,
+    linear_merge,
+    slerp_merge_method,
+    nuslerp_merge_method,
+    passthrough_merge_method,
+    model_stock_merge_method,
+    arcee_fusion_merge_method,
+    karcher_merge_method,
     # generalized task arithmetic methods
     GeneralizedTaskArithmeticMerge(
         consensus_method=None,
@@ -98,8 +129,6 @@ STATIC_MERGE_METHODS: List[MergeMethod] = [
         method_pretty_name="Linear DELLA",
         method_reference_url="https://arxiv.org/abs/2406.11617",
     ),
-]
-
-REGISTERED_MERGE_METHODS: Dict[str, MergeMethod] = {
-    method.name(): method for method in STATIC_MERGE_METHODS
-}
+):
+    register(method)
+del method

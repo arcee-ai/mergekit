@@ -5,19 +5,24 @@ from typing import List, Tuple
 
 import torch
 
+from mergekit.merge_methods.base import BasePolicy, InputContract, TensorGroup
 from mergekit.merge_methods.easy_define import merge_method
+
+BASE_CONTRACT = InputContract(base=BasePolicy.REQUIRED)
 
 
 @merge_method(
     name="ram",
     pretty_name="Reinforced Agent Merging",
     reference_url="https://arxiv.org/abs/2601.13572",
+    contract=BASE_CONTRACT,
 )
 def ram_merge(
-    tensors: List[torch.Tensor],
-    base_tensor: torch.Tensor,
+    group: TensorGroup,
     epsilon: float = 1e-5,
 ) -> torch.Tensor:
+    tensors = [entry.tensor for entry in group.non_base]
+    base_tensor = group.base.tensor
     if not tensors:
         return base_tensor
 
@@ -42,14 +47,16 @@ def ram_merge(
     name="ramplus_tl",
     pretty_name="Reinforced Agent Merging Plus (Tensor-Local)",
     reference_url="https://arxiv.org/abs/2601.13572",
+    contract=BASE_CONTRACT,
 )
 def ramplus_tl_merge(
-    tensors: List[torch.Tensor],
-    base_tensor: torch.Tensor,
+    group: TensorGroup,
     r: float = 0.1,
     alpha: float = 0.2,
     epsilon: float = 1e-5,
 ) -> torch.Tensor:
+    tensors = [entry.tensor for entry in group.non_base]
+    base_tensor = group.base.tensor
     if not tensors:
         return base_tensor
 

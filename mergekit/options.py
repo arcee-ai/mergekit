@@ -17,6 +17,7 @@ from mergekit.common import parse_kmb
 
 class MergeOptions(BaseModel, frozen=True):
     allow_crimes: bool = False
+    unsafe_truncate_embeddings: bool = False
     transformers_cache: Optional[str] = None
     lora_merge_cache: Optional[str] = None
     lora_merge_dtype: Optional[str] = None
@@ -90,6 +91,7 @@ class MergeOptions(BaseModel, frozen=True):
 
 OPTION_HELP = {
     "allow_crimes": "Allow mixing architectures",
+    "unsafe_truncate_embeddings": "UNSAFE: discard trailing embedding rows to match the smallest vocabulary. Assumes identical token IDs; use tokenizer configuration instead.",
     "transformers_cache": "Override storage path for downloaded models",
     "lora_merge_cache": "Path to store merged LORA models",
     "lora_merge_dtype": "Override dtype when applying LoRAs",
@@ -132,6 +134,7 @@ OPTION_CATEGORIES = {
     "gpu_rich": "Performance",
     "trust_remote_code": "Dangerous Options",
     "allow_crimes": "Dangerous Options",
+    "unsafe_truncate_embeddings": "Dangerous Options",
     "random_seed": "Miscellaneous",
     "verbosity": "Miscellaneous",
     "quiet": "Miscellaneous",

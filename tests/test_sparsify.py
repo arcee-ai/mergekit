@@ -12,6 +12,19 @@ def sample_tensor():
 
 
 class TestMagnitude:
+    @pytest.mark.parametrize("gamma", [0.0, 0.01, 0.25])
+    def test_strided_outlier_selection(self, gamma):
+        tensor = torch.arange(1, 13, dtype=torch.float32).reshape(3, 4).T
+        result = sparsify(
+            tensor,
+            density=0.5,
+            method=SparsificationMethod.magnitude_outliers,
+            gamma=gamma,
+        )
+        largest_kept = 12 - int(gamma * 12)
+        expected = tensor * ((tensor > largest_kept - 6) & (tensor <= largest_kept))
+        torch.testing.assert_close(result, expected)
+
     def test_full_density(self, sample_tensor):
         assert torch.equal(
             sparsify(sample_tensor, density=1, method=SparsificationMethod.magnitude),

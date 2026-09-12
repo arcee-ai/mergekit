@@ -11,14 +11,15 @@ from transformers import PretrainedConfig
 from mergekit.common import get_config_value
 
 
-class WeightInfo(BaseModel, frozen=True):
+class WeightInfo(BaseModel, frozen=True, extra="forbid"):
     """Information about an individual weight tensor in a model.
 
     Attributes:
         name (str):
             The name of the tensor representing the weight.
-        is_embed (bool):
-            Indicates whether the weight is for an embedding or language model head.
+        vocabulary_axis (Optional[int]):
+            Axis indexed by token IDs, or None for non-vocabulary tensors.
+            Includes vocabulary-dependent biases as well as embedding weights.
         optional (bool):
             Indicates whether the weight can be omitted from a model.
         aliases (Optional[List[str]]):
@@ -28,7 +29,7 @@ class WeightInfo(BaseModel, frozen=True):
     """
 
     name: str
-    is_embed: bool = False
+    vocabulary_axis: Optional[int] = Field(default=None, ge=0, strict=True)
     optional: bool = False
     aliases: Optional[Tuple[str, ...]] = None
     force_dtype: Optional[str] = None

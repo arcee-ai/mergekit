@@ -1,10 +1,14 @@
 # Copyright (C) 2026 Arcee AI
 # SPDX-License-Identifier: LGPL-3.0-only
 
-from typing import List, Optional
-
 import torch
 
+from mergekit.merge_methods.base import (
+    BasePolicy,
+    InputContract,
+    PerNonBase,
+    TensorGroup,
+)
 from mergekit.merge_methods.easy_define import merge_method
 
 
@@ -12,14 +16,14 @@ from mergekit.merge_methods.easy_define import merge_method
     name="multislerp",
     pretty_name="Multi-SLERP",
     reference_url="https://goddard.blog/posts/multislerp-wow-what-a-cool-idea",
+    contract=InputContract(base=BasePolicy.OPTIONAL, min_non_base=1),
 )
 def multislerp(
-    tensors: List[torch.Tensor],
-    weight: List[float],
-    base_tensor: Optional[torch.Tensor] = None,
+    group: TensorGroup,
+    weight: PerNonBase[float],
     normalize_weights: bool = True,
     eps: float = 1e-8,
-):
+) -> torch.Tensor:
     """
     Implements barycentric interpolation on a hypersphere.
 
@@ -39,6 +43,9 @@ def multislerp(
         normalize_weights: If True, the weights will be normalized to sum to 1
         eps: Small constant for numerical stability
     """
+    entries = group.non_base
+    tensors = [entry.tensor for entry in entries]
+    base_tensor = group.base.tensor if group.base else None
     if len(tensors) == 1:
         # No interpolation needed
         return tensors[0]
@@ -49,7 +56,9 @@ def multislerp(
 
     tensors_flat = tensors.view(tensors.shape[0], -1)
 
-    weights = torch.tensor(weight, dtype=tensors.dtype, device=tensors.device)
+    weights = torch.tensor(
+        weight.values_for(entries), dtype=tensors.dtype, device=tensors.device
+    )
     if normalize_weights:
         weights = weights / weights.sum()
 

@@ -102,8 +102,8 @@ def method_md(merge_method: str) -> str:
         method = merge_methods.get(merge_method)
     except RuntimeError:
         return merge_method
-    ref_url = method.reference_url()
-    name = method.pretty_name() or method.name()
+    ref_url = method.spec.reference_url
+    name = method.spec.pretty_name or method.spec.name
     if ref_url and ref_url.strip():
         return f"[{name}]({ref_url})"
     return name

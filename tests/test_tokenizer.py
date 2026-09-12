@@ -130,14 +130,14 @@ class ModelEmbeddings:
 
 
 class TestTokenizerMerges:
-    def test_legacy_mode(self, model_base: str, model_padded: str, model_chatml: str):
+    def test_mismatched_vocabulary_requires_alignment(
+        self, model_base: str, model_padded: str, model_chatml: str
+    ):
         config = self.make_config(
             [model_base, model_padded, model_chatml], base_model=model_base
         )
-        # when no tokenizer_source is set, expect output tokenizer to be from base_model
-        run_and_check_merge(
-            config, validate=check_tokenizer(expected_size=64, expected_added_ct=3)
-        )
+        with pytest.raises(ValueError, match="tokenizer.*source: base"):
+            run_and_check_merge(config)
 
     def test_source_base(self, model_base: str, model_padded: str, model_chatml: str):
         config = self.make_config(
@@ -145,9 +145,22 @@ class TestTokenizerMerges:
             base_model=model_base,
             tokenizer_source="base",
         )
-        # expect the same output but it's a different code path
         run_and_check_merge(
             config, validate=check_tokenizer(expected_size=64, expected_added_ct=3)
+        )
+
+    @pytest.mark.parametrize("source,expected_size", [("base", 64), ("union", 66)])
+    def test_task_arithmetic_aligns_vocabulary_before_merging(
+        self, model_base: str, model_chatml: str, source: str, expected_size: int
+    ):
+        config = self.make_config(
+            [model_base, model_chatml],
+            base_model=model_base,
+            merge_method="task_arithmetic",
+            tokenizer_config=TokenizerConfig(source=source),
+        )
+        run_and_check_merge(
+            config, validate=check_tokenizer(expected_size=expected_size)
         )
 
     def test_source_union(self, model_base: str, model_padded: str, model_chatml: str):

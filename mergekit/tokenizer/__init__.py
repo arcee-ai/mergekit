@@ -4,12 +4,12 @@
 import mergekit.tokenizer.normalization as normalization
 from mergekit.tokenizer.build import BuildTokenizer, TokenizerInfo
 from mergekit.tokenizer.config import TokenizerConfig
-from mergekit.tokenizer.embed import PermutedEmbeddings
+from mergekit.tokenizer.embed import PermutedVocabulary
 
 __all__ = [
     "BuildTokenizer",
     "TokenizerInfo",
     "TokenizerConfig",
-    "PermutedEmbeddings",
+    "PermutedVocabulary",
     "normalization",
 ]

@@ -13,12 +13,17 @@ from pydantic import BaseModel
 import mergekit.merge_methods as merge_methods
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference, dtype_from_name
-from mergekit.config import ParameterSetting, evaluate_setting
+from mergekit.config import ParameterSetting
 from mergekit.graph import Executor, Task
 from mergekit.io import LazyTensorLoader, ShardedTensorIndex
 from mergekit.io.tasks import FinalizeModel, SaveTensor, TensorWriterTask
-from mergekit.merge_methods.base import MergeMethod, TensorDictWrapper
+from mergekit.merge_methods.base import MergeMethod
+from mergekit.merge_methods.task_adapter import (
+    ExecuteMergeMethodTask,
+    TensorDictWrapper,
+)
 from mergekit.options import MergeOptions, PrettyPrintHelp, add_merge_options
+from mergekit.parameter_resolver import resolve_parameters
 
 
 class InputModelDefinition(BaseModel, frozen=True):
@@ -32,6 +37,7 @@ class RawPyTorchMergeConfig(BaseModel, frozen=True):
     parameters: Optional[Dict[str, ParameterSetting]] = None
     dtype: Optional[str] = None
     base_model: Optional[str] = None
+    out_dtype: Optional[str] = None
 
 
 class SimpleLoaderCache:
@@ -62,13 +68,19 @@ class SimpleLoadTensor(Task[torch.Tensor]):
     def arguments(self) -> Dict[str, Task]:
         return {}
 
-    def execute(self) -> torch.Tensor:
+    def execute(self) -> Optional[torch.Tensor]:
         loader = SimpleLoaderCache().get(self.model)
-        tensor = loader.get_tensor(self.tensor_name, device=self.device or "cpu")
+        tensor = loader.get_tensor(
+            self.tensor_name, device=self.device or "cpu", raise_on_missing=False
+        )
         if tensor is None:
             return None
-        if dt := dtype_from_name(self.dtype):
-            tensor = tensor.to(dtype=dt)
+        if (dtype := dtype_from_name(self.dtype)) is not None:
+            if not dtype.is_floating_point:
+                raise ValueError("dtype must be a floating-point torch.dtype")
+            # Cast before transfer to the math device, preserving checkpoint buffers.
+            if tensor.is_floating_point():
+                tensor = tensor.to(dtype=dtype)
         return tensor
 
 
@@ -80,6 +92,19 @@ def plan_flat_merge(
     options: MergeOptions,
 ) -> List[Task[torch.Tensor]]:
     merge_method = merge_methods.get(config.merge_method)
+
+    configured_ids = [
+        ModelReference.model_validate({"model": {"path": model.model}})
+        for model in config.models
+    ]
+    base_id = (
+        ModelReference.model_validate({"model": {"path": config.base_model}})
+        if config.base_model is not None
+        else None
+    )
+    if base_id is not None and base_id not in configured_ids:
+        configured_ids.append(base_id)
+    merge_method.validate_inputs(configured_ids, base_id)
 
     loaders = SimpleLoaderCache()
     loaders.lazy_unpickle = options.lazy_unpickle
@@ -138,27 +163,30 @@ def plan_flat_merge(
             config, merge_method, tensor_name
         )
 
-        tensor_task = merge_method.make_task(
-            output_weight=WeightInfo(name=tensor_name),
-            tensors=TensorDictWrapper(tensors=inputs),
-            parameters=ImmutableMap(global_params),
-            tensor_parameters=ImmutableMap(
-                data={
-                    key: ImmutableMap(data=tensor_params[key]) for key in tensor_params
-                }
-            ),
-            base_model=(
-                ModelReference.model_validate({"model": {"path": config.base_model}})
-                if config.base_model is not None
-                else None
-            ),
+        base_model = (
+            ModelReference.model_validate({"model": {"path": config.base_model}})
+            if config.base_model is not None
+            else None
+        )
+        tensor_input = TensorDictWrapper(tensors=inputs)
+        output_weight = WeightInfo(name=tensor_name)
+        model_order = tuple(inputs)
+        tensor_task = ExecuteMergeMethodTask(
+            method_name=merge_method.spec.name,
+            gather_tensors=tensor_input,
+            model_order=model_order,
+            base_model=base_model,
+            output_weight=output_weight,
+            parameters=global_params,
+            input_parameters=tensor_params,
+            dtype=config.dtype,
+            out_dtype=config.out_dtype,
         )
         save_task = SaveTensor(
             tensor_name=tensor_name,
             tensor_task=tensor_task,
             writer_task=writer_task,
             clone=options.clone_tensors,
-            dtype=config.dtype,
         )
         save_tasks.append(save_task)
 
@@ -169,42 +197,28 @@ def plan_flat_merge(
 def construct_param_dicts(
     config: RawPyTorchMergeConfig, merge_method: MergeMethod, tensor_name: str
 ):
-    global_params = {}
-    for param_def in merge_method.parameters():
-        if config.parameters and param_def.name in config.parameters:
-            value = evaluate_setting(tensor_name, config.parameters[param_def.name])
-            if value is not None:
-                global_params[param_def.name] = value
-
-        if param_def.name not in global_params:
-            if param_def.required:
-                raise RuntimeError(
-                    f"Missing required parameter {param_def.name} for merge method {merge_method}"
-                )
-            else:
-                global_params[param_def.name] = param_def.default_value
-
-    tensor_params = {}
-    for param_def in merge_method.tensor_parameters():
-        for model_def in config.models:
-            mr = ModelReference.model_validate({"model": {"path": model_def.model}})
-            tensor_params[mr] = tensor_params.get(mr, {})
-            if value := evaluate_setting(
-                tensor_name, model_def.parameters.get(param_def.name, [])
-            ):
-                tensor_params[mr][param_def.name] = value
-            elif value := evaluate_setting(
-                tensor_name,
-                config.parameters.get(param_def.name, []) if config.parameters else [],
-            ):
-                tensor_params[mr][param_def.name] = value
-            elif param_def.required:
-                raise RuntimeError(
-                    f"Missing required parameter {param_def.name} for model {mr} tensor {tensor_name}"
-                )
-            else:
-                tensor_params[mr][param_def.name] = param_def.default_value
-    return global_params, tensor_params
+    base_ref = (
+        ModelReference.model_validate({"model": {"path": config.base_model}})
+        if config.base_model is not None
+        else None
+    )
+    model_settings = {
+        ModelReference.model_validate(
+            {"model": {"path": model.model}}
+        ): model.parameters
+        for model in config.models
+    }
+    # The planner adds an implicit base too; it must receive INPUT-scoped parameters
+    # from global settings/defaults even when it has no model-level settings.
+    if base_ref is not None:
+        model_settings.setdefault(base_ref, None)
+    return resolve_parameters(
+        merge_method.spec,
+        tensor_name=tensor_name,
+        inputs={model: tensor_name for model in model_settings},
+        sources=lambda model: (model_settings.get(model), config.parameters),
+        base_model=base_ref,
+    )
 
 
 @click.command("mergekit-pytorch", cls=PrettyPrintHelp)

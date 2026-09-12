@@ -6,7 +6,7 @@
     "pre_weights": [
         {
             "name": "transformer.wte.weight",
-            "is_embed": true
+            "vocabulary_axis": 0
         },
         {
             "name": "transformer.relative_pe.slopes"

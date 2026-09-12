@@ -14,7 +14,7 @@
         },
         {
             "name": "bert.embeddings.word_embeddings.weight",
-            "is_embed": true
+            "vocabulary_axis": 0
         },
         {
             "name": "bert.embeddings.LayerNorm.bias",

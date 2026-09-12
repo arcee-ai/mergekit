@@ -34,6 +34,29 @@ RE_LAYER_INDEX = re.compile(r"\.(\d+)\.")
 LOG = logging.getLogger(__name__)
 
 
+def infer_vocabulary_axes(model: torch.nn.Module) -> dict[str, int]:
+    """Find token-indexed parameters, including aliases of tied weights/biases.
+
+    Only the declared input/output embeddings define vocabulary semantics.
+    Other Embedding modules (positions, token types, vision, etc.) do not.
+    """
+    axes_by_parameter = {}
+    for module in (model.get_input_embeddings(), model.get_output_embeddings()):
+        if module is None:
+            continue
+        weight = getattr(module, "weight", None)
+        if weight is not None:
+            axes_by_parameter[id(weight)] = 0
+        bias = getattr(module, "bias", None)
+        if bias is not None:
+            axes_by_parameter[id(bias)] = 0
+    return {
+        name: axes_by_parameter[id(parameter)]
+        for name, parameter in model.named_parameters(remove_duplicate=False)
+        if id(parameter) in axes_by_parameter
+    }
+
+
 def get_model_tensor_names(model: ModelReference, options: MergeOptions) -> List[str]:
     loader = model.lazy_loader(
         cache_dir=options.transformers_cache, lazy_unpickle=options.lazy_unpickle
@@ -81,6 +104,10 @@ def get_transformers_info(model: ModelReference, options: MergeOptions) -> tuple
             )
             return None, None, None, None
 
+    # no_init_weights also suppresses Transformers' weight tying. Restore it so
+    # vocabulary inference can identify aliases by parameter identity.
+    model_obj.tie_weights()
+
     ignore_on_save = getattr(model_obj, "_keys_to_ignore_on_save", None)
     if _get_tied_weight_keys is None:
         LOG.warning(
@@ -92,18 +119,9 @@ def get_transformers_info(model: ModelReference, options: MergeOptions) -> tuple
     if ignore_on_save is not None:
         ignore_on_save = set(ignore_on_save)
 
-    embed_names = set()
-    _embed_out = model_obj.get_output_embeddings()
-    _embed_in = model_obj.get_input_embeddings()
-    for name, module in model_obj.named_modules():
-        if (
-            isinstance(module, torch.nn.Embedding)
-            or module == _embed_out
-            or module == _embed_in
-        ):
-            embed_names.add(name + ".weight")
+    vocabulary_axes = infer_vocabulary_axes(model_obj)
     tensor_names = list(model_obj.state_dict().keys())
-    return ignore_on_save, tied_keys, embed_names, tensor_names
+    return ignore_on_save, tied_keys, vocabulary_axes, tensor_names
 
 
 def _target_present_in_all_models(
@@ -170,7 +188,7 @@ def infer_architecture_info(
     if base_model is None:
         base_model = models.pop(0)
     raw_tensor_names = set().union(*model_tensor_names.values())
-    ignore_on_save, tied_keys, embed_names, transformer_tensor_names = (
+    ignore_on_save, tied_keys, vocabulary_axes, transformer_tensor_names = (
         get_transformers_info(base_model, options)
     )
     if transformer_tensor_names:
@@ -249,14 +267,10 @@ def infer_architecture_info(
             tied_keys is not None
             and any(re.search(pat, full_name) for pat in tied_keys)
         )
-        is_embed = (full_name in embed_names) or any(
-            re.search(pat, full_name) for pat in tied_keys
-        )  # strictly speaking you can have tied non-embedding/lm-head weights
-        # but i've never seen it so let's not worry about it until this breaks something
         return WeightInfo(
             name=template,
             optional=optional,
-            is_embed=is_embed,
+            vocabulary_axis=(vocabulary_axes or {}).get(full_name),
         )
 
     module_archs = {}

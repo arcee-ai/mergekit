@@ -1,12 +1,13 @@
-from typing import List
-
 import torch
 
 from mergekit.architecture import WeightInfo
 from mergekit.common import ImmutableMap, ModelReference
 from mergekit.graph import Executor, Task
-from mergekit.merge_methods import easy_define
-from mergekit.merge_methods.base import TensorDictWrapper
+from mergekit.merge_methods import PerInput, TensorGroup, easy_define, registry
+from mergekit.merge_methods.task_adapter import (
+    ExecuteMergeMethodTask,
+    TensorDictWrapper,
+)
 
 
 class ScalarTensor(Task[torch.Tensor]):
@@ -20,14 +21,21 @@ class ScalarTensor(Task[torch.Tensor]):
 
 
 def test_decorated_merge_task_with_parameters(monkeypatch):
-    registry = {}
-    monkeypatch.setattr(easy_define, "REGISTERED_MERGE_METHODS", registry)
+    monkeypatch.setattr(registry, "_METHODS", {})
 
     @easy_define.merge_method(name="scaled_sum")
     def scaled_sum(
-        tensors: List[torch.Tensor], weight: List[float], scale: float = 1.0
-    ):
-        return sum(t * w for t, w in zip(tensors, weight)) * scale
+        group: TensorGroup, weight: PerInput[float], scale: float = 1.0
+    ) -> torch.Tensor:
+        return (
+            sum(
+                entry.tensor * value
+                for entry, value in zip(group.entries, weight.values_for(group.entries))
+            )
+            * scale
+        )
+
+    registry.register(scaled_sum)
 
     model_a = ModelReference.model_validate("model_a")
     model_b = ModelReference.model_validate("model_b")
@@ -36,11 +44,13 @@ def test_decorated_merge_task_with_parameters(monkeypatch):
             {model_a: ScalarTensor(value=2), model_b: ScalarTensor(value=4)}
         )
     )
-    task = registry["scaled_sum"].make_task(
+    task = ExecuteMergeMethodTask(
+        method_name="scaled_sum",
+        model_order=(model_a, model_b),
         output_weight=WeightInfo(name="weight"),
-        tensors=inputs,
+        gather_tensors=inputs,
         parameters=ImmutableMap({"scale": 3.0}),
-        tensor_parameters=ImmutableMap(
+        input_parameters=ImmutableMap(
             {
                 model_a: ImmutableMap({"weight": 0.25}),
                 model_b: ImmutableMap({"weight": 0.75}),

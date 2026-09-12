@@ -30,8 +30,11 @@ from mergekit.io.tasks import (
     TensorWriterTask,
 )
 from mergekit.merge_methods import MergeMethod
+from mergekit.merge_methods.task_adapter import ExecuteMergeMethodTask
 from mergekit.options import MergeOptions
-from mergekit.tokenizer import BuildTokenizer, PermutedEmbeddings
+from mergekit.parameter_resolver import resolve_parameters
+from mergekit.tokenizer import BuildTokenizer, PermutedVocabulary
+from mergekit.tokenizer.truncate import TruncatedVocabulary
 
 
 class MergePlanner:
@@ -155,6 +158,17 @@ class MergePlanner:
                 module_out.slices = [OutputSliceDefinition(sources=slices_in)]
                 module_out.models = None
 
+        # Validate method-level structure once, before building or executing any
+        # per-tensor tasks.
+        for module_name, module_out in self.config.modules.items():
+            for slice_idx, output_slice in enumerate(module_out.slices):
+                slice_base = output_slice.base_model or base_model
+                self._method.validate_inputs(
+                    [source.model for source in output_slice.sources],
+                    slice_base,
+                    group_name=f"{module_name}.slices[{slice_idx}]",
+                )
+
     def plan_tensor(
         self,
         weight: WeightInfo,
@@ -179,27 +193,15 @@ class MergePlanner:
                 return
 
         tensor_merge_method = self._method
-        cfg_g = cfg_reader.for_tensor(weight.name)
-        global_params = {}
-        for p in tensor_merge_method.parameters():
-            global_params[p.name] = cfg_g.parameter(
-                p.name, model=None, required=p.required, default=p.default_value
-            )
-
         base_model = cfg_reader.base_model
-
-        tensor_params = {}
-        for model, weight_in in zip(models, weights_in):
-            is_base = model == base_model
-            tensor_params[model] = {}
-            cfg_m = cfg_reader.for_tensor(weight_in.name)
-            for p in tensor_merge_method.tensor_parameters():
-                tensor_params[model][p.name] = cfg_m.parameter(
-                    p.name,
-                    model=model,
-                    required=p.required and not is_base,
-                    default=p.default_value,
-                )
+        global_params, tensor_params = resolve_parameters(
+            tensor_merge_method.spec,
+            tensor_name=weight.name,
+            inputs={model: w.name for model, w in zip(models, weights_in)},
+            sources=cfg_reader.parameter_sources,
+            base_model=base_model,
+            t=cfg_reader.t,
+        )
 
         gather_tensors = GatherTensors(
             weight_info=ImmutableMap(data=dict(zip(models, weights_in))),
@@ -208,30 +210,36 @@ class MergePlanner:
         )
 
         tensor_input_task = gather_tensors
-        if self._tokenizer_task and weight.is_embed:
+        if self._tokenizer_task and weight.vocabulary_axis is not None:
             token_cfg = {}
             pad_to_multiple = None
             if cfg_reader.config.tokenizer:
                 token_cfg = cfg_reader.config.tokenizer.tokens
                 pad_to_multiple = cfg_reader.config.tokenizer.pad_to_multiple_of
-            tensor_input_task = PermutedEmbeddings(
+            tensor_input_task = PermutedVocabulary(
                 gather_tensors=gather_tensors,
                 tokenizer_task=self._tokenizer_task,
                 tokens=token_cfg,
                 pad_to_multiple_of=pad_to_multiple,
                 base_model=base_model,
+                vocabulary_axis=weight.vocabulary_axis,
+            )
+        elif (
+            self.options.unsafe_truncate_embeddings
+            and weight.vocabulary_axis is not None
+        ):
+            tensor_input_task = TruncatedVocabulary(
+                gather_tensors=gather_tensors, weight_info=weight
             )
 
-        tensor_task = tensor_merge_method.make_task(
-            output_weight=weight,
-            tensors=tensor_input_task,
-            parameters=ImmutableMap(data=global_params),
-            tensor_parameters=ImmutableMap(
-                data={
-                    key: ImmutableMap(data=tensor_params[key]) for key in tensor_params
-                }
-            ),
+        tensor_task = ExecuteMergeMethodTask(
+            method_name=tensor_merge_method.spec.name,
+            gather_tensors=tensor_input_task,
+            model_order=tuple(models),
+            parameters=global_params,
+            input_parameters=tensor_params,
             base_model=base_model,
+            output_weight=weight,
         )
         self._tensors.append((weight, tensor_task))
 
@@ -308,9 +316,7 @@ class MergePlanner:
                 weight_info,
                 [weight_info] * len(definition.slices[0].sources),
                 [s.model for s in definition.slices[0].sources],
-                config_reader.for_tensor(tensor_name=weight_info.name).for_out_slice(
-                    definition.slices[0]
-                ),
+                config_reader.for_out_slice(definition.slices[0]),
             )
 
         for out_slice in definition.slices:
@@ -325,9 +331,7 @@ class MergePlanner:
                 weight_info,
                 [weight_info] * len(definition.slices[0].sources),
                 [s.model for s in definition.slices[-1].sources],
-                config_reader.for_tensor(tensor_name=weight_info.name).for_out_slice(
-                    definition.slices[-1]
-                ),
+                config_reader.for_out_slice(definition.slices[-1]),
             )
 
     def plan_to_disk(self, out_path: str) -> List[Task]:
