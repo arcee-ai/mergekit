@@ -12,12 +12,12 @@ authors = [{ name = "Charles Goddard", email = "chargoddard@gmail.com" }]
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0.0",
-    "tqdm==4.67.1",
-    "click==8.2.1",
-    "safetensors~=0.5.2",
-    "accelerate~=1.6.0",
-    "pydantic~=2.10.6",
-    "immutables==0.21",
+    "tqdm>=4.67.1,<5",
+    "click>=8.2.1,<9",
+    "safetensors>=0.5.2,<1",
+    "accelerate>=1.6.0,<2",
+    "pydantic>=2.10.6,<3",
+    "immutables>=0.21,<1",
     "transformers>=5.0,<6.0",
     "tokenizers>=0.20.1",
     "huggingface_hub",
@@ -30,8 +30,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["black~=25.1.0", "isort~=6.0.1", "pre-commit~=4.2.0"]
-test = ["pytest~=8.4.0"]
+dev = ["ruff==0.14.2", "pre-commit>=4.2.0,<5"]
+test = ["pytest>=8.4.0,<9"]
 evolve = ["ray", "cma", "lm_eval", "wandb"]
 vllm = ["vllm==0.7.2", "lm_eval[vllm]"]
 
@@ -73,13 +73,13 @@ package-data = { "mergekit._data.architectures" = [
     "*.jinja",
 ] }
 
-[tool.isort]
-profile = "black"
-
-[tool.black]
+[tool.ruff]
 line-length = 88
-target-version = ['py37']
-include = '\.pyi?$'
+target-version = "py310"
+include = ["*.py", "*.pyi"]
+
+[tool.ruff.lint]
+select = ["I"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"
@@ -92,5 +92,5 @@ filterwarnings = [
 testpaths = ["tests"]
 
 [dependency-groups]
-test = ["pytest~=8.4.0"]
-dev = ["black~=25.1.0", "isort~=6.0.1", "pre-commit~=4.2.0"]
+test = ["pytest>=8.4.0,<9"]
+dev = ["ruff==0.14.2", "pre-commit>=4.2.0,<5"]

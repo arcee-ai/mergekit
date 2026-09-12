@@ -103,6 +103,15 @@ This is a one-time process, automated via the CLA Assistant Lite bot on GitHub. 
 
     This will format your code and check for any linting issues. Make sure all checks pass before proceeding, as pull requests cannot be merged if these fail.
 
+    To run import sorting and formatting directly:
+
+    ```bash
+    ruff check --fix .
+    ruff format .
+    ```
+
+    To check without modifying files, run `ruff check .` and `ruff format --check .`.
+
 5. **Run Tests**:
     Run the test suite to ensure everything is working as expected and no regressions have been introduced.
 
