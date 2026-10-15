@@ -34,7 +34,6 @@ def moe_config(tmp_path):
 def test_promptless_random_gates(moe_config, mode):
     moe_config.gate_mode = mode
     assert not is_bad_config(moe_config)
-    assert QwenMoE().supports_config(moe_config)
 
     experts = moe_config.experts + moe_config.shared_experts
     gates = get_gate_params(moe_config.base_model, None, experts, mode=mode)
@@ -43,6 +42,12 @@ def test_promptless_random_gates(moe_config, mode):
         scale = math.sqrt(1.0 / 16)
         assert (gates >= -scale).all()
         assert (gates <= scale).all()
+
+
+@pytest.mark.parametrize("mode", ["random", "uniform_random"])
+def test_qwen_promptless_random_gates(moe_config, mode):
+    moe_config.gate_mode = mode
+    assert QwenMoE().supports_config(moe_config)
 
 
 @pytest.mark.parametrize("mode", ["random", "uniform_random"])
