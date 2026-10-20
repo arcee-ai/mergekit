@@ -4,7 +4,7 @@
 
 ## Installation
 
-Install `mergekit` with the `evolve` features:
+Install `mergekit` with the `evolve` feature:
 
 ```sh
 git clone https://github.com/arcee-ai/mergekit.git
