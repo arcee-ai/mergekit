@@ -11,7 +11,7 @@ version = "0.1.5"
 authors = [{ name = "Charles Goddard", email = "chargoddard@gmail.com" }]
 requires-python = ">=3.10"
 dependencies = [
-    "torch>=2.10.0",
+    "torch>=2.6.0",
     "tqdm>=4.67.1,<5",
     "click>=8.2.1,<9",
     "safetensors>=0.5.2,<1",
