@@ -4,13 +4,18 @@
 
 ## Installation
 
-Install `mergekit` with the `evolve` (and optionally `vllm`) features:
+Install `mergekit` with the `evolve` feature:
 
 ```sh
 git clone https://github.com/arcee-ai/mergekit.git
 cd mergekit
 
-pip install -e .[evolve,vllm]
+pip install -e .[evolve]
+```
+
+To use vLLM for evaluation, install `vllm==0.7.2`:
+```sh
+pip install -U vllm==0.7.2
 ```
 
 If you had a perfectly good pytorch environment going and installing an older version of vLLM downgraded it and broke flash attention, run the following commands to fix it:
