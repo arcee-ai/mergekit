@@ -56,13 +56,17 @@ def rescaled_masked_tensor(
 def magnitude(
     tensor: torch.Tensor, density: float, rescale_norm: Optional[RescaleNorm] = None
 ) -> torch.Tensor:
-    """Masks out the smallest values, retaining a proportion of `density`."""
+    """Masks out the smallest values, retaining a proportion of `density`.
+
+    Positive density retains at least one element in nonempty tensors.
+    """
     if density >= 1:
         return tensor
+    if density <= 0 or tensor.numel() == 0:
+        return torch.zeros_like(tensor)
 
-    k = int(density * tensor.numel())
+    k = max(1, int(density * tensor.numel()))
 
-    assert k > 0, "not gonna zero out the whole tensor buddy"
     mask = torch.zeros(tensor.numel(), dtype=tensor.dtype, device=tensor.device)
     w = tensor.abs().reshape(-1)
     if w.device.type == "cpu":

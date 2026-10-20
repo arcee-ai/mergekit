@@ -25,6 +25,22 @@ def device(request):
     return request.param
 
 
+@pytest.mark.parametrize("shape", [(), (1,), (1, 1)])
+@pytest.mark.parametrize("density", [0.0, 0.01, 0.5, 1.0])
+def test_ties_single_element_bias(device, shape, density):
+    base = torch.zeros(shape, device=device)
+    other = torch.ones(shape, device=device)
+    result = merge_state_dicts(
+        [{"bias": base}, {"bias": other}],
+        "ties",
+        base=0,
+        parameters={"weight": 1.0, "density": density},
+    )["bias"]
+    torch.testing.assert_close(result, other if density > 0 else base)
+    torch.testing.assert_close(base, torch.zeros_like(base))
+    torch.testing.assert_close(other, torch.ones_like(other))
+
+
 @pytest.mark.parametrize("row_wise", [False, True])
 def test_nuslerp_mixed_collinear_rows_have_finite_gradients(device, row_wise):
     a = torch.tensor([[1.0, 0.0]] * 4, dtype=torch.float64, device=device)

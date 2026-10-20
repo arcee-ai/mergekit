@@ -31,9 +31,46 @@ class TestMagnitude:
             sample_tensor,
         )
 
-    def test_zero_density(self, sample_tensor):
-        with pytest.raises(AssertionError):
-            sparsify(sample_tensor, density=0, method=SparsificationMethod.magnitude)
+    @pytest.mark.parametrize("rescale_norm", [None, "l1", "l2", "linf"])
+    def test_zero_density(self, sample_tensor, rescale_norm):
+        result = sparsify(
+            sample_tensor,
+            density=0,
+            method=SparsificationMethod.magnitude,
+            rescale_norm=rescale_norm,
+        )
+        torch.testing.assert_close(result, torch.zeros_like(sample_tensor))
+
+    @pytest.mark.parametrize("density", [0.01, 0.5])
+    @pytest.mark.parametrize(
+        "dtype", [torch.float16, torch.bfloat16, torch.float32, torch.float64]
+    )
+    @pytest.mark.parametrize(
+        "values,expected",
+        [
+            (3.0, 3.0),
+            ([-3.0], [-3.0]),
+            ([1.0, -4.0, 2.0], [0.0, -4.0, 0.0]),
+            ([[1.0, -4.0, 2.0]], [[0.0, -4.0, 0.0]]),
+        ],
+    )
+    def test_small_tensor_retains_largest_value(self, density, dtype, values, expected):
+        tensor = torch.tensor(values, dtype=dtype)
+        result = sparsify(tensor, density, SparsificationMethod.magnitude)
+        torch.testing.assert_close(result, torch.tensor(expected, dtype=dtype))
+        torch.testing.assert_close(tensor, torch.tensor(values, dtype=dtype))
+
+    @pytest.mark.parametrize("shape", [(0,), (2, 0)])
+    @pytest.mark.parametrize("rescale_norm", [None, "l1", "l2", "linf"])
+    def test_empty_tensor(self, shape, rescale_norm):
+        tensor = torch.empty(shape)
+        result = sparsify(
+            tensor,
+            density=0.5,
+            method=SparsificationMethod.magnitude,
+            rescale_norm=rescale_norm,
+        )
+        torch.testing.assert_close(result, tensor)
 
     def test_partial_density(self, sample_tensor):
         result = sparsify(
