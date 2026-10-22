@@ -36,6 +36,6 @@ jobs:
         with:
           version: "0.13.4"
       - name: Install Project
-        run: uv python pin ${{ matrix.python_version }} && uv sync --dev --no-extra vllm --extra test
+        run: uv python pin ${{ matrix.python_version }} && uv sync --dev --extra test
       - name: Run PyTest
         run: uv run pytest
