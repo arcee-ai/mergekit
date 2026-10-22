@@ -12,7 +12,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: "0.5.29"
+          version: "0.13.4"
       - name: Install Python
         run: uv python install
       - name: Run pre-commit
@@ -34,8 +34,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: "0.5.29"
+          version: "0.13.4"
       - name: Install Project
-        run: uv python pin ${{ matrix.python_version }} && uv sync --dev --no-extra vllm --extra test
+        run: uv python pin ${{ matrix.python_version }} && uv sync --dev --extra test
       - name: Run PyTest
         run: uv run pytest
