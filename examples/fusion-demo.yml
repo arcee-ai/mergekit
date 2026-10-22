@@ -1,0 +1,6 @@
+models:
+  - model: defog/llama-3-sqlcoder-8b
+  - model: meta-llama/Llama-3.1-8B
+merge_method: arcee_fusion
+base_model: meta-llama/Llama-3.1-8B
+dtype: float16

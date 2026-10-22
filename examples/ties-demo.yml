@@ -1,0 +1,16 @@
+models:
+  - model: defog/llama-3-sqlcoder-8b
+    parameters:
+      density: 1.0
+      weight: 0.2
+  - model: MathGenie/MathCoder2-Llama-3-8B
+    parameters:
+      density: 1.0
+      weight: 0.6
+  - model: ajibawa-2023/Code-Llama-3-8B
+    parameters:
+      density: 1.0
+      weight: 0.2
+merge_method: ties
+base_model: meta-llama/Llama-3.1-8B
+dtype: float16

@@ -36,6 +36,8 @@ class Task(ABC, BaseModel, Generic[ValueT], frozen=True):
         group_label: Returns an optional label for task grouping.
     """
 
+    model_config = {"arbitrary_types_allowed": True}
+
     @abstractmethod
     def arguments(self) -> Dict[str, "Task"]:
         """
