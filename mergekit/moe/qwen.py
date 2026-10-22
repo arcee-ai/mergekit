@@ -37,7 +37,7 @@ class QwenMoE(MoEOutputArchitecture):
             return False
 
         if (
-            config.gate_mode != "random"
+            config.gate_mode not in ("random", "uniform_random")
             and not config.shared_experts[0].positive_prompts
         ):
             if explain:
