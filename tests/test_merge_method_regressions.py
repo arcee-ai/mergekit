@@ -111,6 +111,7 @@ def test_karcher_below_tolerance_keeps_zero_gradients(device, dtype, value):
         ("nuslerp", 2, {"weight": [0.3, 0.7]}),
         ("nuslerp", 2, {"weight": [0.3, 0.7], "nuslerp_flatten": False}),
         ("karcher", 3, {"tol": 1e-8}),
+        ("multislerp", 3, {"weight": [0.5, 0.3, 0.2]}),
     ],
 )
 def test_spherical_merge_gradients_match_finite_differences(
@@ -130,6 +131,29 @@ def test_spherical_merge_gradients_match_finite_differences(
         )["w"]
 
     assert torch.autograd.gradcheck(merge, tensors)
+
+
+@pytest.mark.parametrize("weights", [(0.75, 0.25), (0.5, 0.5), (0.1, 0.9)])
+def test_multislerp_of_two_inputs_is_slerp(device, weights):
+    """Both points' logarithmic maps at the mean lie on the geodesic between
+    them, so the tangent-space interpolation lands exactly on SLERP."""
+    generator = torch.Generator().manual_seed(0)
+    a, b = (
+        torch.nn.functional.normalize(
+            torch.randn(64, generator=generator, dtype=torch.float64), dim=0
+        ).to(device)
+        for _ in range(2)
+    )
+    result = merge_state_dicts(
+        [{"w": a}, {"w": b}], "multislerp", parameters={"weight": list(weights)}
+    )["w"]
+
+    theta = torch.acos(a @ b)
+    t = weights[1] / sum(weights)
+    expected = (torch.sin((1 - t) * theta) * a + torch.sin(t * theta) * b) / torch.sin(
+        theta
+    )
+    torch.testing.assert_close(result, expected)
 
 
 @pytest.mark.parametrize("method_name", ["nuslerp", "multislerp"])
