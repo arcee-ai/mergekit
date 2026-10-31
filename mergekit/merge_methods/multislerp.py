@@ -85,9 +85,17 @@ def multislerp(
         )
     mean = mean / mean_norm
 
-    # Project to tangent space
-    dots = (unit_tensors * mean).sum(-1, keepdim=True)
-    tangent_vectors = unit_tensors - dots * mean
+    # Project to tangent space with the logarithmic map, which keeps each
+    # point's geodesic distance theta from the mean. The orthogonal projection
+    # alone would sum to zero, since mean is the direction of that same sum.
+    dots = (unit_tensors * mean).sum(-1, keepdim=True).clamp(-1, 1)
+    # theta / sin(theta) -> 1 as theta -> 0, and a point antipodal to the mean
+    # has no tangent direction. Keep the unselected branch finite, including
+    # its derivatives.
+    regular = (1 - dots.square()) > eps**2
+    theta = torch.acos(torch.where(regular, dots, 0))
+    scale = torch.where(regular, theta / torch.sin(theta), 1)
+    tangent_vectors = (unit_tensors - dots * mean) * scale
 
     # Interpolate
     tangent_result = (tangent_vectors * weights.view(-1, 1)).sum(0)
