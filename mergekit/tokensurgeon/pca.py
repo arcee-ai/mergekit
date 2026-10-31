@@ -49,10 +49,11 @@ def landmark_pca_approximate(
     A_pca = torch.mm(centered_a, V_a)  # (N, effective_dim)
     B_pca = torch.mm(centered_b, V_b)  # (N, effective_dim)
 
-    # Compute Procrustes matrix and solve for optimal rotation
+    # Compute Procrustes matrix and solve for the rotation R minimizing
+    # ||A_pca R - B_pca||. With M = B^T A = U S V^T, A^T B = V S U^T, so R = V U^T.
     M = torch.mm(B_pca.t(), A_pca)  # (effective_dim, effective_dim)
     U, S, V = torch.svd(M)
-    R = torch.mm(U, V.t())  # (effective_dim, effective_dim)
+    R = torch.mm(V, U.t())  # (effective_dim, effective_dim)
 
     # Transform targets through PCA spaces and rotation
     projected_a = torch.mm(centered_targets, V_a)  # (B, effective_dim)
