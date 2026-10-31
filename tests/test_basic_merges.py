@@ -1,7 +1,8 @@
 from typing import Dict, Optional
 
 import pytest
-from transformers import AutoConfig
+import torch
+from transformers import AutoConfig, LlamaConfig, LlamaForCausalLM
 
 from mergekit.config import (
     InputModelDefinition,
@@ -11,6 +12,7 @@ from mergekit.config import (
     ParameterSetting,
 )
 from mergekit.io import LazyTensorLoader
+from mergekit.merge import MergeOptions, run_merge
 from tests.common import (
     make_gpt2size,
     make_picogranite,
@@ -452,3 +454,49 @@ class TestBasicMerges:
             params={"filter_wise": True},
         )
         run_and_check_merge(config, auto_arch=True)
+
+
+@pytest.mark.parametrize("rescale", [False, True])
+def test_ties_fp16_rescale_checkpoint(tmp_path, rescale):
+    config = LlamaConfig(
+        vocab_size=5000,
+        hidden_size=32,
+        intermediate_size=48,
+        num_attention_heads=4,
+        num_key_value_heads=4,
+        num_hidden_layers=1,
+    )
+    model = LlamaForCausalLM(config).half()
+    base_path, tuned_path = tmp_path / "base", tmp_path / "tuned"
+    for path, value in [(base_path, 0), (tuned_path, 1)]:
+        with torch.no_grad():
+            for parameter in model.parameters():
+                parameter.fill_(value)
+        model.save_pretrained(path)
+
+    merge_config = MergeConfiguration(
+        merge_method="ties",
+        base_model=str(base_path),
+        models=[
+            InputModelDefinition(
+                model=str(tuned_path),
+                parameters={"weight": 1.0, "density": 0.5},
+            )
+        ],
+        parameters={"rescale": rescale},
+        dtype="float16",
+    )
+    out_path = tmp_path / "merged"
+    run_merge(
+        merge_config,
+        out_path=str(out_path),
+        options=MergeOptions(copy_tokenizer=False, write_model_card=False),
+    )
+
+    loader = LazyTensorLoader.from_disk(str(out_path))
+    result = loader.get_tensor("model.embed_tokens.weight")
+    assert result.dtype == torch.float16
+    assert torch.isfinite(result).all()
+    assert torch.count_nonzero(result).item() == 80_000
+    assert set(torch.unique(result).tolist()) == {0.0, 2.0 if rescale else 1.0}
+    assert result.float().abs().sum().item() == (160_000 if rescale else 80_000)

@@ -37,7 +37,16 @@ def rescaled_masked_tensor(
     masked = tensor * mask
     if norm is None:
         return masked
-    elif norm == RescaleNorm.l1:
+
+    output_dtype = masked.dtype
+    # Norms and their ratio can overflow even when the rescaled weights fit.
+    # Keep the multiplication in working precision too, not just the reductions.
+    if tensor.dtype in (torch.float16, torch.bfloat16):
+        tensor = tensor.float()
+    if masked.dtype in (torch.float16, torch.bfloat16):
+        masked = masked.float()
+
+    if norm == RescaleNorm.l1:
         before_scale = tensor.abs().sum()
         after_scale = masked.abs().sum()
     elif norm == RescaleNorm.l2:
@@ -49,8 +58,8 @@ def rescaled_masked_tensor(
     else:
         raise NotImplementedError(norm)
     if before_scale < eps or after_scale < eps:
-        return masked
-    return masked * (before_scale / after_scale)
+        return masked.to(output_dtype)
+    return (masked * (before_scale / after_scale)).to(output_dtype)
 
 
 def magnitude(
