@@ -28,8 +28,9 @@ def get_hidden_states(
         output.hidden_states[:-1]
     )  # (num_layers, batch_size, seq_len, hidden_size)
     if average:
-        # use average over sequence
-        hidden_states = hidden_states.sum(dim=2) / hidden_states.shape[2]
+        # use average over each prompt's tokens, leaving out the batch padding
+        mask = tokenized["attention_mask"].to(hidden_states)[None, :, :, None]
+        hidden_states = (hidden_states * mask).sum(dim=2) / mask.sum(dim=2)
     else:
         # take last value
         hidden_states = hidden_states[:, :, -1, :]
