@@ -54,24 +54,25 @@ def is_bad_config(config: MoEMergeConfig, allow_all_same: bool = False) -> bool:
     if config.gate_mode == "random":
         return False  # eh we're good
 
-    for expert_idx, expert in enumerate(config.experts):
-        if not expert.positive_prompts:
-            logging.error(f"Expert {expert_idx} has no positive prompts.")
+    if config.gate_mode != "uniform_random":
+        for expert_idx, expert in enumerate(config.experts):
+            if not expert.positive_prompts:
+                logging.error(f"Expert {expert_idx} has no positive prompts.")
+                return True
+
+        def prompt_tup(e: Expert):
+            return (tuple(e.positive_prompts), tuple(e.negative_prompts or []))
+
+        # let's just nip this trend in the bud
+        p_first = prompt_tup(config.experts[0])
+        if all(prompt_tup(e) == p_first for e in config.experts[1:]):
+            logging.error(
+                "Your positive and negative prompts are identical for all experts. This will not produce a functioning MoE."
+            )
+            logging.error(
+                "For each expert, `positive_prompts` must contain one or more example prompt reflecting what should be routed to that expert."
+            )
             return True
-
-    def prompt_tup(e: Expert):
-        return (tuple(e.positive_prompts), tuple(e.negative_prompts or []))
-
-    # let's just nip this trend in the bud
-    p_first = prompt_tup(config.experts[0])
-    if all(prompt_tup(e) == p_first for e in config.experts[1:]):
-        logging.error(
-            "Your positive and negative prompts are identical for all experts. This will not produce a functioning MoE."
-        )
-        logging.error(
-            "For each expert, `positive_prompts` must contain one or more example prompt reflecting what should be routed to that expert."
-        )
-        return True
 
     if not allow_all_same:
         if all(
