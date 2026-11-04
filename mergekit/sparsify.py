@@ -53,6 +53,50 @@ def rescaled_masked_tensor(
     return masked * (before_scale / after_scale)
 
 
+def _smallest_k_mask(w: torch.Tensor, k: int) -> torch.Tensor:
+    """Boolean mask selecting exactly ``k`` of the smallest entries of ``w``.
+
+    ``w`` must be a non-negative 1-D CPU tensor without NaNs. Runs in linear
+    time instead of sorting. Entries equal to the k-th smallest value are taken
+    in index order, so the result always has exactly ``k`` elements and the
+    mask for ``j <= k`` is a subset of the mask for ``k``.
+    """
+    n = w.numel()
+    if k <= 0:
+        return torch.zeros(n, dtype=torch.bool, device=w.device)
+    if k >= n:
+        return torch.ones(n, dtype=torch.bool, device=w.device)
+    if w.dtype in (torch.float16, torch.bfloat16):
+        # Non-negative floats order the same way as their bit patterns, so a
+        # histogram over the 2**15 possible values gives an exact selection.
+        # This also avoids quickselect, which slows down on the heavily
+        # repeated values that half-precision deltas contain.
+        keys = w.view(torch.int16).to(torch.int32)
+        cumulative = torch.bincount(keys, minlength=1 << 15).cumsum(0)
+        threshold = torch.searchsorted(cumulative, torch.tensor(k))
+        mask = keys < threshold
+        ties = keys == threshold
+    else:
+        threshold = torch.kthvalue(w, k).values
+        mask = w < threshold
+        ties = w == threshold
+    remaining = k - int(mask.sum())
+    if remaining > 0:
+        mask[torch.nonzero(ties).squeeze(1)[:remaining]] = True
+    return mask
+
+
+def _use_fast_selection(w: torch.Tensor) -> bool:
+    # Linear-time selection is much faster than sorting on CPU. Other devices
+    # keep the sort-based path, and NaNs (which sort as largest) also fall
+    # back so the selected set is unchanged.
+    return (
+        w.device.type == "cpu"
+        and w.dtype in (torch.float16, torch.bfloat16, torch.float32, torch.float64)
+        and not bool(torch.isnan(w).any())
+    )
+
+
 def magnitude(
     tensor: torch.Tensor, density: float, rescale_norm: Optional[RescaleNorm] = None
 ) -> torch.Tensor:
@@ -67,12 +111,16 @@ def magnitude(
 
     k = max(1, int(density * tensor.numel()))
 
-    mask = torch.zeros(tensor.numel(), dtype=tensor.dtype, device=tensor.device)
     w = tensor.abs().reshape(-1)
-    if w.device.type == "cpu":
-        w = w.float()
-    topk = torch.argsort(w, descending=True)[:k]
-    mask[topk] = 1
+    if _use_fast_selection(w):
+        # The k largest are everything except the (numel - k) smallest.
+        mask = (~_smallest_k_mask(w, w.numel() - k)).to(tensor.dtype)
+    else:
+        if w.device.type == "cpu":
+            w = w.float()
+        mask = torch.zeros(tensor.numel(), dtype=tensor.dtype, device=tensor.device)
+        topk = torch.argsort(w, descending=True)[:k]
+        mask[topk] = 1
 
     res = rescaled_masked_tensor(tensor, mask.reshape_as(tensor), rescale_norm)
     return res
@@ -104,12 +152,16 @@ def magnitude_outliers(
     n_bot = max(0, num_elems - target_n - n_top)
 
     w = tensor.abs().reshape(-1)
-    if w.device.type == "cpu":
-        w = w.float()
-    indices = torch.sort(w, descending=False).indices
-    mask = torch.zeros(num_elems, dtype=tensor.dtype, device=tensor.device)
-
-    mask[indices[n_bot : n_bot + target_n]] = 1
+    if _use_fast_selection(w):
+        # Keep ascending ranks [n_bot, n_bot + target_n).
+        keep = _smallest_k_mask(w, n_bot + target_n) & ~_smallest_k_mask(w, n_bot)
+        mask = keep.to(tensor.dtype)
+    else:
+        if w.device.type == "cpu":
+            w = w.float()
+        indices = torch.sort(w, descending=False).indices
+        mask = torch.zeros(num_elems, dtype=tensor.dtype, device=tensor.device)
+        mask[indices[n_bot : n_bot + target_n]] = 1
 
     res = rescaled_masked_tensor(tensor, mask.reshape_as(tensor), rescale_norm)
     return res
@@ -162,7 +214,16 @@ def della_magprune(
     magnitudes = tensor.abs()
 
     sorted_indices = torch.argsort(magnitudes, dim=1, descending=False)
-    ranks = sorted_indices.argsort(dim=1).to(work_dtype) + 1
+    # Invert the permutation with a scatter instead of a second argsort.
+    # Shape the positions as (1, n, 1, ...) so they broadcast along dim 1
+    # for weights of any rank (e.g. conv or patch-embedding tensors).
+    positions = (
+        torch.arange(sorted_indices.shape[1], device=sorted_indices.device)
+        .view(1, -1, *([1] * (sorted_indices.dim() - 2)))
+        .expand_as(sorted_indices)
+    )
+    ranks = torch.empty_like(sorted_indices).scatter_(1, sorted_indices, positions)
+    ranks = ranks.to(work_dtype) + 1
 
     min_ranks = ranks.min(dim=1, keepdim=True).values
     max_ranks = ranks.max(dim=1, keepdim=True).values
