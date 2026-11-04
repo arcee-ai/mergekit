@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from mergekit.sparsify import SparsificationMethod, sparsify
+from mergekit.sparsify import SparsificationMethod, _smallest_k_mask, sparsify
 
 
 @pytest.fixture
@@ -168,3 +168,146 @@ class TestBernoulli:
                 method=SparsificationMethod.random,
                 rescale_norm="l1",
             )
+
+
+def _sorted_magnitude_mask(tensor: torch.Tensor, density: float) -> torch.Tensor:
+    """Reference: the original sort-based top-k selection."""
+    k = max(1, int(density * tensor.numel()))
+    w = tensor.abs().reshape(-1).float()
+    mask = torch.zeros(tensor.numel(), dtype=torch.bool)
+    mask[torch.argsort(w, descending=True)[:k]] = True
+    return mask.reshape_as(tensor)
+
+
+def _sorted_outlier_mask(tensor: torch.Tensor, density: float, gamma: float):
+    """Reference: the original sort-based outlier selection."""
+    n = tensor.numel()
+    target_n = int(density * n)
+    n_bot = max(0, n - target_n - int(gamma * n))
+    w = tensor.abs().reshape(-1).float()
+    mask = torch.zeros(n, dtype=torch.bool)
+    mask[torch.sort(w).indices[n_bot : n_bot + target_n]] = True
+    return mask.reshape_as(tensor)
+
+
+class TestFastSelection:
+    """The CPU path selects with kthvalue instead of a full sort."""
+
+    @pytest.mark.parametrize("density", [0.01, 0.1, 0.5, 0.9, 0.999])
+    @pytest.mark.parametrize("shape", [(7,), (64, 33), (3, 5, 17)])
+    def test_magnitude_matches_sort_without_ties(self, density, shape):
+        torch.manual_seed(0)
+        tensor = torch.randn(shape, dtype=torch.float64)
+        assert tensor.abs().unique().numel() == tensor.numel()
+        result = sparsify(tensor, density, SparsificationMethod.magnitude)
+        torch.testing.assert_close(
+            result, tensor * _sorted_magnitude_mask(tensor, density)
+        )
+
+    @pytest.mark.parametrize("gamma", [0.0, 0.01, 0.2])
+    @pytest.mark.parametrize("density", [0.1, 0.5, 0.8])
+    def test_outliers_match_sort_without_ties(self, density, gamma):
+        torch.manual_seed(1)
+        tensor = torch.randn(96, 40, dtype=torch.float64)
+        result = sparsify(
+            tensor, density, SparsificationMethod.magnitude_outliers, gamma=gamma
+        )
+        torch.testing.assert_close(
+            result, tensor * _sorted_outlier_mask(tensor, density, gamma)
+        )
+
+    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @pytest.mark.parametrize("density", [0.05, 0.37, 0.5, 0.93])
+    def test_magnitude_heavy_ties_keeps_exactly_k_largest(self, dtype, density):
+        torch.manual_seed(2)
+        # Only 4 distinct magnitudes, so nearly every threshold is a tie.
+        signs = torch.randint(0, 2, (50, 41)) * 2 - 1
+        tensor = (torch.randint(1, 5, (50, 41)) * signs).to(dtype)
+        k = max(1, int(density * tensor.numel()))
+        result = sparsify(tensor, density, SparsificationMethod.magnitude)
+        kept = result != 0
+        assert int(kept.sum()) == k
+        kept_mag = tensor.abs()[kept].float()
+        dropped_mag = tensor.abs()[~kept].float()
+        if dropped_mag.numel():
+            assert kept_mag.min() >= dropped_mag.max()
+
+    @pytest.mark.parametrize("gamma", [0.0, 0.05, 0.3])
+    def test_outliers_heavy_ties_keep_a_rank_window(self, gamma):
+        torch.manual_seed(3)
+        tensor = torch.randint(1, 8, (60, 30)).to(torch.bfloat16)
+        density = 0.4
+        n = tensor.numel()
+        target_n = int(density * n)
+        n_bot = max(0, n - target_n - int(gamma * n))
+        result = sparsify(
+            tensor, density, SparsificationMethod.magnitude_outliers, gamma=gamma
+        )
+        kept = result != 0
+        assert int(kept.sum()) == target_n
+        mags = tensor.abs().float().reshape(-1)
+        ranked = torch.sort(mags).values
+        kept_mags = mags[kept.reshape(-1)]
+        # Every kept magnitude lies inside the requested ascending-rank window.
+        assert kept_mags.min() >= ranked[n_bot]
+        assert kept_mags.max() <= ranked[n_bot + target_n - 1]
+
+    def test_nan_falls_back_to_sort(self):
+        torch.manual_seed(4)
+        tensor = torch.randn(20, 10)
+        tensor[3, 4] = float("nan")
+        result = sparsify(tensor, 0.3, SparsificationMethod.magnitude)
+        expected = tensor * _sorted_magnitude_mask(tensor, 0.3)
+        torch.testing.assert_close(result, expected, equal_nan=True)
+
+    @pytest.mark.parametrize(
+        "dtype", [torch.bfloat16, torch.float16, torch.float32, torch.float64]
+    )
+    def test_smallest_k_mask_is_nested_and_exact(self, dtype):
+        w = torch.tensor([3.0, 1.0, 2.0, 1.0, 2.0, 1.0, 5.0, 0.0, -0.0], dtype=dtype)
+        w = w.abs()
+        previous = torch.zeros_like(w, dtype=torch.bool)
+        for k in range(w.numel() + 1):
+            mask = _smallest_k_mask(w, k)
+            assert int(mask.sum()) == k
+            assert not (previous & ~mask).any()
+            if 0 < k < w.numel():
+                assert w[mask].max() <= w[~mask].min()
+            previous = mask
+
+    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+    def test_della_ranks_match_double_argsort(self, dtype):
+        tensor = torch.randn(33, 70).to(dtype)
+
+        def reference(t):
+            work_dtype = torch.float32 if dtype != torch.bfloat16 else dtype
+            magnitudes = t.abs()
+            ranks = magnitudes.argsort(dim=1).argsort(dim=1).to(work_dtype) + 1
+            min_r = ranks.min(dim=1, keepdim=True).values
+            max_r = ranks.max(dim=1, keepdim=True).values
+            rank_norm = ((ranks - min_r) / (max_r - min_r)).clamp(0, 1)
+            mask = torch.bernoulli((0.5 - 0.1) + rank_norm * 2 * 0.1).to(work_dtype)
+            return (t.to(work_dtype) * mask).to(t.dtype)
+
+        torch.manual_seed(5)
+        expected = reference(tensor)
+        torch.manual_seed(5)
+        result = sparsify(tensor, 0.5, SparsificationMethod.della_magprune, epsilon=0.1)
+        torch.testing.assert_close(result, expected)
+
+    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
+    def test_half_precision_selection_matches_float_selection(self, dtype):
+        # Half-precision tensors are selected through a histogram of their bit
+        # patterns; check it agrees with the kthvalue path on the same values,
+        # including zeros, signed zeros and subnormals.
+        torch.manual_seed(6)
+        base = (torch.randn(80, 50) * 0.02).to(dtype)
+        tuned = (base.float() + torch.randn(80, 50) * 1e-3).to(dtype)
+        delta = tuned - base
+        delta[0, :5] = torch.tensor([0.0, -0.0, 1e-7, -1e-7, 6e-8]).to(dtype)
+        w = delta.abs().reshape(-1)
+        for k in (0, 1, 17, w.numel() // 2, w.numel() - 1, w.numel()):
+            half_mask = _smallest_k_mask(w, k)
+            float_mask = _smallest_k_mask(w.float(), k)
+            assert int(half_mask.sum()) == k
+            torch.testing.assert_close(half_mask, float_mask)
