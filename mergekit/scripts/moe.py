@@ -34,7 +34,9 @@ def build(
     out_arch = select_output_arch(config, merge_options, verbose=verbose)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        base_model.model.path, revision=base_model.model.revision
+        base_model.model.path,
+        revision=base_model.model.revision,
+        trust_remote_code=merge_options.trust_remote_code,
     )
     tokenizer.padding_side = "left"
     tokenizer.pad_token_id = tokenizer.bos_token_id
