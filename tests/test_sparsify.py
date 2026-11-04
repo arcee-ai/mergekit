@@ -295,6 +295,27 @@ class TestFastSelection:
         result = sparsify(tensor, 0.5, SparsificationMethod.della_magprune, epsilon=0.1)
         torch.testing.assert_close(result, expected)
 
+    @pytest.mark.parametrize("shape", [(8, 16, 3), (4, 6, 3, 3), (6, 5, 1)])
+    def test_della_ranks_match_double_argsort_higher_rank(self, shape):
+        # Conv and patch-embedding weights have more than two dimensions; the
+        # rank inversion must still run along dim 1.
+        tensor = torch.randn(*shape)
+
+        def reference(t):
+            ranks = t.abs().argsort(dim=1).argsort(dim=1).to(torch.float32) + 1
+            min_r = ranks.min(dim=1, keepdim=True).values
+            max_r = ranks.max(dim=1, keepdim=True).values
+            rank_norm = ((ranks - min_r) / (max_r - min_r)).clamp(0, 1)
+            mask = torch.bernoulli((0.5 - 0.1) + rank_norm * 2 * 0.1)
+            return t * mask
+
+        torch.manual_seed(7)
+        expected = reference(tensor)
+        torch.manual_seed(7)
+        result = sparsify(tensor, 0.5, SparsificationMethod.della_magprune, epsilon=0.1)
+        assert result.shape == tensor.shape
+        torch.testing.assert_close(result, expected)
+
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])
     def test_half_precision_selection_matches_float_selection(self, dtype):
         # Half-precision tensors are selected through a histogram of their bit

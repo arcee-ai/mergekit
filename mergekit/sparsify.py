@@ -215,9 +215,13 @@ def della_magprune(
 
     sorted_indices = torch.argsort(magnitudes, dim=1, descending=False)
     # Invert the permutation with a scatter instead of a second argsort.
-    positions = torch.arange(
-        sorted_indices.shape[1], device=sorted_indices.device
-    ).expand_as(sorted_indices)
+    # Shape the positions as (1, n, 1, ...) so they broadcast along dim 1
+    # for weights of any rank (e.g. conv or patch-embedding tensors).
+    positions = (
+        torch.arange(sorted_indices.shape[1], device=sorted_indices.device)
+        .view(1, -1, *([1] * (sorted_indices.dim() - 2)))
+        .expand_as(sorted_indices)
+    )
     ranks = torch.empty_like(sorted_indices).scatter_(1, sorted_indices, positions)
     ranks = ranks.to(work_dtype) + 1
 
