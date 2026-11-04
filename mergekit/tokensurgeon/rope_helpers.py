@@ -190,13 +190,6 @@ def estimate_pos_id_best(
     head_dim: int,
     base: float = 10000.0,
 ) -> torch.Tensor:
-    return estimate_position_id_projection(
-        x_0,
-        x_1,
-        num_heads,
-        head_dim,
-        base=base,
-    )
     est_pos_id = estimate_position_id(
         x_0,
         x_1,
@@ -225,8 +218,8 @@ def estimate_pos_id_best(
         head_dim,
         base=base,
     )
-    err_pos_id = torch.norm(rt_pos_id - x_1, dim=-1)
-    err_pos_id_proj = torch.norm(rt_pos_id_proj - x_1, dim=-1)
+    err_pos_id = torch.norm(rt_pos_id - x_1, dim=-1, keepdim=True)
+    err_pos_id_proj = torch.norm(rt_pos_id_proj - x_1, dim=-1, keepdim=True)
     res = torch.where(
         err_pos_id < err_pos_id_proj,
         est_pos_id,
