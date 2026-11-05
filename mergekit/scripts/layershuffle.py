@@ -63,16 +63,17 @@ def main(
 ):
     models = [ModelReference.parse(m) for m in model]
 
-    m0_cfg = models[0].config()
+    m0_cfg = models[0].config(trust_remote_code=merge_options.trust_remote_code)
     arch_info = arch_info_for_config(m0_cfg)
-    total_num_layers = arch_info.num_layers(m0_cfg)
+    module_arch = arch_info.modules["default"].architecture
+    total_num_layers = module_arch.num_layers(m0_cfg)
 
     out_slices: List[OutputSliceDefinition] = []
 
     if full_random:
         for model, frac in zip(models, weight):
-            cfg = model.config()
-            num_layers = int(arch_info.num_layers(cfg) * frac)
+            cfg = model.config(trust_remote_code=merge_options.trust_remote_code)
+            num_layers = int(module_arch.num_layers(cfg) * frac)
             for _ in range(num_layers):
                 src_idx = random.randrange(0, num_layers)
                 out_slices.append(
