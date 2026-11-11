@@ -107,6 +107,8 @@ This guide provides detailed information about the various model merging algorit
 - `normalize_weights` (global): If `true` (default), weights are normalized
 - `eps` (global): Small constant for numerical stability. Default `1e-8`
 
+**Example:** [`examples/multislerp.yml`](../examples/multislerp.yml)
+
 ### Karcher Mean (`karcher`)
 
 **Concept:** Computes the Karcher mean (also known as the Riemannian barycenter or Fréchet mean) of the input model parameters. This provides a geometrically sound way to average points on a manifold, which is suitable for model weights.
