@@ -15,7 +15,7 @@ from mergekit.merge_methods.easy_define import merge_method
 @merge_method(
     name="multislerp",
     pretty_name="Multi-SLERP",
-    reference_url="https://goddard.blog/posts/multislerp-wow-what-a-cool-idea",
+    reference_url="https://github.com/arcee-ai/mergekit/blob/main/docs/merge_methods.md#multi-slerp-multislerp",
     contract=InputContract(base=BasePolicy.OPTIONAL, min_non_base=1),
 )
 def multislerp(
