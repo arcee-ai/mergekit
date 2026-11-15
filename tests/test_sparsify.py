@@ -132,6 +132,38 @@ class TestMagnitude:
         assert not res.isnan().any(), "NaNs in result tensor"
         assert not res.isinf().any(), "Infs in result tensor"
 
+    @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
+    def test_della_magprune_large_row_and_low_precision(self, dtype):
+        # Rows wider than 65,504 exceed float16 max (65504.0) when ranks are
+        # cast to float16, and L1 norm rescaling on large float16 tensors
+        # overflows without float32 working precision (#609).
+        tensor = torch.ones((1, 70_000), dtype=dtype)
+        res = sparsify(
+            tensor,
+            density=0.5,
+            method=SparsificationMethod.della_magprune,
+            epsilon=0.1,
+            rescale_norm="l1",
+        )
+        assert res.dtype == dtype
+        assert res.shape == tensor.shape
+        assert torch.isfinite(res).all()
+        assert torch.count_nonzero(res) > 0
+
+    @pytest.mark.parametrize("shape", [(1,), (4, 1)])
+    def test_della_magprune_single_column(self, shape):
+        tensor = torch.ones(shape, dtype=torch.float16)
+        res = sparsify(
+            tensor,
+            density=0.5,
+            method=SparsificationMethod.della_magprune,
+            epsilon=0.1,
+            rescale_norm="l1",
+        )
+        assert res.dtype == tensor.dtype
+        assert res.shape == shape
+        assert torch.isfinite(res).all()
+
 
 class TestBernoulli:
     NUM_ITERATIONS = 1000
