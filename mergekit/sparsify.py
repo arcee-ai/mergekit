@@ -152,9 +152,9 @@ def della_magprune(
         )
 
     work_dtype = (
-        tensor.dtype
-        if tensor.device.type != "cpu" or tensor.dtype == torch.bfloat16
-        else torch.float32
+        torch.float32
+        if tensor.dtype in (torch.float16, torch.bfloat16)
+        else tensor.dtype
     )
 
     if len(tensor.shape) < 2:
@@ -166,7 +166,12 @@ def della_magprune(
 
     min_ranks = ranks.min(dim=1, keepdim=True).values
     max_ranks = ranks.max(dim=1, keepdim=True).values
-    rank_norm = ((ranks - min_ranks) / (max_ranks - min_ranks)).clamp(0, 1)
+    rank_span = max_ranks - min_ranks
+    rank_norm = torch.where(
+        rank_span > 0,
+        (ranks - min_ranks) / rank_span.clamp(min=1),
+        torch.full_like(ranks, 0.5),
+    ).clamp(0, 1)
     probs = (density - epsilon) + rank_norm * 2 * epsilon
     mask = torch.bernoulli(probs).to(work_dtype)
 
