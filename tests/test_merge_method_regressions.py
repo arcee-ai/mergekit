@@ -508,3 +508,21 @@ def test_graph_rejects_incompatible_loaded_tensors(failure):
     other = torch.ones(3) if failure == "shape" else torch.ones(2, device="meta")
     with pytest.raises(ValueError, match="size mismatch|same device"):
         task.execute({refs[0]: torch.ones(2), refs[1]: other})
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_fusion_low_precision_importance_matches_float32(device, dtype):
+    from mergekit.merge_methods.arcee_fusion import _compute_importance
+
+    base = torch.tensor([[10.0, -10.0], [0.0, 0.0]], device=device, dtype=dtype)
+    other = torch.tensor([[11.0, -9.0], [0.0, 1.0]], device=device, dtype=dtype)
+    expected_scores = _compute_importance(other.float(), base.float())
+    scores = _compute_importance(other, base)
+    assert scores.isfinite().all()
+    torch.testing.assert_close(scores.float(), expected_scores)
+
+    result = merge_state_dicts([{"w": base}, {"w": other}], "arcee_fusion", base=0)["w"]
+    expected = merge_state_dicts(
+        [{"w": base.float()}, {"w": other.float()}], "arcee_fusion", base=0
+    )["w"]
+    torch.testing.assert_close(result.float(), expected)

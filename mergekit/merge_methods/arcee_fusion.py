@@ -46,6 +46,11 @@ class DynamicThresholdFusion:
 
 def _compute_importance(params: torch.Tensor, base: torch.Tensor) -> torch.Tensor:
     """Keep full-sized inference temporaries out of the threshold/fusion phase."""
+    # Half precision can round the smoothing epsilon to zero, making KL
+    # terms such as 0 * log(0 / 0) NaN and poisoning the global threshold.
+    if params.dtype in (torch.float16, torch.bfloat16):
+        params = params.float()
+        base = base.float()
     diff = (params - base).abs()
     eps = 1e-8
     p = F.softmax(params, dim=-1) + eps
