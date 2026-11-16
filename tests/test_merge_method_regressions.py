@@ -508,3 +508,53 @@ def test_graph_rejects_incompatible_loaded_tensors(failure):
     other = torch.ones(3) if failure == "shape" else torch.ones(2, device="meta")
     with pytest.raises(ValueError, match="size mismatch|same device"):
         task.execute({refs[0]: torch.ones(2), refs[1]: other})
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_fusion_low_precision_importance_matches_float32(device, dtype):
+    from mergekit.merge_methods.arcee_fusion import _compute_importance
+
+    base = torch.tensor([[10.0, -10.0], [0.0, 0.0]], device=device, dtype=dtype)
+    other = torch.tensor([[11.0, -9.0], [0.0, 1.0]], device=device, dtype=dtype)
+    expected_scores = _compute_importance(other.float(), base.float())
+    scores = _compute_importance(other, base)
+    assert scores.isfinite().all()
+    torch.testing.assert_close(scores.float(), expected_scores)
+
+    result = merge_state_dicts([{"w": base}, {"w": other}], "arcee_fusion", base=0)["w"]
+    expected = merge_state_dicts(
+        [{"w": base.float()}, {"w": other.float()}], "arcee_fusion", base=0
+    )["w"]
+    torch.testing.assert_close(result.float(), expected)
+
+
+def test_fusion_does_not_retain_cast_inputs_during_softmax(monkeypatch):
+    import weakref
+
+    from mergekit.merge_methods.arcee_fusion import _compute_importance
+
+    base = torch.tensor([[10.0, -10.0], [0.0, 0.0]], dtype=torch.float16)
+    other = base + 1
+    refs = []
+    original_to = torch.Tensor.to
+    original_float = torch.Tensor.float
+    original_softmax = torch.nn.functional.softmax
+
+    def track_cast(method):
+        def cast(tensor, *args, **kwargs):
+            result = method(tensor, *args, **kwargs)
+            if tensor is base or tensor is other:
+                refs.append(weakref.ref(result))
+            return result
+
+        return cast
+
+    def checked_softmax(tensor, *args, **kwargs):
+        assert tensor is base or tensor is other
+        assert all(ref() is None for ref in refs)
+        return original_softmax(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", track_cast(original_to))
+    monkeypatch.setattr(torch.Tensor, "float", track_cast(original_float))
+    monkeypatch.setattr(torch.nn.functional, "softmax", checked_softmax)
+    assert _compute_importance(other, base).isfinite().all()
